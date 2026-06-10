@@ -1,0 +1,38 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "27327000000040032",
+      "name": "Label-kit",
+      "domain": {
+        "id": "10126875372",
+        "name": "label-kit-921277719.development"
+      },
+      "timezone": "America/Los_Angeles",
+      "env": [
+        {
+          "idx": 1,
+          "id": "921277719",
+          "name": "Development",
+          "type": 3,
+          "env_status": "Active",
+          "project_details": {
+            "project_name": "Label-kit",
+            "id": "27327000000040032",
+            "project_type": "Live"
+          },
+          "is_default": true,
+          "action_required": false
+        }
+      ]
+    }
+  ]
+}

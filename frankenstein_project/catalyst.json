@@ -1,0 +1,13 @@
+{
+  "appsail": [
+    {
+      "source": "docker://merged-labelkit:latest",
+      "name": "merged-labelkit",
+      "port": 9000,
+      "memory": 2048,
+      "env_variables": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  ]
+}
