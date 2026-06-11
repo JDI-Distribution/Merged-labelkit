@@ -314,14 +314,18 @@ def _parse_shipment_group(
 
     orders: List[Order] = []
     packs_flat: List[Pack] = []
-    current_order: Optional[Order] = None
-    current_pack: Optional[Pack] = None
+    order_by_hl_id: Dict[str, Order] = {}
+    pack_by_hl_id: Dict[str, Pack] = {}
+    pack_order_by_hl_id: Dict[str, Order] = {}
+    pending_items_by_pack_hl: Dict[str, List[Item]] = {}
 
     for hl in hl_loops:
         hl_seg = hl.find("./SegmentRef[@ID='HL']")
         if hl_seg is None:
             continue
-        level = _get_elem(hl_seg, "03")
+        level = (_get_elem(hl_seg, "03") or "").strip().upper()
+        hl_id = (_get_elem(hl_seg, "01") or "").strip()
+        parent_hl_id = (_get_elem(hl_seg, "02") or "").strip()
 
         if level == "O":
             prf = hl.find("./SegmentRef[@ID='PRF']")
@@ -351,15 +355,21 @@ def _parse_shipment_group(
             if not ship_to.zip and shipment_ship_to.zip:
                 ship_to = shipment_ship_to
 
-            current_order = Order(po=po, store=store, ship_to=ship_to, ship_from=ship_from)
-            orders.append(current_order)
-            current_pack = None
+            order = Order(po=po, store=store, ship_to=ship_to, ship_from=ship_from)
+            orders.append(order)
+            if hl_id:
+                order_by_hl_id[hl_id] = order
 
-        elif level == "P" and current_order is not None:
+        elif level == "P":
+            order = order_by_hl_id.get(parent_hl_id)
+            if order is None:
+                raise ValueError(
+                    f"Unable to map pack HL {hl_id or '(unknown)'} to an order HL via parent id {parent_hl_id or '(missing)'}."
+                )
             man = hl.find("./SegmentRef[@ID='MAN']")
             sscc = _get_elem(man, "02") if man is not None else ""
             if not sscc:
-                raise ValueError(f"Missing SSCC (MAN02) for PO {current_order.po}")
+                raise ValueError(f"Missing SSCC (MAN02) for PO {order.po}")
 
             pack_plant = ""
             for n1loop in hl.findall(".//N1-LOOP"):
@@ -389,14 +399,14 @@ def _parse_shipment_group(
                     break
 
             pack_dates = _scan_dates(hl, deep=False)
-            current_pack = Pack(
+            pack = Pack(
                 sscc=sscc,
                 tracking=pack_tracking,
-                po=current_order.po,
-                store=current_order.store,
+                po=order.po,
+                store=order.store,
                 ship_date=ship_date,
-                ship_from=current_order.ship_from,
-                ship_to=current_order.ship_to,
+                ship_from=order.ship_from,
+                ship_to=order.ship_to,
                 event_code=event_code,
                 carrier_name=shipment_carrier_name,
                 scac=shipment_scac,
@@ -407,10 +417,17 @@ def _parse_shipment_group(
                 expiration_date=pack_dates.get("036") or pack_dates.get("361") or "",
                 plant=pack_plant,
             )
-            current_order.packs.append(current_pack)
-            packs_flat.append(current_pack)
+            order.packs.append(pack)
+            packs_flat.append(pack)
+            if hl_id:
+                pack_by_hl_id[hl_id] = pack
+                pack_order_by_hl_id[hl_id] = order
+                pending_items = pending_items_by_pack_hl.pop(hl_id, [])
+                for pending_item in pending_items:
+                    pack.items.append(pending_item)
+                    order.items.append(pending_item)
 
-        elif level == "I" and current_order is not None:
+        elif level == "I":
             lin = hl.find("./SegmentRef[@ID='LIN']")
             sn1 = hl.find("./SegmentRef[@ID='SN1']")
             pid = hl.find("./SegmentRef[@ID='PID']")
@@ -423,20 +440,26 @@ def _parse_shipment_group(
 
             refs = _scan_ref_values(hl, deep=False)
             dates = _scan_dates(hl, deep=False)
+            parent_pack = pack_by_hl_id.get(parent_hl_id)
             item = Item(
                 vendor_item=pairs.get("VN", "") or pairs.get("VC", "") or pairs.get("VP", "") or pairs.get("SK", ""),
                 retailer_item=pairs.get("CB", "") or pairs.get("IN", "") or pairs.get("BP", "") or pairs.get("PI", ""),
                 upc=pairs.get("UP", "") or pairs.get("UK", "") or pairs.get("UA", "") or pairs.get("EN", ""),
                 description=_get_elem(pid, "05") if pid is not None else "",
                 qty=qty,
-                lot=_first_ref(refs, ("LT", "LO", "BT")) or (current_pack.lot if current_pack else ""),
-                expiration_date=dates.get("036") or dates.get("361") or (current_pack.expiration_date if current_pack else ""),
+                lot=_first_ref(refs, ("LT", "LO", "BT")) or (parent_pack.lot if parent_pack else ""),
+                expiration_date=dates.get("036") or dates.get("361") or (parent_pack.expiration_date if parent_pack else ""),
                 manufacture_date=dates.get("094") or dates.get("371") or dates.get("118") or dates.get("011") or "",
-                plant=_first_ref(refs, ("PL", "MF", "SU")) or (current_pack.plant if current_pack else ""),
+                plant=_first_ref(refs, ("PL", "MF", "SU")) or (parent_pack.plant if parent_pack else ""),
             )
-            current_order.items.append(item)
-            if current_pack is not None:
-                current_pack.items.append(item)
+            if parent_pack is None:
+                if parent_hl_id:
+                    pending_items_by_pack_hl.setdefault(parent_hl_id, []).append(item)
+                continue
+            parent_pack.items.append(item)
+            owner_order = pack_order_by_hl_id.get(parent_hl_id)
+            if owner_order is not None:
+                owner_order.items.append(item)
 
     seen_sscc: set[str] = set()
     deduped: List[Pack] = []
@@ -499,6 +522,11 @@ def parse_asn(xml_path: str) -> Tuple[List[Order], List[Pack]]:
         if key not in seen:
             seen.add(key)
             deduped.append(p)
+
+    total = len(deduped) or 1
+    for idx, pack in enumerate(deduped, start=1):
+        pack.carton_index = idx
+        pack.total_cartons = total
 
     return all_orders, deduped
 
