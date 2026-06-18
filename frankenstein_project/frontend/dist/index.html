@@ -592,6 +592,12 @@
       font-size: 11px;
       color: var(--slate);
     }
+    .match-pill.output-ready { border-color: #bbf7d0; background: #f0fdf4; }
+    .match-pill.output-ready span { color: var(--ok); font-weight: 700; }
+    .match-pill.output-pending { border-color: #fde68a; background: #fffbeb; }
+    .match-pill.output-pending span { color: var(--warn); font-weight: 700; }
+    .match-pill.output-count { border-color: #bfdbfe; background: #eff6ff; }
+    .match-pill.output-count span { color: #1d4ed8; font-weight: 700; }
     .match-table-wrap {
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -648,6 +654,470 @@
     .status-tag.matched, .status-tag.complete, .status-tag.generated, .status-tag.success { background: #ecfdf5; color: #166534; }
     .status-tag.unmatched, .status-tag.duplicate, .status-tag.error, .status-tag.failed { background: #fef2f2; color: #b91c1c; }
     .status-tag.pending, .status-tag.review { background: #fffbeb; color: #92400e; }
+    .status-tag.needs-review { background: #fef2f2; color: var(--err); }
+
+    /* ── KeHE Document action buttons ── */
+    .kehe-document-actions {
+      display: none;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .kehe-document-actions.visible { display: flex; }
+    .btn-document {
+      border: 1px solid rgba(15, 94, 168, 0.18);
+      background: linear-gradient(135deg, #0f5ea8, #12a389);
+      color: white;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .btn-document:disabled { opacity: 0.45; cursor: not-allowed; }
+    .generate-block.kehe-mode .btn-generate,
+    .generate-block.kehe-mode .btn-document {
+      border: 1px solid rgba(15, 94, 168, 0.18);
+      background: linear-gradient(135deg, #0f5ea8, #12a389);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(18,163,137,0.26);
+    }
+    .generate-block.kehe-mode .btn-generate:hover:not(:disabled),
+    .generate-block.kehe-mode .btn-document:hover:not(:disabled) {
+      background: linear-gradient(135deg, #0b4f90, #0f8a74);
+      box-shadow: 0 6px 20px rgba(15,138,116,0.36);
+      transform: translateY(-1px);
+    }
+
+    .kehe-preview-actions {
+      display: none;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .kehe-preview-actions.visible { display: flex; }
+
+    .kehe-extracted-panel {
+      display: none;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .kehe-extracted-panel.visible { display: block; }
+    .kehe-extracted-header {
+      padding: 10px 12px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .kehe-extracted-title {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: var(--jdi-charcoal);
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .kehe-extracted-subtitle {
+      font-size: 11px;
+      color: var(--slate);
+    }
+    .kehe-extracted-scroll {
+      max-height: 340px;
+      overflow: auto;
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+    }
+    .kehe-extracted-card {
+      border: 1px solid #edf2f7;
+      border-radius: 10px;
+      overflow: hidden;
+      background: white;
+    }
+    .kehe-extracted-card-title {
+      padding: 8px 10px;
+      background: #f8fafc;
+      border-bottom: 1px solid #edf2f7;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .kehe-field-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 8px;
+      padding: 10px;
+    }
+    .kehe-field {
+      border: 1px solid #edf2f7;
+      border-radius: 8px;
+      padding: 8px;
+      min-width: 0;
+      background: #fcfdff;
+    }
+    .kehe-field strong {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.45px;
+      color: var(--slate);
+      margin-bottom: 4px;
+    }
+    .kehe-field span {
+      display: block;
+      font-size: 12px;
+      color: var(--jdi-charcoal);
+      line-height: 1.35;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .kehe-items-table-wrap { overflow-x: auto; }
+    .kehe-items-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1100px;
+      font-size: 11.5px;
+    }
+    .kehe-items-table th, .kehe-items-table td {
+      border-bottom: 1px solid #edf2f7;
+      border-right: 1px solid #edf2f7;
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .kehe-items-table th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      z-index: 1;
+      color: var(--slate);
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+
+    /* ── Editor panel (modal) ── */
+    .editor-panel {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      background: rgba(15, 23, 42, 0.52);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .editor-panel.visible { display: flex; }
+    .editor-dialog {
+      width: min(1180px, 96vw);
+      max-height: 92vh;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.32);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .editor-toolbar {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #f8fafc;
+    }
+    .editor-title { font-weight: 800; color: var(--jdi-charcoal); flex: 1; }
+    .editor-body {
+      padding: 18px;
+      overflow-y: auto;
+      display: grid;
+      gap: 18px;
+      flex: 1;
+      min-height: 0;
+    }
+    .editor-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      background: white;
+      max-height: 72vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .editor-card-header {
+      padding: 12px 14px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .editor-card-scroll {
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .editor-grid {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .editor-field { display: grid; gap: 5px; }
+    .editor-field.full { grid-column: 1 / -1; }
+    .editor-field label {
+      font-size: 11px; font-weight: 800;
+      text-transform: uppercase; color: var(--slate); letter-spacing: 0.6px;
+    }
+    .editor-field input,
+    .editor-field textarea,
+    .editor-field select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 10px;
+      font-size: 13px;
+      color: var(--jdi-charcoal);
+      background: white;
+    }
+    .editor-field textarea { min-height: 92px; resize: vertical; }
+    .editor-warning {
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: var(--err);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .editor-table-wrap { padding: 14px; overflow-x: auto; }
+    .editor-table { width: 100%; border-collapse: collapse; min-width: 1200px; }
+    .editor-table th,
+    .editor-table td { border: 1px solid var(--border); padding: 6px; vertical-align: top; }
+    .editor-table th { background: #f8fafc; font-size: 11px; text-transform: uppercase; color: var(--slate); }
+    .editor-table input,
+    .editor-table textarea {
+      width: 100%; border: 1px solid #dbe3ee;
+      border-radius: 6px; padding: 6px; font-size: 12px;
+    }
+    .editor-footer {
+      padding: 14px 18px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      background: #f8fafc;
+    }
+
+
+    /* ── MPL pallet drag editor ── */
+    .mpl-pallet-editor {
+      padding: 14px;
+      border-top: 1px solid var(--border);
+      display: grid;
+      gap: 12px;
+    }
+    .mpl-pallet-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .mpl-pallet-toolbar-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--jdi-charcoal);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .mpl-pallet-toolbar-subtitle {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--slate);
+      line-height: 1.4;
+    }
+    .mpl-pallet-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .mpl-pallet-board {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+    .mpl-pallet-box {
+      border: 1px solid var(--border);
+      background: #ffffff;
+      border-radius: 14px;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .mpl-pallet-box.unassigned {
+      border-color: #fde68a;
+      background: #fffbeb;
+    }
+    .mpl-pallet-box-header {
+      padding: 10px 11px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      gap: 8px;
+    }
+    .mpl-pallet-box.unassigned .mpl-pallet-box-header {
+      background: #fef3c7;
+      border-bottom-color: #fde68a;
+    }
+    .mpl-pallet-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .mpl-pallet-title {
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--jdi-charcoal);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .mpl-pallet-count {
+      font-size: 10.5px;
+      color: var(--slate);
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+    .mpl-pallet-weight-row {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--slate);
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.45px;
+    }
+    .mpl-pallet-weight-row input {
+      width: 100%;
+      border: 1px solid #dbe3ee;
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 12px;
+      background: white;
+      color: var(--jdi-charcoal);
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 600;
+    }
+    .mpl-pallet-drop {
+      min-height: 110px;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .mpl-pallet-drop.drag-over {
+      background: #eff6ff;
+      box-shadow: inset 0 0 0 2px #93c5fd;
+    }
+    .mpl-empty-drop {
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 13px 10px;
+      text-align: center;
+      color: var(--slate);
+      font-size: 12px;
+      line-height: 1.4;
+      background: rgba(255,255,255,0.62);
+    }
+    .mpl-pallet-item {
+      background: white;
+      border: 1px solid #dbe3ee;
+      border-radius: 12px;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      box-shadow: 0 1px 4px rgba(15,23,42,0.05);
+      cursor: grab;
+    }
+    .mpl-pallet-item:active { cursor: grabbing; }
+    .mpl-item-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .mpl-item-title {
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--jdi-charcoal);
+      line-height: 1.25;
+    }
+    .mpl-drag-hint {
+      font-size: 10px;
+      color: var(--slate-light);
+      white-space: nowrap;
+      padding-top: 2px;
+    }
+    .mpl-item-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+    .mpl-item-field.full { grid-column: 1 / -1; }
+    .mpl-item-field label {
+      display: block;
+      font-size: 9.5px;
+      font-weight: 800;
+      color: var(--slate);
+      text-transform: uppercase;
+      letter-spacing: 0.45px;
+      margin-bottom: 3px;
+    }
+    .mpl-item-field input,
+    .mpl-item-field textarea {
+      width: 100%;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      padding: 6px 7px;
+      font-size: 11.5px;
+      color: var(--jdi-charcoal);
+      background: #fff;
+    }
+    .mpl-item-field textarea { min-height: 52px; resize: vertical; }
+    .mpl-item-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .btn-mini-danger {
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #b91c1c;
+      border-radius: 7px;
+      padding: 5px 8px;
+      font-size: 10.5px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .btn-mini-danger:hover { background: #fee2e2; }
 
     /* ── Preview Panel ── */
     .preview-panel {
@@ -676,6 +1146,8 @@
       overflow: hidden;
       box-shadow: 0 28px 80px rgba(15, 23, 42, 0.45);
     }
+    .preview-dialog.rollo-preview { width: min(620px, 96vw); }
+    .preview-dialog.a4-preview { width: min(980px, 96vw); height: min(94vh, 1000px); }
 
     .preview-toolbar {
       background: var(--jdi-charcoal-mid);
@@ -774,6 +1246,9 @@
     }
     .spinner.visible { display: block; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    .match-table-wrap { overflow-x: auto; white-space: nowrap; }
+    .match-table th, .match-table td { white-space: nowrap; }
 
     @media (max-width: 1100px) {
       .upload-page {
@@ -985,6 +1460,14 @@
         </svg>
         <span id="btn-label">Generate Labels</span>
       </button>
+      <div class="kehe-document-actions" id="kehe-document-actions">
+        <button class="btn-document" id="btn-kehe-pallet-label" onclick="prepareKeheDocument('palletLabel')" disabled>
+          Generate Pallet Label
+        </button>
+        <button class="btn-document" id="btn-kehe-mpl" onclick="prepareKeheDocument('masterPackingList')" disabled>
+          Generate Master Packing List
+        </button>
+      </div>
       <div class="status-bar" id="status-bar"></div>
       <div class="refresh-warning" id="refresh-warning">⚠ Do not refresh or close this page while generating.</div>
     </div>
@@ -997,6 +1480,11 @@
         </div>
         <div class="match-actions">
           <button class="btn-secondary disabled" id="btn-open-preview" onclick="openPreview()" disabled>Open Preview</button>
+          <div class="kehe-preview-actions" id="kehe-preview-actions">
+            <button class="btn-secondary disabled" id="btn-preview-kehe-labels" onclick="openKehePreview('labels')" disabled>KeHE labels preview</button>
+            <button class="btn-secondary disabled" id="btn-preview-pallet-label" onclick="openKehePreview('palletLabel')" disabled>Pallet label preview</button>
+            <button class="btn-secondary disabled" id="btn-preview-mpl" onclick="openKehePreview('masterPackingList')" disabled>MPL preview</button>
+          </div>
           <button class="btn-secondary disabled" id="btn-export-report" onclick="exportReport()" disabled>Export for Excel</button>
         </div>
       </div>
@@ -1004,6 +1492,17 @@
         <div class="match-pill">
           <strong>Waiting for run</strong>
           <span>Generate labels to see results.</span>
+        </div>
+      </div>
+      <div class="kehe-extracted-panel" id="kehe-extracted-panel">
+        <div class="kehe-extracted-header">
+          <div>
+            <div class="kehe-extracted-title">Extracted KeHE XML Data</div>
+            <div class="kehe-extracted-subtitle">Headers, addresses, shipment values, SSCCs, and item rows parsed from the uploaded XML.</div>
+          </div>
+        </div>
+        <div class="kehe-extracted-scroll" id="kehe-extracted-scroll">
+          <div class="empty-row">Upload XML and generate/prepare a KeHE document to see extracted fields.</div>
         </div>
       </div>
       <div class="match-table-wrap">
@@ -1018,7 +1517,7 @@
 
   <!-- Preview Panel -->
   <div class="preview-panel" id="preview-panel" onclick="maybeClosePreview(event)">
-    <div class="preview-dialog">
+    <div class="preview-dialog" id="preview-dialog">
       <div class="preview-toolbar">
         <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -1040,6 +1539,23 @@
       </div>
       <div class="preview-area">
         <div id="pdf-preview" aria-label="PDF Preview"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document Editor Modal -->
+  <div class="editor-panel" id="document-editor-panel">
+    <div class="editor-dialog">
+      <div class="editor-toolbar">
+        <div class="editor-title" id="document-editor-title">Review &amp; Edit Document</div>
+        <button class="btn-secondary" onclick="closeDocumentEditor()">Close</button>
+      </div>
+      <div class="editor-body" id="document-editor-body"></div>
+      <div class="editor-footer">
+        <button class="btn-secondary" onclick="closeDocumentEditor()">Cancel</button>
+        <button class="btn-generate" id="btn-render-edited-document" onclick="renderEditedKeheDocument()">
+          Generate PDF from Edited Values
+        </button>
       </div>
     </div>
   </div>
@@ -1115,32 +1631,154 @@
       reportRules: 'XML-only workflow. Each report row represents one generated KeHE GS1 label/carton from the ASN XML.',
       waitingText: 'Generate labels to see each KeHE carton and SSCC label result.',
       summaryLabels: [
-        ['labels', 'Labels'],
-        ['xml_files', 'XML Files'],
-        ['cartons', 'Cartons'],
-        ['errors', 'Needs Review']
+        ['generated_labels', 'Generated Labels'],
+        ['xml_files', 'XML Files']
       ],
       columns: [
-        ['label', 'Label'],
-        ['po', 'PO'],
-        ['store', 'Store'],
-        ['ship_to', 'Ship To'],
-        ['ship_to_zip', 'ZIP'],
-        ['sscc', 'SSCC'],
-        ['carton', 'Carton']
+        ['source_file',             'Source File'],
+        ['customer_po_numbers',     'Customer PO'],
+        ['pro_number',              'Pro No'],
+        ['bol_number',              'BOL'],
+        ['ship_date',               'Ship Date'],
+        ['expected_delivery_date',  'Delivery Date'],
+        ['carrier',                 'Carrier'],
+        ['total_weight',            'Total Weight'],
+        ['carton_count',            'Cartons'],
+        ['total_pallets',           'Total Pallets'],
+        ['ship_via',                'Ship Via'],
+        ['dc',                      'DC'],
+        ['ship_to_name',            'Ship To']
       ],
       csvColumns: [
-        ['label', 'Label'],
-        ['po', 'PO'],
-        ['store', 'Store'],
-        ['ship_to', 'Ship To'],
-        ['ship_to_zip', 'ZIP'],
-        ['sscc', 'SSCC'],
-        ['carton', 'Carton']
+        ['source_file',             'Source File'],
+        ['customer_po_numbers',     'Customer PO'],
+        ['pro_number',              'Pro No'],
+        ['bol_number',              'BOL'],
+        ['ship_date',               'Ship Date'],
+        ['expected_delivery_date',  'Delivery Date'],
+        ['carrier',                 'Carrier'],
+        ['total_weight',            'Total Weight'],
+        ['carton_count',            'Cartons'],
+        ['total_pallets',           'Total Pallets'],
+        ['ship_via',                'Ship Via'],
+        ['dc',                      'DC'],
+        ['ship_to_name',            'Ship To']
       ],
       csvName: 'kehe_generation_report.csv'
     }
   };
+
+  const KEHE_DOCUMENT_CONFIG = {
+    palletLabel: {
+      label: 'Pallet Label',
+      prepareEndpoint: '/prepare/kehe/pallet-label',
+      renderEndpoint: '/render/kehe/pallet-label',
+      outputName: 'kehe_pallet_labels.pdf',
+      reportTitle: 'Pallet Label Report',
+      csvName: 'kehe_pallet_label_report.csv',
+      columns: [
+        ['document', 'Document'],
+        ['status', 'Status'],
+        ['dc', 'DC'],
+        ['po', 'PO'],
+        ['pallet', 'Pallet'],
+        ['copies', 'Copies'],
+        ['ship_to', 'Ship To'],
+        ['note', 'Note']
+      ]
+    },
+    masterPackingList: {
+      label: 'Master Packing List',
+      prepareEndpoint: '/prepare/kehe/master-packing-list',
+      renderEndpoint: '/render/kehe/master-packing-list',
+      outputName: 'kehe_master_packing_list.pdf',
+      reportTitle: 'Master Packing List Report',
+      csvName: 'kehe_master_packing_list_report.csv',
+      columns: [
+        ['document', 'Document'],
+        ['status', 'Status'],
+        ['dc', 'DC'],
+        ['po', 'PO'],
+        ['items', 'Items'],
+        ['total_weight', 'Total Weight'],
+        ['ship_to', 'Ship To'],
+        ['note', 'Note']
+      ]
+    }
+  };
+
+  const KEHE_PREVIEW_CONFIG = {
+    labels: {
+      buttonId: 'btn-preview-kehe-labels',
+      outputName: 'kehe_gs1_labels.pdf',
+      format: 'rollo'
+    },
+    palletLabel: {
+      buttonId: 'btn-preview-pallet-label',
+      outputName: 'kehe_pallet_labels.pdf',
+      format: 'rollo'
+    },
+    masterPackingList: {
+      buttonId: 'btn-preview-mpl',
+      outputName: 'kehe_master_packing_list.pdf',
+      format: 'a4'
+    }
+  };
+
+  const KEHE_UNIFIED_COLUMNS = [
+    ['status', 'Status'],
+    ['source_file', 'Source File'],
+    ['dc', 'DC'],
+    ['customer_po_numbers', 'Customer PO'],
+    ['ship_date', 'Ship Date'],
+    ['expected_delivery_date', 'Delivery Date'],
+    ['carrier', 'Carrier'],
+    ['pro_number', 'Pro No'],
+    ['bol_number', 'BOL'],
+    ['carton_count', 'Cartons'],
+    ['pack_count', 'Packs'],
+    ['item_rows', 'Item Rows'],
+    ['total_weight', 'Weight'],
+    ['ship_to_name', 'Ship To'],
+    ['warnings', 'Warnings']
+  ];
+
+  const KEHE_UNIFIED_CSV_COLUMNS = [
+    ['source_file', 'Source File'],
+    ['status', 'Status'],
+    ['dc', 'DC'],
+    ['dc_name', 'DC Name'],
+    ['ship_to_gln', 'Ship To GLN'],
+    ['customer_po_numbers', 'Customer PO'],
+    ['po_date', 'PO Date'],
+    ['order_no', 'Order No'],
+    ['vendor_number', 'Vendor Number'],
+    ['bsn', 'BSN'],
+    ['bsn_date', 'BSN Date'],
+    ['ship_date', 'Ship Date'],
+    ['expected_delivery_date', 'Expected Delivery Date'],
+    ['carrier', 'Carrier'],
+    ['scac', 'SCAC'],
+    ['pro_number', 'Pro No'],
+    ['bol_number', 'BOL'],
+    ['carton_count', 'Carton Count'],
+    ['pack_count', 'Pack Count'],
+    ['item_rows', 'Item Rows'],
+    ['total_weight', 'Total Weight'],
+    ['cube', 'Cube'],
+    ['total_pallets', 'Total Pallets'],
+    ['ship_via', 'Ship Via'],
+    ['ship_from', 'Ship From'],
+    ['xml_ship_to', 'XML Ship To'],
+    ['final_ship_to', 'Final Ship To'],
+    ['ship_to', 'Ship To'],
+    ['bill_to', 'Bill To'],
+    ['billing', 'Billing'],
+    ['supplier_info', 'Supplier Info'],
+    ['copies', 'Copies'],
+    ['placement_note', 'Placement Note'],
+    ['warnings', 'Warnings']
+  ];
 
   let selectedKit = null;
   let xmlFiles = [];
@@ -1148,6 +1786,16 @@
   let blobUrl = null;
   let currentResultId = null;
   let currentReport = null;
+  let activeKeheDocumentType = null;
+  let activeKeheDocumentDraft = null;
+  let currentCsvName = null;
+  let currentCsvColumns = null;
+  let activePreviewFormat = 'rollo';
+  let kehePreviewUrls = { labels: null, palletLabel: null, masterPackingList: null };
+  let keheCurrentExtractedSource = null;
+  let keheGeneratedLabelCount = 0;
+  let keheExtractedLoadTimer = null;
+  let keheExtractionRequestId = 0;
   const pages = ['home', 'michaels', 'kehe'];
 
   fetch('/health').catch(() => {});
@@ -1234,6 +1882,14 @@
     document.getElementById('btn-download').download = cfg.outputName;
     document.getElementById('pdf-step-block').classList.toggle('hidden', !cfg.requiresPdf);
 
+    const docActions = document.getElementById('kehe-document-actions');
+    docActions.classList.toggle('visible', selectedKit === 'kehe');
+    document.querySelector('.generate-block').classList.toggle('kehe-mode', selectedKit === 'kehe');
+    document.getElementById('kehe-preview-actions').classList.toggle('visible', selectedKit === 'kehe');
+    document.getElementById('btn-open-preview').classList.toggle('hidden', selectedKit === 'kehe');
+    resetKeheXmlDerivedState();
+    toggleKeheExtractedPanel(selectedKit === 'kehe');
+
     setStatus('', '');
     setDownloadReady(false);
     setExportReady(false);
@@ -1257,6 +1913,12 @@
     document.getElementById('btn-change-kit').classList.remove('visible');
     document.getElementById('header-app-name').textContent = 'LabelKit';
     document.getElementById('header-app-sub').textContent = 'Select a workflow';
+    document.querySelector('.generate-block').classList.remove('kehe-mode');
+    document.getElementById('kehe-preview-actions').classList.remove('visible');
+    document.getElementById('btn-open-preview').classList.remove('hidden');
+    toggleKeheExtractedPanel(false);
+    resetKeheXmlDerivedState();
+    keheCurrentExtractedSource = null;
     closePreview();
 
     if (updateHistory) {
@@ -1301,6 +1963,98 @@
     const btn = document.getElementById('btn-open-preview');
     btn.disabled = !isReady;
     btn.classList.toggle('disabled', !isReady);
+    if (selectedKit === 'kehe') {
+      renderKeheUnifiedReport(keheCurrentExtractedSource);
+    }
+  }
+
+  function setKehePreviewReady(key, isReady, href = null) {
+    const cfg = KEHE_PREVIEW_CONFIG[key];
+    if (!cfg) return;
+    if (href !== null) {
+      if (kehePreviewUrls[key] && kehePreviewUrls[key] !== href) URL.revokeObjectURL(kehePreviewUrls[key]);
+      kehePreviewUrls[key] = href;
+    }
+    const btn = document.getElementById(cfg.buttonId);
+    if (!btn) return;
+    btn.disabled = !isReady;
+    btn.classList.toggle('disabled', !isReady);
+  }
+
+  function resetKehePreviewUrls() {
+    Object.keys(kehePreviewUrls).forEach(key => {
+      if (kehePreviewUrls[key]) URL.revokeObjectURL(kehePreviewUrls[key]);
+      kehePreviewUrls[key] = null;
+      setKehePreviewReady(key, false);
+    });
+  }
+
+  function toggleKeheExtractedPanel(isVisible) {
+    const panel = document.getElementById('kehe-extracted-panel');
+    if (!panel) return;
+    panel.classList.toggle('visible', !!isVisible);
+    if (!isVisible) {
+      const scroll = document.getElementById('kehe-extracted-scroll');
+      if (scroll) scroll.innerHTML = '<div class="empty-row">Upload XML and generate/prepare a KeHE document to see extracted fields.</div>';
+    }
+  }
+
+  function resetKeheXmlDerivedState() {
+    keheCurrentExtractedSource = null;
+    keheGeneratedLabelCount = 0;
+    keheExtractionRequestId += 1;
+    if (keheExtractedLoadTimer) clearTimeout(keheExtractedLoadTimer);
+    resetKehePreviewUrls();
+    const scroll = document.getElementById('kehe-extracted-scroll');
+    if (scroll) scroll.innerHTML = '<div class="empty-row">Reading uploaded KeHE XML data…</div>';
+  }
+
+  function scheduleKeheExtractedDataLoad() {
+    if (selectedKit !== 'kehe') return;
+    if (keheExtractedLoadTimer) clearTimeout(keheExtractedLoadTimer);
+    if (!xmlFiles.length) {
+      renderKeheUnifiedReport(null);
+      return;
+    }
+    keheExtractedLoadTimer = setTimeout(loadKeheExtractedDataFromXml, 150);
+  }
+
+  async function fetchKeheDraft(endpoint) {
+    const form = new FormData();
+    xmlFiles.forEach(f => form.append('xml_files', f));
+    const res = await fetch(endpoint, { method: 'POST', body: form });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.detail || 'Could not read KeHE XML data.');
+    return payload;
+  }
+
+  async function loadKeheExtractedDataFromXml() {
+    if (selectedKit !== 'kehe' || !xmlFiles.length) return;
+    const requestId = ++keheExtractionRequestId;
+    try {
+      let payload;
+      try {
+        payload = await fetchKeheDraft('/prepare/kehe/master-packing-list');
+      } catch (mplErr) {
+        payload = await fetchKeheDraft('/prepare/kehe/pallet-label');
+      }
+      if (requestId !== keheExtractionRequestId) return;
+      keheCurrentExtractedSource = payload;
+      renderKeheUnifiedReport(payload);
+      if (selectedKit === 'kehe') setStatus('KeHE XML data loaded. Generate any output when ready.', 'info');
+    } catch (err) {
+      if (requestId !== keheExtractionRequestId) return;
+      renderKeheUnifiedReport(null);
+      setStatus('Error reading KeHE XML data: ' + (err.message || 'Could not extract fields.'), 'error');
+    }
+  }
+
+  function setActivePreviewFormat(format) {
+    activePreviewFormat = format || 'rollo';
+    const dialog = document.getElementById('preview-dialog');
+    if (!dialog) return;
+    dialog.classList.toggle('a4-preview', activePreviewFormat === 'a4');
+    dialog.classList.toggle('rollo-preview', activePreviewFormat !== 'a4');
   }
 
   function setExportReady(isReady) {
@@ -1380,7 +2134,14 @@
   }
 
   function renderReport(report) {
+    if (selectedKit === 'kehe') {
+      renderKeheUnifiedReport(report);
+      return;
+    }
+
     currentReport = report || null;
+    currentCsvColumns = null;
+    currentCsvName = null;
     const cfg = currentConfig();
     const columns = reportColumns();
     const rows = (report && report.rows) || [];
@@ -1423,7 +2184,9 @@
   function exportReport() {
     if (!currentReport || !currentReport.rows || !currentReport.rows.length) return;
 
-    const headers = csvColumns().map(([, label]) => label);
+    const cols = currentCsvColumns || csvColumns();
+    const csvNameToUse = currentCsvName || currentConfig().csvName;
+    const headers = cols.map(([, label]) => label);
     const escapeCsv = value => {
       const text = String(value ?? '');
       return `"${text.replace(/"/g, '""')}"`;
@@ -1431,14 +2194,14 @@
 
     const lines = [headers.join(',')];
     currentReport.rows.forEach(row => {
-      lines.push(csvColumns().map(([key]) => escapeCsv(row[key])).join(','));
+      lines.push(cols.map(([key]) => escapeCsv(row[key])).join(','));
     });
 
     const csvBlob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const csvUrl = URL.createObjectURL(csvBlob);
     const link = document.createElement('a');
     link.href = csvUrl;
-    link.download = currentConfig().csvName;
+    link.download = csvNameToUse;
     link.click();
     setTimeout(() => URL.revokeObjectURL(csvUrl), 1000);
   }
@@ -1458,7 +2221,9 @@
   function removeFile(type, i) {
     if (type === 'xml') {
       xmlFiles.splice(i, 1);
+      if (selectedKit === 'kehe') resetKeheXmlDerivedState();
       renderList(xmlFiles, 'xml-file-list', 'xml');
+      if (selectedKit === 'kehe') scheduleKeheExtractedDataLoad();
     } else {
       pdfFiles.splice(i, 1);
       renderList(pdfFiles, 'pdf-file-list', 'pdf');
@@ -1469,7 +2234,9 @@
     const files = Array.from(fileList || []);
     if (type === 'xml') {
       xmlFiles = [...xmlFiles, ...files.filter(f => f.name.toLowerCase().endsWith('.xml'))];
+      if (selectedKit === 'kehe') resetKeheXmlDerivedState();
       renderList(xmlFiles, 'xml-file-list', 'xml');
+      if (selectedKit === 'kehe') scheduleKeheExtractedDataLoad();
     } else {
       pdfFiles = [...pdfFiles, ...files.filter(f => f.name.toLowerCase().endsWith('.pdf'))];
       renderList(pdfFiles, 'pdf-file-list', 'pdf');
@@ -1507,6 +2274,14 @@
     const cfg = currentConfig();
     const isReady = cfg.requiresPdf ? (xmlFiles.length > 0 && pdfFiles.length > 0) : xmlFiles.length > 0;
     btn.disabled = !isReady;
+
+    const palletBtn = document.getElementById('btn-kehe-pallet-label');
+    const mplBtn = document.getElementById('btn-kehe-mpl');
+    if (palletBtn && mplBtn) {
+      const keheReady = selectedKit === 'kehe' && xmlFiles.length > 0;
+      palletBtn.disabled = !keheReady;
+      mplBtn.disabled = !keheReady;
+    }
   }
 
   function resetPreviewSurface() {
@@ -1535,8 +2310,11 @@
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
       const baseViewport = page.getViewport({ scale: 1 });
-      const targetWidth = Math.min(preview.clientWidth || 760, 760);
-      const scale = (targetWidth / baseViewport.width) * 0.5;
+      const availableWidth = preview.clientWidth || (activePreviewFormat === 'a4' ? 900 : 420);
+      const targetWidth = activePreviewFormat === 'a4'
+        ? Math.min(availableWidth, 900)
+        : Math.min(availableWidth, 420);
+      const scale = targetWidth / baseViewport.width;
       const viewport = page.getViewport({ scale });
 
       const pageWrap = document.createElement('div');
@@ -1558,11 +2336,23 @@
 
   async function openPreview() {
     if (!blobUrl) return;
+    setActivePreviewFormat(activePreviewFormat);
     const panel = document.getElementById('preview-panel');
     panel.classList.add('visible');
     if (!document.getElementById('pdf-preview').childElementCount) {
       await renderPdfPreview(blobUrl);
     }
+  }
+
+  async function openKehePreview(key) {
+    const cfg = KEHE_PREVIEW_CONFIG[key];
+    const url = kehePreviewUrls[key];
+    if (!cfg || !url) return;
+    blobUrl = url;
+    document.getElementById('btn-download').download = cfg.outputName;
+    setActivePreviewFormat(cfg.format);
+    resetPreviewSurface();
+    await openPreview();
   }
 
   function closePreview() {
@@ -1652,16 +2442,26 @@
         }
 
         const blob = await fileRes.blob();
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
         blobUrl = URL.createObjectURL(blob);
         setDownloadReady(true, blobUrl);
+        if (selectedKit === 'kehe') {
+          setKehePreviewReady('labels', true, blobUrl);
+          setActivePreviewFormat('rollo');
+        }
 
-        if (status.report) renderReport(status.report);
+        if (status.report) {
+          renderReport(status.report);
+        }
       } else {
         const blob = await res.blob();
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
         blobUrl = URL.createObjectURL(blob);
         setDownloadReady(true, blobUrl);
+        if (selectedKit === 'kehe') {
+          setKehePreviewReady('labels', true, blobUrl);
+          setActivePreviewFormat('rollo');
+        }
 
         if (currentResultId) {
           try {
@@ -1692,7 +2492,836 @@
       checkReady();
     }
   }
-</script>
+
+  // =========================================================================
+  // KeHE Document (Pallet Label / Master Packing List) workflow
+  // =========================================================================
+
+  function openDocumentEditor() {
+    document.getElementById('document-editor-panel').classList.add('visible');
+  }
+
+  function closeDocumentEditor() {
+    document.getElementById('document-editor-panel').classList.remove('visible');
+  }
+
+  function editorInput(path, label, value) {
+    return `
+      <div class="editor-field">
+        <label>${escapeHtml(label)}</label>
+        <input value="${escapeHtml(value ?? '')}" data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">
+      </div>`;
+  }
+
+  function editorTextarea(path, label, value) {
+    return `
+      <div class="editor-field full">
+        <label>${escapeHtml(label)}</label>
+        <textarea data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">${escapeHtml(value ?? '')}</textarea>
+      </div>`;
+  }
+
+  function jsString(value) {
+    return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  function getMpl(mplIndex) {
+    return activeKeheDocumentDraft?.packing_lists?.[mplIndex] || null;
+  }
+
+  function normalizePalletId(value) {
+    return String(value ?? '').trim();
+  }
+
+  function ensureMplPalletState(mpl) {
+    if (!mpl) return;
+    mpl.items = Array.isArray(mpl.items) ? mpl.items : [];
+    mpl.items.forEach((item, index) => {
+      item.line = item.line || index + 1;
+      item.location_on_pallet = normalizePalletId(item.location_on_pallet);
+    });
+
+    const assignedIds = [];
+    mpl.items.forEach(item => {
+      const id = normalizePalletId(item.location_on_pallet);
+      if (id && !assignedIds.includes(id)) assignedIds.push(id);
+    });
+
+    if (!Array.isArray(mpl._pallet_ids)) {
+      mpl._pallet_ids = assignedIds.length ? [...assignedIds] : ['1'];
+    }
+    mpl._pallet_ids = mpl._pallet_ids.map(normalizePalletId).filter(Boolean)
+      .filter((id, index, arr) => arr.indexOf(id) === index);
+    assignedIds.forEach(id => {
+      if (!mpl._pallet_ids.includes(id)) mpl._pallet_ids.push(id);
+    });
+
+    if (!mpl._pallet_weights || typeof mpl._pallet_weights !== 'object') {
+      mpl._pallet_weights = {};
+    }
+    mpl._pallet_ids.forEach(id => {
+      const weightedItem = mpl.items.find(item => normalizePalletId(item.location_on_pallet) === id && String(item.pallet_weight || '').trim());
+      if (weightedItem && !mpl._pallet_weights[id]) {
+        mpl._pallet_weights[id] = weightedItem.pallet_weight;
+      }
+    });
+
+    const assignedPalletCount = mpl._pallet_ids.length || assignedIds.length || 1;
+    mpl.total_pallets = String(assignedPalletCount);
+  }
+
+  function syncMplLineNumbers(mpl) {
+    if (!mpl || !Array.isArray(mpl.items)) return;
+    mpl.items.forEach((item, index) => { item.line = index + 1; });
+  }
+
+  function renderMplSmallInput(path, label, value, extra = '') {
+    return `
+      <div class="mpl-item-field ${extra}">
+        <label>${escapeHtml(label)}</label>
+        <input value="${escapeHtml(value ?? '')}" data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">
+      </div>`;
+  }
+
+  function renderMplSmallTextarea(path, label, value) {
+    return `
+      <div class="mpl-item-field full">
+        <label>${escapeHtml(label)}</label>
+        <textarea data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">${escapeHtml(value ?? '')}</textarea>
+      </div>`;
+  }
+
+  function renderMplItemCard(mplIndex, itemIndex, item) {
+    const base = `packing_lists.${mplIndex}.items.${itemIndex}`;
+    const itemLabel = item.item_number || item.upc || item.case_upc || `Line ${itemIndex + 1}`;
+    const qty = item.qty_on_pallet || item.total_shipped || item.qty || '';
+    return `
+      <div class="mpl-pallet-item" draggable="true" ondragstart="dragMplItem(event, ${mplIndex}, ${itemIndex})">
+        <div class="mpl-item-head">
+          <div class="mpl-item-title">Line ${escapeHtml(item.line || itemIndex + 1)} · ${escapeHtml(itemLabel)}</div>
+          <div class="mpl-drag-hint">Drag</div>
+        </div>
+        <div class="mpl-item-fields">
+          ${renderMplSmallInput(`${base}.item_number`, 'Item #', item.item_number || item.upc)}
+          ${renderMplSmallInput(`${base}.case_upc`, 'Case UPC', item.case_upc)}
+          ${renderMplSmallTextarea(`${base}.description`, 'Description', item.description)}
+          ${renderMplSmallInput(`${base}.lot`, 'Lot', item.lot)}
+          ${renderMplSmallInput(`${base}.expiration_date`, 'EXP', item.expiration_date)}
+          ${renderMplSmallInput(`${base}.uom`, 'UOM', item.uom || 'CASES')}
+          ${renderMplSmallInput(`${base}.qty_on_pallet`, 'Qty', qty)}
+          ${renderMplSmallInput(`${base}.total_shipped`, 'Shipped', item.total_shipped || qty)}
+        </div>
+        <div class="mpl-item-actions">
+          <button class="btn-mini-danger" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})">Delete Row</button>
+        </div>
+      </div>`;
+  }
+
+  function renderMplDropZone(mplIndex, palletId, items, emptyText) {
+    const safePallet = jsString(palletId);
+    return `
+      <div class="mpl-pallet-drop"
+           ondragover="event.preventDefault(); this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="dropMplItem(event, ${mplIndex}, '${safePallet}')">
+        ${items.length
+          ? items.map(({ item, itemIndex }) => renderMplItemCard(mplIndex, itemIndex, item)).join('')
+          : `<div class="mpl-empty-drop">${escapeHtml(emptyText)}</div>`}
+      </div>`;
+  }
+
+  function renderMplPalletBox(mplIndex, mpl, palletId) {
+    const items = (mpl.items || [])
+      .map((item, itemIndex) => ({ item, itemIndex }))
+      .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
+    const weight = (mpl._pallet_weights && mpl._pallet_weights[palletId]) || '';
+    return `
+      <div class="mpl-pallet-box">
+        <div class="mpl-pallet-box-header">
+          <div class="mpl-pallet-title-row">
+            <div class="mpl-pallet-title">Pallet ${escapeHtml(palletId)}</div>
+            <span class="mpl-pallet-count">${items.length} line${items.length === 1 ? '' : 's'}</span>
+          </div>
+          <div class="mpl-pallet-weight-row">
+            <span>Weight</span>
+            <input value="${escapeHtml(weight)}" placeholder="ex: 820 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)">
+          </div>
+          <button class="btn-secondary" type="button" onclick="removeMplPallet(${mplIndex}, '${jsString(palletId)}')">Remove Pallet</button>
+        </div>
+        ${renderMplDropZone(mplIndex, palletId, items, 'Drop line items here')}
+      </div>`;
+  }
+
+  function renderMplItemsEditor(mplIndex, items) {
+    const mpl = getMpl(mplIndex) || { items: items || [] };
+    ensureMplPalletState(mpl);
+    const unassigned = (mpl.items || [])
+      .map((item, itemIndex) => ({ item, itemIndex }))
+      .filter(({ item }) => !normalizePalletId(item.location_on_pallet));
+    const palletIds = mpl._pallet_ids || [];
+    return `
+      <div class="mpl-pallet-editor">
+        <div class="mpl-pallet-toolbar">
+          <div>
+            <div class="mpl-pallet-toolbar-title">MPL Pallet Assignment</div>
+            <div class="mpl-pallet-toolbar-subtitle">Drag line items into pallet boxes. Removing a pallet moves its line items to Unassigned so data is not lost.</div>
+          </div>
+          <div class="mpl-pallet-toolbar-actions">
+            <button class="btn-secondary" type="button" onclick="addMplPallet(${mplIndex})">Add Pallet</button>
+            <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex})">Add Line Item</button>
+            <button class="btn-secondary" type="button" onclick="moveAllUnassignedToFirstPallet(${mplIndex})">Move Unassigned to Pallet 1</button>
+          </div>
+        </div>
+        <div class="mpl-pallet-board">
+          <div class="mpl-pallet-box unassigned">
+            <div class="mpl-pallet-box-header">
+              <div class="mpl-pallet-title-row">
+                <div class="mpl-pallet-title">Unassigned</div>
+                <span class="mpl-pallet-count">${unassigned.length} line${unassigned.length === 1 ? '' : 's'}</span>
+              </div>
+              <div class="mpl-pallet-toolbar-subtitle">Items here are still saved. Drag them into a pallet before final printing.</div>
+            </div>
+            ${renderMplDropZone(mplIndex, '', unassigned, 'No unassigned line items')}
+          </div>
+          ${palletIds.map(id => renderMplPalletBox(mplIndex, mpl, id)).join('')}
+        </div>
+      </div>`;
+  }
+
+  function renderPalletLabelEditor(draft) {
+    const pallets = draft.pallets || [];
+    return pallets.map((pallet, index) => `
+      <div class="editor-card">
+        <div class="editor-card-header">
+          <span>${escapeHtml(pallet.id || `Pallet ${index + 1}`)}</span>
+          ${pallet.status === 'Needs Review'
+            ? '<span class="status-tag needs-review">Needs Review</span>'
+            : '<span class="status-tag success">Ready</span>'}
+        </div>
+        <div class="editor-card-scroll">
+          ${Array.isArray(pallet.warnings) && pallet.warnings.length
+            ? `<div class="editor-warning" style="margin:12px 14px 0">${pallet.warnings.map(escapeHtml).join('<br>')}</div>`
+            : ''}
+          <div class="editor-grid">
+            ${editorInput(`pallets.${index}.title`, 'Title', pallet.title)}
+            ${editorInput(`pallets.${index}.date`, 'Date', pallet.date)}
+            ${editorInput(`pallets.${index}.dc`, 'DC', pallet.dc)}
+            ${editorInput(`pallets.${index}.customer_po_numbers`, 'PO# on This Pallet', pallet.customer_po_numbers)}
+            ${editorInput(`pallets.${index}.bol_number`, 'BOL Number', pallet.bol_number)}
+            ${editorInput(`pallets.${index}.pro_number`, 'Pro Number', pallet.pro_number)}
+            ${editorInput(`pallets.${index}.carrier`, 'Carrier', pallet.carrier)}
+            ${editorInput(`pallets.${index}.carton_count`, 'Carton Count', pallet.carton_count)}
+            ${pallet.source_sscc ? editorInput(`pallets.${index}.source_sscc`, 'Source SSCC', pallet.source_sscc) : ''}
+            ${pallet.item_rows ? editorInput(`pallets.${index}.item_rows`, 'Item Rows on Pallet', pallet.item_rows) : ''}
+            ${pallet.item_quantity ? editorInput(`pallets.${index}.item_quantity`, 'Item Qty on Pallet', pallet.item_quantity) : ''}
+            ${editorInput(`pallets.${index}.pallet_number`, 'Pallet Number', pallet.pallet_number)}
+            ${editorInput(`pallets.${index}.total_pallets`, 'Total Pallets', pallet.total_pallets)}
+            ${editorInput(`pallets.${index}.copies`, 'Copies', pallet.copies)}
+            ${editorTextarea(`pallets.${index}.ship_from`, 'Ship From', pallet.ship_from)}
+            ${editorTextarea(`pallets.${index}.ship_to`, 'Ship To', pallet.ship_to)}
+            ${editorTextarea(`pallets.${index}.billing`, 'Billing', pallet.billing)}
+            ${editorTextarea(`pallets.${index}.placement_note`, 'Placement Note', pallet.placement_note)}
+          </div>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderMasterPackingListEditor(draft) {
+    const lists = draft.packing_lists || [];
+    return lists.map((mpl, index) => `
+      <div class="editor-card">
+        <div class="editor-card-header">
+          <span>${escapeHtml(mpl.id || `MPL ${index + 1}`)}</span>
+          ${mpl.status === 'Needs Review'
+            ? '<span class="status-tag needs-review">Needs Review</span>'
+            : '<span class="status-tag success">Ready</span>'}
+        </div>
+        <div class="editor-card-scroll">
+          ${Array.isArray(mpl.warnings) && mpl.warnings.length
+            ? `<div class="editor-warning" style="margin:12px 14px 0">${mpl.warnings.map(escapeHtml).join('<br>')}</div>`
+            : ''}
+          <div class="editor-grid">
+            ${editorInput(`packing_lists.${index}.title`, 'Title', mpl.title)}
+            ${editorInput(`packing_lists.${index}.customer_po_number`, 'Customer PO Number', mpl.customer_po_number)}
+            ${editorInput(`packing_lists.${index}.pro_number`, 'Pro Number', mpl.pro_number)}
+            ${editorInput(`packing_lists.${index}.order_no`, 'Order No', mpl.order_no)}
+            ${editorInput(`packing_lists.${index}.po_date`, 'PO Date', mpl.po_date)}
+            ${editorInput(`packing_lists.${index}.page_no`, 'Page No', mpl.page_no)}
+            ${editorInput(`packing_lists.${index}.total_weight`, 'Total Weight', mpl.total_weight)}
+            ${editorInput(`packing_lists.${index}.ship_via`, 'Ship Via', mpl.ship_via)}
+            ${editorInput(`packing_lists.${index}.total_pallets`, 'Total Pallets', mpl.total_pallets)}
+            ${editorInput(`packing_lists.${index}.est_ship_date`, 'EST Ship Date', mpl.est_ship_date)}
+            ${editorInput(`packing_lists.${index}.expected_delivery_date`, 'Expected Delivery Date', mpl.expected_delivery_date)}
+            ${editorTextarea(`packing_lists.${index}.supplier_info`, 'Supplier Info', mpl.supplier_info)}
+            ${editorTextarea(`packing_lists.${index}.bill_to`, 'Bill To', mpl.bill_to)}
+            ${editorTextarea(`packing_lists.${index}.ship_to`, 'Ship To', mpl.ship_to)}
+            ${editorTextarea(`packing_lists.${index}.shipping_instructions`, 'Shipping Instructions', mpl.shipping_instructions)}
+          </div>
+          ${renderMplItemsEditor(index, mpl.items || [])}
+        </div>
+      </div>`).join('');
+  }
+
+  function renderDocumentEditor(type, draft) {
+    const cfg = KEHE_DOCUMENT_CONFIG[type];
+    document.getElementById('document-editor-title').textContent = `Review & Edit ${cfg.label}`;
+    const body = document.getElementById('document-editor-body');
+    if (type === 'palletLabel') {
+      body.innerHTML = renderPalletLabelEditor(draft);
+    } else {
+      body.innerHTML = renderMasterPackingListEditor(draft);
+    }
+  }
+
+  function updateDraftValue(input) {
+    if (!activeKeheDocumentDraft) return;
+    const path = input.getAttribute('data-draft-path');
+    if (!path) return;
+    const parts = path.split('.');
+    let ref = activeKeheDocumentDraft;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = /^\d+$/.test(parts[i]) ? Number(parts[i]) : parts[i];
+      ref = ref[key];
+      if (ref == null) return;
+    }
+    const last = parts[parts.length - 1];
+    ref[last] = input.value;
+  }
+
+  function dragMplItem(event, mplIndex, itemIndex) {
+    event.dataTransfer.setData('text/plain', JSON.stringify({ mplIndex, itemIndex }));
+    event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function dropMplItem(event, targetMplIndex, palletId) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('drag-over');
+    let payload = null;
+    try {
+      payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+    } catch (_err) {
+      payload = null;
+    }
+    if (!payload || Number(payload.mplIndex) !== Number(targetMplIndex)) return;
+    moveMplItemToPallet(targetMplIndex, Number(payload.itemIndex), palletId);
+  }
+
+  function moveMplItemToPallet(mplIndex, itemIndex, palletId) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl || !Array.isArray(mpl.items) || !mpl.items[itemIndex]) return;
+    ensureMplPalletState(mpl);
+    const cleanPalletId = normalizePalletId(palletId);
+    mpl.items[itemIndex].location_on_pallet = cleanPalletId;
+    if (cleanPalletId) {
+      if (!mpl._pallet_ids.includes(cleanPalletId)) mpl._pallet_ids.push(cleanPalletId);
+      mpl.items[itemIndex].pallet_weight = (mpl._pallet_weights && mpl._pallet_weights[cleanPalletId]) || mpl.items[itemIndex].pallet_weight || '';
+    } else {
+      mpl.items[itemIndex].pallet_weight = '';
+    }
+    syncMplLineNumbers(mpl);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function addMplPallet(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    ensureMplPalletState(mpl);
+    const numericIds = (mpl._pallet_ids || []).map(id => Number(id)).filter(n => Number.isFinite(n));
+    let next = numericIds.length ? Math.max(...numericIds) + 1 : 1;
+    while ((mpl._pallet_ids || []).includes(String(next))) next += 1;
+    mpl._pallet_ids.push(String(next));
+    mpl.total_pallets = String(mpl._pallet_ids.length || 1);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function removeMplPallet(mplIndex, palletId) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    ensureMplPalletState(mpl);
+    const cleanPalletId = normalizePalletId(palletId);
+    (mpl.items || []).forEach(item => {
+      if (normalizePalletId(item.location_on_pallet) === cleanPalletId) {
+        item.location_on_pallet = '';
+        item.pallet_weight = '';
+      }
+    });
+    mpl._pallet_ids = (mpl._pallet_ids || []).filter(id => id !== cleanPalletId);
+    if (mpl._pallet_weights) delete mpl._pallet_weights[cleanPalletId];
+    mpl.total_pallets = String(mpl._pallet_ids.length || 1);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function setMplPalletWeight(mplIndex, palletId, value) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    ensureMplPalletState(mpl);
+    const cleanPalletId = normalizePalletId(palletId);
+    mpl._pallet_weights[cleanPalletId] = value;
+    (mpl.items || []).forEach(item => {
+      if (normalizePalletId(item.location_on_pallet) === cleanPalletId) {
+        item.pallet_weight = value;
+      }
+    });
+  }
+
+  function moveAllUnassignedToFirstPallet(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    ensureMplPalletState(mpl);
+    if (!mpl._pallet_ids.length) mpl._pallet_ids.push('1');
+    const firstPallet = mpl._pallet_ids[0];
+    (mpl.items || []).forEach(item => {
+      if (!normalizePalletId(item.location_on_pallet)) {
+        item.location_on_pallet = firstPallet;
+        item.pallet_weight = (mpl._pallet_weights && mpl._pallet_weights[firstPallet]) || item.pallet_weight || '';
+      }
+    });
+    mpl.total_pallets = String(mpl._pallet_ids.length || 1);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function addMplItem(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    ensureMplPalletState(mpl);
+    mpl.items = mpl.items || [];
+    mpl.items.push({
+      line: mpl.items.length + 1,
+      location_on_pallet: '',
+      item_number: '',
+      upc: '',
+      case_upc: '',
+      description: '',
+      lot: '',
+      expiration_date: '',
+      uom: 'CASES',
+      qty_on_pallet: '',
+      total_ordered: '',
+      total_shipped: '',
+      pallet_weight: '',
+      notes: ''
+    });
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function deleteMplItem(mplIndex, itemIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl || !Array.isArray(mpl.items)) return;
+    mpl.items.splice(itemIndex, 1);
+    syncMplLineNumbers(mpl);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  async function prepareKeheDocument(type) {
+    if (selectedKit !== 'kehe' || !xmlFiles.length) return;
+    const cfg = KEHE_DOCUMENT_CONFIG[type];
+    activeKeheDocumentType = type;
+    activeKeheDocumentDraft = null;
+
+    setStatus(`Preparing editable ${cfg.label} draft\u2026`, 'info');
+    const form = new FormData();
+    xmlFiles.forEach(f => form.append('xml_files', f));
+    const res = await fetch(cfg.prepareEndpoint, { method: 'POST', body: form });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus('Error: ' + (payload.detail || `Could not prepare ${cfg.label}.`), 'error');
+      return;
+    }
+    activeKeheDocumentDraft = payload;
+    renderKeheUnifiedReport(payload);
+    renderDocumentEditor(type, payload);
+    openDocumentEditor();
+    setStatus(`${cfg.label} draft ready. Review/edit fields before generating PDF.`, 'info');
+  }
+
+  function humanizeKey(key) {
+    return String(key || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function normalizeKeheExtractedSource(source) {
+    if (!source) return { headers: [], items: [] };
+
+    if (Array.isArray(source.extracted_headers) || Array.isArray(source.extracted_items)) {
+      return {
+        headers: source.extracted_headers || [],
+        items: source.extracted_items || []
+      };
+    }
+
+    if (Array.isArray(source.pallets)) {
+      return {
+        headers: source.pallets.map(p => ({
+          document_type: 'Pallet Placard',
+          id: p.id || '',
+          status: p.status || '',
+          source_file: (p.source_files || [''])[0],
+          dc: p.dc || '',
+          customer_po_numbers: p.customer_po_numbers || '',
+          ship_date: p.date || '',
+          carrier: p.carrier || '',
+          pro_number: p.pro_number || '',
+          bol_number: p.bol_number || '',
+          carton_count: p.carton_count || '',
+          pack_count: p.pack_count || p.carton_count || '',
+          item_rows: p.item_rows || '',
+          pallet_number: p.pallet_number || '',
+          total_pallets: p.total_pallets || '',
+          copies: p.copies || '',
+          ship_from: p.ship_from || '',
+          ship_to: p.ship_to || '',
+          billing: p.billing || '',
+          placement_note: p.placement_note || '',
+          warnings: (p.warnings || []).join('; ')
+        })),
+        items: []
+      };
+    }
+
+    if (Array.isArray(source.packing_lists)) {
+      const headers = [];
+      const items = [];
+      source.packing_lists.forEach(m => {
+        headers.push({
+          document_type: 'Master Packing List',
+          id: m.id || '',
+          status: m.status || '',
+          source_file: (m.source_files || [''])[0],
+          dc: m.dc || '',
+          customer_po_numbers: m.customer_po_number || '',
+          po_date: m.po_date || '',
+          order_no: m.order_no || '',
+          pro_number: m.pro_number || '',
+          bol_number: m.bol_number || '',
+          ship_date: m.est_ship_date || '',
+          expected_delivery_date: m.expected_delivery_date || '',
+          ship_via: m.ship_via || '',
+          total_weight: m.total_weight || '',
+          carton_count: m.carton_count || '',
+          pack_count: m.pack_count || m.carton_count || '',
+          total_pallets: m.total_pallets || '',
+          supplier_info: m.supplier_info || '',
+          bill_to: m.bill_to || '',
+          ship_to: m.ship_to || '',
+          shipping_instructions: m.shipping_instructions || '',
+          item_rows: (m.items || []).length,
+          warnings: (m.warnings || []).join('; ')
+        });
+        (m.items || []).forEach(item => {
+          items.push({
+            source_file: (m.source_files || [''])[0],
+            dc: m.dc || '',
+            po: m.customer_po_number || '',
+            line: item.line || '',
+            location_on_pallet: item.location_on_pallet || '',
+            item_number: item.item_number || '',
+            upc: item.upc || '',
+            case_upc: item.case_upc || '',
+            description: item.description || '',
+            lot: item.lot || '',
+            expiration_date: item.expiration_date || '',
+            uom: item.uom || '',
+            qty_on_pallet: item.qty_on_pallet || '',
+            total_ordered: item.total_ordered || '',
+            total_shipped: item.total_shipped || '',
+            pallet_weight: item.pallet_weight || '',
+            notes: item.notes || ''
+          });
+        });
+      });
+      return { headers, items };
+    }
+
+    return { headers: [], items: [] };
+  }
+
+  function renderKeheFieldCard(row, index) {
+    const preferred = [
+      'document_type', 'source_file', 'status', 'dc', 'dc_name', 'ship_to_gln',
+      'customer_po_numbers', 'po_date', 'order_no', 'vendor_number', 'bsn', 'bsn_date',
+      'ship_date', 'expected_delivery_date', 'carrier', 'scac', 'pro_number', 'bol_number',
+      'carton_count', 'pack_count', 'item_rows', 'total_weight', 'cube', 'total_pallets',
+      'ship_via', 'ship_from', 'xml_ship_to', 'final_ship_to', 'ship_to', 'bill_to',
+      'billing', 'supplier_info', 'copies', 'placement_note', 'warnings'
+    ];
+    const keys = [...preferred.filter(k => Object.prototype.hasOwnProperty.call(row, k))];
+    Object.keys(row || {}).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+
+    return `
+      <div class="kehe-extracted-card">
+        <div class="kehe-extracted-card-title">Extracted Header ${index + 1}</div>
+        <div class="kehe-field-grid">
+          ${keys.map(key => `
+            <div class="kehe-field">
+              <strong>${escapeHtml(humanizeKey(key))}</strong>
+              <span>${escapeHtml(row[key] || '—')}</span>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  function renderKeheItemsTable(items) {
+    if (!items.length) return '';
+    const keys = [
+      'source_file', 'dc', 'po', 'carton', 'sscc', 'line', 'location_on_pallet',
+      'item_number', 'upc', 'case_upc', 'description', 'qty', 'qty_on_pallet',
+      'total_ordered', 'total_shipped', 'uom', 'lot', 'expiration_date',
+      'manufacture_date', 'plant', 'pallet_weight', 'notes'
+    ].filter(key => items.some(row => Object.prototype.hasOwnProperty.call(row, key)));
+
+    return `
+      <div class="kehe-extracted-card">
+        <div class="kehe-extracted-card-title">Extracted Item Rows (${items.length})</div>
+        <div class="kehe-items-table-wrap">
+          <table class="kehe-items-table">
+            <thead><tr>${keys.map(key => `<th>${escapeHtml(humanizeKey(key))}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${items.map(row => `<tr>${keys.map(key => `<td>${escapeHtml(row[key] || '—')}</td>`).join('')}</tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function renderKeheExtractedTable(source) {
+    if (selectedKit !== 'kehe') return;
+    const panel = document.getElementById('kehe-extracted-panel');
+    const scroll = document.getElementById('kehe-extracted-scroll');
+    if (!panel || !scroll) return;
+    panel.classList.add('visible');
+
+    const extracted = normalizeKeheExtractedSource(source);
+    const headers = extracted.headers || [];
+    const items = extracted.items || [];
+    correctSingleHeaderCounts(headers, items);
+
+    if (!headers.length && !items.length) {
+      scroll.innerHTML = '<div class="empty-row">No extracted KeHE data available yet.</div>';
+      return;
+    }
+
+    scroll.innerHTML = [
+      ...headers.map((row, index) => renderKeheFieldCard(row, index)),
+      renderKeheItemsTable(items)
+    ].filter(Boolean).join('');
+  }
+
+  function getKeheSourceScore(source) {
+    const extracted = normalizeKeheExtractedSource(source);
+    return (extracted.headers || []).length * 10 + (extracted.items || []).length;
+  }
+
+  function rememberKeheExtractedSource(source) {
+    if (source && source.summary && source.summary.generated_labels) {
+      keheGeneratedLabelCount = Number(source.summary.generated_labels) || keheGeneratedLabelCount;
+    }
+    const score = getKeheSourceScore(source);
+    if (!score) return;
+    if (!keheCurrentExtractedSource || score >= getKeheSourceScore(keheCurrentExtractedSource)) {
+      keheCurrentExtractedSource = source;
+    }
+  }
+
+  function firstLine(value) {
+    return String(value || '').split('\n').find(Boolean) || '';
+  }
+
+  function keheCellValue(row, key) {
+    if (!row) return '';
+    if (key === 'ship_to_name') {
+      return row.ship_to_name || firstLine(row.final_ship_to) || firstLine(row.ship_to) || firstLine(row.xml_ship_to);
+    }
+    return row[key] ?? '';
+  }
+
+  function toNumber(value) {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function getActualCartonPackCount(headers) {
+    const generatedCount = toNumber(keheGeneratedLabelCount);
+    if (generatedCount) return generatedCount;
+    const packCount = headers.reduce((sum, row) => sum + toNumber(row.pack_count), 0);
+    if (packCount) return packCount;
+    return headers.reduce((sum, row) => sum + toNumber(row.carton_count), 0);
+  }
+
+  function getActualItemRowCount(headers, items) {
+    if (items && items.length) return items.length;
+    return headers.reduce((sum, row) => sum + toNumber(row.item_rows), 0);
+  }
+
+  function correctSingleHeaderCounts(headers, items) {
+    // Prevent the UI from showing aggregated MPL item-line count as cartons.
+    // For a one-XML run, generated label count equals the actual SSCC/carton count.
+    const generatedCount = toNumber(keheGeneratedLabelCount);
+    if (!generatedCount || headers.length !== 1) return;
+    const row = headers[0];
+    row.pack_count = String(generatedCount);
+    row.carton_count = String(generatedCount);
+    if (!row.item_rows) {
+      const itemRows = getActualItemRowCount(headers, items);
+      if (itemRows) row.item_rows = String(itemRows);
+    }
+  }
+
+  function renderKeheOutputSummary(headers, items) {
+    correctSingleHeaderCounts(headers, items);
+    const headerCount = headers.length;
+    const itemCount = getActualItemRowCount(headers, items);
+    const actualCartonPacks = getActualCartonPackCount(headers);
+    const outputCards = [
+      ['XML Groups', headerCount || '—', 'output-count'],
+      ['Cartons / Packs', actualCartonPacks || '—', 'output-count'],
+      ['Item Rows', itemCount || '—', 'output-count'],
+      ['KeHE Labels', kehePreviewUrls.labels ? 'Preview ready' : 'Not generated', kehePreviewUrls.labels ? 'output-ready' : 'output-pending'],
+      ['Pallet Label', kehePreviewUrls.palletLabel ? 'Preview ready' : 'Not generated', kehePreviewUrls.palletLabel ? 'output-ready' : 'output-pending'],
+      ['MPL', kehePreviewUrls.masterPackingList ? 'Preview ready' : 'Not generated', kehePreviewUrls.masterPackingList ? 'output-ready' : 'output-pending']
+    ];
+    document.getElementById('match-summary').innerHTML = outputCards.map(([label, value, cls]) => {
+      return `<div class="match-pill ${cls}"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`;
+    }).join('');
+  }
+
+  function renderKeheUnifiedReport(source) {
+    if (selectedKit !== 'kehe') return;
+
+    rememberKeheExtractedSource(source);
+    const sourceToUse = keheCurrentExtractedSource || source;
+    const extracted = normalizeKeheExtractedSource(sourceToUse);
+    const headers = extracted.headers || [];
+    const items = extracted.items || [];
+    correctSingleHeaderCounts(headers, items);
+    const columns = KEHE_UNIFIED_COLUMNS;
+
+    document.getElementById('report-title').textContent = 'KeHE XML Data & Output Status';
+    document.getElementById('match-rules').textContent = 'Extracted XML data stays visible here. Generate buttons only update output status and preview availability.';
+    document.getElementById('match-table-head').innerHTML = '<tr>' + columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join('') + '</tr>';
+
+    currentReport = { rows: headers, extracted_items: items };
+    currentCsvColumns = KEHE_UNIFIED_CSV_COLUMNS;
+    currentCsvName = 'kehe_extracted_headers.csv';
+
+    renderKeheOutputSummary(headers, items);
+    renderKeheExtractedTable(sourceToUse);
+
+    const bodyEl = document.getElementById('match-table-body');
+    if (!headers.length) {
+      bodyEl.innerHTML = `<tr><td class="empty-row" colspan="${columns.length}">Upload KeHE XML, then generate labels or prepare a document to see extracted shipment data.</td></tr>`;
+      setExportReady(false);
+      return;
+    }
+
+    bodyEl.innerHTML = headers.map(rawRow => {
+      const row = rawRow || {};
+      return '<tr>' + columns.map(([key]) => {
+        const value = keheCellValue(row, key);
+        if (key === 'status') return `<td>${formatStatusCell(value || 'Ready')}</td>`;
+        return `<td>${escapeHtml(value || '—')}</td>`;
+      }).join('') + '</tr>';
+    }).join('');
+    setExportReady(true);
+  }
+
+  function renderDocumentReport(docCfg, report) {
+    if (selectedKit === 'kehe') {
+      renderKeheUnifiedReport(keheCurrentExtractedSource || activeKeheDocumentDraft);
+      return;
+    }
+    currentReport = report || null;
+    currentCsvColumns = docCfg.columns;
+    currentCsvName = docCfg.csvName;
+    document.getElementById('report-title').textContent = docCfg.reportTitle;
+    document.getElementById('match-rules').textContent = 'Generated from edited document fields.';
+    document.getElementById('match-table-head').innerHTML =
+      '<tr>' + docCfg.columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join('') + '</tr>';
+    renderSummary(report);
+    const rows = report?.rows || [];
+    const bodyEl = document.getElementById('match-table-body');
+    if (!rows.length) {
+      bodyEl.innerHTML = `<tr><td class="empty-row" colspan="${docCfg.columns.length}">No report details available.</td></tr>`;
+      setExportReady(false);
+      return;
+    }
+    bodyEl.innerHTML = rows.map(row => {
+      return '<tr>' + docCfg.columns.map(([key]) => {
+        const value = row[key];
+        if (key === 'status') return `<td>${formatStatusCell(value)}</td>`;
+        return `<td>${escapeHtml(value || '\u2014')}</td>`;
+      }).join('') + '</tr>';
+    }).join('');
+    setExportReady(true);
+  }
+
+  function finalizeMplPalletDraft() {
+    if (!activeKeheDocumentDraft || !Array.isArray(activeKeheDocumentDraft.packing_lists)) return;
+    activeKeheDocumentDraft.packing_lists.forEach(mpl => {
+      ensureMplPalletState(mpl);
+      const assignedIds = [];
+      (mpl.items || []).forEach(item => {
+        const id = normalizePalletId(item.location_on_pallet);
+        if (id && !assignedIds.includes(id)) assignedIds.push(id);
+        if (id && mpl._pallet_weights && mpl._pallet_weights[id]) {
+          item.pallet_weight = mpl._pallet_weights[id];
+        }
+      });
+      mpl.total_pallets = String((mpl._pallet_ids && mpl._pallet_ids.length) || assignedIds.length || 1);
+    });
+  }
+
+  async function renderEditedKeheDocument() {
+    if (!activeKeheDocumentType || !activeKeheDocumentDraft) return;
+    if (activeKeheDocumentType === 'masterPackingList') finalizeMplPalletDraft();
+    const cfg = KEHE_DOCUMENT_CONFIG[activeKeheDocumentType];
+    const btn = document.getElementById('btn-render-edited-document');
+    btn.disabled = true;
+    setStatus(`Generating ${cfg.label} PDF from edited values\u2026`, 'info');
+    closeDocumentEditor();
+    // Clear any previously rendered preview so the new PDF always renders fresh
+    closePreview();
+    resetPreviewSurface();
+    setDownloadReady(false);
+    // Keep the KeHE XML data/report visible while the PDF is generated.
+    try {
+      const res = await fetch(cfg.renderEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(activeKeheDocumentDraft)
+      });
+      const resultIdFromHeader = res.headers.get('X-Result-Id');
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.detail || `Could not start ${cfg.label} generation.`);
+      }
+      currentResultId = resultIdFromHeader || payload.result_id;
+      if (!currentResultId) throw new Error('Generation could not be started.');
+
+      document.getElementById('btn-download').download = cfg.outputName;
+      const status = await waitForGeneration(currentResultId);
+
+      const fileRes = await fetch(`/results/${encodeURIComponent(currentResultId)}/file`);
+      if (!fileRes.ok) {
+        const fileErr = await fileRes.json().catch(() => ({ detail: fileRes.statusText }));
+        throw new Error(fileErr.detail || 'Generated PDF could not be downloaded.');
+      }
+      const blob = await fileRes.blob();
+      blobUrl = URL.createObjectURL(blob);
+      setDownloadReady(true, blobUrl);
+      setKehePreviewReady(activeKeheDocumentType, true, blobUrl);
+      setActivePreviewFormat(KEHE_PREVIEW_CONFIG[activeKeheDocumentType]?.format || 'rollo');
+
+      renderKeheUnifiedReport(activeKeheDocumentDraft);
+      resetPreviewSurface();
+      await openPreview();
+      setStatus(`${cfg.label} generated successfully.`, 'success');
+    } catch (err) {
+      setStatus('Error: ' + (err.message || 'Generation failed.'), 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }</script>
 
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>

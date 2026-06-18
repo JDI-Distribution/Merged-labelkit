@@ -37,9 +37,13 @@ from pipelines.michaels_label_pipeline import (  # noqa: E402
     MatchFailureError as MichaelsMatchFailureError,
     run_pipeline as run_michaels_pipeline,
 )
-from pipelines.kehe_label_pipeline import (  # noqa: E402
+from pipelines.kehe_pipeline import (  # noqa: E402
     MatchFailureError as KeheMatchFailureError,
     run_pipeline as run_kehe_pipeline,
+    build_kehe_master_packing_list_draft,
+    build_kehe_pallet_label_draft,
+    render_kehe_master_packing_list_pdf,
+    render_kehe_pallet_label_pdf,
 )
 
 MatchFailureErrors = (MichaelsMatchFailureError, KeheMatchFailureError)
@@ -68,6 +72,16 @@ KIT_CONFIG: Dict[str, Dict[str, str]] = {
         "label": "KeHE Label Kit",
         "output_filename": "kehe_gs1_labels.pdf",
         "temp_prefix": "kehe_labelkit_",
+    },
+    "kehe_pallet_label": {
+        "label": "KeHE Pallet Label",
+        "output_filename": "kehe_pallet_labels.pdf",
+        "temp_prefix": "kehe_pallet_label_",
+    },
+    "kehe_master_packing_list": {
+        "label": "KeHE Master Packing List",
+        "output_filename": "kehe_master_packing_list.pdf",
+        "temp_prefix": "kehe_master_packing_list_",
     },
 }
 
@@ -118,7 +132,7 @@ def _prune_old_results() -> None:
             shutil.rmtree(job["temp_dir"], ignore_errors=True)
 
 
-def create_result_job(temp_dir: Path, kit: str) -> str:
+def create_result_job(temp_dir: Path, kit: str, output_filename: Optional[str] = None) -> str:
     result_id = uuid.uuid4().hex
     RESULT_JOBS[result_id] = {
         "kit": kit,
@@ -126,6 +140,7 @@ def create_result_job(temp_dir: Path, kit: str) -> str:
         "detail": "Files uploaded. Starting generation…",
         "report": None,
         "output_path": None,
+        "output_filename": output_filename,
         "temp_dir": str(temp_dir),
         "created_at": time.time(),
     }
@@ -268,7 +283,10 @@ def get_result_file(result_id: str) -> FileResponse:
         raise HTTPException(status_code=409, detail="PDF is not ready yet.")
 
     kit = str(job.get("kit") or "michaels")
-    filename = KIT_CONFIG.get(kit, KIT_CONFIG["michaels"])["output_filename"]
+    filename = (
+        job.get("output_filename")
+        or KIT_CONFIG.get(kit, KIT_CONFIG["michaels"])["output_filename"]
+    )
     return FileResponse(
         path=job["output_path"],
         media_type="application/pdf",
@@ -352,6 +370,208 @@ async def generate_for_kit(
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
         return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+
+# ---------------------------------------------------------------------------
+# BACKEND SECTION 6B: KeHE document prepare endpoints (draft JSON only).
+# These parse XML and return editable JSON. They do NOT generate PDFs.
+# ---------------------------------------------------------------------------
+@app.post("/prepare/kehe/pallet-label")
+async def prepare_kehe_pallet_label(
+    xml_files: List[UploadFile] = File(...),
+) -> JSONResponse:
+    if not xml_files:
+        raise HTTPException(status_code=400, detail="At least one XML file is required.")
+    temp_dir = Path(tempfile.mkdtemp(prefix="kehe_pallet_prepare_"))
+    try:
+        xml_paths: List[str] = []
+        for upload in xml_files:
+            if not (upload.filename or "").lower().endswith(".xml"):
+                raise HTTPException(status_code=400, detail=f"Invalid XML file: {upload.filename}")
+            out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
+            await save_upload_file(upload, out_path)
+            xml_paths.append(str(out_path))
+        draft = build_kehe_pallet_label_draft(xml_paths)
+        # Attach extracted_headers for the frontend Extracted Data table
+        draft["extracted_headers"] = [
+            {
+                "source_file":             p.get("id", ""),
+                "customer_po_numbers":     p.get("customer_po_numbers", ""),
+                "pro_number":              p.get("pro_number", ""),
+                "bol_number":              p.get("bol_number", ""),
+                "ship_date":               p.get("date", ""),
+                "expected_delivery_date":  p.get("expected_delivery_date", ""),
+                "carrier":                 p.get("carrier", ""),
+                "total_weight":            "",
+                "carton_count":            p.get("carton_count", ""),
+                "total_pallets":           p.get("total_pallets", ""),
+                "ship_via":                p.get("carrier", ""),
+                "dc":                      p.get("dc", ""),
+                "ship_to_name":            (p.get("ship_to") or "").split("\n")[0],
+            }
+            for p in (draft.get("pallets") or [])
+        ]
+        return JSONResponse(content=draft)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.post("/prepare/kehe/master-packing-list")
+async def prepare_kehe_master_packing_list(
+    xml_files: List[UploadFile] = File(...),
+) -> JSONResponse:
+    if not xml_files:
+        raise HTTPException(status_code=400, detail="At least one XML file is required.")
+    temp_dir = Path(tempfile.mkdtemp(prefix="kehe_mpl_prepare_"))
+    try:
+        xml_paths: List[str] = []
+        for upload in xml_files:
+            if not (upload.filename or "").lower().endswith(".xml"):
+                raise HTTPException(status_code=400, detail=f"Invalid XML file: {upload.filename}")
+            out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
+            await save_upload_file(upload, out_path)
+            xml_paths.append(str(out_path))
+        draft = build_kehe_master_packing_list_draft(xml_paths)
+        # Attach extracted_headers for the frontend Extracted Data table
+        draft["extracted_headers"] = [
+            {
+                "source_file":             (m.get("source_files") or [""])[0],
+                "customer_po_numbers":     m.get("customer_po_number", ""),
+                "pro_number":              m.get("pro_number", ""),
+                "bol_number":              "",
+                "ship_date":               m.get("est_ship_date", ""),
+                "expected_delivery_date":  m.get("expected_delivery_date", ""),
+                "carrier":                 m.get("ship_via", ""),
+                "total_weight":            m.get("total_weight", ""),
+                "carton_count":            str(len(m.get("items") or [])),
+                "total_pallets":           m.get("total_pallets", ""),
+                "ship_via":                m.get("ship_via", ""),
+                "dc":                      m.get("dc", ""),
+                "ship_to_name":            (m.get("ship_to") or "").split("\n")[0],
+            }
+            for m in (draft.get("packing_lists") or [])
+        ]
+        return JSONResponse(content=draft)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# BACKEND SECTION 6C: KeHE document render workers.
+# ---------------------------------------------------------------------------
+def run_kehe_pallet_label_render_job(result_id: str, draft: Dict[str, Any]) -> None:
+    job = RESULT_JOBS[result_id]
+    temp_dir = Path(job["temp_dir"])
+    output_path = temp_dir / KIT_CONFIG["kehe_pallet_label"]["output_filename"]
+    try:
+        def _progress(message: str) -> None:
+            update_result_job(result_id, detail=message)
+
+        update_result_job(result_id, detail="Rendering edited KeHE Pallet Label PDF\u2026")
+        report = render_kehe_pallet_label_pdf(
+            draft=draft,
+            out_pdf=str(output_path),
+            progress_callback=_progress,
+        )
+        if not output_path.exists():
+            raise RuntimeError("Output PDF was not generated.")
+        RESULT_REPORTS[result_id] = report
+        update_result_job(
+            result_id,
+            status="complete",
+            detail="KeHE Pallet Label generated successfully.",
+            report=report,
+            output_path=str(output_path),
+        )
+    except Exception as exc:
+        update_result_job(result_id, status="error", detail=str(exc))
+
+
+def run_kehe_master_packing_list_render_job(result_id: str, draft: Dict[str, Any]) -> None:
+    job = RESULT_JOBS[result_id]
+    temp_dir = Path(job["temp_dir"])
+    output_path = temp_dir / KIT_CONFIG["kehe_master_packing_list"]["output_filename"]
+    try:
+        def _progress(message: str) -> None:
+            update_result_job(result_id, detail=message)
+
+        update_result_job(result_id, detail="Rendering edited KeHE Master Packing List PDF\u2026")
+        report = render_kehe_master_packing_list_pdf(
+            draft=draft,
+            out_pdf=str(output_path),
+            progress_callback=_progress,
+        )
+        if not output_path.exists():
+            raise RuntimeError("Output PDF was not generated.")
+        RESULT_REPORTS[result_id] = report
+        update_result_job(
+            result_id,
+            status="complete",
+            detail="KeHE Master Packing List generated successfully.",
+            report=report,
+            output_path=str(output_path),
+        )
+    except Exception as exc:
+        update_result_job(result_id, status="error", detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# BACKEND SECTION 6D: KeHE document render endpoints.
+# ---------------------------------------------------------------------------
+@app.post("/render/kehe/pallet-label")
+async def render_kehe_pallet_label_endpoint(draft: Dict[str, Any]) -> JSONResponse:
+    temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_pallet_label"]["temp_prefix"]))
+    result_id = create_result_job(
+        temp_dir,
+        "kehe_pallet_label",
+        output_filename=KIT_CONFIG["kehe_pallet_label"]["output_filename"],
+    )
+    worker = threading.Thread(
+        target=run_kehe_pallet_label_render_job,
+        args=(result_id, draft),
+        daemon=True,
+    )
+    worker.start()
+    return JSONResponse(
+        content={
+            "result_id": result_id,
+            "kit": "kehe_pallet_label",
+            "status": "processing",
+            "detail": "KeHE Pallet Label generation started\u2026",
+        },
+        headers={
+            "X-Result-Id": result_id,
+            "Access-Control-Expose-Headers": "X-Result-Id",
+        },
+    )
+
+
+@app.post("/render/kehe/master-packing-list")
+async def render_kehe_master_packing_list_endpoint(draft: Dict[str, Any]) -> JSONResponse:
+    temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_master_packing_list"]["temp_prefix"]))
+    result_id = create_result_job(
+        temp_dir,
+        "kehe_master_packing_list",
+        output_filename=KIT_CONFIG["kehe_master_packing_list"]["output_filename"],
+    )
+    worker = threading.Thread(
+        target=run_kehe_master_packing_list_render_job,
+        args=(result_id, draft),
+        daemon=True,
+    )
+    worker.start()
+    return JSONResponse(
+        content={
+            "result_id": result_id,
+            "kit": "kehe_master_packing_list",
+            "status": "processing",
+            "detail": "KeHE Master Packing List generation started\u2026",
+        },
+        headers={
+            "X-Result-Id": result_id,
+            "Access-Control-Expose-Headers": "X-Result-Id",
+        },
+    )
 
 
 @app.post("/generate")
@@ -446,7 +666,7 @@ def serve_frontend_index() -> HTMLResponse:
 @app.get("/{full_path:path}")
 async def spa_fallback(full_path: str, request: Request):
     _ = request
-    if full_path.startswith(("generate", "results", "health", "docs", "openapi.json", "redoc", "accounts/")):
+    if full_path.startswith(("generate", "prepare", "render", "results", "health", "docs", "openapi.json", "redoc", "accounts/")):
         raise HTTPException(status_code=404, detail="Not found")
 
     requested_path = FRONTEND_DIST / full_path
@@ -466,3 +686,5 @@ if __name__ == "__main__":
         reload=False,
         log_level="info",
     )
+
+
