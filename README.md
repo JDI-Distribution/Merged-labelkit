@@ -19,7 +19,7 @@ This project provides two workflows in one UI:
   - FastAPI app and API endpoints
 - `frankenstein_project/pipelines/michaels_label_pipeline.py`
   - Michaels processing logic
-- `frankenstein_project/pipelines/kehe_label_pipeline.py`
+- `frankenstein_project/pipelines/kehe_pipeline.py`
   - KeHE processing logic
 - `frankenstein_project/frontend/dist/index.html`
   - Frontend UI (single page with 3 states: kit selection, workspace, preview)
@@ -28,30 +28,31 @@ This project provides two workflows in one UI:
 - `Dockerfile`
   - Container build
 
-## Run locally (Windows PowerShell)
+## Run locally
+
+### Option 1: Local Python runtime (Windows PowerShell)
 
 ```powershell
 Set-Location "frankenstein_project"
-"C:/Users/JDI Employee/AppData/Local/Python/bin/python.exe" -m pip install -r requirements.txt
-"C:/Users/JDI Employee/AppData/Local/Python/bin/python.exe" -m uvicorn server:app --host 0.0.0.0 --port 9000 --reload
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m uvicorn server:app --host 0.0.0.0 --port 9000 --reload
 ```
 
-Open:
+Open http://127.0.0.1:9000
 
-- http://127.0.0.1:9000
-
-## Run with Docker
+### Option 2: Local Docker runtime
 
 From the repository root:
 
-```bash
-docker build -t label-kits .
-docker run --rm -p 9000:9000 label-kits
+```powershell
+docker build -t merged-labelkit:latest .
+docker run --rm -p 9000:9000 --name merged-labelkit merged-labelkit:latest
 ```
 
-Open:
-
-- http://127.0.0.1:9000
+Open http://127.0.0.1:9000
 
 ## API endpoints
 
@@ -72,42 +73,70 @@ Open:
 ### Prerequisites
 
 - Docker Desktop installed and running
-- Node.js installed
+- Node.js 18+ installed
 - Catalyst CLI installed:
 
-```bash
+```powershell
 npm install -g zcatalyst-cli
 ```
 
-### Deploy steps
+### Deploy from local machine
 
-1. Log in to Catalyst:
+1. Authenticate and select the correct project:
 
-```bash
+```powershell
 catalyst login
+catalyst project:list
 ```
 
 2. Build the Docker image from the repository root:
 
-```bash
+```powershell
 docker build -t merged-labelkit:latest .
 ```
 
-3. Deploy from the `frankenstein_project` folder (uses `frankenstein_project/catalyst.json`):
+3. Deploy from the `frankenstein_project` folder (uses `frankenstein_project\catalyst.json`):
 
-```bash
-cd frankenstein_project
-catalyst deploy
+```powershell
+Set-Location "C:\path\to\Merged-labelkit"
+catalyst deploy appsail --name merged-labelkit --build-path .\frankenstein_project --stack python_3_11 --command "./start.sh"
 ```
 
-If you want to deploy directly without saved config:
+4. Verify deployment and capture URL:
 
-```bash
-catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
+```powershell
+catalyst appsail:list
 ```
 
 ### Catalyst notes
 
-- The app listens on port `9000`.
+- The container now binds to `X_ZOHO_CATALYST_LISTEN_PORT` (with `PORT`/`9000` fallback), matching AppSail runtime behavior.
+- If you want custom runtime deployment from Docker instead, keep `frankenstein_project/catalyst.json` as `docker://merged-labelkit:latest` and run `catalyst deploy` from `frankenstein_project`.
 - AppSail memory can be adjusted in `frankenstein_project/catalyst.json`.
 - The Docker image installs Tesseract OCR and Poppler utilities for PDF/OCR processing.
+
+## KeHE GTIN / Packaging Master Table persistence
+
+The KeHE frontend now calls backend APIs for the GTIN / Packaging Master Table:
+
+- `GET /api/kehe/product-master`
+- `PUT /api/kehe/product-master`
+
+The backend first tries Catalyst Data Store through the Python SDK. If it cannot initialize Data Store, it falls back to `frankenstein_project/data/kehe_product_master.json` so local Docker testing still works.
+
+For production AppSail persistence, create a Catalyst Data Store table named `kehe_product_master` with these columns:
+
+- `GTIN`
+- `DESCRIPTION`
+- `PACKAGING_LEVEL`
+- `DIMENSIONS_IN`
+- `WEIGHT_LBS`
+- `SKU`
+- `UNIQUE_KEY`
+- `IS_ACTIVE`
+
+The table name can be changed with the environment variable `KEHE_PRODUCT_MASTER_TABLE`. Set `KEHE_PRODUCT_MASTER_STORE=file` only for local testing.
+
+## Seeded KeHE Product Master JSON
+
+The app includes `frankenstein_project/data/kehe_product_master.json` with the initial GTIN / Packaging Master Table rows. In file fallback mode, `/api/kehe/product-master` reads this JSON. Later, the same row structure can be copied into Catalyst Data Store. Rows using the previous `Shipper Contents` label are stored as `Other` to match the frontend dropdown options.

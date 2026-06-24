@@ -28,4 +28,4 @@ COPY frankenstein_project/ ./
 
 EXPOSE 9000
 
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-9000}"]
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${X_ZOHO_CATALYST_LISTEN_PORT:-${PORT:-9000}}"]
