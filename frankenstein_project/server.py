@@ -104,6 +104,29 @@ KEHE_PRODUCT_MASTER_FILE = Path(
     os.getenv("KEHE_PRODUCT_MASTER_FILE", str(BASE_DIR / "data" / "kehe_product_master.json"))
 )
 
+# Defaults used when older Product Master rows do not yet contain the new columns.
+DEFAULT_PRODUCT_LABEL_REQUIRED = "✅"
+BARCODE_ON_PRODUCT = "Barcode on Product"
+DEFAULT_CASE_QTY_BY_LEVEL = {
+    "Case": "36",
+    "Inner Pack": "6",
+    "Each": "",
+    "Shipper Contents": "",
+    "Other": "",
+}
+DEFAULT_LABELS_PER_UNIT_BY_LEVEL = {
+    "Case": "2",
+    "Inner Pack": "6",
+    "Each": "",
+    "Shipper Contents": "",
+    "Other": "",
+}
+# These each-level display packs still need generated pack labels.
+DEFAULT_EACH_LABEL_GTINS = {"850068684939", "850068684991"}
+
+# Default Ship From used only for manual DC Directory rows when no value exists.
+DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
+
 # KeHE DC Directory persistence.
 # File mode updates data/kehe_dc_directory.json.
 # Data Store mode mirrors Data Store rows into that JSON file before KeHE document preparation,
@@ -285,6 +308,10 @@ def normalize_packaging_level(value: Any) -> str:
         return "Inner Pack"
     if raw in {"each", "ea"}:
         return "Each"
+    if raw in {"shipper contents", "shipper content", "shipper", "display shipper"}:
+        return "Shipper Contents"
+    if raw == "other":
+        return "Shipper Contents"
     return "Other"
 
 
@@ -300,13 +327,27 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
     packaging_level = normalize_packaging_level(
         _first_value(row, "packaging_level", "PACKAGING_LEVEL", "Packaging Level")
     )
+    label_required = _first_value(row, "label_required", "LABEL_REQUIRED", "Label Required")
+    case_qty = _first_value(row, "case_qty", "CASE_QTY", "Case Qty")
+    labels_per_unit = _first_value(row, "labels_per_unit", "LABELS_PER_UNIT", "Labels / Unit")
+
+    if not label_required:
+        label_required = _default_label_required_for_product(gtin, packaging_level)
+    if not case_qty:
+        case_qty = _default_case_qty_for_product(packaging_level)
+    if not labels_per_unit:
+        labels_per_unit = _default_labels_per_unit_for_product(packaging_level)
+
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
+        "label_required": label_required,
         "gtin": gtin,
         "description": _first_value(row, "description", "DESCRIPTION", "Description"),
         "packaging_level": packaging_level,
         "dimensions_in": _first_value(row, "dimensions_in", "DIMENSIONS_IN", "L_X_W_X_H_IN", "L × W × H (in)"),
         "weight_lbs": _first_value(row, "weight_lbs", "WEIGHT_LBS", "Weight (lbs)"),
+        "case_qty": case_qty,
+        "labels_per_unit": labels_per_unit,
         "sku": _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER"),
         "unique_key": _product_master_unique_key(gtin, packaging_level),
     }
@@ -314,6 +355,24 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
 
 def _product_master_unique_key(gtin: str, packaging_level: str) -> str:
     return f"{str(gtin or '').strip()}|{normalize_packaging_level(packaging_level)}"
+
+
+
+def _default_label_required_for_product(gtin: str, packaging_level: str) -> str:
+    level = normalize_packaging_level(packaging_level)
+    if level in {"Case", "Inner Pack"}:
+        return DEFAULT_PRODUCT_LABEL_REQUIRED
+    if level == "Each" and str(gtin or "").strip() in DEFAULT_EACH_LABEL_GTINS:
+        return DEFAULT_PRODUCT_LABEL_REQUIRED
+    return BARCODE_ON_PRODUCT
+
+
+def _default_case_qty_for_product(packaging_level: str) -> str:
+    return DEFAULT_CASE_QTY_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
+
+
+def _default_labels_per_unit_for_product(packaging_level: str) -> str:
+    return DEFAULT_LABELS_PER_UNIT_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
 
 
 def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, str]]:
@@ -333,7 +392,7 @@ def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, st
     fallback_index = 0
     for raw in rows:
         row = normalize_product_master_row(raw)
-        has_data = any(row.get(k) for k in ("gtin", "description", "dimensions_in", "weight_lbs", "sku"))
+        has_data = any(row.get(k) for k in ("gtin", "description", "dimensions_in", "weight_lbs", "case_qty", "labels_per_unit", "sku"))
         if not has_data:
             continue
         key = row.get("unique_key") or ""
@@ -375,11 +434,14 @@ def _datastore_row_to_product(row: Dict[str, Any]) -> Dict[str, str]:
 def _product_to_datastore_row(row: Dict[str, Any]) -> Dict[str, Any]:
     normalized = normalize_product_master_row(row)
     return {
+        "LABEL_REQUIRED": normalized["label_required"],
         "GTIN": normalized["gtin"],
         "DESCRIPTION": normalized["description"],
         "PACKAGING_LEVEL": normalized["packaging_level"],
         "DIMENSIONS_IN": normalized["dimensions_in"],
         "WEIGHT_LBS": normalized["weight_lbs"],
+        "CASE_QTY": normalized["case_qty"],
+        "LABELS_PER_UNIT": normalized["labels_per_unit"],
         "SKU": normalized["sku"],
         "UNIQUE_KEY": normalized["unique_key"],
         "IS_ACTIVE": True,
@@ -530,10 +592,12 @@ def _parse_match_values(value: Any) -> List[str]:
 
 def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     dc = _first_value(row, "dc", "DC")
+    ship_from = _first_value(row, "ship_from", "SHIP_FROM", "ship_from_address", "SHIP_FROM_ADDRESS", "Ship From")
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "dc": dc,
         "name": _first_value(row, "name", "NAME"),
+        "ship_from": ship_from or DEFAULT_KEHE_SHIP_FROM,
         "delivery_address": _first_value(row, "delivery_address", "DELIVERY_ADDRESS"),
         "billing_address": _first_value(row, "billing_address", "BILLING_ADDRESS"),
         "match_values": _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", []))),
@@ -547,7 +611,7 @@ def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
     for raw in rows:
         row = normalize_dc_directory_row(raw)
-        if not any([row.get("dc"), row.get("name"), row.get("delivery_address"), row.get("billing_address"), row.get("match_values")]):
+        if not any([row.get("dc"), row.get("name"), row.get("ship_from"), row.get("delivery_address"), row.get("billing_address"), row.get("match_values")]):
             continue
 
         key = str(row.get("dc") or "").strip()
@@ -571,6 +635,7 @@ def _dc_rows_to_directory_object(rows: List[Dict[str, Any]]) -> Dict[str, Dict[s
         out[dc] = {
             "dc": dc,
             "name": row.get("name", ""),
+            "ship_from": row.get("ship_from", DEFAULT_KEHE_SHIP_FROM),
             "delivery_address": row.get("delivery_address", ""),
             "billing_address": row.get("billing_address", ""),
             "match_values": row.get("match_values", []),
@@ -630,6 +695,7 @@ def _dc_to_datastore_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "DC": normalized["dc"],
         "NAME": normalized["name"],
+        "SHIP_FROM": normalized["ship_from"],
         "DELIVERY_ADDRESS": normalized["delivery_address"],
         "BILLING_ADDRESS": normalized["billing_address"],
         "MATCH_VALUES": json.dumps(normalized["match_values"]),

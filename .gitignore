@@ -25,3 +25,8 @@ Thumbs.db
 # Build artifacts
 *.egg-info/
 build/
+
+# Local utility and temp files
+check_frontend.js
+*.tmp
+*.temp

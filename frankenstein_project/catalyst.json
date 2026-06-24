@@ -6,7 +6,9 @@
       "port": 9000,
       "memory": 2048,
       "env_variables": {
-        "PYTHONUNBUFFERED": "1"
+        "PYTHONUNBUFFERED": "1",
+        "KEHE_PRODUCT_MASTER_STORE": "auto",
+        "KEHE_PRODUCT_MASTER_TABLE": "kehe_product_master"
       }
     }
   ]

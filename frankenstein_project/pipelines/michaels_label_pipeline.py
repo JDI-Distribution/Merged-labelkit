@@ -31,7 +31,7 @@ Usage:
     # Multiple XMLs combined:
     python label_pipeline.py \
         --xml "asn1.xml" "asn2.xml" \
-        --shipping "Label (1).pdf" \
+        --shipping "Label .pdf" \
         --out "output.pdf"
 """
 

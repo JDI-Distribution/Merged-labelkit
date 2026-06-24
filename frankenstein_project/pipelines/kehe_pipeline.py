@@ -35,6 +35,7 @@ from reportlab.pdfgen import canvas
 # Global constants
 # ===========================================================================
 UPS_RE = re.compile(r"(1Z[0-9A-Z]{16})")
+DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
 
 # ===========================================================================
@@ -78,6 +79,7 @@ def load_kehe_dc_directory() -> dict[str, dict[str, Any]]:
             raise ValueError(
                 f"KeHE DC directory row {dc} match_values must be a list."
             )
+        row["ship_from"] = str(row.get("ship_from") or DEFAULT_KEHE_SHIP_FROM).strip() or DEFAULT_KEHE_SHIP_FROM
     return data
 
 
@@ -1132,7 +1134,7 @@ def _get_elem(seg: Optional[ET.Element], pos: str) -> str:
 
 
 def _format_date(value: str) -> str:
-    """Convert various EDI date formats to MM-DD-YYYY for PDF consistency."""
+    """Convert various EDI date formats to MM/DD/YYYY for PDF consistency."""
     value = (value or "").strip()
     if not value:
         return ""
@@ -1142,18 +1144,18 @@ def _format_date(value: str) -> str:
         dd = int(m.group(2))
         year_s = m.group(3)
         year = int(year_s) + 2000 if len(year_s) == 2 else int(year_s)
-        return f"{mm:02d}-{dd:02d}-{year:04d}"
+        return f"{mm:02d}/{dd:02d}/{year:04d}"
     digits = re.sub(r"\D", "", value)
     if len(digits) == 8:
         first4 = int(digits[:4])
         last4 = int(digits[4:8])
         if 1900 <= first4 <= 2100:
-            return f"{digits[4:6]}-{digits[6:8]}-{digits[0:4]}"
+            return f"{digits[4:6]}/{digits[6:8]}/{digits[0:4]}"
         if 1900 <= last4 <= 2100:
-            return f"{digits[0:2]}-{digits[2:4]}-{digits[4:8]}"
+            return f"{digits[0:2]}/{digits[2:4]}/{digits[4:8]}"
         return value
     if len(digits) == 6:
-        return f"{digits[2:4]}-{digits[4:6]}-20{digits[0:2]}"
+        return f"{digits[2:4]}/{digits[4:6]}/20{digits[0:2]}"
     return value
 
 
@@ -1512,6 +1514,15 @@ def _ship_from_str(header: Dict[str, Any], packs: list) -> str:
     return ""
 
 
+def _dc_ship_from_str(dc_info: Optional[Dict[str, Any]], header: Dict[str, Any], packs: list) -> str:
+    """Use XML ship-from for XML-generated documents; fall back only if XML is blank.
+
+    DC Directory ship_from is intentionally used only by the frontend manual
+    DC Directory Preview flow, not by XML-generated Pallet Label / MPL drafts.
+    """
+    return _ship_from_str(header, packs) or DEFAULT_KEHE_SHIP_FROM
+
+
 def _ship_to_str(dc_info: Optional[Dict[str, Any]], xml_ship_to: Dict[str, str]) -> str:
     if dc_info:
         return dc_info["delivery_address"]
@@ -1630,7 +1641,7 @@ def build_kehe_pallet_label_draft(xml_paths: List[str]) -> Dict[str, Any]:
 
         status = "Needs Review" if needs_review else "Ready"
         dc = dc_info["dc"] if dc_info else "Unknown"
-        ship_from = _ship_from_str(header, packs)
+        ship_from = _dc_ship_from_str(dc_info, header, packs)
         ship_to = _ship_to_str(dc_info, header.get("xml_ship_to", {}))
         billing = _billing_str(dc_info)
         source_file = header.get("source_file", "")
@@ -1639,7 +1650,7 @@ def build_kehe_pallet_label_draft(xml_paths: List[str]) -> Dict[str, Any]:
             header.get("total_pallets") or header.get("xml_total_pallets") or "1",
             1,
         ))
-        explicit_pallet_xml = bool(header.get("xml_total_pallets")) and _safe_positive_int(total_pallets, 1) > 1
+        explicit_pallet_xml = bool(header.get("xml_total_pallets"))
 
         base_warnings: List[str] = list(header.get("warnings", []))
 
@@ -1744,14 +1755,15 @@ def _aggregate_mpl_items_for_editor(
     *,
     total_pallets: str = "1",
     preserve_pack_pallets: bool = False,
+    default_pallet: str = "1",
 ) -> List[Dict[str, Any]]:
     """Aggregate XML item rows into editable MPL lines.
 
     Important KeHE rule:
       - If TD101 says PLT/Pallet, each HL03=P loop is a physical pallet.
         Items must stay with their parent P loop.
-      - If TD101 says CTN/Carton or the XML is unclear, keep all item rows on
-        Pallet 1 and let the frontend/user edit Pallet # manually.
+      - If TD101 says CTN/Carton or the XML is unclear, leave item rows
+        Unassigned so the frontend/user can Auto Palletize or manually assign.
 
     The aggregation key includes pallet number whenever `preserve_pack_pallets`
     is true. That prevents the same UPC from being merged across different
@@ -1761,7 +1773,7 @@ def _aggregate_mpl_items_for_editor(
     allowed_pallets = set(_pallet_ids_for_total(total_pallets))
 
     for fallback_idx, pack in enumerate(packs, start=1):
-        pallet_number = str(pack.carton_index or fallback_idx) if preserve_pack_pallets else "1"
+        pallet_number = str(pack.carton_index or fallback_idx) if preserve_pack_pallets else str(default_pallet or "")
         if preserve_pack_pallets and allowed_pallets and pallet_number not in allowed_pallets:
             # Keep real XML order, but do not create impossible pallet numbers when
             # TD102 and P-loop count disagree. User can still edit the draft.
@@ -1826,7 +1838,13 @@ def _aggregate_mpl_items_for_editor(
 # Product master / GTIN packaging helpers
 # ===========================================================================
 
-_PACKAGING_LEVELS = {"CASE": "Case", "INNER PACK": "Inner Pack", "EACH": "Each", "OTHER": "Other"}
+_PACKAGING_LEVELS = {
+    "CASE": "Case",
+    "INNER PACK": "Inner Pack",
+    "EACH": "Each",
+    "SHIPPER CONTENTS": "Shipper Contents",
+    "OTHER": "Other",
+}
 
 
 def _only_digits(value: Any) -> str:
@@ -1851,10 +1869,13 @@ def _gtin14(value: Any) -> str:
 
 def _normalize_packaging_level(value: Any) -> str:
     raw = re.sub(r"\s+", " ", str(value or "").strip()).upper()
-    if raw in ("INNER", "INNERPACK", "IP"):
+    raw_no_space = raw.replace(" ", "")
+    if raw in ("INNER", "IP") or raw_no_space == "INNERPACK":
         raw = "INNER PACK"
     if raw in ("MASTER PACK", "MASTER", "MP", "CASE PACK"):
         raw = "CASE"
+    if raw in ("SHIPPER", "SHIPPER CONTENT", "SHIPPER CONTENTS") or raw_no_space in {"SHIPPERCONTENT", "SHIPPERCONTENTS"}:
+        raw = "SHIPPER CONTENTS"
     return _PACKAGING_LEVELS.get(raw, "Other")
 
 
@@ -1901,15 +1922,41 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
         dims = str(row.get("dimensions_in") or row.get("lwh_in") or row.get("L X W X H (in)") or row.get("dimensions") or "").strip()
         weight = str(row.get("weight_lbs") or row.get("WEIGHT(lbs)") or row.get("weight") or "").strip()
         sku = str(row.get("sku") or row.get("SKU") or "").strip()
-        if not any([gtin, desc, dims, weight, sku]) and packaging_level == "Other":
+        label_required = str(
+            row.get("label_required")
+            or row.get("Label Required")
+            or row.get("LABEL REQUIRED")
+            or row.get("label")
+            or "✅"
+        ).strip()
+        default_case_qty = "6" if packaging_level == "Inner Pack" else ("1" if packaging_level == "Case" else "")
+        default_labels_per_unit = "6" if packaging_level == "Inner Pack" else ("2" if packaging_level == "Case" else "")
+        case_qty = str(
+            row.get("case_qty")
+            or row.get("Case Qty")
+            or row.get("case_quantity")
+            or row.get("units_per_case")
+            or default_case_qty
+        ).strip()
+        labels_per_unit = str(
+            row.get("labels_per_unit")
+            or row.get("Labels / Unit")
+            or row.get("labels_to_print_per_unit")
+            or row.get("label_copies_per_unit")
+            or default_labels_per_unit
+        ).strip()
+        if not any([gtin, desc, dims, weight, sku, case_qty, labels_per_unit]) and packaging_level == "Other":
             continue
         out.append({
             "line": row.get("line") or idx,
+            "label_required": label_required,
             "gtin": gtin,
             "description": desc,
             "packaging_level": packaging_level,
             "dimensions_in": dims,
             "weight_lbs": weight,
+            "case_qty": case_qty,
+            "labels_per_unit": labels_per_unit,
             "sku": sku,
         })
     return out
@@ -2039,7 +2086,7 @@ def _extracted_rows_from_shipments(shipments: List[Dict[str, Any]]) -> Tuple[Lis
             "ship_via": header.get("carrier", ""),
             "xml_ship_to": _addr_dict_to_str(header.get("xml_ship_to", {})) if header.get("xml_ship_to") else "",
             "final_ship_to": _ship_to_str(dc_info, header.get("xml_ship_to", {})),
-            "ship_from": _ship_from_str(header, packs),
+            "ship_from": _dc_ship_from_str(dc_info, header, packs),
             "warnings": "; ".join(header.get("warnings", [])),
         })
         for pack_index, pack in enumerate(packs, start=1):
@@ -2095,22 +2142,24 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
             needs_review_count += 1
 
         total_pallets = header.get("total_pallets") or header.get("xml_total_pallets") or "1"
-        pallet_ids = _pallet_ids_for_total(total_pallets)
+        preserve_pack_pallets = bool(header.get("xml_total_pallets"))
+        pallet_ids = _pallet_ids_for_total(total_pallets) if preserve_pack_pallets else []
 
         mpl_warnings: List[str] = list(header.get("warnings", []))
-        if not header.get("xml_total_pallets"):
-            mpl_warnings.append(
-                "Pallet count was not explicitly provided as TD101=PLT in XML. Defaulted to 1; edit Total Pallets/Pallet # if needed."
-            )
+        palletization_source = "XML" if preserve_pack_pallets else "Unassigned"
+        palletization_note = "Using palletization from XML." if preserve_pack_pallets else (
+            "No item-to-pallet assignment found in XML. Line items are Unassigned. Click Auto Palletize or drag them to pallets."
+        )
+        if not preserve_pack_pallets:
+            mpl_warnings.append(palletization_note)
 
-        ship_from = _ship_from_str(header, packs)
+        ship_from = _dc_ship_from_str(dc_info, header, packs)
         ship_to = _ship_to_str(dc_info, header.get("xml_ship_to", {}))
         billing = _billing_str(dc_info)
 
         # Correct XML with TD101=PLT means each P-loop/SSCC is a pallet.
         # Preserve that parent/child XML relationship. Do not round-robin distribute
         # aggregated item rows across pallets.
-        preserve_pack_pallets = bool(header.get("xml_total_pallets")) and _safe_positive_int(total_pallets, 1) > 1
         if preserve_pack_pallets and len(packs) != _safe_positive_int(total_pallets, 1):
             mpl_warnings.append(
                 f"XML says Total Pallets={total_pallets}, but {len(packs)} P-loop/SSCC pallet records were found. Verify pallet grouping."
@@ -2120,6 +2169,7 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
             mpl_warnings,
             total_pallets=total_pallets,
             preserve_pack_pallets=preserve_pack_pallets,
+            default_pallet="" if not preserve_pack_pallets else "1",
         )
         if not items:
             raise ValueError(
@@ -2145,6 +2195,9 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
             "td1_package_code": header.get("td1_package_code", ""),
             "ship_via": header.get("carrier", ""),
             "total_pallets": str(_safe_positive_int(total_pallets, 1)),
+            "xml_total_pallets": header.get("xml_total_pallets", ""),
+            "palletization_source": palletization_source,
+            "palletization_note": palletization_note,
             "_pallet_ids": pallet_ids,
             "_pallet_weights": {},
             "supplier_info": ship_from,
@@ -2653,6 +2706,86 @@ def _pack_label_kind(packaging_level: str) -> str:
     return "OTHER"
 
 
+def _is_product_label_required(product: Dict[str, Any]) -> bool:
+    """Return False for rows that are marked Barcode on Product / not printable."""
+    raw = str(product.get("label_required") or "").strip().lower()
+    if "barcode" in raw and "product" in raw:
+        return False
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return True
+
+
+def _xml_case_qty(item: Dict[str, Any]) -> int:
+    qty = _qty_value(item.get("qty") or item.get("qty_on_pallet") or item.get("total_shipped"))
+    if qty <= 0:
+        return 1
+    return max(1, int(round(qty)))
+
+
+def _product_case_qty(product: Dict[str, Any]) -> int:
+    parsed = _parse_float(product.get("case_qty"))
+    if parsed is not None and parsed > 0:
+        return max(1, int(round(parsed)))
+    level = _normalize_packaging_level(product.get("packaging_level"))
+    if level == "Inner Pack":
+        return 6
+    if level == "Case":
+        return 1
+    return 1
+
+
+def _labels_per_unit(product: Dict[str, Any]) -> int:
+    parsed = _parse_float(product.get("labels_per_unit"))
+    if parsed is not None and parsed > 0:
+        return max(1, int(round(parsed)))
+    level = _normalize_packaging_level(product.get("packaging_level"))
+    if level == "Inner Pack":
+        return 6
+    if level == "Case":
+        return 2
+    return 1
+
+
+def _same_sku(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    return bool(str(left.get("sku") or "").strip()) and str(left.get("sku") or "").strip().lower() == str(right.get("sku") or "").strip().lower()
+
+
+def _inner_packs_per_case(case_product: Dict[str, Any], inner_product: Dict[str, Any]) -> Tuple[int, str]:
+    case_weight = _parse_float(case_product.get("weight_lbs"))
+    inner_weight = _parse_float(inner_product.get("weight_lbs"))
+    if case_weight is None or inner_weight is None or inner_weight <= 0:
+        return 1, "Inner packs per case could not be calculated from weights; defaulted to 1."
+    calculated = max(1, int(round(case_weight / inner_weight)))
+    return calculated, ""
+
+
+def _find_product_rows_for_xml_item(item: Dict[str, Any], product_rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Return Case row plus related Inner Pack row(s) for an XML item.
+
+    Matching stays aligned with the existing lookup order: XML GTIN/case UPC/UPC/item/SKU,
+    then description fallback. Inner Pack rows are derived by SKU from the matched Case row.
+    """
+    printable = [row for row in product_rows if _is_product_label_required(row)]
+    case_rows = [row for row in printable if _normalize_packaging_level(row.get("packaging_level")) == "Case"]
+    inner_rows = [row for row in printable if _normalize_packaging_level(row.get("packaging_level")) == "Inner Pack"]
+
+    case_product = None
+    for row in case_rows:
+        if _match_product_master_row(item, [row]):
+            case_product = row
+            break
+
+    if case_product is None:
+        return [], None
+
+    related = [case_product]
+    for inner in inner_rows:
+        if _same_sku(case_product, inner):
+            related.append(inner)
+    return related, case_product
+
+
 def _best_xml_match_for_product(product: Dict[str, Any], extracted_items: List[Dict[str, Any]]) -> Dict[str, Any]:
     for item in extracted_items:
         if _match_product_master_row(item, [product]):
@@ -2664,7 +2797,13 @@ def build_kehe_pack_label_draft(
     xml_paths: List[str],
     product_master_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Parse XML and product master rows into editable 4 x 4 pack label drafts."""
+    """Parse XML and product master rows into editable 4 x 4 pack label drafts.
+
+    Only XML-present Case/MP products are output. If the same SKU has an Inner Pack/IP
+    row in the master table, related IP labels are also output. Copies are controlled by
+    the product master Labels / Unit value. Case Qty prints from the product master.
+    Rows marked "Barcode on Product" are never printed.
+    """
     if not xml_paths:
         raise ValueError("At least one XML file is required.")
 
@@ -2685,11 +2824,14 @@ def build_kehe_pack_label_draft(
             seen.add(key)
             product_rows.append({
                 "line": len(product_rows) + 1,
+                "label_required": "✅",
                 "gtin": gtin,
                 "description": item.get("description", ""),
-                "packaging_level": "Other",
+                "packaging_level": "Case",
                 "dimensions_in": "",
                 "weight_lbs": "",
+                "case_qty": "1",
+                "labels_per_unit": "2",
                 "sku": item.get("item_number", ""),
             })
 
@@ -2698,51 +2840,80 @@ def build_kehe_pack_label_draft(
     if duplicate_files:
         warnings.append(f"Duplicate file(s) skipped: {', '.join(duplicate_files)}")
 
-    for product in product_rows:
-        level = _normalize_packaging_level(product.get("packaging_level"))
-        kind = _pack_label_kind(level)
-        if kind not in ("MP", "IP"):
+    label_accumulator: Dict[Tuple[str, str, str, str, str], Dict[str, Any]] = {}
+
+    for item in extracted_items:
+        matched_products, case_product = _find_product_rows_for_xml_item(item, product_rows)
+        if not matched_products or not case_product:
             continue
-        xml_item = _best_xml_match_for_product(product, extracted_items)
-        matched_in_xml = bool(xml_item)
-        label_warnings: List[str] = []
-        gtin = _gtin14(product.get("gtin"))
-        if len(_only_digits(gtin)) != 14:
-            label_warnings.append("GTIN must be 14 digits for ITF-14.")
-        if not product.get("description"):
-            label_warnings.append("Description is blank.")
-        if not product.get("weight_lbs"):
-            label_warnings.append("Weight is blank.")
-        qty = str(xml_item.get("qty") or xml_item.get("qty_on_pallet") or xml_item.get("total_shipped") or "").strip()
-        if not matched_in_xml:
-            label_warnings.append("Not matched in uploaded XML; check Print only if you want this label.")
-        elif not qty:
-            label_warnings.append("Case quantity was not found in XML; edit before printing if needed.")
-        label = {
-            "id": f"PACK-{len(labels) + 1}",
-            "status": "Needs Review" if label_warnings else "Ready",
-            "print_selected": matched_in_xml,
-            "matched_in_xml": matched_in_xml,
-            "gtin": gtin,
-            "description": product.get("description", ""),
-            "brand": "BREW GLITTER",
-            "packaging_level": level,
-            "pack_prefix": kind,
-            "dimensions_in": product.get("dimensions_in", ""),
-            "weight_lbs": product.get("weight_lbs", ""),
-            "sku": product.get("sku", ""),
-            "lot": xml_item.get("lot", ""),
-            "best_before": xml_item.get("expiration_date", ""),
-            "case_qty": qty,
-            "copies": 1,
-            "source_file": xml_item.get("source_file", ""),
-            "warnings": label_warnings,
-        }
-        labels.append(label)
+
+        xml_cases = _xml_case_qty(item)
+        lot = item.get("lot", "")
+        best_before = item.get("expiration_date", "")
+        source_file = item.get("source_file", "")
+
+        for product in matched_products:
+            level = _normalize_packaging_level(product.get("packaging_level"))
+            kind = _pack_label_kind(level)
+            if kind not in ("MP", "IP"):
+                continue
+
+            label_warnings: List[str] = []
+            gtin = _gtin14(product.get("gtin"))
+            if len(_only_digits(gtin)) != 14:
+                label_warnings.append("GTIN must be 14 digits for ITF-14.")
+            if not product.get("description"):
+                label_warnings.append("Description is blank.")
+            if not product.get("weight_lbs"):
+                label_warnings.append("Weight is blank.")
+
+            labels_per_unit = _labels_per_unit(product)
+            copies = max(1, xml_cases * labels_per_unit)
+            case_qty = str(_product_case_qty(product))
+
+            key = (
+                gtin,
+                level,
+                str(lot or ""),
+                str(best_before or ""),
+                str(source_file or ""),
+            )
+
+            if key in label_accumulator:
+                existing = label_accumulator[key]
+                existing["copies"] = int(existing.get("copies") or 0) + copies
+                continue
+
+            label = {
+                "id": f"{kind}-{len(labels) + 1}",
+                "status": "Needs Review" if label_warnings else "Ready",
+                "print_selected": True,
+                "matched_in_xml": True,
+                "gtin": gtin,
+                "description": product.get("description", ""),
+                "brand": "",
+                "packaging_level": level,
+                "pack_prefix": kind,
+                "dimensions_in": product.get("dimensions_in", ""),
+                "weight_lbs": product.get("weight_lbs", ""),
+                "sku": product.get("sku", ""),
+                "lot": lot,
+                "best_before": best_before,
+                "case_qty": case_qty,
+                "labels_per_unit": str(labels_per_unit),
+                "copies": copies,
+                "source_file": source_file,
+                "warnings": label_warnings,
+            }
+            label_accumulator[key] = label
+            labels.append(label)
+
+    if not labels:
+        warnings.append("No printable Case/MP rows were matched from the uploaded XML. Rows marked Barcode on Product were skipped.")
 
     return {
         "document_type": "kehe_pack_labels",
-        "version": 1,
+        "version": 2,
         "summary": {
             "xml_files": len(xml_paths),
             "labels": len(labels),
@@ -2781,20 +2952,17 @@ def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
     c.rect(0.02 * inch, 0.02 * inch, W - 0.04 * inch, H - 0.04 * inch)
 
     desc = str(label.get("description") or "").upper().strip()
-    brand = str(label.get("brand") or "BREW GLITTER").upper().strip()
-    title_lines = wrap_text(desc, "Helvetica-Bold", 21, W - 0.36 * inch, max_lines=2)
+    title_lines = wrap_text(desc, "Helvetica-Bold", 21, W - 0.36 * inch, max_lines=3)
     y = H - 0.36 * inch
     c.setFillColorRGB(0, 0, 0)
     for line in title_lines:
         c.setFont("Helvetica-Bold", 21)
         c.drawCentredString(W / 2, y, line)
         y -= 0.28 * inch
-    c.setFont("Helvetica-Bold", 21)
-    c.drawCentredString(W / 2, y, brand)
 
     lot = str(label.get("lot") or "").strip()
     best_before = _format_label_date_mmddyyyy(str(label.get("best_before") or ""))
-    row_y = y - 0.38 * inch
+    row_y = y - 0.20 * inch
     c.setFont("Helvetica-Bold", 13)
     c.drawString(0.34 * inch, row_y, f"LOT# {lot}" if lot else "LOT#")
 

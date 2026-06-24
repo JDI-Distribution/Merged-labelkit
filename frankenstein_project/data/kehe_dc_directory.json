@@ -2,6 +2,7 @@
   "01": {
     "dc": "01",
     "name": "DC 01 Elkton",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -14,6 +15,7 @@
   "14": {
     "dc": "14",
     "name": "DC 14 Goodyear",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 14 Goodyear\nKEHE DISTRIBUTORS, LLC\n17510 W THOMAS RD\nGOODYEAR AZ 85395\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -26,6 +28,7 @@
   "18": {
     "dc": "18",
     "name": "DC 18 Romeoville",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 18 Romeoville\nKeHE Distributors, LLC\n900 Schmidt Rd\nRomeoville, IL 60446\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -38,6 +41,7 @@
   "19": {
     "dc": "19",
     "name": "DC 19 Dallas",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 19 Dallas\nKeHE Distributors, LLC\n4450 Logistics Drive\nDallas, TX 75241\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -50,6 +54,7 @@
   "27": {
     "dc": "27",
     "name": "DC 27 North East",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 27 North East\nKeHE Distributors, LLC\n585 Principio Pkwy W\nNorth East, MD 21901\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -62,6 +67,7 @@
   "33": {
     "dc": "33",
     "name": "DC 33 Stockton",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 33 Stockton\nKEHE DISTRIBUTORS, LLC\n4650 NEWCASTLE RD\nSTOCKTON CA 95215\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -74,6 +80,7 @@
   "45": {
     "dc": "45",
     "name": "DC 45 Ontario",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 45 Ontario\nKeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\n909-975-1019",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -86,6 +93,7 @@
   "46": {
     "dc": "46",
     "name": "DC 46 Tualatin",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 46 Tualatin\nKeHE Distributors, LLC\n12360 S.W. Leveton Dr\nTualatin, OR 97062\n503-692-0662",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [
@@ -99,6 +107,7 @@
   "55": {
     "dc": "55",
     "name": "DC 55 Douglasville",
+    "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
     "delivery_address": "DC 55 Douglasville\nKeHE Distributors, LLC\n1851 Riverside Pkwy\nDouglasville, GA 30135\n855-938-1462",
     "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
     "match_values": [

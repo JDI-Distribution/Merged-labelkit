@@ -7,3 +7,5 @@ reportlab>=4,<5
 pdf2image>=1.17,<2
 pytesseract>=0.3.10,<1
 Pillow>=10,<13
+
+zcatalyst-sdk>=1.0
