@@ -4685,9 +4685,11 @@
     const warnings = [];
     const pallets = [];
     const unassigned = [];
-    const defaultConstraints = getMplTiHiConstraints(mpl);
+    const defaultConstraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
+    mpl._tihi_constraints = defaultConstraints;
+    mpl._tihi_pallet_constraints = {};
 
-    const constraintsForPallet = (palletId = '') => getMplTiHiConstraints(mpl, palletId);
+    const constraintsForPallet = () => defaultConstraints;
     const maxCasesWithinConstraints = (meta, constraints) => {
       if (!meta || !constraints) return 0;
       const perLayerA = Math.floor(constraints.max_length_in / meta.dims.l) * Math.floor(constraints.max_width_in / meta.dims.w);
@@ -4729,13 +4731,13 @@
       const tempMpl = {
         ...mpl,
         items: candidateItems,
-        _tihi_constraints: mpl._tihi_constraints,
-        _tihi_pallet_constraints: mpl._tihi_pallet_constraints
+        _tihi_constraints: defaultConstraints,
+        _tihi_pallet_constraints: {}
       };
       const { entries } = buildMplTiHiEntries(tempMpl);
       const entry = entries.find(row => normalizePalletId(row.pallet) === palletId);
       if (!entry) return false;
-      const constraints = constraintsForPallet(palletId);
+      const constraints = constraintsForPallet();
       if ((entry.overflowCases || 0) > 0) return false;
       if (Number(entry.usedHeight || 0) > Number(constraints.max_height_in || 0) + 0.0001) return false;
       if (Number(entry.grossWeightLbs || 0) > Number(constraints.max_gross_lbs || 0) + 0.0001) return false;
@@ -4744,7 +4746,7 @@
 
     function fits(pallet, item, meta, qty) {
       if (!pallet || !meta || qty <= 0) return false;
-      const constraints = constraintsForPallet(pallet.id);
+      const constraints = constraintsForPallet();
       const maxCases = maxCasesWithinConstraints(meta, constraints);
       if (qty > maxCases) return false;
       const palletVolumeLimit = constraints.max_length_in * constraints.max_width_in * constraints.max_height_in;
@@ -4796,7 +4798,7 @@
       while (remaining > 0) {
         let pallet = pallets[pallets.length - 1] || ensurePallet();
         let moved = false;
-        const chunkLimit = Math.max(0, Math.min(remaining, maxCasesWithinConstraints(meta, constraintsForPallet(pallet.id))));
+        const chunkLimit = Math.max(0, Math.min(remaining, maxCasesWithinConstraints(meta, constraintsForPallet())));
         for (let chunk = chunkLimit; chunk >= 1; chunk -= 1) {
           if (fits(pallet, item, meta, chunk)) {
             addToPallet(pallet, item, chunk, meta);
@@ -4827,7 +4829,51 @@
       });
     });
     unassigned.forEach(item => newItems.push(item));
-    mpl.items = newItems;
+
+    const mergeKeyForAutoItem = (item) => {
+      const pallet = normalizePalletId(item.location_on_pallet);
+      const identity = canonicalId(item.sku || item.item_number || item.gtin || item.case_upc || item.upc)
+        || String(item.description || '').trim().toLowerCase();
+      return [
+        pallet || 'unassigned',
+        identity,
+        String(item.description || '').trim().toLowerCase(),
+        String(item.uom || '').trim().toUpperCase(),
+        String(item.expiration_date || '').trim(),
+        String(item.unit_weight_lbs || '').trim(),
+        String(item.dimensions_in || '').trim()
+      ].join('|');
+    };
+    const mergedItems = [];
+    const mergedMap = new Map();
+    newItems.forEach(item => {
+      const pallet = normalizePalletId(item.location_on_pallet);
+      if (!pallet) {
+        mergedItems.push(item);
+        return;
+      }
+      const key = mergeKeyForAutoItem(item);
+      const qty = Math.max(0, Math.ceil(itemQuantityForWeight(item)));
+      const existing = mergedMap.get(key);
+      if (!existing) {
+        const copy = { ...item };
+        copy.qty_on_pallet = String(qty);
+        copy.total_ordered = String(qty);
+        copy.total_shipped = String(qty);
+        mergedMap.set(key, copy);
+        mergedItems.push(copy);
+        return;
+      }
+      const updatedQty = Math.max(0, Math.ceil(itemQuantityForWeight(existing))) + qty;
+      existing.qty_on_pallet = String(updatedQty);
+      existing.total_ordered = String(updatedQty);
+      existing.total_shipped = String(updatedQty);
+      const existingLines = String(existing.line || '').split(',').map(part => part.trim()).filter(Boolean);
+      const nextLines = String(item.line || '').split(',').map(part => part.trim()).filter(Boolean);
+      const mergedLines = [...new Set([...existingLines, ...nextLines])];
+      if (mergedLines.length) existing.line = mergedLines.join(', ');
+    });
+    mpl.items = mergedItems;
     mpl._pallet_ids = pallets.map(p => p.id);
     mpl._pallet_weights = weights;
     mpl.total_pallets = String(mpl._pallet_ids.length || 1);
