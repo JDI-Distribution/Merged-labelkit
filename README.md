@@ -31,6 +31,8 @@ Catalyst target:
 - AppSail app: `merged-labelkit`
 - AppSail source: `docker://merged-labelkit:latest`
 - AppSail port: `9000`
+- AppSail URL shown by deploy:
+  `https://mergedlabelkit.development.catalystappsail.com`
 
 ## Local Run
 
@@ -242,36 +244,42 @@ Everything up-to-date
 
 ## Catalyst Deploy
 
-Deploy from the AppSail folder, but explicitly select the `Label-kit` project first.
+Build the Docker image first, then deploy from the repo root. The root `.catalystrc` is the `Label-kit` Catalyst project.
 
 ```powershell
-Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
+Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-catalyst appsail:list
-catalyst deploy --only appsail
+docker build -t merged-labelkit:latest .
+catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
 
-If this Catalyst CLI version does not accept `deploy --only appsail`, use:
+Optional verbose deploy:
 
 ```powershell
-catalyst appsail:deploy --name merged-labelkit
+catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000 --verbose
 ```
 
-Verify after deploy:
+Verify project selection:
 
 ```powershell
-catalyst appsail:list
+catalyst project:list
 ```
 
-Expected deploy target:
+Expected project signal:
 
 ```text
-Project: Label-kit
-Project ID: 27327000000040032
-Env: Development
-AppSail: merged-labelkit
-Domain: label-kit-921277719.development
+Label-kit (active) (base) 27327000000040032
 ```
+
+Expected successful deploy output:
+
+```text
+DEPLOYMENT SUCCESSFUL: merged-labelkit
+APPSAIL URL: https://mergedlabelkit.development.catalystappsail.com
+Catalyst AppSail Deploy completed successfully
+```
+
+Note: Catalyst CLI `1.25.1` on this workstation does not support `catalyst appsail:list` or `catalyst appsail:deploy`. Use `catalyst deploy appsail ...`.
 
 ## Quick Rollback / Troubleshooting
 
@@ -291,25 +299,26 @@ git revert <bad-commit-sha>
 git push
 ```
 
-Then redeploy Catalyst from `frankenstein_project`.
+Then rebuild the Docker image and redeploy Catalyst from the repo root.
 
 If Catalyst deploy targets the wrong project:
 
 ```powershell
-Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
+Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-catalyst appsail:list
+catalyst project:list
 ```
 
 Confirm `Label-kit` and `merged-labelkit` before deploying again.
 
 If the app does not load after deploy:
 
-1. Run `catalyst appsail:list` and confirm `merged-labelkit` exists in `Label-kit`.
-2. Confirm `catalyst.json` still points to `docker://merged-labelkit:latest` and port `9000`.
-3. Re-run frontend parse and Python compile locally.
-4. Redeploy AppSail.
-5. If the deployed app is still unhealthy, revert the last commit and redeploy.
+1. Run `catalyst project:list` and confirm `Label-kit` is active.
+2. Confirm `frankenstein_project\catalyst.json` still points to `docker://merged-labelkit:latest` and port `9000`.
+3. Rebuild the image: `docker build -t merged-labelkit:latest .`
+4. Re-run frontend parse and Python compile locally.
+5. Redeploy AppSail.
+6. If the deployed app is still unhealthy, revert the last commit and redeploy.
 
 If MPL PDF generation is stale:
 
@@ -335,9 +344,10 @@ If MPL PDF generation is stale:
   - `frankenstein_project\pipelines\kehe_pipeline.py`
 - [ ] Commit with a clear workflow/fix message.
 - [ ] Push current branch to GitHub.
-- [ ] Deploy from `frankenstein_project`.
+- [ ] Build `merged-labelkit:latest` from repo root.
+- [ ] Deploy AppSail from repo root.
 - [ ] Use Catalyst project `Label-kit` / `27327000000040032`.
-- [ ] Verify `merged-labelkit` appears in `catalyst appsail:list`.
+- [ ] Verify deploy output says `DEPLOYMENT SUCCESSFUL: merged-labelkit`.
 - [ ] Open the Development domain and smoke-test KeHE edit/render flow.
 
 ## Main Files
