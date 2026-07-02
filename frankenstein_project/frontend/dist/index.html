@@ -1179,10 +1179,10 @@
       border: 1.6px solid #000;
       background: #fff;
       margin: 0 auto;
-      padding: 0.16in 0.24in 0.14in;
+      padding: 0.10in 0.16in 0.08in;
       display: grid;
-      grid-template-rows: 0.94in 0.44in 0.40in 0.40in 1.02in 0.30in;
-      gap: 0.055in;
+      grid-template-rows: 0.78in 0.34in 0.36in 0.36in 1.70in 0.28in;
+      gap: 0.03in;
       color: #000;
       overflow: hidden;
     }
@@ -1205,7 +1205,7 @@
 
     .pack-label-title textarea {
       min-height: 0;
-      font-size: 20px;
+      font-size: 24px;
       line-height: 1.05;
       font-weight: 900;
       text-transform: uppercase;
@@ -1224,7 +1224,7 @@
       grid-template-columns: 1fr 1fr;
       column-gap: 0.24in;
       align-items: stretch;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 900;
     }
 
@@ -1239,12 +1239,12 @@
       display: block;
       line-height: 1;
       text-align: left;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 900;
     }
 
     .pack-label-meta input {
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 700;
     }
 
@@ -1253,18 +1253,18 @@
       grid-template-columns: 1in minmax(0, 1fr);
       column-gap: 0.14in;
       align-items: center;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 900;
     }
 
     .pack-label-line input {
-      font-size: 19px;
+      font-size: 22px;
       font-weight: 600;
     }
 
     .pack-label-barcode-box {
       background: #fff;
-      padding: 0.06in 0.12in;
+      padding: 0;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1274,10 +1274,18 @@
 
     .pack-label-barcode-inner {
       width: 100%;
-      height: 0.50in;
-      background: repeating-linear-gradient(90deg,#000 0 3px,#fff 3px 7px,#000 7px 9px,#fff 9px 14px);
-      border-left: 0.12in solid #fff;
-      border-right: 0.12in solid #fff;
+      height: 100%;
+      background: #fff;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .pack-label-barcode-inner svg {
+      width: 100%;
+      height: 100%;
+      display: block;
     }
 
     .pack-label-gtin input {
@@ -1285,8 +1293,8 @@
       height: 100%;
       border: 0;
       text-align: center;
-      font-size: 16px;
-      letter-spacing: 5px;
+      font-size: 22px;
+      letter-spacing: 4px;
       font-family: 'DM Mono', monospace;
       color: #000;
       background: #fff;
@@ -2157,6 +2165,51 @@
       letter-spacing: 0.5px;
     }
     .mpl-pdf-editor-tools-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .manual-mpl-tools {
+      width: min(100%, 920px);
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .manual-mpl-title {
+      font-size: 10.5px;
+      font-weight: 900;
+      color: #111827;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .manual-mpl-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    .manual-mpl-field,
+    .mpl-product-picker {
+      display: grid;
+      gap: 4px;
+    }
+    .manual-mpl-field label,
+    .mpl-product-picker label {
+      font-size: 8px;
+      font-weight: 900;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+    }
+    .manual-mpl-field select,
+    .mpl-product-picker select {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #0f172a;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 5px 7px;
+    }
     .mpl-pdf-pallet-section {
       margin-top: 10px;
       border: 1px solid #777;
@@ -2173,6 +2226,13 @@
       padding: 6px 8px;
       font-size: 10.5px;
       font-weight: 900;
+    }
+    .mpl-pallet-heading-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .mpl-pallet-weight-edit {
       display: grid;
@@ -2316,6 +2376,308 @@
     .mpl-unassigned-section .mpl-pdf-pallet-heading {
       background: #fef3c7;
       color: #92400e;
+    }
+    .tihi-sheet {
+      width: min(100%, 920px);
+      min-height: 1180px;
+      padding: 24px 28px;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+    .tihi-sheet-title {
+      background: #000;
+      color: #fff;
+      border: 1px solid #000;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 0.55px;
+      padding: 8px 10px;
+      text-transform: uppercase;
+    }
+    .tihi-sheet-subtitle {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 8px 10px;
+    }
+    .tihi-constraint-bar {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .tihi-constraint-field {
+      display: grid;
+      gap: 4px;
+    }
+    .tihi-constraint-field label {
+      font-size: 8px;
+      font-weight: 800;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+    }
+    .tihi-constraint-field input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #0f172a;
+      background: #fff;
+    }
+    .tihi-constraint-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .tihi-warning {
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 9.5px;
+      line-height: 1.45;
+    }
+    .tihi-empty {
+      border: 1px dashed #cbd5e1;
+      background: #f8fafc;
+      color: #64748b;
+      text-align: center;
+      padding: 20px 14px;
+      font-size: 10px;
+      line-height: 1.5;
+    }
+    .tihi-card {
+      border: 1px solid #777;
+      background: #fff;
+      padding: 9px 10px 10px;
+      display: grid;
+      gap: 8px;
+      scroll-margin-top: 18px;
+    }
+    .tihi-card.highlight {
+      border-color: #0f5ea8;
+      box-shadow: 0 0 0 2px rgba(15, 94, 168, 0.18);
+      background: #f8fbff;
+    }
+    .tihi-pallet-section {
+      display: grid;
+      gap: 8px;
+    }
+    .tihi-pallet-section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 7px 9px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+    }
+    .tihi-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .tihi-card-title {
+      font-size: 12px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+    .tihi-card-subtitle {
+      font-size: 9px;
+      color: #475569;
+      font-weight: 700;
+    }
+    .tihi-card-overflow {
+      color: #b91c1c;
+      font-weight: 900;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+    }
+    .tihi-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 10px;
+      font-size: 9px;
+    }
+    .tihi-stat {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      padding: 6px 7px;
+    }
+    .tihi-stat strong {
+      display: block;
+      color: #334155;
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.45px;
+      margin-bottom: 3px;
+    }
+    .tihi-visual-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 340px));
+      justify-content: center;
+      gap: 16px;
+    }
+    .tihi-diagram {
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .tihi-diagram-title {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 900;
+      color: #111827;
+    }
+    .tihi-svg-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 260px;
+    }
+    .tihi-svg {
+      display: block;
+      width: 100%;
+      max-width: 310px;
+      height: auto;
+    }
+    .tihi-svg.side {
+      max-width: 230px;
+    }
+    .tihi-dim-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 8px;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .tihi-lines {
+      font-size: 8.5px;
+      color: #475569;
+      font-weight: 700;
+    }
+    .tihi-legend {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+    .tihi-legend-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      padding: 6px 7px;
+      font-size: 8.5px;
+      color: #334155;
+    }
+    .tihi-legend-swatch {
+      width: 12px;
+      height: 12px;
+      border: 1px solid #475569;
+      border-radius: 2px;
+      flex: 0 0 auto;
+      margin-top: 1px;
+    }
+    .tihi-print-only {
+      display: none;
+    }
+    .tihi-popup-panel {
+      position: fixed;
+      inset: 0;
+      z-index: 240;
+      background: rgba(15, 23, 42, 0.62);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+    }
+    .tihi-popup-panel.visible {
+      display: flex;
+    }
+    .tihi-popup-panel .editor-dialog {
+      width: min(1040px, 96vw);
+      max-height: 94vh;
+    }
+    .tihi-popup-panel .editor-toolbar {
+      background: #e2e8f0;
+    }
+    .tihi-popup-panel .editor-body {
+      background: #e2e8f0;
+      padding: 16px;
+    }
+    .tihi-popup-shell {
+      display: grid;
+      gap: 12px;
+      width: 100%;
+    }
+
+    @media print {
+      #document-editor-panel {
+        position: static !important;
+        inset: auto !important;
+        display: block !important;
+        background: #fff !important;
+        padding: 0 !important;
+      }
+      #document-editor-panel .editor-dialog {
+        width: auto !important;
+        max-height: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+      }
+      #document-editor-panel .editor-toolbar,
+      #document-editor-panel .editor-footer,
+      .tihi-popup-panel,
+      .tihi-screen-only {
+        display: none !important;
+      }
+      #document-editor-body {
+        display: block !important;
+        overflow: visible !important;
+        padding: 0 !important;
+      }
+      .pdf-sheet {
+        box-shadow: none !important;
+      }
+      .pdf-document-shell,
+      .tihi-pallet-section,
+      .tihi-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .tihi-print-only {
+        display: block !important;
+      }
     }
 
 
@@ -2657,15 +3019,6 @@
       <div class="kehe-generate-head">
         <div class="kehe-product-master-title" id="kehe-generate-title">Generate</div>
         <div class="kehe-generate-subtitle">Create KeHE labels and documents from the uploaded XML.</div>
-        <div class="kehe-workflow-steps" id="kehe-workflow-steps">
-          <div class="kehe-workflow-title">Recommended workflow</div>
-          <div class="kehe-workflow-step-list">
-            <span><strong>Step 1:</strong> Pack Labels</span>
-            <span><strong>Step 2:</strong> Master Packing List</span>
-            <span><strong>Step 3:</strong> Pallet Label</span>
-            <span><strong>Step 4:</strong> GS1 Labels</span>
-          </div>
-        </div>
       </div>
 
       <div class="kehe-generate-buttons">
@@ -2726,6 +3079,14 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6.75h.01M4 12h.01M4 17.25h.01"/>
             </svg>
             DC Directory
+          </button>
+
+          <button class="kehe-reference-btn" type="button" onclick="openManualMasterPackingList()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 5.5h16M4 12h16M4 18.5h10"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 16v5M14.5 18.5h5"/>
+            </svg>
+            Create MPL
           </button>
         </div>
         <div class="match-actions">
@@ -3187,6 +3548,21 @@
 
   fetch('/health').catch(() => {});
 
+  async function fetchWithTimeout(resource, options = {}, timeoutMs = 60000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(resource, { ...options, signal: controller.signal });
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   function normalizePageName(pageName) {
     return pages.includes(pageName) ? pageName : 'home';
   }
@@ -3278,7 +3654,7 @@
 
   async function loadKeheProductMasterFromBackend() {
     try {
-      const res = await fetch('/api/kehe/product-master', { cache: 'no-store' });
+      const res = await fetchWithTimeout('/api/kehe/product-master', { cache: 'no-store' }, 15000);
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.detail || 'Could not load product master.');
       if (Array.isArray(payload.rows)) {
@@ -3341,7 +3717,8 @@
     const raw = String(value ?? '').trim();
     if (!raw) return defaultLabelsPerUnitForLevel(level);
     const parsed = parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : defaultLabelsPerUnitForLevel(level);
+    if (!Number.isFinite(parsed) || parsed <= 0) return defaultLabelsPerUnitForLevel(level);
+    return ['Case', 'Inner Pack'].includes(normalizePackagingLevel(level)) ? String(Math.max(2, parsed)) : String(parsed);
   }
 
   function normalizeCaseQty(value, level) {
@@ -3414,7 +3791,7 @@
         <td><input value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 × 8 × 6" oninput="updateKeheProductRow(${index}, 'dimensions_in', this.value)"></td>
         <td><input value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateKeheProductRow(${index}, 'weight_lbs', this.value)"></td>
         <td><input type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" title="Value printed on the pack label as MP/IP Case Qty." oninput="updateKeheProductRow(${index}, 'case_qty', this.value)"></td>
-        <td><input type="number" min="1" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" title="How many labels to print per XML quantity. Default: MP=2, IP=6." oninput="updateKeheProductRow(${index}, 'labels_per_unit', this.value)"></td>
+        <td><input type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" title="How many labels to print per XML quantity. Minimum: 2 for two-side case placement. Default: MP=2, IP=6." oninput="updateKeheProductRow(${index}, 'labels_per_unit', this.value)"></td>
         <td><input value="${escapeHtml(row.sku)}" oninput="updateKeheProductRow(${index}, 'sku', this.value)"></td>
         <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualProductPackLabel(${index})">Preview</button></td>
         <td><button class="btn-mini-danger" type="button" onclick="deleteKeheProductRow(${index})">Delete</button></td>
@@ -3470,7 +3847,7 @@
 
   function normalizeManualCopies(value) {
     const parsed = parseInt(String(value || '').trim(), 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    return Number.isFinite(parsed) && parsed > 0 ? Math.max(2, parsed) : 2;
   }
 
   function cleanPackLabelDescription(value) {
@@ -3486,7 +3863,7 @@
       return;
     }
 
-    const labelsPerUnit = normalizeManualCopies(row.labels_per_unit || defaultLabelsPerUnitForLevel(row.packaging_level) || '1');
+    const labelsPerUnit = normalizeManualCopies(normalizeLabelsPerUnit(row.labels_per_unit || defaultLabelsPerUnitForLevel(row.packaging_level) || '2', row.packaging_level));
     const caseQty = normalizeCaseQty(row.case_qty || defaultCaseQtyForLevel(row.packaging_level), row.packaging_level);
     const prefix = packLevelPrefix(row.packaging_level);
 
@@ -3524,7 +3901,7 @@
     };
     renderDocumentEditor('packLabels', activeKeheDocumentDraft);
     openDocumentEditor();
-    setStatus('Pack Label preview ready. Review fields and Copies before generating PDF.', 'info');
+    setStatus('Pack Label preview ready. Minimum 2 copies are printed for two-side case placement.', 'info');
   }
 
   function openKeheDcDirectoryModal() {
@@ -3797,6 +4174,296 @@
     }) || rows.find(row => row.description && item.description && row.description.trim().toLowerCase() === String(item.description).trim().toLowerCase()) || null;
   }
 
+  function getMplItemProductIndex(item) {
+    const rows = getKeheProductMasterRows();
+    const candidates = [item?.gtin, item?.case_upc, item?.upc, item?.item_number, item?.sku].map(canonicalId).filter(Boolean);
+    let index = rows.findIndex(row => {
+      const keys = [row.gtin, row.sku].map(canonicalId).filter(Boolean);
+      return candidates.some(candidate => keys.includes(candidate));
+    });
+    if (index >= 0) return index;
+    const desc = String(item?.description || '').trim().toLowerCase();
+    if (!desc) return -1;
+    index = rows.findIndex(row => String(row.description || '').trim().toLowerCase() === desc);
+    return index;
+  }
+
+  function productMasterOptionLabel(row, index) {
+    const parts = [
+      row.description || `Product ${index + 1}`,
+      row.sku ? `SKU ${row.sku}` : '',
+      row.gtin ? `GTIN ${row.gtin}` : '',
+      row.packaging_level || ''
+    ].filter(Boolean);
+    return parts.join(' - ');
+  }
+
+  function applyProductRowToMplItem(item, product, options = {}) {
+    if (!item || !product) return;
+    const qtyFallback = options.defaultQty || '1';
+    item.item_number = product.sku || product.gtin || item.item_number || '';
+    item.upc = product.gtin || item.upc || '';
+    item.case_upc = product.gtin || item.case_upc || '';
+    item.gtin = product.gtin || item.gtin || '';
+    item.sku = product.sku || item.sku || '';
+    item.description = product.description || item.description || '';
+    item.packaging_level = product.packaging_level || item.packaging_level || '';
+    item.dimensions_in = product.dimensions_in || item.dimensions_in || '';
+    item.unit_weight_lbs = product.weight_lbs || item.unit_weight_lbs || '';
+    item.uom = item.uom || 'CASES';
+    if (!String(item.qty_on_pallet || '').trim()) item.qty_on_pallet = qtyFallback;
+    if (!String(item.total_ordered || '').trim()) item.total_ordered = item.qty_on_pallet || qtyFallback;
+    if (!String(item.total_shipped || '').trim()) item.total_shipped = item.qty_on_pallet || qtyFallback;
+  }
+
+  function uniqueManualOptions(values) {
+    const seen = new Set();
+    return values.map(value => String(value || '').trim()).filter(value => {
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+  }
+
+  function dcDirectoryDisplayName(row, index) {
+    const label = [
+      row.dc ? `DC ${row.dc}` : '',
+      row.name || ''
+    ].filter(Boolean).join(' - ');
+    return label || firstLine(row.delivery_address) || firstLine(row.billing_address) || `DC Row ${index + 1}`;
+  }
+
+  function manualMplAddressOptions(field) {
+    const key = field === 'supplier_info'
+      ? 'ship_from'
+      : (field === 'bill_to' ? 'billing_address' : 'delivery_address');
+    return uniqueManualOptions(getKeheDcDirectoryRows().map(row => row[key]));
+  }
+
+  function manualMplSelectedAddressIndex(field, value) {
+    const cleanValue = String(value || '').trim();
+    if (!cleanValue) return -1;
+    return manualMplAddressOptions(field).findIndex(option => option === cleanValue);
+  }
+
+  function blankManualMplItem(line = 1, palletId = '') {
+    return {
+      line,
+      location_on_pallet: palletId,
+      item_number: '',
+      upc: '',
+      case_upc: '',
+      gtin: '',
+      sku: '',
+      description: '',
+      packaging_level: '',
+      dimensions_in: '',
+      unit_weight_lbs: '',
+      calculated_weight_lbs: '',
+      lot: '',
+      expiration_date: '',
+      uom: 'CASES',
+      qty_on_pallet: '',
+      total_ordered: '',
+      total_shipped: '',
+      pallet_weight: '',
+      notes: ''
+    };
+  }
+
+  function buildManualMasterPackingListDraft() {
+    const dcRows = getKeheDcDirectoryRows();
+    const firstDc = dcRows[0] || {};
+    const firstItem = blankManualMplItem(1, '1');
+    return {
+      document_type: 'kehe_master_packing_list',
+      version: 3,
+      manual_mpl: true,
+      summary: { packing_lists: 1, manual_mpl: true },
+      warnings: [],
+      product_master: getKeheProductMasterRows(),
+      extracted_headers: [],
+      extracted_items: [],
+      packing_lists: [{
+        id: 'MANUAL-MPL-1',
+        title: 'MASTER PACKING LIST',
+        status: firstDc.delivery_address ? 'Ready' : 'Needs Review',
+        manual_mpl: true,
+        dc: firstDc.dc || '',
+        dc_name: firstDc.name || '',
+        customer_po_number: '',
+        pro_number: '',
+        order_no: '',
+        po_date: '',
+        bol_number: '',
+        total_weight: '',
+        ship_via: '',
+        total_pallets: '1',
+        supplier_info: firstDc.ship_from || DEFAULT_KEHE_SHIP_FROM,
+        bill_to: firstDc.billing_address || '',
+        ship_to: firstDc.delivery_address || '',
+        customer_no: '',
+        est_ship_date: '',
+        shipping_instructions: '',
+        palletization_source: 'Manual',
+        palletization_note: 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.',
+        source_files: ['Manual Create MPL'],
+        items: [firstItem],
+        _pallet_ids: ['1'],
+        _pallet_weights: {},
+        _tihi_constraints: defaultTiHiConstraints(),
+        _tihi_pallet_constraints: {},
+        warnings: firstDc.delivery_address ? [] : ['Select a Ship To address from the DC Directory or enter it manually before printing.']
+      }]
+    };
+  }
+
+  async function ensureKeheReferenceDataLoaded() {
+    try {
+      if (keheProductMasterLoadPromise) await keheProductMasterLoadPromise;
+      if (!getKeheProductMasterRows().length) {
+        keheProductMasterLoadPromise = loadKeheProductMasterFromBackend();
+        await keheProductMasterLoadPromise;
+      }
+    } catch (_err) {}
+
+    try {
+      if (keheDcDirectoryLoadPromise) await keheDcDirectoryLoadPromise;
+      if (!getKeheDcDirectoryRows().length) {
+        keheDcDirectoryLoadPromise = loadKeheDcDirectoryFromBackend();
+        await keheDcDirectoryLoadPromise;
+      }
+    } catch (_err) {}
+  }
+
+  async function openManualMasterPackingList() {
+    if (selectedKit !== 'kehe') return;
+    setStatus('Preparing manual Create MPL draft...', 'info');
+    await ensureKeheReferenceDataLoaded();
+
+    activeKeheDocumentType = 'masterPackingList';
+    activeKeheDocumentDraft = buildManualMasterPackingListDraft();
+    keheLastMplDraft = activeKeheDocumentDraft;
+    keheMplPalletizationSource = 'Manual';
+
+    renderKeheUnifiedReport(activeKeheDocumentDraft);
+    renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
+    openDocumentEditor();
+    setStatus('Create MPL draft ready. Use the dropdowns, pallet tools, and Generate PDF when finished.', 'info');
+  }
+
+  function renderManualMplSelect(label, optionsHtml) {
+    return `
+      <div class="manual-mpl-field">
+        <label>${escapeHtml(label)}</label>
+        ${optionsHtml}
+      </div>`;
+  }
+
+  function renderManualMplTools(mpl, mplIndex) {
+    if (!mpl?.manual_mpl && !activeKeheDocumentDraft?.manual_mpl) return '';
+    const dcRows = getKeheDcDirectoryRows();
+    const selectedDcIndex = dcRows.findIndex(row =>
+      String(row.dc || '') === String(mpl.dc || '') &&
+      String(row.name || '') === String(mpl.dc_name || '')
+    );
+    const dcSelect = dcRows.length
+      ? `<select onchange="applyManualMplDcRow(${mplIndex}, this.value)">
+          <option value="">Select DC / Name</option>
+          ${dcRows.map((row, index) => `<option value="${index}" ${index === selectedDcIndex ? 'selected' : ''}>${escapeHtml(dcDirectoryDisplayName(row, index))}</option>`).join('')}
+        </select>`
+      : '<select disabled><option>No DC Directory rows</option></select>';
+
+    const addressSelect = (field, label) => {
+      const options = manualMplAddressOptions(field);
+      const selectedIndex = manualMplSelectedAddressIndex(field, mpl[field]);
+      const select = options.length
+        ? `<select onchange="applyManualMplAddress(${mplIndex}, '${jsString(field)}', this.value)">
+            <option value="">Select ${escapeHtml(label)}</option>
+            ${options.map((option, index) => `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escapeHtml(firstLine(option) || option)}</option>`).join('')}
+          </select>`
+        : `<select disabled><option>No ${escapeHtml(label)} options</option></select>`;
+      return renderManualMplSelect(label, select);
+    };
+
+    return `
+      <div class="manual-mpl-tools">
+        <div class="manual-mpl-title">Create MPL References</div>
+        <div class="manual-mpl-grid">
+          ${renderManualMplSelect('DC / Name', dcSelect)}
+          ${addressSelect('supplier_info', 'Ship From')}
+          ${addressSelect('ship_to', 'Ship To')}
+          ${addressSelect('bill_to', 'Bill To')}
+        </div>
+      </div>`;
+  }
+
+  function applyManualMplDcRow(mplIndex, rowIndex) {
+    if (rowIndex === '') return;
+    const mpl = getMpl(mplIndex);
+    const row = getKeheDcDirectoryRows()[Number(rowIndex)];
+    if (!mpl || !row) return;
+    mpl.dc = row.dc || '';
+    mpl.dc_name = row.name || '';
+    mpl.supplier_info = row.ship_from || DEFAULT_KEHE_SHIP_FROM;
+    mpl.ship_to = row.delivery_address || '';
+    mpl.bill_to = row.billing_address || '';
+    refreshManualMplAfterChange(mpl, 'DC Directory row applied to Create MPL.');
+  }
+
+  function applyManualMplAddress(mplIndex, field, optionIndex) {
+    if (optionIndex === '') return;
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    const option = manualMplAddressOptions(field)[Number(optionIndex)];
+    if (!option) return;
+    mpl[field] = option;
+    refreshManualMplAfterChange(mpl, 'Create MPL address updated.');
+  }
+
+  function refreshManualMplAfterChange(mpl, message = '') {
+    if (!mpl || !activeKeheDocumentDraft) return;
+    ensureMplPalletState(mpl);
+    syncMplLineNumbers(mpl);
+    markMplPalletizationSource(mpl, 'Manual', 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.');
+    keheLastMplDraft = activeKeheDocumentDraft;
+    renderKeheUnifiedReport(activeKeheDocumentDraft);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    if (message) setStatus(message, 'info');
+  }
+
+  function renderMplProductSelect(mplIndex, itemIndex, item) {
+    const rows = getKeheProductMasterRows();
+    if (!rows.length) return '';
+    const selectedIndex = getMplItemProductIndex(item);
+    return `
+      <div class="mpl-product-picker">
+        <label>Product</label>
+        <select onchange="selectMplItemProduct(${mplIndex}, ${itemIndex}, this.value)">
+          <option value="">Select product</option>
+          ${rows.map((row, index) => `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escapeHtml(productMasterOptionLabel(row, index))}</option>`).join('')}
+        </select>
+      </div>`;
+  }
+
+  function selectMplItemProduct(mplIndex, itemIndex, rowIndex) {
+    const mpl = getMpl(mplIndex);
+    const item = mpl?.items?.[itemIndex];
+    const product = getKeheProductMasterRows()[Number(rowIndex)];
+    if (!mpl || !item || !product) return;
+    ensureMplPalletState(mpl);
+    applyProductRowToMplItem(item, product);
+    if (mpl.manual_mpl && !normalizePalletId(item.location_on_pallet)) {
+      item.location_on_pallet = (mpl._pallet_ids && mpl._pallet_ids[0]) || '1';
+    }
+    applyProductMasterToDraft(activeKeheDocumentDraft, false);
+    setMplManualSource(mpl, 'Manual MPL line item selected from GTIN / Packaging Master Table.');
+    keheLastMplDraft = activeKeheDocumentDraft;
+    renderKeheUnifiedReport(activeKeheDocumentDraft);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    setStatus('Line item filled from GTIN / Packaging Master Table.', 'info');
+  }
+
   function matchCaseProductForPallet(item) {
     const rows = getKeheProductMasterRows().filter(row => normalizePackagingLevel(row.packaging_level) === 'Case');
     const exactCandidates = [item.case_upc].map(canonicalId).filter(Boolean);
@@ -3833,6 +4500,7 @@
     draft.packing_lists.forEach(mpl => {
       ensureMplPalletState(mpl);
       const totals = {};
+      let listTotal = 0;
       (mpl.items || []).forEach(item => {
         const product = matchProductMaster(item);
         if (!product) return;
@@ -3845,10 +4513,15 @@
         const unitWeight = parseWeight(product.weight_lbs);
         if (unitWeight === null) return;
         const pallet = normalizePalletId(item.location_on_pallet);
-        item.calculated_weight_lbs = formatLbs(unitWeight * itemQuantityForWeight(item));
+        const itemWeight = unitWeight * itemQuantityForWeight(item);
+        item.calculated_weight_lbs = formatLbs(itemWeight);
+        listTotal += itemWeight;
         if (!pallet) return;
-        totals[pallet] = (totals[pallet] || 0) + unitWeight * itemQuantityForWeight(item);
+        totals[pallet] = (totals[pallet] || 0) + itemWeight;
       });
+      if (listTotal > 0 && (!preserveManualWeights || !String(mpl.total_weight || '').trim())) {
+        mpl.total_weight = formatLbs(listTotal);
+      }
       Object.keys(totals).forEach(pallet => {
         const calculated = formatLbs(totals[pallet]);
         if (!mpl._pallet_weights) mpl._pallet_weights = {};
@@ -3868,7 +4541,13 @@
     const mpl = getMpl(mplIndex);
     if (!mpl || !activeKeheDocumentDraft) return;
     applyProductMasterToDraft(activeKeheDocumentDraft, false);
+    if (mpl.manual_mpl) {
+      markMplPalletizationSource(mpl, 'Manual', 'Manual MPL weights recalculated from GTIN / Packaging Master Table.');
+    }
+    keheLastMplDraft = activeKeheDocumentDraft;
+    renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    setStatus('MPL weights recalculated from GTIN / Packaging Master Table.', 'info');
   }
 
 
@@ -3900,6 +4579,7 @@
   }
 
   function captureXmlPalletSnapshot(mpl) {
+    if (mpl?.manual_mpl || activeKeheDocumentDraft?.manual_mpl) return false;
     if (!mpl || mpl._xml_pallet_snapshot) return !!(mpl && mpl._xml_pallet_snapshot);
     ensureMplPalletState(mpl);
     const source = palletSourceLabel(mpl.palletization_source);
@@ -4115,6 +4795,990 @@
     renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     setStatus(warnings.length ? 'Auto Palletize completed with Needs Review items. Check Unassigned rows and warnings.' : 'Auto Palletize completed.', warnings.length ? 'error' : 'success');
+  }
+
+  const TIHI_PALLET_LENGTH_IN = 48;
+  const TIHI_PALLET_WIDTH_IN = 40;
+  const TIHI_PALLET_MAX_HEIGHT_IN = 70;
+  const TIHI_PALLET_MAX_GROSS_LBS = 2000;
+  const TIHI_PALLET_TARE_LBS = 50;
+  const TIHI_PALLET_BUFFER_FACTOR = 1.05;
+
+  function defaultTiHiConstraints() {
+    return {
+      max_length_in: TIHI_PALLET_LENGTH_IN,
+      max_width_in: TIHI_PALLET_WIDTH_IN,
+      max_height_in: TIHI_PALLET_MAX_HEIGHT_IN,
+      max_gross_lbs: TIHI_PALLET_MAX_GROSS_LBS
+    };
+  }
+
+  function normalizeTiHiConstraints(raw = {}) {
+    const defaults = defaultTiHiConstraints();
+    const readPositive = (value, fallback) => {
+      const num = Number(value);
+      return Number.isFinite(num) && num > 0 ? num : fallback;
+    };
+    return {
+      max_length_in: readPositive(raw.max_length_in, defaults.max_length_in),
+      max_width_in: readPositive(raw.max_width_in, defaults.max_width_in),
+      max_height_in: readPositive(raw.max_height_in, defaults.max_height_in),
+      max_gross_lbs: readPositive(raw.max_gross_lbs, defaults.max_gross_lbs)
+    };
+  }
+
+  function getMplTiHiConstraints(mpl, palletId = '') {
+    if (!mpl) return defaultTiHiConstraints();
+    const normalizedPallet = normalizePalletId(palletId);
+    if (normalizedPallet) {
+      if (!mpl._tihi_pallet_constraints || typeof mpl._tihi_pallet_constraints !== 'object') {
+        mpl._tihi_pallet_constraints = {};
+      }
+      mpl._tihi_pallet_constraints[normalizedPallet] = normalizeTiHiConstraints(mpl._tihi_pallet_constraints[normalizedPallet] || {});
+      return mpl._tihi_pallet_constraints[normalizedPallet];
+    }
+    mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
+    return mpl._tihi_constraints;
+  }
+
+  function bestTiHiOrientation(dims, constraints) {
+    if (!dims) return null;
+    const seen = new Set();
+    const candidates = [
+      [dims.l, dims.w],
+      [dims.w, dims.l]
+    ].map(([caseLength, caseWidth]) => {
+      const key = `${caseLength}x${caseWidth}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      const columns = Math.floor(constraints.max_length_in / caseLength);
+      const rows = Math.floor(constraints.max_width_in / caseWidth);
+      const ti = columns * rows;
+      if (ti < 1) return null;
+      const fillRatio = (columns * caseLength * rows * caseWidth) / (constraints.max_length_in * constraints.max_width_in);
+      return { caseLength, caseWidth, caseHeight: dims.h, columns, rows, ti, fillRatio };
+    }).filter(Boolean);
+    if (!candidates.length) return null;
+    return candidates.sort((a, b) => (b.ti - a.ti) || (b.fillRatio - a.fillRatio) || (a.caseWidth - b.caseWidth))[0];
+  }
+
+  function tihiItemLabel(item, index = 0) {
+    return item?.sku || item?.item_number || item?.gtin || item?.case_upc || item?.description || `Line ${index + 1}`;
+  }
+
+  function tihiColorForIndex(index) {
+    const palette = ['#d99a4b', '#7db3ff', '#8fd19e', '#f5a3a3', '#b7a0ff', '#7fd8d0', '#f2cf63', '#f0b27a'];
+    return palette[index % palette.length];
+  }
+
+  function tihiColorToRgb(color) {
+    const raw = String(color || '').trim().replace('#', '');
+    if (!/^[0-9a-f]{6}$/i.test(raw)) return [0.85, 0.60, 0.29];
+    return [
+      parseInt(raw.slice(0, 2), 16) / 255,
+      parseInt(raw.slice(2, 4), 16) / 255,
+      parseInt(raw.slice(4, 6), 16) / 255
+    ];
+  }
+
+  function estimateMixedBoxCapacity(spaceLength, spaceWidth, boxLength, boxWidth) {
+    if (!(spaceLength > 0 && spaceWidth > 0 && boxLength > 0 && boxWidth > 0)) return 0;
+    let best = 0;
+    const rowLimitA = Math.floor(spaceWidth / boxWidth);
+    for (let rowsA = 0; rowsA <= rowLimitA; rowsA += 1) {
+      const usedA = rowsA * Math.floor(spaceLength / boxLength);
+      const remainingWidth = spaceWidth - (rowsA * boxWidth);
+      const usedB = remainingWidth > 0 ? Math.floor(remainingWidth / boxLength) * Math.floor(spaceLength / boxWidth) : 0;
+      best = Math.max(best, usedA + usedB);
+    }
+    const rowLimitB = Math.floor(spaceWidth / boxLength);
+    for (let rowsB = 0; rowsB <= rowLimitB; rowsB += 1) {
+      const usedB = rowsB * Math.floor(spaceLength / boxWidth);
+      const remainingWidth = spaceWidth - (rowsB * boxLength);
+      const usedA = remainingWidth > 0 ? Math.floor(remainingWidth / boxWidth) * Math.floor(spaceLength / boxLength) : 0;
+      best = Math.max(best, usedA + usedB);
+    }
+    return best;
+  }
+
+  function splitFreeRect(freeRect, placement) {
+    const rects = [];
+    const rightLength = freeRect.length - placement.length;
+    const bottomWidth = freeRect.width - placement.width;
+    if (rightLength > 0) {
+      rects.push({
+        x: freeRect.x + placement.length,
+        y: freeRect.y,
+        length: rightLength,
+        width: placement.width
+      });
+    }
+    if (bottomWidth > 0) {
+      rects.push({
+        x: freeRect.x,
+        y: freeRect.y + placement.width,
+        length: freeRect.length,
+        width: bottomWidth
+      });
+    }
+    return rects;
+  }
+
+  function pickBestFreeRectPlacement(freeRects, itemDims) {
+    const options = [
+      { length: itemDims.l, width: itemDims.w, height: itemDims.h },
+      { length: itemDims.w, width: itemDims.l, height: itemDims.h }
+    ].filter((opt, idx, arr) => idx === arr.findIndex(other => other.length === opt.length && other.width === opt.width));
+    let best = null;
+    const isBetterScore = (left, right) => {
+      for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+        const lv = left[i] ?? 0;
+        const rv = right[i] ?? 0;
+        if (lv === rv) continue;
+        return lv > rv;
+      }
+      return false;
+    };
+
+    freeRects.forEach((freeRect, rectIndex) => {
+      options.forEach(opt => {
+        if (opt.length > freeRect.length || opt.width > freeRect.width) return;
+        const placement = { ...opt, x: freeRect.x, y: freeRect.y };
+        const nextFreeRects = [
+          ...freeRects.slice(0, rectIndex),
+          ...freeRects.slice(rectIndex + 1),
+          ...splitFreeRect(freeRect, placement)
+        ];
+        const capacities = nextFreeRects.map(rect => estimateMixedBoxCapacity(rect.length, rect.width, itemDims.l, itemDims.w)).sort((a, b) => b - a);
+        const futureCapacity = capacities.reduce((sum, value) => sum + value, 0);
+        const unusedArea = nextFreeRects.reduce((sum, rect) => sum + (rect.length * rect.width), 0) - (futureCapacity * itemDims.l * itemDims.w);
+        const score = [
+          futureCapacity,
+          capacities[capacities.length - 1] || 0,
+          -(unusedArea),
+          -(placement.y),
+          -(placement.x)
+        ];
+        if (!best || isBetterScore(score, best.score)) {
+          best = { placement, rectIndex, nextFreeRects, score };
+        }
+      });
+    });
+
+    return best;
+  }
+
+  function buildPalletTiHiLayout(itemGroups, constraints) {
+    const placements = [];
+    const overflow = [];
+    let layerIndex = 0;
+    let layerBaseZ = 0;
+    let layerHeight = 0;
+    let freeRects = [{ x: 0, y: 0, length: constraints.max_length_in, width: constraints.max_width_in }];
+
+    const startNewLayer = () => {
+      layerBaseZ += layerHeight;
+      layerIndex += 1;
+      layerHeight = 0;
+      freeRects = [{ x: 0, y: 0, length: constraints.max_length_in, width: constraints.max_width_in }];
+    };
+
+    [...itemGroups].sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex)).forEach(group => {
+      const dims = group.dims;
+      for (let i = 0; i < group.assignedCases; i += 1) {
+        let bestFit = pickBestFreeRectPlacement(freeRects, dims);
+        if (!bestFit) {
+          startNewLayer();
+          bestFit = pickBestFreeRectPlacement(freeRects, dims);
+        }
+        if (!bestFit) {
+          overflow.push(group);
+          continue;
+        }
+        const oriented = bestFit.placement;
+        if (layerBaseZ + Math.max(layerHeight, oriented.height) > constraints.max_height_in) {
+          startNewLayer();
+          bestFit = pickBestFreeRectPlacement(freeRects, dims);
+          if (!bestFit) {
+            overflow.push(group);
+            continue;
+          }
+        }
+        const finalPlacement = bestFit.placement;
+
+        placements.push({
+          pallet: group.pallet,
+          label: group.label,
+          color: group.color,
+          lineLabel: group.lines.join(', '),
+          x: finalPlacement.x,
+          y: finalPlacement.y,
+          z: layerBaseZ,
+          layerIndex,
+          length: finalPlacement.length,
+          width: finalPlacement.width,
+          height: finalPlacement.height
+        });
+
+        layerHeight = Math.max(layerHeight, finalPlacement.height);
+        freeRects = bestFit.nextFreeRects
+          .filter(rect => rect.length > 0.001 && rect.width > 0.001)
+          .sort((a, b) => (a.y - b.y) || (a.x - b.x) || ((a.length * a.width) - (b.length * b.width)));
+      }
+    });
+
+    const usedHeight = layerBaseZ + layerHeight;
+    const caseVolume = placements.reduce((sum, p) => sum + (p.length * p.width * p.height), 0);
+    return {
+      placements,
+      usedHeight,
+      overflowCount: overflow.length,
+      palletFillPct: Math.min(100, (caseVolume / (constraints.max_length_in * constraints.max_width_in * constraints.max_height_in)) * 100)
+    };
+  }
+
+  function buildMplTiHiEntries(mpl) {
+    const items = Array.isArray(mpl?.items) ? mpl.items : [];
+    const grouped = new Map();
+    const warnings = [];
+    const constraints = getMplTiHiConstraints(mpl);
+
+    items.forEach((item, index) => {
+      const pallet = normalizePalletId(item.location_on_pallet) || '1';
+      const assignedCases = Math.max(0, Math.ceil(itemQuantityForWeight(item)));
+      if (!assignedCases) return;
+
+      const fallbackProduct = matchCaseProductForPallet(item) || {};
+      const dimensionsIn = String(item.dimensions_in || fallbackProduct.dimensions_in || '').trim();
+      const weightLbs = String(item.unit_weight_lbs || fallbackProduct.weight_lbs || '').trim();
+      const dims = parseDimensionsInches(dimensionsIn);
+      const unitWeight = parseWeight(weightLbs);
+      const label = tihiItemLabel(item, index);
+
+      if (!dims) {
+        warnings.push(`Pallet ${pallet} / ${label}: missing Case dimensions in product master.`);
+        return;
+      }
+      if (unitWeight === null || unitWeight <= 0) {
+        warnings.push(`Pallet ${pallet} / ${label}: missing Case weight in product master.`);
+        return;
+      }
+
+      const entityKey = canonicalId(item.sku || item.item_number || item.gtin || item.case_upc || item.upc)
+        || String(item.description || '').trim().toLowerCase()
+        || `line-${index + 1}`;
+      const key = [pallet, entityKey, dimensionsIn, weightLbs].join('|');
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          pallet,
+          sku: item.sku || fallbackProduct.sku || '',
+          itemNumber: item.item_number || '',
+          gtin: item.gtin || item.case_upc || item.upc || fallbackProduct.gtin || '',
+          description: item.description || fallbackProduct.description || '',
+          dimensionsIn,
+          weightLbs,
+          dims,
+          unitWeight,
+          assignedCases: 0,
+          lines: [],
+          sortIndex: index
+        });
+      }
+      const group = grouped.get(key);
+      group.assignedCases += assignedCases;
+      if (item.line !== undefined && item.line !== null && String(item.line).trim()) {
+        group.lines.push(String(item.line).trim());
+      }
+    });
+
+    const palletGroups = {};
+    Array.from(grouped.values())
+      .sort((a, b) => (Number(a.pallet) || 0) - (Number(b.pallet) || 0) || a.sortIndex - b.sortIndex)
+      .forEach((group, index) => {
+        const label = group.sku || group.itemNumber || group.gtin || group.description || `Item ${index + 1}`;
+        const groupConstraints = getMplTiHiConstraints(mpl, group.pallet);
+        const orientation = bestTiHiOrientation(group.dims, groupConstraints);
+        if (!orientation) {
+          warnings.push(`Pallet ${group.pallet} / ${label}: Case footprint exceeds the pallet base.`);
+          return;
+        }
+        group.label = label;
+        group.color = tihiColorForIndex(index);
+        group.baseOrientation = orientation;
+        group.lines = [...new Set(group.lines)].sort((a, b) => Number(a) - Number(b));
+        if (!palletGroups[group.pallet]) palletGroups[group.pallet] = [];
+        palletGroups[group.pallet].push(group);
+      });
+
+    const entries = Object.entries(palletGroups).map(([palletId, groups]) => {
+      const palletConstraints = getMplTiHiConstraints(mpl, palletId);
+      const totalWeight = groups.reduce((sum, group) => sum + (group.unitWeight * group.assignedCases), 0);
+      const grossWeightLbs = roundProductWeightForPallet(totalWeight) + TIHI_PALLET_TARE_LBS;
+      if (grossWeightLbs > palletConstraints.max_gross_lbs) {
+        warnings.push(`Pallet ${palletId}: gross pallet weight ${Math.round(grossWeightLbs)} lbs exceeds the ${palletConstraints.max_gross_lbs} lb limit.`);
+      }
+      groups.sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex));
+      const layout = buildPalletTiHiLayout(groups, palletConstraints);
+      const { placements, usedHeight, overflowCount } = layout;
+      if (!placements.length) {
+        warnings.push(`Pallet ${palletId}: no TI-Hi layout could be created from the assigned case measurements.`);
+        return null;
+      }
+      const maxLayer = Math.max(...placements.map(p => p.layerIndex));
+      const topPlacements = placements.filter(p => p.layerIndex === maxLayer);
+      const topRowsUsed = new Set(topPlacements.map(p => `${p.y.toFixed(4)}:${p.width.toFixed(4)}`)).size || 1;
+      const caseCount = placements.length;
+      return {
+        pallet: palletId,
+        palletLabel: palletId,
+        constraints: palletConstraints,
+        placements,
+        topPlacements,
+        groups,
+        assignedCases: groups.reduce((sum, group) => sum + group.assignedCases, 0),
+        shownCases: caseCount,
+        overflowCases: overflowCount,
+        ti: topPlacements.length,
+        hi: maxLayer + 1,
+        topRowsUsed,
+        topLayerCases: topPlacements.length,
+        grossWeightLbs,
+        palletFillPct: Number(layout.palletFillPct || 0),
+        usedHeight,
+        lines: [...new Set(groups.flatMap(group => group.lines))].sort((a, b) => Number(a) - Number(b))
+      };
+    }).filter(Boolean);
+
+    entries.sort((a, b) => (Number(a.pallet) || 0) - (Number(b.pallet) || 0));
+
+    return { entries, warnings: [...new Set(warnings)], constraints };
+  }
+
+  function copyElementComputedStyles(source, target) {
+    const computed = window.getComputedStyle(source);
+    for (const prop of computed) {
+      target.style.setProperty(prop, computed.getPropertyValue(prop), computed.getPropertyPriority(prop));
+    }
+    Array.from(source.children || []).forEach((child, index) => {
+      if (target.children[index]) copyElementComputedStyles(child, target.children[index]);
+    });
+  }
+
+  async function renderElementToPngDataUrl(element) {
+    const rect = element.getBoundingClientRect();
+    const width = Math.max(1, Math.ceil(rect.width));
+    const height = Math.max(1, Math.ceil(rect.height));
+    const cloned = element.cloneNode(true);
+    copyElementComputedStyles(element, cloned);
+    cloned.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    const markup = new XMLSerializer().serializeToString(cloned);
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <foreignObject width="100%" height="100%">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;background:#ffffff;overflow:hidden;">${markup}</div>
+        </foreignObject>
+      </svg>`;
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = url;
+      });
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas.toDataURL('image/png');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function renderMplTiHiCardSnapshot(entry, constraints) {
+    const host = document.createElement('div');
+    host.style.position = 'fixed';
+    host.style.left = '-10000px';
+    host.style.top = '0';
+    host.style.width = '720px';
+    host.style.padding = '0';
+    host.style.background = '#ffffff';
+    host.style.zIndex = '-1';
+    host.innerHTML = renderMplTiHiCard(entry, 0, entry.constraints || constraints, false);
+    document.body.appendChild(host);
+    try {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const card = host.querySelector('.tihi-card');
+      if (!card) return '';
+      return await renderElementToPngDataUrl(card);
+    } catch (_err) {
+      return '';
+    } finally {
+      host.remove();
+    }
+  }
+
+  async function renderMplTiHiSheetSnapshot(mpl, options = {}) {
+    const host = document.createElement('div');
+    const focusPallet = normalizePalletId(options.focusPallet || '');
+    host.style.position = 'fixed';
+    host.style.left = '-10000px';
+    host.style.top = '0';
+    host.style.width = '980px';
+    host.style.padding = '0';
+    host.style.background = '#ffffff';
+    host.style.zIndex = '-1';
+    host.innerHTML = renderMplTiHiSheet(mpl, 0, {
+      focusPallet,
+      showOnlyFocus: options.showOnlyFocus ?? !!focusPallet,
+      statusLabel: options.statusLabel || 'Preview Page',
+      idPrefix: options.idPrefix || 'snapshot',
+      editable: options.editable ?? true
+    });
+    document.body.appendChild(host);
+    try {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const sheet = host.querySelector('.tihi-sheet');
+      if (!sheet) return '';
+      return await renderElementToPngDataUrl(sheet);
+    } catch (err) {
+      console.warn('TI-HI DOM snapshot capture failed; using canvas fallback.', err);
+      return '';
+    } finally {
+      host.remove();
+    }
+  }
+
+  function drawSnapshotRect(ctx, x, y, w, h, fill = '#ffffff', stroke = '#cbd5e1', lineWidth = 1) {
+    ctx.save();
+    ctx.fillStyle = fill;
+    if (stroke) ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.fill();
+    if (stroke) ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSnapshotRoundRect(ctx, x, y, w, h, r, fill = '#ffffff', stroke = '#cbd5e1', lineWidth = 1) {
+    ctx.save();
+    ctx.fillStyle = fill;
+    if (stroke) ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(x, y, w, h, r);
+    } else {
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+    }
+    ctx.fill();
+    if (stroke) ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSnapshotText(ctx, text, x, y, options = {}) {
+    ctx.save();
+    ctx.fillStyle = options.color || '#0f172a';
+    ctx.font = `${options.weight || 700} ${options.size || 12}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = options.align || 'left';
+    ctx.textBaseline = options.baseline || 'top';
+    ctx.fillText(String(text ?? ''), x, y, options.maxWidth);
+    ctx.restore();
+  }
+
+  function drawSnapshotWrappedText(ctx, text, x, y, maxWidth, lineHeight, options = {}) {
+    ctx.save();
+    ctx.fillStyle = options.color || '#334155';
+    ctx.font = `${options.weight || 700} ${options.size || 11}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    words.forEach(word => {
+      const next = line ? `${line} ${word}` : word;
+      if (ctx.measureText(next).width <= maxWidth || !line) {
+        line = next;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+    });
+    if (line) lines.push(line);
+    const maxLines = options.maxLines || lines.length || 1;
+    lines.slice(0, maxLines).forEach((row, index) => {
+      const suffix = index === maxLines - 1 && lines.length > maxLines ? '...' : '';
+      ctx.fillText(`${row}${suffix}`, x, y + (index * lineHeight), maxWidth);
+    });
+    ctx.restore();
+  }
+
+  function drawSnapshotTopView(ctx, entry, constraints, x, y, w, h) {
+    drawSnapshotRect(ctx, x, y, w, h, '#f8fafc', '#cbd5e1', 1);
+    drawSnapshotText(ctx, 'Top View', x + (w / 2), y + 18, { align: 'center', size: 13, weight: 900, color: '#020617' });
+    const pad = 42;
+    const areaX = x + pad;
+    const areaY = y + 58;
+    const areaW = w - (pad * 2);
+    const areaH = h - 94;
+    const scale = Math.min(areaW / constraints.max_length_in, areaH / constraints.max_width_in);
+    const palletW = constraints.max_length_in * scale;
+    const palletH = constraints.max_width_in * scale;
+    const px = areaX + ((areaW - palletW) / 2);
+    const py = areaY + ((areaH - palletH) / 2);
+    drawSnapshotRect(ctx, px, py, palletW, palletH, '#ffffff', '#334155', 2);
+    (entry.topPlacements || []).forEach(p => {
+      const rx = px + (Number(p.x || 0) * scale);
+      const ry = py + palletH - ((Number(p.y || 0) + Number(p.width || 0)) * scale);
+      drawSnapshotRect(ctx, rx, ry, Number(p.length || 0) * scale, Number(p.width || 0) * scale, p.color || '#d99a4b', '#6b4c24', 1);
+    });
+    drawSnapshotText(ctx, `${constraints.max_length_in} in`, px, y + h - 26, { size: 9, weight: 800, color: '#64748b' });
+    drawSnapshotText(ctx, `Top layer ${entry.topLayerCases || 0} visible case(s)`, x + (w / 2), y + h - 26, { align: 'center', size: 9, weight: 800, color: '#64748b' });
+    drawSnapshotText(ctx, `${constraints.max_width_in} in`, px + palletW, y + h - 26, { align: 'right', size: 9, weight: 800, color: '#64748b' });
+  }
+
+  function drawSnapshotSideView(ctx, entry, constraints, x, y, w, h) {
+    drawSnapshotRect(ctx, x, y, w, h, '#f8fafc', '#cbd5e1', 1);
+    drawSnapshotText(ctx, 'Side View', x + (w / 2), y + 18, { align: 'center', size: 13, weight: 900, color: '#020617' });
+    const pad = 48;
+    const areaX = x + pad;
+    const areaY = y + 54;
+    const areaW = w - (pad * 2);
+    const areaH = h - 90;
+    const scale = Math.min(areaW / constraints.max_length_in, areaH / constraints.max_height_in);
+    const palletW = constraints.max_length_in * scale;
+    const frameH = constraints.max_height_in * scale;
+    const px = areaX + ((areaW - palletW) / 2);
+    const py = areaY + ((areaH - frameH) / 2);
+    const palletBaseH = 10;
+    const stackBaseY = py + frameH - palletBaseH;
+    drawSnapshotRect(ctx, px, py, palletW, frameH, '#ffffff', '#334155', 2);
+    (entry.placements || []).forEach(p => {
+      const rx = px + (Number(p.x || 0) * scale);
+      const ry = stackBaseY - ((Number(p.z || 0) + Number(p.height || 0)) * scale);
+      drawSnapshotRect(ctx, rx, ry, Number(p.length || 0) * scale, Number(p.height || 0) * scale, p.color || '#d99a4b', '#6b4c24', 1);
+    });
+    drawSnapshotRect(ctx, px, stackBaseY, palletW, palletBaseH, '#ad9d77', '#5b5240', 1);
+    const notchW = palletW / 4.5;
+    drawSnapshotRect(ctx, px + (notchW * 0.75), stackBaseY + 2, notchW * 0.8, palletBaseH - 4, '#ffffff', '', 0);
+    drawSnapshotRect(ctx, px + (notchW * 2.5), stackBaseY + 2, notchW * 0.8, palletBaseH - 4, '#ffffff', '', 0);
+    drawSnapshotText(ctx, `${constraints.max_length_in} in`, px, y + h - 26, { size: 9, weight: 800, color: '#64748b' });
+    drawSnapshotText(ctx, `${Math.round(Number(entry.usedHeight || 0))} in used height`, x + (w / 2), y + h - 26, { align: 'center', size: 9, weight: 800, color: '#64748b' });
+    drawSnapshotText(ctx, `${entry.hi || 0} layer(s)`, px + palletW, y + h - 26, { align: 'right', size: 9, weight: 800, color: '#64748b' });
+  }
+
+  function renderMplTiHiEntryCanvasSnapshot(mpl, entry) {
+    const constraints = entry.constraints || getMplTiHiConstraints(mpl, entry.palletLabel);
+    const groups = entry.groups || [];
+    const width = 980;
+    const legendRows = Math.max(1, Math.ceil(groups.length / 2));
+    const cardH = 588 + (legendRows * 28);
+    const height = cardH + 48;
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    const x = 28;
+    let y = 24;
+    drawSnapshotRect(ctx, x, y, width - 56, cardH, '#f8fbff', '#0f5ea8', 2);
+    drawSnapshotText(ctx, `Pallet ${entry.palletLabel} - Current edited layout`, x + 12, y + 14, { size: 14, weight: 900, color: '#020617' });
+    drawSnapshotText(ctx, `${groups.length} item group(s) on this pallet`, x + 12, y + 34, { size: 10, weight: 800, color: '#334155' });
+
+    const statW = (width - 80) / 2;
+    const statH = 38;
+    const statY = y + 64;
+    const stats = [
+      ['Assigned', `${entry.assignedCases || 0} case(s)`],
+      ['Shown / Overflow', `${entry.shownCases || 0} shown - ${entry.overflowCases || 0} overflow`],
+      ['TI x HI', `${entry.ti || 0} x ${entry.hi || 0}`],
+      ['Pallet Use', `${Number(entry.palletFillPct || 0).toFixed(1)}% volume - ${Math.round(Number(entry.grossWeightLbs || 0))} lbs gross`]
+    ];
+    stats.forEach((stat, index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const sx = x + 12 + (col * (statW + 12));
+      const sy = statY + (row * (statH + 8));
+      drawSnapshotRect(ctx, sx, sy, statW, statH, '#f8fafc', '#e2e8f0', 1);
+      drawSnapshotText(ctx, stat[0].toUpperCase(), sx + 9, sy + 7, { size: 8, weight: 900, color: '#334155' });
+      drawSnapshotText(ctx, stat[1], sx + 9, sy + 21, { size: 10, weight: 800, color: '#0f172a' });
+    });
+
+    const diagramY = statY + 96;
+    const diagramW = (width - 112) / 2;
+    const diagramH = 350;
+    drawSnapshotTopView(ctx, entry, constraints, x + 36, diagramY, diagramW, diagramH);
+    drawSnapshotSideView(ctx, entry, constraints, x + 60 + diagramW, diagramY, diagramW, diagramH);
+
+    const legendY = diagramY + diagramH + 18;
+    const legendW = (width - 96) / 2;
+    groups.forEach((group, index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const lx = x + 12 + (col * (legendW + 12));
+      const ly = legendY + (row * 28);
+      drawSnapshotRect(ctx, lx, ly, legendW, 24, '#f8fafc', '#e2e8f0', 1);
+      drawSnapshotRect(ctx, lx + 8, ly + 6, 12, 12, group.color || '#d99a4b', '#475569', 1);
+      drawSnapshotWrappedText(
+        ctx,
+        `${group.label || ''} - Lines ${group.lines?.join(', ') || '-'} - ${group.assignedCases || 0} case(s) - ${group.dimensionsIn || ''}`,
+        lx + 28,
+        ly + 5,
+        legendW - 36,
+        10,
+        { size: 9, weight: 800, color: '#334155', maxLines: 2 }
+      );
+    });
+    drawSnapshotText(ctx, `MPL lines: ${(entry.lines || []).join(', ')}`, x + 12, y + cardH - 20, { size: 10, weight: 800, color: '#334155' });
+
+    return canvas.toDataURL('image/png');
+  }
+
+  async function captureMplTiHiEntrySnapshot(mpl, entry) {
+    const domImage = await renderMplTiHiCardSnapshot(entry, entry.constraints || getMplTiHiConstraints(mpl, entry.palletLabel));
+    if (domImage) return domImage;
+    return renderMplTiHiEntryCanvasSnapshot(mpl, entry);
+  }
+
+  async function buildMplTiHiSnapshotPayload(mpl) {
+    const { entries, warnings, constraints } = buildMplTiHiEntries(mpl);
+    const entryImageDataUrls = [];
+    for (const entry of entries) {
+      entryImageDataUrls.push(await captureMplTiHiEntrySnapshot(mpl, entry));
+    }
+    const mapPlacement = p => ({
+      x: Number(p.x || 0),
+      y: Number(p.y || 0),
+      z: Number(p.z || 0),
+      layer_index: Number(p.layerIndex || 0),
+      case_length: Number(p.length || 0),
+      case_width: Number(p.width || 0),
+      case_height: Number(p.height || 0),
+      unit_weight: Number(p.unitWeight || 0),
+      color: tihiColorToRgb(p.color)
+    });
+    return {
+      constraints: {
+        max_length_in: Number(constraints.max_length_in),
+        max_width_in: Number(constraints.max_width_in),
+        max_height_in: Number(constraints.max_height_in),
+        max_gross_lbs: Number(constraints.max_gross_lbs)
+      },
+      warnings: [...warnings],
+      sheet_image_data_url: '',
+      entries: entries.map((entry, index) => ({
+        pallet: entry.pallet,
+        pallet_label: entry.palletLabel,
+        image_data_url: entryImageDataUrls[index] || '',
+        placements: (entry.placements || []).map(mapPlacement),
+        top_placements: (entry.topPlacements || []).map(mapPlacement),
+        groups: (entry.groups || []).map(group => ({
+          label: group.label,
+          assigned_cases: Number(group.assignedCases || 0),
+          dimensions_in: group.dimensionsIn || '',
+          lines: [...(group.lines || [])],
+          color: tihiColorToRgb(group.color)
+        })),
+        constraints: {
+          max_length_in: Number((entry.constraints || constraints).max_length_in),
+          max_width_in: Number((entry.constraints || constraints).max_width_in),
+          max_height_in: Number((entry.constraints || constraints).max_height_in),
+          max_gross_lbs: Number((entry.constraints || constraints).max_gross_lbs)
+        },
+        assigned_cases: Number(entry.assignedCases || 0),
+        shown_cases: Number(entry.shownCases || 0),
+        overflow_cases: Number(entry.overflowCases || 0),
+        ti: Number(entry.ti || 0),
+        hi: Number(entry.hi || 0),
+        top_rows_used: Number(entry.topRowsUsed || 0),
+        top_layer_cases: Number(entry.topLayerCases || 0),
+        gross_weight_lbs: Number(entry.grossWeightLbs || 0),
+        pallet_fill_pct: Number(entry.palletFillPct || 0),
+        used_height: Number(entry.usedHeight || 0),
+        lines: [...(entry.lines || [])]
+      }))
+    };
+  }
+
+  async function captureCurrentMplTiHiSnapshots(draft) {
+    for (const mpl of (draft?.packing_lists || [])) {
+      try {
+        mpl._tihi_snapshot = await buildMplTiHiSnapshotPayload(mpl);
+      } catch (err) {
+        console.warn('TI-HI snapshot capture failed; MPL will use backend fallback rendering.', err);
+        delete mpl._tihi_snapshot;
+      }
+    }
+  }
+
+  function getMplTiHiSectionId(mplIndex, palletId, prefix = 'tihi') {
+    const safe = String(palletId || '1').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+    return `mpl-${mplIndex}-${prefix}-${safe}`;
+  }
+
+  function renderTiHiTopViewSvg(entry, constraints) {
+    const width = 340;
+    const height = 260;
+    const pad = 12;
+    const scale = Math.min((width - (2 * pad)) / constraints.max_length_in, (height - (2 * pad)) / constraints.max_width_in);
+    const palletW = constraints.max_length_in * scale;
+    const palletH = constraints.max_width_in * scale;
+    const originX = (width - palletW) / 2;
+    const originY = (height - palletH) / 2;
+    const rects = (entry.topPlacements || []).map(p =>
+      `<rect x="${(originX + (p.x * scale)).toFixed(2)}" y="${(originY + palletH - ((p.y + p.width) * scale)).toFixed(2)}" width="${(p.length * scale).toFixed(2)}" height="${(p.width * scale).toFixed(2)}" fill="${p.color}" stroke="#6b4c24" stroke-width="1"/>`
+    );
+    return `
+      <div class="tihi-svg-wrap">
+        <svg class="tihi-svg" viewBox="0 0 ${width} ${height}" aria-label="TI-Hi top view">
+          <rect x="${originX.toFixed(2)}" y="${originY.toFixed(2)}" width="${palletW.toFixed(2)}" height="${palletH.toFixed(2)}" fill="#ffffff" stroke="#334155" stroke-width="1.4"/>
+          ${rects.join('')}
+        </svg>
+      </div>`;
+  }
+
+  function renderTiHiSideViewSvg(entry, constraints) {
+    const width = 300;
+    const height = 320;
+    const pad = 12;
+    const scale = Math.min((width - (2 * pad)) / constraints.max_length_in, (height - (2 * pad)) / constraints.max_height_in);
+    const palletW = constraints.max_length_in * scale;
+    const frameH = constraints.max_height_in * scale;
+    const originX = (width - palletW) / 2;
+    const frameY = (height - frameH) / 2;
+    const palletBaseH = 8;
+    const stackBaseY = frameY + frameH - palletBaseH;
+    const rects = (entry.placements || []).map(p =>
+      `<rect x="${(originX + (p.x * scale)).toFixed(2)}" y="${(stackBaseY - ((p.z + p.height) * scale)).toFixed(2)}" width="${(p.length * scale).toFixed(2)}" height="${(p.height * scale).toFixed(2)}" fill="${p.color}" stroke="#6b4c24" stroke-width="1"/>`
+    );
+    const notchW = palletW / 4.5;
+    return `
+      <div class="tihi-svg-wrap">
+        <svg class="tihi-svg side" viewBox="0 0 ${width} ${height}" aria-label="TI-Hi side view">
+          <rect x="${originX.toFixed(2)}" y="${frameY.toFixed(2)}" width="${palletW.toFixed(2)}" height="${frameH.toFixed(2)}" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
+          ${rects.join('')}
+          <rect x="${originX.toFixed(2)}" y="${stackBaseY.toFixed(2)}" width="${palletW.toFixed(2)}" height="${palletBaseH}" fill="#ad9d77" stroke="#5b5240" stroke-width="1"/>
+          <rect x="${(originX + (notchW * 0.75)).toFixed(2)}" y="${(stackBaseY + 1.5).toFixed(2)}" width="${(notchW * 0.8).toFixed(2)}" height="${(palletBaseH - 3).toFixed(2)}" fill="#ffffff" stroke="none"/>
+          <rect x="${(originX + (notchW * 2.5)).toFixed(2)}" y="${(stackBaseY + 1.5).toFixed(2)}" width="${(notchW * 0.8).toFixed(2)}" height="${(palletBaseH - 3).toFixed(2)}" fill="#ffffff" stroke="none"/>
+        </svg>
+      </div>`;
+  }
+
+  function renderTiHiLegend(entry) {
+    const groups = entry.groups || [];
+    if (!groups.length) return '';
+    return `
+      <div class="tihi-legend">
+        ${groups.map(group => `
+          <div class="tihi-legend-item">
+            <span class="tihi-legend-swatch" style="background:${escapeHtml(group.color || '#d99a4b')}"></span>
+            <span><strong>${escapeHtml(group.label || 'Item')}</strong><br>Lines ${escapeHtml((group.lines || []).join(', ') || '—')} • ${escapeHtml(String(group.assignedCases || 0))} case(s) • ${escapeHtml(group.dimensionsIn || '')} in</span>
+          </div>
+        `).join('')}
+      </div>`;
+  }
+
+  function renderMplTiHiCard(entry, mplIndex, constraints, isHighlighted = false) {
+    return `
+      <div class="tihi-card${isHighlighted ? ' highlight' : ''}">
+        <div class="tihi-card-head">
+          <div>
+            <div class="tihi-card-title">Pallet ${escapeHtml(entry.palletLabel)} • Current edited layout</div>
+            <div class="tihi-card-subtitle">${escapeHtml(String((entry.groups || []).length))} item group(s) on this pallet</div>
+          </div>
+          ${entry.overflowCases ? `<div class="tihi-card-overflow">${escapeHtml(String(entry.overflowCases))} over limit</div>` : ''}
+        </div>
+        <div class="tihi-stats">
+          <div class="tihi-stat"><strong>Assigned</strong><span>${escapeHtml(String(entry.assignedCases))} case(s)</span></div>
+          <div class="tihi-stat"><strong>Shown / Overflow</strong><span>${escapeHtml(String(entry.shownCases))} shown • ${escapeHtml(String(entry.overflowCases || 0))} overflow</span></div>
+          <div class="tihi-stat"><strong>TI x HI</strong><span>${escapeHtml(String(entry.ti))} x ${escapeHtml(String(entry.hi))}</span></div>
+          <div class="tihi-stat"><strong>Pallet Use</strong><span>${escapeHtml(entry.palletFillPct.toFixed(1))}% volume • ${escapeHtml(String(Math.round(entry.grossWeightLbs)))} lbs gross</span></div>
+        </div>
+        <div class="tihi-visual-grid">
+          <div class="tihi-diagram">
+            <div class="tihi-diagram-title">Top View</div>
+            ${renderTiHiTopViewSvg(entry, constraints)}
+            <div class="tihi-dim-row"><span>${escapeHtml(String(constraints.max_length_in))} in</span><span>Top layer ${escapeHtml(String(entry.topLayerCases))} visible case(s)</span><span>${escapeHtml(String(constraints.max_width_in))} in</span></div>
+          </div>
+          <div class="tihi-diagram">
+            <div class="tihi-diagram-title">Side View</div>
+            ${renderTiHiSideViewSvg(entry, constraints)}
+            <div class="tihi-dim-row"><span>${escapeHtml(String(constraints.max_length_in))} in</span><span>${escapeHtml(String(Math.round(entry.usedHeight || 0)))} in used height</span><span>${escapeHtml(String(entry.hi))} layer(s)</span></div>
+          </div>
+        </div>
+        ${renderTiHiLegend(entry)}
+        ${entry.lines.length ? `<div class="tihi-lines">MPL lines: ${escapeHtml(entry.lines.join(', '))}</div>` : ''}
+      </div>`;
+  }
+
+  function openMplPalletTiHi(mplIndex, palletId) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl || !activeKeheDocumentDraft) return;
+    applyProductMasterToDraft(activeKeheDocumentDraft, true);
+    (activeKeheDocumentDraft.packing_lists || []).forEach((list, index) => {
+      list._show_tihi = index === mplIndex;
+    });
+    mpl._tihi_focus_pallet = normalizePalletId(palletId) || '1';
+    mpl._show_tihi = true;
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    setStatus(`TI-Hi preview refreshed for pallet ${palletId}.`, 'info');
+  }
+
+  function closeMplTiHiPopup(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    mpl._show_tihi = false;
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function updateMplTiHiConstraint(mplIndex, palletId, key, value) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    const constraints = getMplTiHiConstraints(mpl, palletId);
+    constraints[key] = value;
+  }
+
+  function resetMplTiHiConstraints(mplIndex, palletId) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    const normalizedPallet = normalizePalletId(palletId);
+    if (normalizedPallet && mpl._tihi_pallet_constraints) {
+      delete mpl._tihi_pallet_constraints[normalizedPallet];
+    } else {
+      mpl._tihi_constraints = defaultTiHiConstraints();
+    }
+    mpl._show_tihi = true;
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function recalcMplTiHiPopup(mplIndex, palletId = '') {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    const normalizedPallet = normalizePalletId(palletId);
+    if (normalizedPallet) {
+      getMplTiHiConstraints(mpl, normalizedPallet);
+    } else {
+      mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
+    }
+    mpl._show_tihi = true;
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    setStatus(`TI-Hi recalculated for ${normalizedPallet ? `pallet ${normalizedPallet}` : (mpl.id || `MPL ${mplIndex + 1}`)}.`, 'info');
+  }
+
+  function renderMplTiHiSheet(mpl, mplIndex, options = {}) {
+    const focusPallet = normalizePalletId(options.focusPallet ?? mpl?._tihi_focus_pallet ?? '');
+    const showOnlyFocus = options.showOnlyFocus ?? !!focusPallet;
+    const { entries, warnings, constraints } = buildMplTiHiEntries(mpl);
+    const entriesToShow = showOnlyFocus ? entries.filter(entry => normalizePalletId(entry.palletLabel) === focusPallet) : entries;
+    const focusEntry = entries.find(entry => normalizePalletId(entry.palletLabel) === focusPallet);
+    const sheetConstraints = focusEntry?.constraints || (focusPallet ? getMplTiHiConstraints(mpl, focusPallet) : constraints);
+    const statusLabel = options.statusLabel || 'Preview Page';
+    const idPrefix = options.idPrefix || 'tihi';
+    const editable = !!options.editable;
+    return `
+      <div class="pdf-document-shell">
+        <div class="pdf-sheet-toolbar">
+          <span>${escapeHtml((mpl?.id || 'MPL') + ' · TI-HI')}</span>
+          <span class="status-tag success">${escapeHtml(statusLabel)}</span>
+        </div>
+        <div class="pdf-sheet tihi-sheet">
+          <div class="tihi-sheet-title">TI-HI Layout Summary</div>
+          <div class="tihi-sheet-subtitle">
+            <span>PO: ${escapeHtml(mpl?.customer_po_number || '—')}</span>
+            <span>Constraints: ${escapeHtml(String(sheetConstraints.max_length_in))} × ${escapeHtml(String(sheetConstraints.max_width_in))} × ${escapeHtml(String(sheetConstraints.max_height_in))} in • Max ${escapeHtml(String(sheetConstraints.max_gross_lbs))} lbs gross</span>
+            <span>All dimensions shown in inches</span>
+          </div>
+          ${editable ? `
+            <div class="tihi-sheet-subtitle">
+              <div class="tihi-constraint-bar">
+                <div class="tihi-constraint-field">
+                  <label>Max Length (in)</label>
+                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_length_in))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_length_in', this.value)">
+                </div>
+                <div class="tihi-constraint-field">
+                  <label>Max Width (in)</label>
+                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_width_in))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_width_in', this.value)">
+                </div>
+                <div class="tihi-constraint-field">
+                  <label>Max Height (in)</label>
+                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_height_in))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_height_in', this.value)">
+                </div>
+                <div class="tihi-constraint-field">
+                  <label>Max Gross (lbs)</label>
+                  <input type="number" min="1" step="1" value="${escapeHtml(String(sheetConstraints.max_gross_lbs))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_gross_lbs', this.value)">
+                </div>
+                <div class="tihi-constraint-actions">
+                  <button class="btn-secondary" type="button" onclick="resetMplTiHiConstraints(${mplIndex}, '${jsString(focusPallet)}')">Defaults</button>
+                  <button class="btn-generate" type="button" onclick="recalcMplTiHiPopup(${mplIndex}, '${jsString(focusPallet)}')">Recalculate</button>
+                </div>
+              </div>
+            </div>` : ''}
+          ${warnings.length ? `<div class="tihi-warning">${warnings.slice(0, 6).map(escapeHtml).join('<br>')}</div>` : ''}
+          ${entriesToShow.length
+            ? entriesToShow.map(entry => `
+              <section class="tihi-pallet-section" id="${escapeHtml(getMplTiHiSectionId(mplIndex, entry.palletLabel, idPrefix))}">
+                <div class="tihi-pallet-section-head">
+                  <span>Pallet ${escapeHtml(entry.palletLabel)}</span>
+                  <span>${escapeHtml(String((entry.groups || []).length))} item group(s)</span>
+                </div>
+                ${renderMplTiHiCard(entry, mplIndex, entry.constraints || constraints, normalizePalletId(entry.palletLabel) === focusPallet)}
+              </section>`).join('')
+            : '<div class="tihi-empty">No TI-Hi diagram could be generated for this MPL.<br>Add Case dimensions and Case weight for the palletized SKU rows in the product master, then render again.</div>'}
+        </div>
+      </div>`;
+  }
+
+  function renderMplTiHiPopup(mpl, mplIndex) {
+    if (!mpl?._show_tihi) return '';
+    return `
+      <div class="tihi-popup-panel visible tihi-screen-only" onclick="if (event.target === this) closeMplTiHiPopup(${mplIndex})">
+        <div class="editor-dialog">
+          <div class="editor-toolbar">
+            <div>
+              <div class="editor-title">${escapeHtml((mpl?.id || 'MPL') + ' TI-HI Preview')}</div>
+            </div>
+            <button class="btn-secondary" type="button" onclick="closeMplTiHiPopup(${mplIndex})">Close</button>
+          </div>
+          <div class="editor-body">
+            <div class="tihi-popup-shell">
+              ${renderMplTiHiSheet(mpl, mplIndex, { showOnlyFocus: true, statusLabel: 'Popup Preview', idPrefix: 'popup', editable: true })}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderMplTiHiPrintSheets(draft) {
+    const lists = draft?.packing_lists || [];
+    const sheets = lists.map((mpl, index) =>
+      renderMplTiHiSheet(mpl, index, {
+        focusPallet: '',
+        showOnlyFocus: false,
+        statusLabel: 'Print Page',
+        idPrefix: 'print'
+      })
+    ).join('');
+    return sheets ? `<div class="tihi-print-only">${sheets}</div>` : '';
   }
 
   function selectKit(kit, updateHistory = true) {
@@ -4795,6 +6459,11 @@
   }
 
   function closeDocumentEditor() {
+    if (activeKeheDocumentDraft && Array.isArray(activeKeheDocumentDraft.packing_lists)) {
+      activeKeheDocumentDraft.packing_lists.forEach(mpl => {
+        mpl._show_tihi = false;
+      });
+    }
     document.getElementById('document-editor-panel').classList.remove('visible');
   }
 
@@ -4876,14 +6545,14 @@
     return `<input type="number" min="1" step="1" inputmode="numeric" class="${escapeHtml(className)}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(placeholder)}" data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">`;
   }
 
-  function renderCopiesControl(path, value, helpText = 'Number of labels to generate.') {
+  function renderCopiesControl(path, value, helpText = 'Number of labels to generate.', minCopies = 1) {
     return `
       <div class="label-copy-control">
         <div>
           <div class="label-copy-title">Copies</div>
           <div class="label-copy-help">${escapeHtml(helpText)}</div>
         </div>
-        ${editorPdfNumberInput(path, value || 1, 'label-copy-input', '1')}
+        <input type="number" min="${escapeHtml(String(minCopies))}" step="1" inputmode="numeric" class="label-copy-input" value="${escapeHtml(value ?? minCopies)}" placeholder="${escapeHtml(String(minCopies))}" data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">
       </div>`;
   }
 
@@ -5007,6 +6676,7 @@
         <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || item.upc || '')}</td>
         <td style="width:37%">
           <div class="mpl-description-edit">
+            ${renderMplProductSelect(mplIndex, itemIndex, item)}
             ${editorPdfTextarea(`${base}.description`, item.description)}
             <div class="mpl-exp-edit"><span>EXP:</span>${editorPdfInput(`${base}.expiration_date`, item.expiration_date)}</div>
           </div>
@@ -5064,7 +6734,10 @@
             <span>Weight</span>
             <input value="${escapeHtml(weight)}" placeholder="ex: 820 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)">
           </div>
-          <button class="btn-mini-danger" type="button" onclick="removeMplPallet(${mplIndex}, '${jsString(palletId)}')">Remove Pallet</button>
+          <div class="mpl-pallet-heading-actions">
+            <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">TI-Hi</button>
+            <button class="btn-mini-danger" type="button" onclick="removeMplPallet(${mplIndex}, '${jsString(palletId)}')">Remove Pallet</button>
+          </div>
         </div>
         ${renderMplDropZone(mplIndex, palletId, items, 'Drop line items here')}
       </div>`;
@@ -5121,6 +6794,7 @@
             <span>${escapeHtml(mpl.id || `MPL ${index + 1}`)}</span>
             ${pdfStatusBadge(mpl.status)}
           </div>
+          ${renderManualMplTools(mpl, index)}
           ${Array.isArray(mpl.warnings) && mpl.warnings.length
             ? `<div class="editor-warning" style="width:min(100%, 920px)">${mpl.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}
@@ -5160,11 +6834,92 @@
 
             ${renderMplItemsEditor(index, mpl.items || [])}
           </div>
-        </div>`).join('')}`;
+        </div>`).join('')}
+        ${lists.map((mpl, index) => renderMplTiHiPopup(mpl, index)).join('')}`;
   }
 
   function packLevelPrefix(level) {
     return normalizePackagingLevel(level) === 'Inner Pack' ? 'IP' : 'MP';
+  }
+
+  const ITF14_DIGIT_PATTERNS = {
+    '0': 'nnwwn',
+    '1': 'wnnnw',
+    '2': 'nwnnw',
+    '3': 'wwnnn',
+    '4': 'nnwnw',
+    '5': 'wnwnn',
+    '6': 'nwwnn',
+    '7': 'nnnww',
+    '8': 'wnnwn',
+    '9': 'nwnwn'
+  };
+
+  function packLabelDigits(value) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  function packLabelGtin14(value) {
+    const digits = packLabelDigits(value);
+    if (digits.length === 14) return digits;
+    if (digits.length > 14) return digits.slice(-14);
+    if (digits.length === 13) return `0${digits}`;
+    return digits;
+  }
+
+  function buildItf14Runs(value, wideRatio = 2.5) {
+    const digits = packLabelGtin14(value);
+    const encoded = digits.length % 2 ? `0${digits}` : digits;
+    const runs = [];
+    const add = (isBar, code = 'n') => runs.push({ isBar, units: code === 'w' ? wideRatio : 1 });
+    [true, false, true, false].forEach(isBar => add(isBar, 'n'));
+    for (let index = 0; index < encoded.length; index += 2) {
+      const bars = ITF14_DIGIT_PATTERNS[encoded[index]] || ITF14_DIGIT_PATTERNS['0'];
+      const spaces = ITF14_DIGIT_PATTERNS[encoded[index + 1]] || ITF14_DIGIT_PATTERNS['0'];
+      for (let i = 0; i < 5; i += 1) {
+        add(true, bars[i]);
+        add(false, spaces[i]);
+      }
+    }
+    add(true, 'w');
+    add(false, 'n');
+    add(true, 'n');
+    return { runs, totalUnits: runs.reduce((sum, run) => sum + run.units, 0), digits };
+  }
+
+  function renderPackLabelBarcodeSvg(value) {
+    const width = 760;
+    const height = 260;
+    const quiet = 70;
+    const panelX = 0;
+    const panelY = 0;
+    const panelW = width;
+    const panelH = height;
+    const { runs, totalUnits, digits } = buildItf14Runs(value);
+    const unitW = totalUnits ? (panelW - (quiet * 2)) / totalUnits : 0;
+    let cursor = panelX + quiet;
+    const bars = runs.map(run => {
+      const runW = run.units * unitW;
+      const x = cursor;
+      cursor += runW;
+      if (!run.isBar || runW <= 0) return '';
+      return `<rect x="${x.toFixed(3)}" y="${panelY}" width="${runW.toFixed(3)}" height="${panelH}" fill="#000000"/>`;
+    }).join('');
+    const invalidText = digits.length === 14 ? '' : `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" dominant-baseline="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="900" fill="#991b1b">GTIN-14 REQUIRED</text>`;
+    return `
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="GTIN-14 ITF-14 barcode preview">
+        <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>
+        ${digits.length === 14 ? bars : invalidText}
+      </svg>`;
+  }
+
+  function renderPackLabelBarcodePreview(value, index) {
+    return `<div class="pack-label-barcode-inner" data-pack-barcode-index="${index}">${renderPackLabelBarcodeSvg(value)}</div>`;
+  }
+
+  function refreshPackLabelBarcodePreview(index, value) {
+    const target = document.querySelector(`[data-pack-barcode-index="${index}"]`);
+    if (target) target.innerHTML = renderPackLabelBarcodeSvg(value);
   }
 
   function renderPackLabelEditor(draft) {
@@ -5212,11 +6967,11 @@
                 <div><strong>${escapeHtml(prefix)} Case Qty:</strong></div>
                 <div>${editorPdfInput(`${base}.case_qty`, label.case_qty)}</div>
               </div>
-              <div class="pack-label-barcode-box"><div class="pack-label-barcode-inner"></div></div>
+              <div class="pack-label-barcode-box">${renderPackLabelBarcodePreview(label.gtin, index)}</div>
               <div class="pack-label-gtin">${editorPdfInput(`${base}.gtin`, label.gtin)}</div>
             </div>
           </div>
-          ${renderCopiesControl(`${base}.copies`, label.copies || 1, 'Number of pack labels to generate.')}
+          ${renderCopiesControl(`${base}.copies`, label.copies || 2, 'Minimum 2 copies for two-side case placement.', 2)}
         </div>`;
       }).join('')}
       </div>`;
@@ -5360,9 +7115,30 @@
     }
     const last = parts[parts.length - 1];
     ref[last] = input.value;
+    const packCopiesMatch = path.match(/^pack_labels\.(\d+)\.copies$/);
+    if (packCopiesMatch) {
+      const copies = normalizeManualCopies(input.value);
+      ref[last] = copies;
+      input.value = String(copies);
+    }
+    const packGtinMatch = path.match(/^pack_labels\.(\d+)\.gtin$/);
+    if (packGtinMatch) {
+      refreshPackLabelBarcodePreview(Number(packGtinMatch[1]), input.value);
+    }
     if (activeKeheDocumentType === 'palletLabel' && /^pallets\.\d+\.(pallet_number|total_pallets|customer_po_numbers)$/.test(path)) {
       setPalletLabelManualSource();
       renderKeheUnifiedReport(keheLastMplDraft || activeKeheDocumentDraft);
+    }
+    if (activeKeheDocumentType === 'masterPackingList' && /^packing_lists\.\d+\./.test(path)) {
+      const mplMatch = path.match(/^packing_lists\.(\d+)\./);
+      const mpl = mplMatch ? getMpl(Number(mplMatch[1])) : null;
+      if (mpl) {
+        if (mpl.manual_mpl) {
+          markMplPalletizationSource(mpl, 'Manual', 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.');
+        }
+        keheLastMplDraft = activeKeheDocumentDraft;
+        renderKeheUnifiedReport(activeKeheDocumentDraft);
+      }
     }
   }
 
@@ -5508,27 +7284,10 @@
     ensureMplPalletState(mpl);
     captureXmlPalletSnapshot(mpl);
     mpl.items = mpl.items || [];
+    const defaultPallet = mpl.manual_mpl ? ((mpl._pallet_ids && mpl._pallet_ids[0]) || '1') : '';
     mpl.items.push({
-      line: mpl.items.length + 1,
-      location_on_pallet: '',
+      ...blankManualMplItem(mpl.items.length + 1, defaultPallet),
       item_number: '',
-      upc: '',
-      case_upc: '',
-      gtin: '',
-      sku: '',
-      description: '',
-      packaging_level: '',
-      dimensions_in: '',
-      unit_weight_lbs: '',
-      calculated_weight_lbs: '',
-      lot: '',
-      expiration_date: '',
-      uom: 'CASES',
-      qty_on_pallet: '',
-      total_ordered: '',
-      total_shipped: '',
-      pallet_weight: '',
-      notes: ''
     });
     setMplManualSource(mpl);
     keheLastMplDraft = activeKeheDocumentDraft;
@@ -5632,58 +7391,63 @@
     activeKeheDocumentDraft = null;
 
     setStatus(`Preparing editable ${cfg.label} draft\u2026`, 'info');
-    if (selectedKit === 'kehe') {
-      try {
-        if (keheProductMasterLoadPromise) await keheProductMasterLoadPromise;
-        if (!getKeheProductMasterRows().length) {
-          keheProductMasterLoadPromise = loadKeheProductMasterFromBackend();
-          await keheProductMasterLoadPromise;
-        }
-      } catch (_err) {}
-    }
+    try {
+      if (selectedKit === 'kehe') {
+        try {
+          if (keheProductMasterLoadPromise) await keheProductMasterLoadPromise;
+          if (!getKeheProductMasterRows().length) {
+            keheProductMasterLoadPromise = loadKeheProductMasterFromBackend();
+            await keheProductMasterLoadPromise;
+          }
+        } catch (_err) {}
+      }
 
-    const form = new FormData();
-    xmlFiles.forEach(f => form.append('xml_files', f));
-    if (selectedKit === 'kehe') {
-      form.append('product_master_json', JSON.stringify(getKeheProductMasterRows()));
-    }
+      const form = new FormData();
+      xmlFiles.forEach(f => form.append('xml_files', f));
+      if (selectedKit === 'kehe') {
+        form.append('product_master_json', JSON.stringify(getKeheProductMasterRows()));
+      }
 
-    if (type === 'palletLabel' && keheLastMplDraft) {
-      activeKeheDocumentDraft = buildPalletLabelDraftFromMplDraft(keheLastMplDraft);
-      keheLastPalletLabelDraft = activeKeheDocumentDraft;
-      kehePalletLabelSource = activeKeheDocumentDraft.palletization_source || 'MPL';
-      renderKeheUnifiedReport(keheLastMplDraft);
-      renderDocumentEditor(type, activeKeheDocumentDraft);
+      if (type === 'palletLabel' && keheLastMplDraft) {
+        activeKeheDocumentDraft = buildPalletLabelDraftFromMplDraft(keheLastMplDraft);
+        keheLastPalletLabelDraft = activeKeheDocumentDraft;
+        kehePalletLabelSource = activeKeheDocumentDraft.palletization_source || 'MPL';
+        renderKeheUnifiedReport(keheLastMplDraft);
+        renderDocumentEditor(type, activeKeheDocumentDraft);
+        openDocumentEditor();
+        setStatus('Pallet Label draft ready from Master Packing List palletization.', 'info');
+        return;
+      }
+
+      const res = await fetchWithTimeout(cfg.prepareEndpoint, { method: 'POST', body: form }, 120000);
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus('Error: ' + (payload.detail || `Could not prepare ${cfg.label}.`), 'error');
+        return;
+      }
+      activeKeheDocumentDraft = payload;
+      activeKeheDocumentDraft.product_master = getKeheProductMasterRows();
+      if (type === 'palletLabel' && !keheLastMplDraft) {
+        activeKeheDocumentDraft.source_note = 'No MPL palletization found. Use Auto Palletize or generate MPL first.';
+        activeKeheDocumentDraft.palletization_source = 'XML';
+        keheLastPalletLabelDraft = activeKeheDocumentDraft;
+        kehePalletLabelSource = 'XML';
+      }
+      applyProductMasterToDraft(activeKeheDocumentDraft, false);
+      if (type === 'masterPackingList') {
+        captureXmlPalletSnapshots(activeKeheDocumentDraft);
+        const firstMpl = activeKeheDocumentDraft.packing_lists?.[0] || {};
+        keheLastMplDraft = activeKeheDocumentDraft;
+        keheMplPalletizationSource = firstMpl.palletization_source || 'XML';
+      }
+      renderKeheUnifiedReport(activeKeheDocumentDraft);
+      renderDocumentEditor(type, payload);
       openDocumentEditor();
-      setStatus('Pallet Label draft ready from Master Packing List palletization.', 'info');
-      return;
+      setStatus(`${cfg.label} draft ready. Review/edit fields before generating PDF.`, 'info');
+    } catch (err) {
+      console.error('KeHE document prepare failed', err);
+      setStatus('Error: ' + (err.message || `Could not prepare ${cfg.label}.`), 'error');
     }
-
-    const res = await fetch(cfg.prepareEndpoint, { method: 'POST', body: form });
-    const payload = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setStatus('Error: ' + (payload.detail || `Could not prepare ${cfg.label}.`), 'error');
-      return;
-    }
-    activeKeheDocumentDraft = payload;
-    activeKeheDocumentDraft.product_master = getKeheProductMasterRows();
-    if (type === 'palletLabel' && !keheLastMplDraft) {
-      activeKeheDocumentDraft.source_note = 'No MPL palletization found. Use Auto Palletize or generate MPL first.';
-      activeKeheDocumentDraft.palletization_source = 'XML';
-      keheLastPalletLabelDraft = activeKeheDocumentDraft;
-      kehePalletLabelSource = 'XML';
-    }
-    applyProductMasterToDraft(activeKeheDocumentDraft, false);
-    if (type === 'masterPackingList') {
-      captureXmlPalletSnapshots(activeKeheDocumentDraft);
-      const firstMpl = activeKeheDocumentDraft.packing_lists?.[0] || {};
-      keheLastMplDraft = activeKeheDocumentDraft;
-      keheMplPalletizationSource = firstMpl.palletization_source || 'XML';
-    }
-    renderKeheUnifiedReport(activeKeheDocumentDraft);
-    renderDocumentEditor(type, payload);
-    openDocumentEditor();
-    setStatus(`${cfg.label} draft ready. Review/edit fields before generating PDF.`, 'info');
   }
 
   function humanizeKey(key) {
@@ -6047,6 +7811,13 @@
     if (!activeKeheDocumentDraft || !Array.isArray(activeKeheDocumentDraft.packing_lists)) return;
     activeKeheDocumentDraft.packing_lists.forEach(mpl => {
       ensureMplPalletState(mpl);
+      mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
+      if (!mpl._tihi_pallet_constraints || typeof mpl._tihi_pallet_constraints !== 'object') {
+        mpl._tihi_pallet_constraints = {};
+      }
+      Object.keys(mpl._tihi_pallet_constraints).forEach(palletId => {
+        mpl._tihi_pallet_constraints[palletId] = normalizeTiHiConstraints(mpl._tihi_pallet_constraints[palletId] || {});
+      });
       const assignedIds = [];
       (mpl.items || []).forEach(item => {
         const id = normalizePalletId(item.location_on_pallet);
@@ -6061,20 +7832,24 @@
 
   async function renderEditedKeheDocument() {
     if (!activeKeheDocumentType || !activeKeheDocumentDraft) return;
-    activeKeheDocumentDraft.product_master = getKeheProductMasterRows();
-    applyProductMasterToDraft(activeKeheDocumentDraft, true);
-    if (activeKeheDocumentType === 'masterPackingList') finalizeMplPalletDraft();
     const cfg = KEHE_DOCUMENT_CONFIG[activeKeheDocumentType];
     const btn = document.getElementById('btn-render-edited-document');
     btn.disabled = true;
-    setStatus(`Generating ${cfg.label} PDF from edited values\u2026`, 'info');
-    closeDocumentEditor();
-    // Clear any previously rendered preview so the new PDF always renders fresh
-    closePreview();
-    resetPreviewSurface();
-    setDownloadReady(false);
-    // Keep the KeHE XML data/report visible while the PDF is generated.
     try {
+      activeKeheDocumentDraft.product_master = getKeheProductMasterRows();
+      applyProductMasterToDraft(activeKeheDocumentDraft, true);
+      if (activeKeheDocumentType === 'masterPackingList') {
+        finalizeMplPalletDraft();
+        setStatus('Preparing TI-HI preview snapshot for MPL...', 'info');
+        await captureCurrentMplTiHiSnapshots(activeKeheDocumentDraft);
+      }
+      setStatus(`Generating ${cfg.label} PDF from edited values\u2026`, 'info');
+      closeDocumentEditor();
+      // Clear any previously rendered preview so the new PDF always renders fresh
+      closePreview();
+      resetPreviewSurface();
+      setDownloadReady(false);
+      // Keep the KeHE XML data/report visible while the PDF is generated.
       const res = await fetch(cfg.renderEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

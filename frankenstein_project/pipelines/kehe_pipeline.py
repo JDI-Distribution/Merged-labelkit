@@ -8,8 +8,10 @@ from EDI 856 ASN XML files. No shipping-label PDF matching is performed.
 from __future__ import annotations
 
 import argparse
+import base64
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -23,10 +25,10 @@ import xml.etree.ElementTree as ET
 import hashlib
 
 import fitz
-from reportlab.graphics import renderPDF
-from reportlab.graphics.barcode import code128, createBarcodeDrawing
+from reportlab.graphics.barcode import code128
 from reportlab.lib.pagesizes import LETTER, A4, landscape
 from reportlab.lib.units import inch
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
 
@@ -151,6 +153,7 @@ class Item:
     expiration_date: str = ""
     manufacture_date: str = ""
     plant: str = ""
+    po: str = ""
 
 
 @dataclass
@@ -215,11 +218,29 @@ def _store_from_name(name: str) -> str:
     return m.group(1) if m else ""
 
 
+def _location_suffix_from_code(value: str) -> str:
+    """Return the KeHE DC suffix from a GLN/location code when applicable."""
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) >= 12:
+        return digits[-2:]
+    return digits
+
+
 def _parse_store_from_n1(n1_seg: Optional[ET.Element]) -> str:
+    """Return a display location key from an N1 segment.
+
+    KeHE ST/BY N104 is often a 13-digit GLN/location code; for labels the
+    warehouse/DC display should use the last two digits, not the full GLN.
+    """
     if n1_seg is None:
         return ""
+    qual = (_get_elem(n1_seg, "01") or "").strip().upper()
     n102 = _get_elem(n1_seg, "02")
     n104 = _get_elem(n1_seg, "04")
+    if qual in {"ST", "BY"}:
+        suffix = _location_suffix_from_code(n104)
+        if suffix:
+            return suffix.zfill(2) if len(suffix) <= 2 else suffix
     if _looks_like_store(n104):
         return n104
     return _store_from_name(n102)
@@ -352,6 +373,175 @@ def _package_type_from_td1_code(value: str) -> str:
 
     return ""
 
+def _td1_quantity_summary(container: ET.Element) -> Dict[str, str]:
+    """Capture separate shipment-level TD1 counts for cartons and pallets."""
+    out = {"carton_count": "", "pallet_count": "", "first_code": "", "first_qty": ""}
+    for td1 in _segment_refs(container, "TD1", deep=False):
+        code = (_get_elem(td1, "01") or "").strip().upper()
+        qty = (_get_elem(td1, "02") or "").strip()
+        ptype = _package_type_from_td1_code(code)
+        if code and not out["first_code"]:
+            out["first_code"] = code
+        if qty and not out["first_qty"]:
+            out["first_qty"] = qty
+        if qty and ptype == "CTN" and not out["carton_count"]:
+            out["carton_count"] = qty
+        elif qty and ptype == "PLT" and not out["pallet_count"]:
+            out["pallet_count"] = qty
+    return out
+
+
+def _carrier_from_td5(td5: ET.Element) -> Tuple[str, str, str]:
+    """Return (carrier display, SCAC, TD505 routing value) from TD5.
+
+    TD502 is only the qualifier and must not be printed as a carrier. TD505 is
+    routing/carrier name; TD503 is SCAC when TD502=2.
+    """
+    qualifier = (_get_elem(td5, "02") or "").strip()
+    td503 = (_get_elem(td5, "03") or "").strip()
+    td505 = (_get_elem(td5, "05") or "").strip()
+    scac = td503 if qualifier == "2" and td503 else ""
+    td505_compact = re.sub(r"\s+", "", td505).upper()
+    td505_looks_like_reference = bool(td505_compact.isdigit() or UPS_RE.fullmatch(td505_compact))
+    # Some SPS exports place the BOL/route number in TD505. In that case, print
+    # the SCAC/TD503 as carrier instead of showing the numeric reference as carrier.
+    carrier = (td505 if td505 and not td505_looks_like_reference else "") or td503
+    return carrier, scac, td505
+
+
+def _extract_man_identifiers(container: ET.Element) -> Tuple[str, str]:
+    """Return (GS1 SSCC, carrier tracking) from MAN segments.
+
+    KeHE requires GS1-128 SSCC from MAN01=GM / MAN02. Carrier tracking is CP
+    and can appear either as MAN01/02 or MAN04/05 when GM is also present.
+    """
+    sscc = ""
+    tracking = ""
+    for man in _segment_refs(container, "MAN", deep=False):
+        q1 = (_get_elem(man, "01") or "").strip().upper()
+        v1 = (_get_elem(man, "02") or "").strip()
+        q2 = (_get_elem(man, "04") or "").strip().upper()
+        v2 = (_get_elem(man, "05") or "").strip()
+        if q1 == "GM" and v1 and not sscc:
+            sscc = v1
+        elif q1 == "CP" and v1 and not tracking:
+            tracking = v1
+        if q2 == "GM" and v2 and not sscc:
+            sscc = v2
+        elif q2 == "CP" and v2 and not tracking:
+            tracking = v2
+    return sscc, tracking
+
+
+def _plant_from_n1loops(container: ET.Element) -> str:
+    """Return manufacturer / plant identifier from pack- or item-level N1 MF loop."""
+    for n1loop in container.findall(".//N1-LOOP"):
+        n1 = n1loop.find("./SegmentRef[@ID='N1']")
+        if n1 is None:
+            continue
+        if (_get_elem(n1, "01") or "").strip().upper() == "MF":
+            plant = (_get_elem(n1, "04") or "").strip() or (_get_elem(n1, "02") or "").strip()
+            if plant:
+                return plant
+    return ""
+
+
+def _append_unique_csv(existing: str, value: str) -> str:
+    values: List[str] = []
+    for raw in re.split(r"[,;\n]+", existing or "") + re.split(r"[,;\n]+", value or ""):
+        raw = raw.strip()
+        if raw and raw not in values:
+            values.append(raw)
+    return ", ".join(values)
+
+
+def _item_signature(item: Item) -> Tuple[Any, ...]:
+    return (
+        item.po, item.vendor_item, item.retailer_item, item.upc, item.case_upc,
+        item.description, item.qty, item.uom, item.lot, item.expiration_date,
+        item.manufacture_date, item.plant,
+    )
+
+
+def _merge_duplicate_physical_packs(packs: List[Pack]) -> List[Pack]:
+    """Merge repeated SSCC rows into one physical label/pallet while preserving POs/items."""
+    merged: List[Pack] = []
+    by_key: Dict[str, Pack] = {}
+    item_sigs_by_key: Dict[str, set[Tuple[Any, ...]]] = {}
+    for pack in packs:
+        key = normalize_sscc(pack.sscc) or (pack.sscc or "").strip()
+        if not key:
+            key = f"__missing__{len(merged)}"
+        if key not in by_key:
+            by_key[key] = pack
+            merged.append(pack)
+            item_sigs_by_key[key] = {_item_signature(item) for item in pack.items}
+            continue
+        base = by_key[key]
+        base.po = _append_unique_csv(base.po, pack.po)
+        base.store = base.store or pack.store
+        base.tracking = base.tracking or pack.tracking
+        base.ship_date = base.ship_date or pack.ship_date
+        base.carrier_name = base.carrier_name or pack.carrier_name
+        base.scac = base.scac or pack.scac
+        base.bol = base.bol or pack.bol
+        base.pro = base.pro or pack.pro
+        base.lot = base.lot or pack.lot
+        base.expiration_date = base.expiration_date or pack.expiration_date
+        base.plant = base.plant or pack.plant
+        if (base.package_type or "CTN").upper().startswith("CTN") and (pack.package_type or "").upper().startswith("PLT"):
+            base.package_type = pack.package_type
+        sigs = item_sigs_by_key.setdefault(key, set())
+        for item in pack.items:
+            sig = _item_signature(item)
+            if sig not in sigs:
+                base.items.append(item)
+                sigs.add(sig)
+    return merged
+
+
+def _extract_bsn_hl_groups(root: ET.Element) -> List[Tuple[ET.Element, List[ET.Element]]]:
+    """Return one (BSN, HL loops) group per ASN transaction inside an SPS XML file.
+
+    This preserves files containing multiple ST/SE transactions instead of letting
+    document-level fields from one ASN bleed into another ASN.
+    """
+    groups: List[Tuple[ET.Element, List[ET.Element]]] = []
+    seen_bsn_ids: set[int] = set()
+
+    for elem in root.iter():
+        current_bsn: Optional[ET.Element] = None
+        current_hls: List[ET.Element] = []
+        saw_relevant_child = False
+
+        for child in list(elem):
+            tag = child.tag
+            seg_id = child.attrib.get("ID", "")
+            if tag == "SegmentRef" and seg_id == "BSN":
+                saw_relevant_child = True
+                if current_bsn is not None and id(current_bsn) not in seen_bsn_ids:
+                    groups.append((current_bsn, current_hls))
+                    seen_bsn_ids.add(id(current_bsn))
+                current_bsn = child
+                current_hls = []
+            elif tag == "HL-LOOP" and current_bsn is not None:
+                saw_relevant_child = True
+                current_hls.append(child)
+
+        if saw_relevant_child and current_bsn is not None and id(current_bsn) not in seen_bsn_ids:
+            groups.append((current_bsn, current_hls))
+            seen_bsn_ids.add(id(current_bsn))
+
+    return groups
+
+
+def _dc_number_from_store_or_gln(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) >= 2:
+        return digits[-2:]
+    return ""
+
+
 # ===========================================================================
 # ASN parser
 # ===========================================================================
@@ -367,12 +557,17 @@ def _parse_shipment_group(
     ship_from = Address()
     ship_to_by_store: Dict[str, Address] = {}
     shipment_ship_to = Address()  # fallback when no store key matches
+    shipment_ship_to_store = ""
     shipment_carrier_name = ""
     shipment_scac = ""
     shipment_bol = ""
     shipment_pro = ""
-    shipment_td5_pro = ""
     shipment_package_type = "CTN"
+    shipment_td1_types: set[str] = set()
+    has_tare_hl = any(
+        ((_get_elem(hl.find("./SegmentRef[@ID='HL']"), "03") or "").strip().upper() == "T")
+        for hl in hl_loops
+    )
 
     for hl in hl_loops:
         hl_seg = hl.find("./SegmentRef[@ID='HL']")
@@ -384,14 +579,16 @@ def _parse_shipment_group(
             for td1 in _segment_refs(hl, "TD1", deep=False):
                 detected_package_type = _package_type_from_td1_code(_get_elem(td1, "01"))
                 if detected_package_type:
-                    shipment_package_type = detected_package_type
-                    break
+                    shipment_td1_types.add(detected_package_type)
+            if shipment_td1_types == {"PLT"}:
+                shipment_package_type = "PLT"
+            elif "CTN" in shipment_td1_types:
+                shipment_package_type = "CTN"
 
             for td5 in _segment_refs(hl, "TD5", deep=False):
-                # Per XML mapping, TD5-03 is the carrier identifier/name to print (e.g. UPSN, KEHE).
-                shipment_scac = shipment_scac or _get_elem(td5, "03") or _get_elem(td5, "02")
-                shipment_carrier_name = shipment_carrier_name or _get_elem(td5, "03")
-                shipment_td5_pro = shipment_td5_pro or _get_elem(td5, "05")
+                carrier, scac, _td5_routing = _carrier_from_td5(td5)
+                shipment_scac = shipment_scac or scac
+                shipment_carrier_name = shipment_carrier_name or carrier
 
             for td3 in _segment_refs(hl, "TD3", deep=False):
                 v = (_get_elem(td3, "03") or "").replace(" ", "")
@@ -403,12 +600,6 @@ def _parse_shipment_group(
             refs = _scan_ref_values(hl, deep=False)
             shipment_bol = _first_ref(refs, ("BM", "MB", "BL"))
             shipment_pro = _first_ref(refs, ("CN", "2I", "SI", "PK", "TR"))
-            if not shipment_pro and shipment_td5_pro:
-                shipment_pro = shipment_td5_pro
-            if not shipment_pro and _get_elem(bsn_seg, "02"):
-                shipment_pro = _get_elem(bsn_seg, "02")
-            if not shipment_pro and shipment_bol:
-                shipment_pro = shipment_bol
 
             dates = _scan_dates(hl, deep=False)
             ship_date = dates.get("011") or dates.get("017") or dates.get("068") or ""
@@ -426,6 +617,7 @@ def _parse_shipment_group(
                         shipment_ship_to = shipment_ship_to if shipment_ship_to.zip else addr
                     if store:
                         ship_to_by_store[store] = addr
+                        shipment_ship_to_store = shipment_ship_to_store or store
 
     orders: List[Order] = []
     packs_flat: List[Pack] = []
@@ -454,11 +646,7 @@ def _parse_shipment_group(
                     continue
                 qual = _get_elem(n1, "01")
                 if qual == "BY":
-                    cand = _get_elem(n1, "04")
-                    if _looks_like_store(cand):
-                        store = cand
-                    else:
-                        store = _store_from_name(_get_elem(n1, "02")) or store
+                    store = _parse_store_from_n1(n1) or store
                 if qual == "ST":
                     store = _parse_store_from_n1(n1) or store
                     _q, ship_to = _parse_address(n1loop)
@@ -469,37 +657,30 @@ def _parse_shipment_group(
             # address was found (e.g., XMLs where N1/N4 only appear at HL=S).
             if not ship_to.zip and shipment_ship_to.zip:
                 ship_to = shipment_ship_to
+            if not store and shipment_ship_to_store:
+                store = shipment_ship_to_store
 
             order = Order(po=po, store=store, ship_to=ship_to, ship_from=ship_from)
             orders.append(order)
             if hl_id:
                 order_by_hl_id[hl_id] = order
 
-        elif level == "P":
+        elif level in ("P", "T"):
             order = order_by_hl_id.get(parent_hl_id)
             if order is None:
                 raise ValueError(
-                    f"Unable to map pack HL {hl_id or '(unknown)'} to an order HL via parent id {parent_hl_id or '(missing)'}."
+                    f"Unable to map pack/tare HL {hl_id or '(unknown)'} to an order HL via parent id {parent_hl_id or '(missing)'}."
                 )
-            man = hl.find("./SegmentRef[@ID='MAN']")
-            sscc = _get_elem(man, "02") if man is not None else ""
+
+            sscc, man_tracking = _extract_man_identifiers(hl)
             if not sscc:
-                raise ValueError(f"Missing SSCC (MAN02) for PO {order.po}")
+                raise ValueError(
+                    f"Missing KeHE GS1 SSCC for PO {order.po}: expected MAN01=GM and MAN02 with the 20-digit GS1-128 value."
+                )
 
-            pack_plant = ""
-            for n1loop in hl.findall(".//N1-LOOP"):
-                n1 = n1loop.find("./SegmentRef[@ID='N1']")
-                if n1 is None:
-                    continue
-                if (_get_elem(n1, "01") or "").strip().upper() == "MF":
-                    pack_plant = (_get_elem(n1, "04") or "").strip()
-                    if not pack_plant:
-                        pack_plant = (_get_elem(n1, "02") or "").strip()
-                    if pack_plant:
-                        break
-
+            pack_plant = _plant_from_n1loops(hl)
             pack_refs = _scan_ref_values(hl, deep=False)
-            pack_tracking = shipment_tracking
+            pack_tracking = man_tracking or shipment_tracking
             for value in [v for vals in pack_refs.values() for v in vals]:
                 m = UPS_RE.search(value.replace(" ", "").upper())
                 if m:
@@ -514,6 +695,14 @@ def _parse_shipment_group(
                     break
 
             pack_dates = _scan_dates(hl, deep=False)
+            package_type = "PLT" if level == "T" else shipment_package_type
+            if level == "P" and not has_tare_hl and shipment_td1_types == {"PLT"}:
+                # Backward compatibility with older SPS XML exports where P loops
+                # were used to represent pallets and shipment TD101 was PLT.
+                package_type = "PLT"
+            if level == "P" and has_tare_hl:
+                package_type = "CTN"
+
             pack = Pack(
                 sscc=sscc,
                 tracking=pack_tracking,
@@ -526,10 +715,9 @@ def _parse_shipment_group(
                 carrier_name=shipment_carrier_name,
                 scac=shipment_scac,
                 bol=_first_ref(pack_refs, ("BM", "MB", "BL")) or shipment_bol,
-                pro=_first_ref(pack_refs, ("CN", "2I", "SI", "PK", "TR")) or shipment_pro or shipment_bol,
-                package_type=shipment_package_type,
+                pro=_first_ref(pack_refs, ("CN", "2I", "SI", "PK", "TR")) or shipment_pro,
+                package_type=package_type or "CTN",
                 lot=_first_ref(pack_refs, ("LT", "LO", "BT")),
-                # DTM 036/361 are expiration-type dates; 094 is manufacture date.
                 expiration_date=pack_dates.get("036") or pack_dates.get("361") or "",
                 plant=pack_plant,
             )
@@ -540,6 +728,7 @@ def _parse_shipment_group(
                 pack_order_by_hl_id[hl_id] = order
                 pending_items = pending_items_by_pack_hl.pop(hl_id, [])
                 for pending_item in pending_items:
+                    pending_item.po = pending_item.po or order.po
                     pack.items.append(pending_item)
                     order.items.append(pending_item)
 
@@ -557,6 +746,12 @@ def _parse_shipment_group(
             refs = _scan_ref_values(hl, deep=False)
             dates = _scan_dates(hl, deep=False)
             parent_pack = pack_by_hl_id.get(parent_hl_id)
+            item_plant = _plant_from_n1loops(hl)
+            owner_order = pack_order_by_hl_id.get(parent_hl_id)
+            raw_item_lot = _first_ref(refs, ("LT", "LO", "BT"))
+            inherited_pack_exp = ""
+            if parent_pack is not None and (not raw_item_lot or raw_item_lot == parent_pack.lot):
+                inherited_pack_exp = parent_pack.expiration_date
             item = Item(
                 vendor_item=pairs.get("VN", "") or pairs.get("VC", "") or pairs.get("VP", "") or pairs.get("SK", ""),
                 retailer_item=pairs.get("CB", "") or pairs.get("IN", "") or pairs.get("BP", "") or pairs.get("PI", ""),
@@ -565,27 +760,21 @@ def _parse_shipment_group(
                 description=_get_elem(pid, "05") if pid is not None else "",
                 qty=qty,
                 uom=_get_elem(sn1, "03") if sn1 is not None else "",
-                lot=_first_ref(refs, ("LT", "LO", "BT")) or (parent_pack.lot if parent_pack else ""),
-                expiration_date=dates.get("036") or dates.get("361") or (parent_pack.expiration_date if parent_pack else ""),
-                manufacture_date=dates.get("094") or dates.get("371") or dates.get("118") or dates.get("011") or "",
-                plant=_first_ref(refs, ("PL", "MF", "SU")) or (parent_pack.plant if parent_pack else ""),
+                lot=raw_item_lot or (parent_pack.lot if parent_pack else ""),
+                expiration_date=dates.get("036") or dates.get("361") or inherited_pack_exp,
+                manufacture_date=dates.get("405") or dates.get("094") or dates.get("371") or dates.get("118") or dates.get("011") or "",
+                plant=item_plant or _first_ref(refs, ("PL", "MF", "SU")) or (parent_pack.plant if parent_pack else ""),
+                po=(owner_order.po if owner_order else ""),
             )
             if parent_pack is None:
                 if parent_hl_id:
                     pending_items_by_pack_hl.setdefault(parent_hl_id, []).append(item)
                 continue
             parent_pack.items.append(item)
-            owner_order = pack_order_by_hl_id.get(parent_hl_id)
             if owner_order is not None:
                 owner_order.items.append(item)
 
-    seen_sscc: set[str] = set()
-    deduped: List[Pack] = []
-    for p in packs_flat:
-        key = normalize_sscc(p.sscc) or p.sscc
-        if key not in seen_sscc:
-            seen_sscc.add(key)
-            deduped.append(p)
+    deduped = _merge_duplicate_physical_packs(packs_flat)
 
     total = len(deduped) or 1
     for idx, pack in enumerate(deduped, start=1):
@@ -598,55 +787,17 @@ def _parse_shipment_group(
 def parse_asn(xml_path: str) -> Tuple[List[Order], List[Pack]]:
     root = ET.parse(xml_path).getroot()
 
-    parent_map: Dict[ET.Element, List[Tuple[int, ET.Element]]] = {}
-    for elem in root.iter():
-        children = list(elem)
-        for idx, child in enumerate(children):
-            tag = child.tag
-            seg_id = child.attrib.get("ID", "")
-            if (tag == "SegmentRef" and seg_id == "BSN") or tag == "HL-LOOP":
-                parent_map.setdefault(elem, []).append((idx, child))
-
     all_orders: List[Order] = []
     all_packs: List[Pack] = []
 
-    for _parent, items in parent_map.items():
-        groups: List[Tuple[ET.Element, List[ET.Element]]] = []
-        current_bsn: Optional[ET.Element] = None
-        current_hls: List[ET.Element] = []
+    for bsn_seg, hl_loops in _extract_bsn_hl_groups(root):
+        orders, packs = _parse_shipment_group(bsn_seg, hl_loops)
+        all_orders.extend(orders)
+        # Keep carton/pallet numbering as assigned per ASN by _parse_shipment_group.
+        # Do not renumber across multiple ASNs in one XML file.
+        all_packs.extend(packs)
 
-        for _idx, child in items:
-            if child.tag == "SegmentRef" and child.attrib.get("ID") == "BSN":
-                if current_bsn is not None:
-                    groups.append((current_bsn, current_hls))
-                current_bsn = child
-                current_hls = []
-            elif child.tag == "HL-LOOP":
-                if current_bsn is not None:
-                    current_hls.append(child)
-
-        if current_bsn is not None:
-            groups.append((current_bsn, current_hls))
-
-        for bsn_seg, hl_loops in groups:
-            orders, packs = _parse_shipment_group(bsn_seg, hl_loops)
-            all_orders.extend(orders)
-            all_packs.extend(packs)
-
-    seen: set[str] = set()
-    deduped: List[Pack] = []
-    for p in all_packs:
-        key = (normalize_sscc(p.sscc), p.po.strip(), p.store.strip())
-        if key not in seen:
-            seen.add(key)
-            deduped.append(p)
-
-    total = len(deduped) or 1
-    for idx, pack in enumerate(deduped, start=1):
-        pack.carton_index = idx
-        pack.total_cartons = total
-
-    return all_orders, deduped
+    return all_orders, all_packs
 
 
 # ===========================================================================
@@ -751,9 +902,14 @@ def _pack_content_summary(pack: Pack) -> Dict[str, str]:
             "plant": "",
         }
 
-    mixed = len(pack.items) > 2
     upcs = [it.upc or it.retailer_item or it.vendor_item for it in pack.items]
     descs = [it.description for it in pack.items]
+    product_keys = {
+        ((it.upc or it.retailer_item or it.vendor_item or "").strip(), (it.description or "").strip())
+        for it in pack.items
+        if (it.upc or it.retailer_item or it.vendor_item or it.description)
+    }
+    mixed = len(product_keys) > 1
     return {
         "contents": "MIXED" if mixed else (_one_or_mixed(upcs) or ""),
         "item": "MIXED" if mixed else (_one_or_mixed([it.retailer_item or it.upc or it.vendor_item for it in pack.items]) or ""),
@@ -899,8 +1055,13 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     # Zone B: Ship To.
     st = pack.ship_to
     ship_to_name = st.name
-    if pack.store and pack.store not in ship_to_name:
-        ship_to_name = f"{ship_to_name} #{pack.store}".strip()
+    location_code = (pack.store or "").strip()
+    if location_code and location_code.isdigit() and len(location_code) <= 2:
+        dc_prefix = f"DC {int(location_code):02d}"
+        if not ship_to_name.upper().startswith(dc_prefix):
+            ship_to_name = f"{dc_prefix} - {ship_to_name}".strip(" -")
+    elif location_code and location_code not in ship_to_name:
+        ship_to_name = f"{ship_to_name} #{location_code}".strip()
 
     y = y_top - 0.15 * inch
     _draw_label(c, right_x, y, "Ship To:", 12.0)
@@ -1063,27 +1224,22 @@ def run_pipeline(
     _ = ocr_dpi
 
     all_packs: List[Pack] = []
+    seen_file_hashes: set[str] = set()
+    duplicate_files: List[str] = []
     for xp in xml_paths:
+        fhash = _file_hash(xp) if Path(xp).exists() else xp
+        if fhash in seen_file_hashes:
+            duplicate_files.append(Path(xp).name)
+            continue
+        seen_file_hashes.add(fhash)
         _status_log(f"Parsing XML: {xp}")
         _orders, packs = parse_asn(xp)
         all_packs.extend(packs)
-
-    seen_keys: set[Tuple[str, str, str]] = set()
-    deduped: List[Pack] = []
-    for p in all_packs:
-        key = (normalize_sscc(p.sscc), p.po.strip(), p.store.strip())
-        if key not in seen_keys:
-            seen_keys.add(key)
-            deduped.append(p)
-    all_packs = deduped
 
     if not all_packs:
         raise ValueError("No packs with SSCC values were found in the uploaded XML.")
 
     total = len(all_packs)
-    for idx, pack in enumerate(all_packs, start=1):
-        pack.carton_index = idx
-        pack.total_cartons = total
 
     _status_log(f"Rendering {total} KeHE GS1 label(s): {out_pdf}")
     out_doc = fitz.open()
@@ -1248,16 +1404,15 @@ def _addr_dict_to_str(addr: Dict[str, str]) -> str:
 # XML header parser
 # ===========================================================================
 
-def parse_kehe_document_header(xml_path: str) -> Dict[str, Any]:
-    """Parse shipment-level header fields from an EDI 856 ASN XML file.
-
-    Returns metadata fields needed for Pallet Labels and Master Packing Lists.
-    Does not duplicate parse_asn() — focuses on document-level header fields.
-    """
-    root = ET.parse(xml_path).getroot()
-    header: Dict[str, Any] = {
-        "source_file": Path(xml_path).name,
+def _new_kehe_header(xml_path: str, *, group_index: int = 1, group_count: int = 1) -> Dict[str, Any]:
+    source = Path(xml_path).name
+    if group_count > 1:
+        source = f"{source} :: ASN {group_index}"
+    return {
+        "source_file": source,
         "file_hash": _file_hash(xml_path),
+        "asn_group_index": str(group_index),
+        "asn_group_count": str(group_count),
         "bsn": "",
         "ship_date": "",
         "expected_delivery_date": "",
@@ -1272,6 +1427,10 @@ def parse_kehe_document_header(xml_path: str) -> Dict[str, Any]:
         "pack_count": "",
         "total_pallets": "",
         "xml_total_pallets": "",
+        "xml_pack_count": "",
+        "xml_carton_pack_count": "",
+        "xml_pallet_pack_count": "",
+        "has_tare_pallets": "",
         "total_weight": "",
         "cube": "",
         "customer_po_number": "",
@@ -1284,86 +1443,93 @@ def parse_kehe_document_header(xml_path: str) -> Dict[str, Any]:
         "warnings": [],
     }
 
-    bsn_seg = root.find(".//SegmentRef[@ID='BSN']")
-    if bsn_seg is not None:
-        header["bsn"] = _get_elem(bsn_seg, "02")
 
-    for hl in root.findall(".//HL-LOOP"):
+def _parse_kehe_document_header_from_group(
+    xml_path: str,
+    bsn_seg: ET.Element,
+    hl_loops: List[ET.Element],
+    *,
+    group_index: int = 1,
+    group_count: int = 1,
+) -> Dict[str, Any]:
+    """Parse document/header fields for one ASN transaction only."""
+    header = _new_kehe_header(xml_path, group_index=group_index, group_count=group_count)
+    header["bsn"] = _get_elem(bsn_seg, "02")
+
+    po_numbers: List[str] = []
+    pack_hl_count = 0
+    carton_hl_count = 0
+    pallet_hl_count = 0
+    shipment_n1_quals: set[str] = set()
+    saw_gm_sscc = False
+    saw_item = False
+
+    for hl in hl_loops:
         hl_seg = hl.find("./SegmentRef[@ID='HL']")
         if hl_seg is None:
             continue
         level = (_get_elem(hl_seg, "03") or "").strip().upper()
 
+        if level in ("P", "T"):
+            pack_hl_count += 1
+            if level == "T":
+                pallet_hl_count += 1
+            else:
+                carton_hl_count += 1
+            sscc, _tracking = _extract_man_identifiers(hl)
+            if sscc:
+                saw_gm_sscc = True
+            else:
+                header["warnings"].append("Pack/tare HL is missing MAN01=GM / MAN02 GS1 SSCC.")
+
         if level == "S":
-            # TD1: package quantity, weight, cube.
-            # Correct KeHE pallet XML can send TD101=PLT and TD102=total pallets.
-            # Older/wrong exports can send TD101=CTN; in that case TD102 is carton count.
+            td1_summary = _td1_quantity_summary(hl)
+            header["td1_package_code"] = header["td1_package_code"] or td1_summary.get("first_code", "")
+            header["td1_quantity"] = header["td1_quantity"] or td1_summary.get("first_qty", "")
+            if td1_summary.get("carton_count"):
+                header["td1_quantity_type"] = header["td1_quantity_type"] or "carton"
+                header["xml_carton_count"] = header["xml_carton_count"] or td1_summary["carton_count"]
+                header["carton_count"] = header["carton_count"] or td1_summary["carton_count"]
+            if td1_summary.get("pallet_count"):
+                header["td1_quantity_type"] = "pallet" if not header["td1_quantity_type"] else header["td1_quantity_type"]
+                header["xml_total_pallets"] = header["xml_total_pallets"] or td1_summary["pallet_count"]
+                header["total_pallets"] = header["total_pallets"] or td1_summary["pallet_count"]
+
             for td1 in _segment_refs(hl, "TD1"):
-                package_code = (_get_elem(td1, "01") or "").strip().upper()
-                quantity = (_get_elem(td1, "02") or "").strip()
-                if package_code and not header["td1_package_code"]:
-                    header["td1_package_code"] = package_code
-                if quantity and not header["td1_quantity"]:
-                    header["td1_quantity"] = quantity
-
-                package_text = package_code.replace(".", " ")
-                is_pallet_qty = ("PLT" in package_text) or ("PALLET" in package_text)
-                is_carton_qty = ("CTN" in package_text) or ("CARTON" in package_text)
-                if quantity:
-                    if is_pallet_qty:
-                        header["td1_quantity_type"] = "pallet"
-                        if not header["xml_total_pallets"]:
-                            header["xml_total_pallets"] = quantity
-                        if not header["total_pallets"]:
-                            header["total_pallets"] = quantity
-                    elif is_carton_qty:
-                        header["td1_quantity_type"] = "carton"
-                        if not header["xml_carton_count"]:
-                            header["xml_carton_count"] = quantity
-                        if not header["carton_count"]:
-                            header["carton_count"] = quantity
-                    elif not header["carton_count"]:
-                        header["td1_quantity_type"] = "unknown"
-                        header["carton_count"] = quantity
-
                 weight = _get_elem(td1, "07")
                 weight_unit = _get_elem(td1, "08")
                 cube = _get_elem(td1, "09")
                 cube_unit = _get_elem(td1, "10")
                 if weight and not header["total_weight"]:
-                    header["total_weight"] = (
-                        f"{weight} {weight_unit}".strip() if weight_unit else weight
-                    )
+                    header["total_weight"] = f"{weight} {weight_unit}".strip() if weight_unit else weight
                 if cube and not header["cube"]:
                     header["cube"] = f"{cube} {cube_unit}".strip() if cube_unit else cube
 
-            # TD5: carrier, PRO from field 05
-            td5_pro = ""
             for td5 in _segment_refs(hl, "TD5"):
+                carrier, _scac, _td5_routing = _carrier_from_td5(td5)
                 if not header["carrier"]:
-                    header["carrier"] = _get_elem(td5, "03") or _get_elem(td5, "02")
-                td5_pro = td5_pro or _get_elem(td5, "05")
+                    header["carrier"] = carrier
 
-            # REF: BOL, PRO
             refs = _scan_ref_values(hl)
-            if not header["bol_number"]:
-                header["bol_number"] = _first_ref(refs, ("BM", "MB", "BL"))
-            if not header["pro_number"]:
-                header["pro_number"] = (
-                    _first_ref(refs, ("CN", "2I", "SI", "PK", "TR"))
-                    or td5_pro
+            if not any(q in refs for q in ("BM", "CN", "2I")):
+                header["warnings"].append(
+                    "Shipment REF is missing KeHE-required BM, CN, or 2I. Verify BOL/PRO/tracking before printing."
                 )
+            if "2I" in refs and ("BM" in refs or "CN" in refs):
+                header["warnings"].append(
+                    "Shipment has parcel tracking 2I together with BM/CN. KeHE says not to send both for parcel/common-carrier refs."
+                )
+            header["bol_number"] = header["bol_number"] or _first_ref(refs, ("BM",)) or _first_ref(refs, ("MB", "BL"))
+            header["pro_number"] = header["pro_number"] or _first_ref(refs, ("CN", "2I")) or _first_ref(refs, ("SI", "PK", "TR"))
 
-            # DTM: ship date (011), expected delivery (017)
             dates = _scan_dates(hl)
-            if not header["ship_date"]:
-                header["ship_date"] = dates.get("011") or dates.get("068") or ""
-            if not header["expected_delivery_date"]:
-                header["expected_delivery_date"] = dates.get("017") or ""
+            header["ship_date"] = header["ship_date"] or dates.get("011") or dates.get("068") or ""
+            header["expected_delivery_date"] = header["expected_delivery_date"] or dates.get("017") or ""
 
-            # N1 loops: ST = ship-to, SF = ship-from
-            for n1loop in hl.findall(".//N1-LOOP"):
+            for n1loop in hl.findall("./N1-LOOP"):
                 qual, addr = _parse_n1loop_addr(n1loop)
+                if qual:
+                    shipment_n1_quals.add(qual)
                 if qual == "ST" and not header["xml_ship_to"]:
                     header["ship_to_gln"] = addr.get("gln", "")
                     header["xml_ship_to"] = addr
@@ -1371,32 +1537,90 @@ def parse_kehe_document_header(xml_path: str) -> Dict[str, Any]:
                     header["xml_ship_from"] = addr
 
         elif level == "O":
-            # PRF: customer PO (PRF01), PO date (PRF04)
             prf = hl.find("./SegmentRef[@ID='PRF']")
             if prf is not None:
-                if not header["customer_po_number"]:
-                    header["customer_po_number"] = _get_elem(prf, "01")
+                po_value = (_get_elem(prf, "01") or "").strip()
+                if po_value and po_value not in po_numbers:
+                    po_numbers.append(po_value)
                 if not header["po_date"]:
                     raw = _get_elem(prf, "04")
                     if raw:
                         header["po_date"] = _format_date(raw)
 
-            # REF: order number (VR), vendor number (IA)
             refs = _scan_ref_values(hl)
-            if not header["order_no"]:
-                header["order_no"] = _first_ref(refs, ("VR",))
-            if not header["vendor_number"]:
-                header["vendor_number"] = _first_ref(refs, ("IA",))
+            header["order_no"] = header["order_no"] or _first_ref(refs, ("VR",))
+            header["vendor_number"] = header["vendor_number"] or _first_ref(refs, ("IA",))
 
-    # Cascade fallbacks for BOL / PRO
-    if not header["pro_number"] and header["bol_number"]:
-        header["pro_number"] = header["bol_number"]
-    if not header["pro_number"] and header["bsn"]:
-        header["pro_number"] = header["bsn"]
-    if not header["bol_number"] and header["bsn"]:
-        header["bol_number"] = header["bsn"]
+        elif level == "I":
+            saw_item = True
+            lin = hl.find("./SegmentRef[@ID='LIN']")
+            sn1 = hl.find("./SegmentRef[@ID='SN1']")
+            pid = hl.find("./SegmentRef[@ID='PID']")
+            pairs = _parse_lin_pairs(lin)
+            refs = _scan_ref_values(hl)
+            dates = _scan_dates(hl)
+            if not (pairs.get("UP") or pairs.get("UA") or pairs.get("EN") or pairs.get("UK")):
+                header["warnings"].append("Item HL is missing LIN UPC/GTIN value.")
+            if not (_get_elem(sn1, "02") if sn1 is not None else ""):
+                header["warnings"].append("Item HL is missing SN102 shipped quantity.")
+            if not (_get_elem(pid, "05") if pid is not None else ""):
+                header["warnings"].append("Item HL is missing PID05 product description.")
+            if _first_ref(refs, ("LT", "LO", "BT")) and not (dates.get("036") or dates.get("361")):
+                header["warnings"].append(
+                    "Item-level lot is present without item-level DTM036 expiration. Do not rely on pack expiration when lots differ."
+                )
 
+    header["xml_pack_count"] = str(pack_hl_count) if pack_hl_count else ""
+    header["xml_carton_pack_count"] = str(carton_hl_count) if carton_hl_count else ""
+    header["xml_pallet_pack_count"] = str(pallet_hl_count) if pallet_hl_count else ""
+    header["has_tare_pallets"] = "1" if pallet_hl_count else ""
+    if po_numbers:
+        header["customer_po_number"] = ", ".join(po_numbers)
+
+    if not header["carrier"]:
+        header["warnings"].append("Shipment TD5 carrier/routing is missing. KeHE requires TD505 or TD503/SCAC.")
+    if not header["ship_date"]:
+        header["warnings"].append("Shipment DTM 011 ship date is missing.")
+    if "SF" not in shipment_n1_quals:
+        header["warnings"].append("Shipment-level Ship From N1 SF loop is missing.")
+    if "ST" not in shipment_n1_quals:
+        header["warnings"].append("Shipment-level Ship To N1 ST loop is missing.")
+    if "VN" not in shipment_n1_quals:
+        header["warnings"].append("Shipment-level Vendor N1 VN loop is missing.")
+    if not po_numbers:
+        header["warnings"].append("Order-level PRF01 customer PO number is missing.")
+    if not header["vendor_number"]:
+        header["warnings"].append("Order-level REF IA KeHE supplier/vendor number is missing.")
+    if pack_hl_count and not saw_gm_sscc:
+        header["warnings"].append("No valid MAN01=GM GS1 SSCC found in pack/tare HL loops.")
+    if not saw_item:
+        header["warnings"].append("No item HL rows were found.")
+
+    # Do not substitute BSN as BOL/PRO. Missing refs should remain blank and visible.
+    deduped_warnings: List[str] = []
+    for warning in header.get("warnings", []):
+        if warning and warning not in deduped_warnings:
+            deduped_warnings.append(warning)
+    header["warnings"] = deduped_warnings
     return header
+
+
+def parse_kehe_document_headers(xml_path: str) -> List[Dict[str, Any]]:
+    root = ET.parse(xml_path).getroot()
+    groups = _extract_bsn_hl_groups(root)
+    count = len(groups) or 1
+    return [
+        _parse_kehe_document_header_from_group(xml_path, bsn, hls, group_index=i, group_count=count)
+        for i, (bsn, hls) in enumerate(groups, start=1)
+    ]
+
+
+def parse_kehe_document_header(xml_path: str) -> Dict[str, Any]:
+    """Backward-compatible helper: return the first ASN header in a file."""
+    headers = parse_kehe_document_headers(xml_path)
+    if headers:
+        return headers[0]
+    return _new_kehe_header(xml_path)
 
 
 # ===========================================================================
@@ -1406,78 +1630,80 @@ def parse_kehe_document_header(xml_path: str) -> Dict[str, Any]:
 def build_document_shipments(xml_paths: List[str]) -> Dict[str, Any]:
     """Parse and deduplicate XML files into normalized shipment dicts.
 
-    Deduplication is by file SHA-256 hash first, then by (SSCC, PO, DC) key.
-    Returns:
-        {
-            "shipments": [...],
-            "duplicate_files": [...]
-        }
+    Deduplication is by file SHA-256 hash first. Each ASN transaction inside a
+    file becomes its own shipment so MPL/pallet-label headers cannot mix data.
     """
     shipments = []
     file_hashes: set = set()
     duplicate_files: List[str] = []
-    seen_keys: set = set()
 
     for xml_path in xml_paths:
-        header = parse_kehe_document_header(xml_path)
-        fhash = header["file_hash"]
-
+        fhash = _file_hash(xml_path)
+        source_file = Path(xml_path).name
         if fhash in file_hashes:
-            duplicate_files.append(header["source_file"])
+            duplicate_files.append(source_file)
             continue
         file_hashes.add(fhash)
 
-        try:
-            orders, packs = parse_asn(xml_path)
-        except Exception as exc:
-            raise ValueError(
-                f"Failed to parse {header['source_file']}: {exc}"
-            ) from exc
+        root = ET.parse(xml_path).getroot()
+        groups = _extract_bsn_hl_groups(root)
+        group_count = len(groups) or 1
 
-        # Secondary dedup: same (sscc, po, dc GLN) across different files
-        unique_packs = []
-        for pack in packs:
-            key = (
-                normalize_sscc(pack.sscc),
-                (pack.po or "").strip(),
-                header.get("ship_to_gln", ""),
+        for group_index, (bsn_seg, hl_loops) in enumerate(groups, start=1):
+            header = _parse_kehe_document_header_from_group(
+                xml_path,
+                bsn_seg,
+                hl_loops,
+                group_index=group_index,
+                group_count=group_count,
             )
-            if key not in seen_keys:
-                seen_keys.add(key)
-                unique_packs.append(pack)
+            try:
+                orders, packs = _parse_shipment_group(bsn_seg, hl_loops)
+            except Exception as exc:
+                raise ValueError(f"Failed to parse {header['source_file']}: {exc}") from exc
 
-        header["pack_count"] = str(len(unique_packs)) if unique_packs else ""
-        # If TD101=PLT, TD102 is pallet count, not carton count. The physical
-        # carton/pack/label count still comes from HL03=P / MAN SSCC count.
-        if not header.get("carton_count"):
-            header["carton_count"] = str(len(unique_packs)) if unique_packs else ""
-        if not header.get("total_pallets"):
-            header["total_pallets"] = header.get("xml_total_pallets") or "1"
+            # Duplicate SSCC rows inside the same ASN are merged by _parse_shipment_group.
+            # Do not suppress same-SSCC records across different uploaded files unless the
+            # file hash itself is identical; corrected/resubmitted ASNs must remain visible.
+            unique_packs = _merge_duplicate_physical_packs(packs)
 
-        dc_info = find_kehe_dc(
-            st_gln=header["ship_to_gln"],
-            line1=header["xml_ship_to"].get("line1", ""),
-            city=header["xml_ship_to"].get("city", ""),
-            state=header["xml_ship_to"].get("state", ""),
-            zip_code=header["xml_ship_to"].get("zip", ""),
-        )
-        needs_review = dc_info is None
+            pallet_pack_count = sum(1 for pack in unique_packs if (pack.package_type or "").upper().startswith("PLT"))
+            carton_pack_count = sum(1 for pack in unique_packs if not (pack.package_type or "").upper().startswith("PLT"))
+            header["pack_count"] = str(len(unique_packs)) if unique_packs else ""
+            if pallet_pack_count:
+                header["has_tare_pallets"] = header.get("has_tare_pallets") or "1"
+                header["xml_pallet_pack_count"] = header.get("xml_pallet_pack_count") or str(pallet_pack_count)
+            if carton_pack_count:
+                header["xml_carton_pack_count"] = header.get("xml_carton_pack_count") or str(carton_pack_count)
+            if not header.get("carton_count"):
+                header["carton_count"] = str(carton_pack_count or len(unique_packs)) if unique_packs else ""
+            if not header.get("total_pallets"):
+                header["total_pallets"] = header.get("xml_total_pallets") or (str(pallet_pack_count) if pallet_pack_count else "1")
 
-        if needs_review:
-            header["warnings"].append(
-                f"Unknown KeHE DC — could not match ship-to address to a known DC. "
-                f"XML ship-to: {header['xml_ship_to'].get('line1', '')} "
-                f"{header['xml_ship_to'].get('city', '')} "
-                f"{header['xml_ship_to'].get('zip', '')}"
+            dc_info = find_kehe_dc(
+                st_gln=header["ship_to_gln"],
+                line1=header["xml_ship_to"].get("line1", ""),
+                city=header["xml_ship_to"].get("city", ""),
+                state=header["xml_ship_to"].get("state", ""),
+                zip_code=header["xml_ship_to"].get("zip", ""),
             )
+            needs_review = dc_info is None or bool(header.get("warnings"))
 
-        shipments.append({
-            "header": header,
-            "orders": orders,
-            "packs": unique_packs,
-            "dc_info": dc_info,
-            "needs_review": needs_review,
-        })
+            if dc_info is None:
+                header["warnings"].append(
+                    f"Unknown KeHE DC — could not match ship-to address to a known DC. "
+                    f"XML ship-to: {header['xml_ship_to'].get('line1', '')} "
+                    f"{header['xml_ship_to'].get('city', '')} "
+                    f"{header['xml_ship_to'].get('zip', '')}"
+                )
+
+            shipments.append({
+                "header": header,
+                "orders": orders,
+                "packs": unique_packs,
+                "dc_info": dc_info,
+                "needs_review": needs_review,
+            })
 
     return {"shipments": shipments, "duplicate_files": duplicate_files}
 
@@ -1606,12 +1832,12 @@ def _build_pallet_label_entry(
 def build_kehe_pallet_label_draft(xml_paths: List[str]) -> Dict[str, Any]:
     """Parse XML files and return editable Pallet Placard drafts.
 
-    Correct KeHE pallet XML sends TD101=PLT and TD102=total pallets. In that
-    case each HL03=P loop / MAN SSCC is treated as one physical pallet and gets
-    its own editable Pallet Placard draft. The PO printed on a placard is taken
-    from that specific P-loop's parent order, not from a shipment-wide rollup.
+    Correct KeHE pallet XML uses HL03=T for tare/pallet SSCCs. Some legacy SPS
+    XML exports used HL03=P with shipment TD101=PLT, so both are supported. The
+    PO printed on a placard is aggregated from the physical SSCC's parent order(s),
+    not from a first-PO-only shipment header.
 
-    If XML does not explicitly say TD101=PLT, preserve the legacy behavior: one
+    If XML does not explicitly identify pallets, preserve the legacy behavior: one
     editable placard draft per shipment/group, with pallet count defaulting to 1.
     """
     if not xml_paths:
@@ -1650,14 +1876,14 @@ def build_kehe_pallet_label_draft(xml_paths: List[str]) -> Dict[str, Any]:
             header.get("total_pallets") or header.get("xml_total_pallets") or "1",
             1,
         ))
-        explicit_pallet_xml = bool(header.get("xml_total_pallets"))
+        explicit_pallet_xml = bool(header.get("xml_total_pallets") or header.get("has_tare_pallets"))
 
         base_warnings: List[str] = list(header.get("warnings", []))
 
         if explicit_pallet_xml:
             if len(packs) != _safe_positive_int(total_pallets, 1):
                 base_warnings.append(
-                    f"XML says Total Pallets={total_pallets}, but {len(packs)} P-loop/SSCC pallet records were found. Verify pallet labels."
+                    f"XML says Total Pallets={total_pallets}, but {len(packs)} physical SSCC pallet records were found. Verify pallet labels."
                 )
             for pack_index, pack in enumerate(packs, start=1):
                 pallet_number = str(pack.carton_index or pack_index)
@@ -1760,8 +1986,8 @@ def _aggregate_mpl_items_for_editor(
     """Aggregate XML item rows into editable MPL lines.
 
     Important KeHE rule:
-      - If TD101 says PLT/Pallet, each HL03=P loop is a physical pallet.
-        Items must stay with their parent P loop.
+      - If HL03=T or TD101 says PLT/Pallet, each physical SSCC stays with its parent pallet/pack loop.
+        Items must stay with their parent pack/tare loop.
       - If TD101 says CTN/Carton or the XML is unclear, leave item rows
         Unassigned so the frontend/user can Auto Palletize or manually assign.
 
@@ -1776,7 +2002,7 @@ def _aggregate_mpl_items_for_editor(
         pallet_number = str(pack.carton_index or fallback_idx) if preserve_pack_pallets else str(default_pallet or "")
         if preserve_pack_pallets and allowed_pallets and pallet_number not in allowed_pallets:
             # Keep real XML order, but do not create impossible pallet numbers when
-            # TD102 and P-loop count disagree. User can still edit the draft.
+            # TD102 and physical SSCC count disagree. User can still edit the draft.
             pallet_number = str(fallback_idx)
 
         for item in pack.items:
@@ -1819,7 +2045,13 @@ def _aggregate_mpl_items_for_editor(
                     "pallet_weight": "",
                     "notes": "",
                     "source_sscc": normalize_sscc(pack.sscc),
+                    "customer_po_number": item.po or pack.po,
                 }
+            else:
+                aggregated[key]["customer_po_number"] = _append_unique_csv(
+                    aggregated[key].get("customer_po_number", ""),
+                    item.po or pack.po,
+                )
 
             qty = int(item.qty or 0)
             aggregated[key]["qty_on_pallet"] += qty
@@ -2095,7 +2327,7 @@ def _extracted_rows_from_shipments(shipments: List[Dict[str, Any]]) -> Tuple[Lis
                     "source_file": header.get("source_file", ""),
                     "dc": dc_info.get("dc", "") if dc_info else "Unknown",
                     "po": item.retailer_item or pack.po or header.get("customer_po_number", ""),
-                    "customer_po_number": pack.po or header.get("customer_po_number", ""),
+                    "customer_po_number": item.po or pack.po or header.get("customer_po_number", ""),
                     "carton": str(pack.carton_index or pack_index),
                     "sscc": normalize_sscc(pack.sscc),
                     "line": line,
@@ -2142,7 +2374,7 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
             needs_review_count += 1
 
         total_pallets = header.get("total_pallets") or header.get("xml_total_pallets") or "1"
-        preserve_pack_pallets = bool(header.get("xml_total_pallets"))
+        preserve_pack_pallets = bool(header.get("xml_total_pallets") or header.get("has_tare_pallets"))
         pallet_ids = _pallet_ids_for_total(total_pallets) if preserve_pack_pallets else []
 
         mpl_warnings: List[str] = list(header.get("warnings", []))
@@ -2157,12 +2389,12 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
         ship_to = _ship_to_str(dc_info, header.get("xml_ship_to", {}))
         billing = _billing_str(dc_info)
 
-        # Correct XML with TD101=PLT means each P-loop/SSCC is a pallet.
+        # Correct XML with HL03=T or TD101=PLT means each physical SSCC is a pallet.
         # Preserve that parent/child XML relationship. Do not round-robin distribute
         # aggregated item rows across pallets.
         if preserve_pack_pallets and len(packs) != _safe_positive_int(total_pallets, 1):
             mpl_warnings.append(
-                f"XML says Total Pallets={total_pallets}, but {len(packs)} P-loop/SSCC pallet records were found. Verify pallet grouping."
+                f"XML says Total Pallets={total_pallets}, but {len(packs)} physical SSCC pallet records were found. Verify pallet grouping."
             )
         items = _aggregate_mpl_items_for_editor(
             packs,
@@ -2695,6 +2927,10 @@ def render_kehe_pallet_label_pdf(
 # ===========================================================================
 
 _PACK_LABEL_PAGE = (4 * inch, 4 * inch)
+_PACK_LABEL_PLACEMENT_NOTE = (
+    "Apply GTIN-14 labels on at least two sides of each case, including the longest side; "
+    "place the barcode at least 0.25 in from the case-wall edge and 1.25 in from the case bottom."
+)
 
 
 def _pack_label_kind(packaging_level: str) -> str:
@@ -2737,9 +2973,10 @@ def _product_case_qty(product: Dict[str, Any]) -> int:
 
 def _labels_per_unit(product: Dict[str, Any]) -> int:
     parsed = _parse_float(product.get("labels_per_unit"))
-    if parsed is not None and parsed > 0:
-        return max(1, int(round(parsed)))
     level = _normalize_packaging_level(product.get("packaging_level"))
+    if parsed is not None and parsed > 0:
+        count = max(1, int(round(parsed)))
+        return max(2, count) if level in {"Case", "Inner Pack"} else count
     if level == "Inner Pack":
         return 6
     if level == "Case":
@@ -2929,18 +3166,90 @@ def build_kehe_pack_label_draft(
     }
 
 
+_ITF14_DIGIT_PATTERNS = {
+    "0": "nnwwn",
+    "1": "wnnnw",
+    "2": "nwnnw",
+    "3": "wwnnn",
+    "4": "nnwnw",
+    "5": "wnwnn",
+    "6": "nwwnn",
+    "7": "nnnww",
+    "8": "wnnwn",
+    "9": "nwnwn",
+}
+
+
+def _itf14_runs(value: str, wide_ratio: float = 2.5) -> Tuple[List[Tuple[bool, float]], float]:
+    runs: List[Tuple[bool, float]] = []
+
+    def _append(is_bar: bool, width_code: str) -> None:
+        runs.append((is_bar, wide_ratio if width_code == "w" else 1.0))
+
+    # Start: narrow bar, narrow space, narrow bar, narrow space.
+    for is_bar in (True, False, True, False):
+        _append(is_bar, "n")
+
+    for index in range(0, len(value), 2):
+        bars = _ITF14_DIGIT_PATTERNS.get(value[index], _ITF14_DIGIT_PATTERNS["0"])
+        spaces = _ITF14_DIGIT_PATTERNS.get(value[index + 1], _ITF14_DIGIT_PATTERNS["0"])
+        for bar_code, space_code in zip(bars, spaces):
+            _append(True, bar_code)
+            _append(False, space_code)
+
+    # Stop: wide bar, narrow space, narrow bar.
+    _append(True, "w")
+    _append(False, "n")
+    _append(True, "n")
+    total_units = sum(width for _is_bar, width in runs)
+    return runs, total_units
+
+
 def _draw_itf14_centered(c: canvas.Canvas, gtin14: str, x: float, y: float, w: float, h: float) -> None:
-    value = _only_digits(gtin14)
+    """Draw GTIN-14 as ITF-14.
+
+    ITF-14 uses Interleaved 2 of 5 as the barcode symbology, but the
+    case-label presentation needs bearer bars around the barcode.
+    """
+    value = _gtin14(gtin14)
     if not value:
         return
+
+    # ITF / Interleaved 2 of 5 encodes digit pairs.
+    # Valid GTIN-14 is already even length, but keep this fallback safe.
     if len(value) % 2:
         value = "0" + value
-    bar_width = 0.020 * inch
-    drawing = createBarcodeDrawing("I2of5", value=value, barHeight=h, barWidth=bar_width, humanReadable=False)
-    while drawing.width > w and bar_width > 0.006 * inch:
-        bar_width *= 0.92
-        drawing = createBarcodeDrawing("I2of5", value=value, barHeight=h, barWidth=bar_width, humanReadable=False)
-    renderPDF.draw(drawing, c, x + (w - drawing.width) / 2, y)
+
+    # Bearer bars for ITF-14 case/carton scanning.
+    bearer_h = 0.16 * inch
+    side_bearer_w = 0.20 * inch
+    quiet_zone = 0.25 * inch
+
+    panel_x = x + side_bearer_w
+    panel_y = y + bearer_h
+    panel_w = max(0.25 * inch, w - (2 * side_bearer_w))
+    panel_h = max(0.30 * inch, h - (2 * bearer_h))
+    inner_x = panel_x + quiet_zone
+    inner_y = y + bearer_h
+    inner_w = max(0.25 * inch, panel_w - (2 * quiet_zone))
+    inner_h = panel_h
+
+    runs, total_units = _itf14_runs(value)
+    unit_w = inner_w / total_units if total_units else 0.0
+
+    # Filled bearer frame, then white symbol field inside it.
+    c.setFillColorRGB(0, 0, 0)
+    c.rect(x, y, w, h, stroke=0, fill=1)
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(panel_x, panel_y, panel_w, panel_h, stroke=0, fill=1)
+
+    c.setFillColorRGB(0, 0, 0)
+    cursor = inner_x
+    for is_bar, width_units in runs:
+        run_w = width_units * unit_w
+        if is_bar and run_w > 0:
+            c.rect(cursor, inner_y, run_w, inner_h, stroke=0, fill=1)
+        cursor += run_w
 
 
 def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
@@ -2952,60 +3261,75 @@ def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
     c.rect(0.02 * inch, 0.02 * inch, W - 0.04 * inch, H - 0.04 * inch)
 
     desc = str(label.get("description") or "").upper().strip()
-    title_lines = wrap_text(desc, "Helvetica-Bold", 21, W - 0.36 * inch, max_lines=3)
-    y = H - 0.36 * inch
+    title_font = 19
+    title_lines = wrap_text(desc, "Helvetica-Bold", title_font, W - 0.22 * inch, max_lines=3)
+    y = H - 0.30 * inch
     c.setFillColorRGB(0, 0, 0)
     for line in title_lines:
-        c.setFont("Helvetica-Bold", 21)
+        c.setFont("Helvetica-Bold", title_font)
         c.drawCentredString(W / 2, y, line)
-        y -= 0.28 * inch
+        y -= 0.32 * inch
 
     lot = str(label.get("lot") or "").strip()
     best_before = _format_label_date_mmddyyyy(str(label.get("best_before") or ""))
-    row_y = y - 0.20 * inch
-    c.setFont("Helvetica-Bold", 13)
+    row_y = 3.04 * inch
+    c.setFont("Helvetica-Bold", 14)
     c.drawString(0.34 * inch, row_y, f"LOT# {lot}" if lot else "LOT#")
 
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(1.95 * inch, row_y, "Best Before:")
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(1.76 * inch, row_y, "Best Before:")
 
-    c.setFont("Helvetica", 13)
-    c.drawString(3.02 * inch, row_y, best_before)
+    c.setFont("Helvetica", 14)
+    c.drawString(3.00 * inch, row_y, best_before)
 
     weight = str(label.get("weight_lbs") or "").strip()
     weight_display = _format_lbs(_parse_float(weight)) if weight else ""
-    weight_y = row_y - 0.40 * inch
-    c.setFont("Helvetica-Bold", 20)
+    weight_y = 2.58 * inch
+    c.setFont("Helvetica-Bold", 23)
     c.drawRightString(2.10 * inch, weight_y, "WEIGHT:")
-    c.setFont("Helvetica", 20)
+    c.setFont("Helvetica", 23)
     c.drawString(2.20 * inch, weight_y, weight_display or weight)
 
     kind = str(label.get("pack_prefix") or _pack_label_kind(label.get("packaging_level"))).upper()
     qty = str(label.get("case_qty") or "").strip()
-    qty_y = weight_y - 0.34 * inch
-    c.setFont("Helvetica-Bold", 20)
+    qty_y = 2.24 * inch
+    c.setFont("Helvetica-Bold", 23)
     c.drawRightString(2.40 * inch, qty_y, f"{kind} Case Qty:")
-    c.setFont("Helvetica", 20)
+    c.setFont("Helvetica", 23)
     c.drawString(2.50 * inch, qty_y, f"{qty} Units" if qty else "Units")
 
-    # ITF-14 barcode on plain white background.
-    bx = 0.31 * inch
-    by = 0.42 * inch
-    bw = W - 0.62 * inch
-    bh = 1.12 * inch
+    # ITF-14 barcode with bearer bars and continuous human-readable GTIN.
+    gtin = _only_digits(label.get("gtin", ""))
+
+    bx = 0.30 * inch
+    bw = W - 0.60 * inch
+
+    hri_strip_h = 0.34 * inch
+    hri_y = 0.06 * inch
+
+    barcode_y = hri_y + hri_strip_h
+    barcode_h = 1.72 * inch
+
+    # White barcode/HRI panel.
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(bx, hri_y, bw, hri_strip_h + barcode_h, stroke=0, fill=1)
+
     _draw_itf14_centered(
         c,
-        label.get("gtin", ""),
-        bx + 0.03 * inch,
-        by + 0.03 * inch,
-        bw - 0.06 * inch,
-        bh - 0.06 * inch,
+        gtin,
+        bx,
+        barcode_y,
+        bw,
+        barcode_h,
     )
 
-    gtin = _only_digits(label.get("gtin", ""))
+    # Human-readable text strip.
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(bx, hri_y, bw, hri_strip_h, stroke=0, fill=1)
+
     c.setFillColorRGB(0, 0, 0)
-    c.setFont("Helvetica", 16)
-    c.drawCentredString(W / 2, 0.22 * inch, " ".join(gtin) if gtin else "")
+    c.setFont("Helvetica", 21)
+    c.drawCentredString(W / 2, hri_y + 0.07 * inch, gtin if gtin else "")
 
 
 def render_kehe_pack_label_pdf(
@@ -3049,6 +3373,9 @@ def render_kehe_pack_label_pdf(
         except (ValueError, TypeError):
             copies = 1
         label["pack_prefix"] = str(label.get("pack_prefix") or _pack_label_kind(label.get("packaging_level"))).upper()
+        if label["pack_prefix"] in {"MP", "IP"}:
+            copies = max(2, copies)
+            label["copies"] = copies
         if progress_callback:
             progress_callback(f"Rendering {label.get('id', 'pack label')} ({copies} copy{'ies' if copies != 1 else ''})...")
         for _ in range(copies):
@@ -3064,7 +3391,7 @@ def render_kehe_pack_label_pdf(
             "weight_lbs": label.get("weight_lbs", ""),
             "case_qty": label.get("case_qty", ""),
             "copies": copies,
-            "note": "; ".join(warnings) if warnings else "Generated from edited draft",
+            "note": "; ".join(warnings) if warnings else _PACK_LABEL_PLACEMENT_NOTE,
         })
 
     c.save()
@@ -3111,6 +3438,75 @@ _MPL_GREY = (0.82, 0.82, 0.82)
 _MPL_LIGHT_GREY = (0.90, 0.90, 0.90)
 _MPL_CREAM = (0.98, 0.95, 0.82)
 _MPL_ROW_ALT = (0.97, 0.97, 0.97)
+_MPL_PALLET_LENGTH_IN = 48.0
+_MPL_PALLET_WIDTH_IN = 40.0
+_MPL_PALLET_MAX_HEIGHT_IN = 70.0
+_MPL_PALLET_MAX_GROSS_LBS = 2000.0
+_MPL_PALLET_TARE_LBS = 50.0
+_MPL_PALLET_BUFFER_FACTOR = 1.05
+
+
+def _mpl_tihi_constraints(mpl: Optional[Dict[str, Any]] = None, pallet: str = "") -> Dict[str, float]:
+    raw = (mpl or {}).get("_tihi_constraints") or {}
+    pallet_key = _mpl_clean(pallet)
+    pallet_constraints = (mpl or {}).get("_tihi_pallet_constraints") or {}
+    if pallet_key and isinstance(pallet_constraints, dict) and isinstance(pallet_constraints.get(pallet_key), dict):
+        raw = pallet_constraints.get(pallet_key) or {}
+    def _positive(value: Any, fallback: float) -> float:
+        parsed = _parse_float(value)
+        return parsed if parsed is not None and parsed > 0 else fallback
+    return {
+        "max_length_in": _positive(raw.get("max_length_in"), _MPL_PALLET_LENGTH_IN),
+        "max_width_in": _positive(raw.get("max_width_in"), _MPL_PALLET_WIDTH_IN),
+        "max_height_in": _positive(raw.get("max_height_in"), _MPL_PALLET_MAX_HEIGHT_IN),
+        "max_gross_lbs": _positive(raw.get("max_gross_lbs"), _MPL_PALLET_MAX_GROSS_LBS),
+    }
+
+
+def _mpl_tihi_snapshot_payload(mpl: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    raw = mpl.get("_tihi_snapshot")
+    if not isinstance(raw, dict):
+        return None
+    entries = raw.get("entries")
+    warnings = raw.get("warnings")
+    if not isinstance(entries, list):
+        return None
+    constraints = _mpl_tihi_constraints({"_tihi_constraints": raw.get("constraints") or mpl.get("_tihi_constraints") or {}})
+    return {
+        "entries": entries,
+        "warnings": [str(warning) for warning in (warnings or [])],
+        "constraints": constraints,
+        "sheet_image_data_url": _mpl_clean(raw.get("sheet_image_data_url")),
+    }
+
+
+def _mpl_snapshot_image_reader(image_data_url: str) -> Optional[ImageReader]:
+    raw = _mpl_clean(image_data_url)
+    if not raw or not raw.startswith("data:image/"):
+        return None
+    try:
+        _, encoded = raw.split(",", 1)
+        return ImageReader(io.BytesIO(base64.b64decode(encoded)))
+    except Exception:
+        return None
+
+
+def _draw_mpl_snapshot_page(c: canvas.Canvas, reader: ImageReader) -> bool:
+    img_w, img_h = reader.getSize()
+    if img_w <= 0 or img_h <= 0:
+        return False
+    page_w, page_h = A4
+    margin = 0.40 * inch
+    max_w = page_w - (2 * margin)
+    max_h = page_h - (2 * margin)
+    scale = min(max_w / img_w, max_h / img_h)
+    draw_w = img_w * scale
+    draw_h = img_h * scale
+    draw_x = (page_w - draw_w) / 2
+    draw_y = (page_h - draw_h) / 2
+    c.drawImage(reader, draw_x, draw_y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+    c.showPage()
+    return True
 
 
 def _mpl_clean(value: Any) -> str:
@@ -3569,6 +3965,680 @@ def _mpl_paginate_units(units: List[Tuple[str, Dict[str, Any], float]], availabl
     return pages or [[]]
 
 
+def _mpl_parse_dimensions_in(value: Any) -> Optional[Tuple[float, float, float]]:
+    nums = re.findall(r"\d+(?:\.\d+)?", str(value or "").replace(",", ""))
+    if len(nums) < 3:
+        return None
+    dims = tuple(float(n) for n in nums[:3])
+    return dims if all(d > 0 for d in dims) else None
+
+
+def _mpl_tihi_case_qty(item: Dict[str, Any]) -> int:
+    qty = _qty_value(item.get("qty_on_pallet") or item.get("total_shipped") or item.get("qty"))
+    if qty <= 0:
+        return 0
+    return max(1, int(math.ceil(qty)))
+
+
+def _mpl_tihi_item_label(item: Dict[str, Any]) -> str:
+    return (
+        _mpl_clean(item.get("sku"))
+        or _mpl_clean(item.get("item_number"))
+        or _mpl_clean(item.get("gtin"))
+        or _mpl_clean(item.get("case_upc"))
+        or _mpl_clean(item.get("description"))
+        or f"Line {_mpl_clean(item.get('line')) or '?'}"
+    )
+
+
+def _mpl_tihi_color(index: int) -> Tuple[float, float, float]:
+    palette = [
+        (0.85, 0.60, 0.29),
+        (0.49, 0.70, 0.98),
+        (0.56, 0.82, 0.62),
+        (0.96, 0.64, 0.64),
+        (0.72, 0.63, 0.98),
+        (0.50, 0.85, 0.82),
+        (0.95, 0.81, 0.39),
+        (0.94, 0.70, 0.48),
+    ]
+    return palette[index % len(palette)]
+
+
+def _mpl_best_tihi_orientation(dimensions: Tuple[float, float, float], constraints: Dict[str, float]) -> Optional[Dict[str, float]]:
+    length, width, height = dimensions
+    candidates: List[Dict[str, float]] = []
+    seen: set[Tuple[float, float]] = set()
+    for footprint_l, footprint_w in ((length, width), (width, length)):
+        key = (footprint_l, footprint_w)
+        if key in seen:
+            continue
+        seen.add(key)
+        cols = int(constraints["max_length_in"] // footprint_l)
+        rows = int(constraints["max_width_in"] // footprint_w)
+        tie = cols * rows
+        if tie < 1:
+            continue
+        fill_ratio = (
+            (cols * footprint_l * rows * footprint_w)
+            / (constraints["max_length_in"] * constraints["max_width_in"])
+        )
+        candidates.append({
+            "case_length": footprint_l,
+            "case_width": footprint_w,
+            "case_height": height,
+            "columns": cols,
+            "rows": rows,
+            "tie": tie,
+            "fill_ratio": fill_ratio,
+        })
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: (row["tie"], row["fill_ratio"], -row["case_width"]))
+
+
+def _mpl_round_product_weight_for_pallet(product_weight: float) -> float:
+    return math.ceil((product_weight * _MPL_PALLET_BUFFER_FACTOR) / 10.0) * 10.0
+
+
+def _mpl_estimate_mixed_box_capacity(
+    space_length: float,
+    space_width: float,
+    box_length: float,
+    box_width: float,
+) -> int:
+    if not (space_length > 0 and space_width > 0 and box_length > 0 and box_width > 0):
+        return 0
+    best = 0
+    row_limit_a = int(space_width // box_width)
+    for rows_a in range(row_limit_a + 1):
+        used_a = rows_a * int(space_length // box_length)
+        remaining_width = space_width - (rows_a * box_width)
+        used_b = int(remaining_width // box_length) * int(space_length // box_width) if remaining_width > 0 else 0
+        best = max(best, used_a + used_b)
+    row_limit_b = int(space_width // box_length)
+    for rows_b in range(row_limit_b + 1):
+        used_b = rows_b * int(space_length // box_width)
+        remaining_width = space_width - (rows_b * box_length)
+        used_a = int(remaining_width // box_width) * int(space_length // box_length) if remaining_width > 0 else 0
+        best = max(best, used_a + used_b)
+    return best
+
+
+def _mpl_split_free_rect(
+    free_rect: Dict[str, float],
+    placement: Dict[str, float],
+) -> List[Dict[str, float]]:
+    rects: List[Dict[str, float]] = []
+    right_length = free_rect["length"] - placement["case_length"]
+    bottom_width = free_rect["width"] - placement["case_width"]
+    if right_length > 0:
+        rects.append({
+            "x": free_rect["x"] + placement["case_length"],
+            "y": free_rect["y"],
+            "length": right_length,
+            "width": placement["case_width"],
+        })
+    if bottom_width > 0:
+        rects.append({
+            "x": free_rect["x"],
+            "y": free_rect["y"] + placement["case_width"],
+            "length": free_rect["length"],
+            "width": bottom_width,
+        })
+    return rects
+
+
+def _mpl_tihi_placement_options(dimensions: Tuple[float, float, float]) -> List[Dict[str, float]]:
+    length, width, height = dimensions
+    options: List[Dict[str, float]] = []
+    for case_length, case_width in ((length, width), (width, length)):
+        if any(
+            math.isclose(case_length, existing["case_length"], rel_tol=1e-9, abs_tol=1e-9)
+            and math.isclose(case_width, existing["case_width"], rel_tol=1e-9, abs_tol=1e-9)
+            for existing in options
+        ):
+            continue
+        option = {
+            "case_length": case_length,
+            "case_width": case_width,
+            "case_height": height,
+        }
+        options.append(option)
+    return options
+
+
+def _mpl_pick_best_free_rect_placement(
+    free_rects: List[Dict[str, float]],
+    dimensions: Tuple[float, float, float],
+) -> Optional[Dict[str, Any]]:
+    length, width, height = dimensions
+    options = _mpl_tihi_placement_options(dimensions)
+
+    best: Optional[Dict[str, Any]] = None
+    box_area = length * width
+    for rect_index, free_rect in enumerate(free_rects):
+        for option in options:
+            if option["case_length"] > free_rect["length"] or option["case_width"] > free_rect["width"]:
+                continue
+            placement = {
+                **option,
+                "x": free_rect["x"],
+                "y": free_rect["y"],
+            }
+            next_free_rects = (
+                free_rects[:rect_index]
+                + free_rects[rect_index + 1 :]
+                + _mpl_split_free_rect(free_rect, placement)
+            )
+            capacities = sorted(
+                (
+                    _mpl_estimate_mixed_box_capacity(rect["length"], rect["width"], length, width)
+                    for rect in next_free_rects
+                ),
+                reverse=True,
+            )
+            future_capacity = sum(capacities)
+            unused_area = sum(rect["length"] * rect["width"] for rect in next_free_rects) - (future_capacity * box_area)
+            score = (
+                future_capacity,
+                capacities[-1] if capacities else 0,
+                -unused_area,
+                -placement["y"],
+                -placement["x"],
+            )
+            if best is None or score > best["score"]:
+                best = {
+                    "placement": placement,
+                    "rect_index": rect_index,
+                    "next_free_rects": next_free_rects,
+                    "score": score,
+                }
+    return best
+
+
+def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dict[str, float]) -> Dict[str, Any]:
+    placements: List[Dict[str, Any]] = []
+    overflow_count = 0
+    layer_index = 0
+    layer_base_z = 0.0
+    layer_height = 0.0
+    free_rects: List[Dict[str, float]] = [{"x": 0.0, "y": 0.0, "length": constraints["max_length_in"], "width": constraints["max_width_in"]}]
+
+    def _start_new_layer() -> None:
+        nonlocal layer_index, layer_base_z, layer_height, free_rects
+        layer_base_z += layer_height
+        layer_index += 1
+        layer_height = 0.0
+        free_rects = [{"x": 0.0, "y": 0.0, "length": constraints["max_length_in"], "width": constraints["max_width_in"]}]
+
+    ordered_groups = sorted(groups, key=lambda group: (-float(group.get("unit_weight") or 0.0), int(group.get("sort_index") or 0)))
+    for group in ordered_groups:
+        dims = group["dimensions"]
+        for _ in range(group["assigned_cases"]):
+            best_fit = _mpl_pick_best_free_rect_placement(free_rects, dims)
+            if best_fit is None:
+                _start_new_layer()
+                best_fit = _mpl_pick_best_free_rect_placement(free_rects, dims)
+            if best_fit is None:
+                overflow_count += 1
+                continue
+            oriented = best_fit["placement"]
+            if layer_base_z + max(layer_height, oriented["case_height"]) > constraints["max_height_in"]:
+                _start_new_layer()
+                best_fit = _mpl_pick_best_free_rect_placement(free_rects, dims)
+                if best_fit is None:
+                    overflow_count += 1
+                    continue
+                oriented = best_fit["placement"]
+
+            placements.append({
+                "x": oriented["x"],
+                "y": oriented["y"],
+                "z": layer_base_z,
+                "layer_index": layer_index,
+                "case_length": oriented["case_length"],
+                "case_width": oriented["case_width"],
+                "case_height": oriented["case_height"],
+                "unit_weight": group.get("unit_weight") or 0.0,
+                "color": group["color"],
+            })
+
+            layer_height = max(layer_height, oriented["case_height"])
+            free_rects = sorted(
+                (
+                    rect
+                    for rect in best_fit["next_free_rects"]
+                    if rect["length"] > 0.001 and rect["width"] > 0.001
+                ),
+                key=lambda rect: (rect["y"], rect["x"], rect["length"] * rect["width"]),
+            )
+
+    case_volume = sum(
+        float(p.get("case_length") or 0.0)
+        * float(p.get("case_width") or 0.0)
+        * float(p.get("case_height") or 0.0)
+        for p in placements
+    )
+    pallet_volume = constraints["max_length_in"] * constraints["max_width_in"] * constraints["max_height_in"]
+    pallet_fill_pct = min(100.0, (case_volume / pallet_volume) * 100.0) if pallet_volume > 0 else 0.0
+    return {
+        "placements": placements,
+        "used_height": layer_base_z + layer_height,
+        "overflow_count": overflow_count,
+        "pallet_fill_pct": pallet_fill_pct,
+    }
+
+
+def _mpl_build_tihi_entries(
+    mpl: Dict[str, Any],
+    items: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    grouped: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+    warnings: List[str] = []
+    constraints = _mpl_tihi_constraints(mpl)
+
+    for index, item in enumerate(items):
+        pallet = _mpl_pallet_value(item)
+        qty = _mpl_tihi_case_qty(item)
+        if qty < 1:
+            continue
+
+        label = _mpl_tihi_item_label(item)
+        dimensions_raw = _mpl_clean(item.get("dimensions_in"))
+        weight_raw = _mpl_clean(item.get("unit_weight_lbs"))
+        dimensions = _mpl_parse_dimensions_in(dimensions_raw)
+        unit_weight = _parse_float(weight_raw)
+
+        if dimensions is None:
+            warnings.append(
+                f"Pallet {_mpl_pallet_label(pallet)} / {label}: missing Case dimensions in product master."
+            )
+            continue
+        if unit_weight is None or unit_weight <= 0:
+            warnings.append(
+                f"Pallet {_mpl_pallet_label(pallet)} / {label}: missing Case weight in product master."
+            )
+            continue
+
+        group_key = (
+            pallet,
+            _canonical_id(item.get("sku") or item.get("item_number") or item.get("gtin") or item.get("case_upc") or item.get("upc"))
+            or _normalize(item.get("description") or "")
+            or f"line-{_mpl_clean(item.get('line')) or '0'}",
+            dimensions_raw,
+            weight_raw,
+        )
+        group = grouped.setdefault(group_key, {
+            "pallet": pallet,
+            "sku": _mpl_clean(item.get("sku")),
+            "item_number": _mpl_clean(item.get("item_number")),
+            "gtin": _mpl_clean(item.get("gtin") or item.get("case_upc") or item.get("upc")),
+            "description": _mpl_clean(item.get("description")),
+            "dimensions_in": dimensions_raw,
+            "unit_weight_lbs": weight_raw,
+            "dimensions": dimensions,
+            "unit_weight": unit_weight,
+            "assigned_cases": 0,
+            "lines": [],
+            "sort_index": index,
+        })
+        group["assigned_cases"] += qty
+        if item.get("line") is not None:
+            group["lines"].append(str(item.get("line")))
+
+    pallet_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for group_index, group in enumerate(sorted(grouped.values(), key=lambda row: (_mpl_pallet_sort_key(row["pallet"]), row["sort_index"]))):
+        label = group["sku"] or group["item_number"] or group["gtin"] or group["description"] or f"Item {group_index + 1}"
+        group_constraints = _mpl_tihi_constraints(mpl, group["pallet"])
+        orientation = _mpl_best_tihi_orientation(group["dimensions"], group_constraints)
+        if orientation is None:
+            warnings.append(
+                f"Pallet {_mpl_pallet_label(group['pallet'])} / {label}: Case footprint exceeds the pallet base."
+            )
+            continue
+        group["label"] = label
+        group["color"] = _mpl_tihi_color(group_index)
+        group["base_orientation"] = orientation
+        group["lines"] = sorted(set(group["lines"]), key=lambda value: int(re.search(r"\d+", value).group(0)) if re.search(r"\d+", value) else value)
+        pallet_groups.setdefault(group["pallet"], []).append(group)
+
+    entries: List[Dict[str, Any]] = []
+    for pallet, groups in sorted(pallet_groups.items(), key=lambda pair: _mpl_pallet_sort_key(pair[0])):
+        pallet_constraints = _mpl_tihi_constraints(mpl, pallet)
+        total_weight = sum(group["unit_weight"] * group["assigned_cases"] for group in groups)
+        gross_weight = _mpl_round_product_weight_for_pallet(total_weight) + _MPL_PALLET_TARE_LBS
+        if gross_weight > pallet_constraints["max_gross_lbs"]:
+            warnings.append(
+                f"Pallet {_mpl_pallet_label(pallet)}: gross pallet weight {int(round(gross_weight))} lbs exceeds the {pallet_constraints['max_gross_lbs']:.0f} lb limit."
+            )
+
+        groups = sorted(groups, key=lambda group: (-float(group.get("unit_weight") or 0.0), int(group.get("sort_index") or 0)))
+        layout = _mpl_build_pallet_tihi_layout(groups, pallet_constraints)
+        placements = layout["placements"]
+        if not placements:
+            warnings.append(
+                f"Pallet {_mpl_pallet_label(pallet)}: no TI-Hi layout could be created from the assigned case measurements."
+            )
+            continue
+
+        max_layer = max(int(p["layer_index"]) for p in placements)
+        top_placements = [p for p in placements if int(p["layer_index"]) == max_layer]
+        top_rows_used = len({(round(float(p["y"]), 4), round(float(p["case_width"]), 4)) for p in top_placements}) or 1
+        overflow_count = int(layout["overflow_count"])
+        if overflow_count:
+            warnings.append(
+                f"Pallet {_mpl_pallet_label(pallet)}: {overflow_count} case(s) exceed the current pallet footprint/height constraints."
+            )
+
+        entries.append({
+            "pallet": pallet,
+            "pallet_label": _mpl_pallet_label(pallet),
+            "constraints": pallet_constraints,
+            "placements": placements,
+            "top_placements": top_placements,
+            "groups": groups,
+            "assigned_cases": sum(group["assigned_cases"] for group in groups),
+            "shown_cases": len(placements),
+            "overflow_cases": overflow_count,
+            "ti": len(top_placements),
+            "hi": max_layer + 1,
+            "top_rows_used": top_rows_used,
+            "top_layer_cases": len(top_placements),
+            "gross_weight_lbs": gross_weight,
+            "pallet_fill_pct": float(layout.get("pallet_fill_pct") or 0.0),
+            "used_height": float(layout["used_height"]),
+            "lines": sorted({line for group in groups for line in group["lines"]}, key=lambda value: int(re.search(r"\d+", value).group(0)) if re.search(r"\d+", value) else value),
+        })
+
+    unique_warnings = list(dict.fromkeys(warnings))
+    return entries, unique_warnings
+
+
+def _mpl_draw_tihi_top_view(
+    c: canvas.Canvas,
+    entry: Dict[str, Any],
+    constraints: Dict[str, float],
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    pad = 8
+    scale = min((w - 2 * pad) / constraints["max_length_in"], (h - 2 * pad) / constraints["max_width_in"])
+    pallet_w = constraints["max_length_in"] * scale
+    pallet_h = constraints["max_width_in"] * scale
+    px = x + (w - pallet_w) / 2
+    py = y + (h - pallet_h) / 2
+    _draw_mpl_cell(c, px, py, pallet_w, pallet_h, (1, 1, 1), _MPL_GRID, 0.6)
+
+    for placement in entry.get("top_placements", []):
+        rx = px + float(placement["x"]) * scale
+        ry = py + pallet_h - ((float(placement["y"]) + float(placement["case_width"])) * scale)
+        _draw_mpl_cell(
+            c,
+            rx,
+            ry,
+            float(placement["case_length"]) * scale,
+            float(placement["case_width"]) * scale,
+            placement.get("color") or (0.92, 0.72, 0.39),
+            _MPL_GRID,
+            0.35,
+        )
+
+    c.setFillColorRGB(*_COLOR_LABEL)
+    c.setFont("Helvetica", 5.0)
+    c.drawCentredString(px + pallet_w / 2, py - 7, f"{int(round(constraints['max_length_in']))} in")
+    c.saveState()
+    c.translate(px - 8, py + pallet_h / 2)
+    c.rotate(90)
+    c.drawCentredString(0, 0, f"{int(round(constraints['max_width_in']))} in")
+    c.restoreState()
+    c.setFillColorRGB(0, 0, 0)
+
+
+def _mpl_draw_tihi_side_view(
+    c: canvas.Canvas,
+    entry: Dict[str, Any],
+    constraints: Dict[str, float],
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    pad = 8
+    scale = min((w - 2 * pad) / constraints["max_length_in"], (h - 2 * pad) / constraints["max_height_in"])
+    pallet_w = constraints["max_length_in"] * scale
+    stack_h = min(constraints["max_height_in"], float(entry.get("used_height") or 0.0)) * scale
+    px = x + (w - pallet_w) / 2
+    py = y + 8
+
+    pallet_base_h = 8
+    c.setFillColorRGB(0.68, 0.62, 0.47)
+    c.setStrokeColorRGB(*_MPL_GRID)
+    c.setLineWidth(0.5)
+    c.rect(px, py, pallet_w, pallet_base_h, fill=1, stroke=1)
+    notch_w = pallet_w / 4.5
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(px + notch_w * 0.75, py + 2.0, notch_w * 0.8, pallet_base_h - 4.0, fill=1, stroke=0)
+    c.rect(px + notch_w * 2.5, py + 2.0, notch_w * 0.8, pallet_base_h - 4.0, fill=1, stroke=0)
+
+    for placement in entry.get("placements", []):
+        rx = px + float(placement["x"]) * scale
+        ry = py + pallet_base_h + float(placement["z"]) * scale
+        _draw_mpl_cell(
+            c,
+            rx,
+            ry,
+            float(placement["case_length"]) * scale,
+            float(placement["case_height"]) * scale,
+            placement.get("color") or (0.92, 0.72, 0.39),
+            _MPL_GRID,
+            0.35,
+        )
+
+    c.setFillColorRGB(*_COLOR_LABEL)
+    c.setFont("Helvetica", 5.0)
+    c.drawCentredString(px + pallet_w / 2, py - 7, f"{int(round(constraints['max_length_in']))} in")
+    c.saveState()
+    c.translate(px - 8, py + pallet_base_h + stack_h / 2)
+    c.rotate(90)
+    c.drawCentredString(0, 0, f"{int(round(float(entry.get('used_height') or 0.0)))} in")
+    c.restoreState()
+    c.setFillColorRGB(0, 0, 0)
+
+
+def _render_mpl_tihi_card(
+    c: canvas.Canvas,
+    entry: Dict[str, Any],
+    constraints: Dict[str, float],
+    x: float,
+    top_y: float,
+    w: float,
+    h: float,
+) -> float:
+    bottom_y = top_y - h
+    _draw_mpl_cell(c, x, bottom_y, w, h, (1, 1, 1), _MPL_GRID, 0.55)
+
+    header_h = 0.21 * inch
+    _draw_mpl_cell(c, x, top_y - header_h, w, header_h, _MPL_BLACK, _MPL_BLACK, 0.4)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 6.9)
+    title = f"Pallet {entry['pallet_label']} • Current edited layout"
+    c.drawString(x + 6, top_y - header_h / 2 - 2.2, title[:108])
+    c.setFillColorRGB(0, 0, 0)
+
+    info_top = top_y - header_h - 7
+    c.setFont("Helvetica-Bold", 6.0)
+    c.drawString(x + 6, info_top, f"{len(entry.get('groups') or [])} item group(s) on this pallet"[:126])
+    c.setFont("Helvetica", 5.5)
+    info_rows = [
+        f"Assigned: {entry['assigned_cases']} case(s)   Shown: {entry['shown_cases']}   Gross pallet weight: {int(round(entry['gross_weight_lbs']))} lbs",
+        f"TI x HI: {entry['ti']} x {entry['hi']}   Top layer shown: {entry['top_layer_cases']} case(s)   Used pallet volume: {entry['pallet_fill_pct']:.1f}%",
+        f"Used stack height: {int(round(float(entry.get('used_height') or 0.0)))} in",
+        f"Constraints: {int(round(constraints['max_length_in']))} x {int(round(constraints['max_width_in']))} x {int(round(constraints['max_height_in']))} in   Max gross: {int(round(constraints['max_gross_lbs']))} lbs",
+    ]
+    if entry.get("overflow_cases"):
+        info_rows.append(f"Constraint warning: {entry['overflow_cases']} case(s) exceed the current pallet limits.")
+    if entry.get("lines"):
+        info_rows.append(f"MPL lines: {', '.join(entry['lines'])}")
+    ty = info_top - 8
+    for row in info_rows[:5]:
+        c.drawString(x + 6, ty, row[:145])
+        ty -= 6.4
+
+    diagram_top = ty - 1
+    legend_h = 0.42 * inch
+    diagram_h = max(1.55 * inch, bottom_y + 10 + legend_h - diagram_top)
+    gap = 8
+    panel_w = (w - gap - 12) / 2
+    panel_h = diagram_h
+    left_x = x + 6
+    right_x = left_x + panel_w + gap
+
+    c.setFont("Helvetica-Bold", 6.0)
+    c.drawCentredString(left_x + panel_w / 2, diagram_top - 7, 'TOP VIEW')
+    c.drawCentredString(right_x + panel_w / 2, diagram_top - 7, 'SIDE VIEW')
+    _mpl_draw_tihi_top_view(c, entry, constraints, left_x, diagram_top - panel_h, panel_w, panel_h)
+    _mpl_draw_tihi_side_view(c, entry, constraints, right_x, diagram_top - panel_h, panel_w, panel_h)
+
+    groups = entry.get("groups") or []
+    c.setFont("Helvetica", 5.0)
+    legend_cols = 2
+    legend_w = (w - 14) / legend_cols
+    legend_y = bottom_y + 8
+    for idx, group in enumerate(groups[:6]):
+        col = idx % legend_cols
+        row = idx // legend_cols
+        lx = x + 6 + (col * legend_w)
+        ly = legend_y + (row * 11)
+        color = group.get("color") or (0.92, 0.72, 0.39)
+        c.setFillColorRGB(*color)
+        c.setStrokeColorRGB(*_MPL_GRID)
+        c.rect(lx, ly, 7, 7, fill=1, stroke=1)
+        c.setFillColorRGB(0, 0, 0)
+        c.drawString(lx + 10, ly + 1.5, f"{_mpl_clean(group.get('label'))[:24]} • L {', '.join(group.get('lines') or [])[:12]} • {group.get('assigned_cases', 0)} cs")
+
+    return bottom_y
+
+
+def _render_mpl_tihi_pages(
+    c: canvas.Canvas,
+    mpl: Dict[str, Any],
+    items: List[Dict[str, Any]],
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> int:
+    snapshot = _mpl_tihi_snapshot_payload(mpl)
+    if snapshot is not None:
+        entries = snapshot["entries"]
+        warnings = snapshot["warnings"]
+        constraints = snapshot["constraints"]
+        sheet_reader = _mpl_snapshot_image_reader(snapshot.get("sheet_image_data_url", ""))
+        if sheet_reader is not None:
+            if progress_callback:
+                progress_callback(f"Rendering {mpl.get('id', 'MPL')} TI-Hi layout summary image...")
+            return 1 if _draw_mpl_snapshot_page(c, sheet_reader) else 0
+    else:
+        entries, warnings = _mpl_build_tihi_entries(mpl, items)
+        constraints = _mpl_tihi_constraints(mpl)
+
+    snapshot_images = []
+    for entry in entries:
+        reader = _mpl_snapshot_image_reader(entry.get("image_data_url", ""))
+        if reader is None:
+            snapshot_images = []
+            break
+        snapshot_images.append(reader)
+    if snapshot_images:
+        pages = 0
+        for index, reader in enumerate(snapshot_images, start=1):
+            if progress_callback:
+                progress_callback(
+                    f"Rendering {mpl.get('id', 'MPL')} TI-Hi image page {index}/{len(snapshot_images)}..."
+                )
+            if _draw_mpl_snapshot_page(c, reader):
+                pages += 1
+        return pages
+
+    pages = 0
+    entry_index = 0
+    first_page = True
+
+    while first_page or entry_index < len(entries) or (first_page and not entries):
+        if progress_callback:
+            progress_callback(
+                f"Rendering {mpl.get('id', 'MPL')} TI-Hi page {pages + 1}..."
+            )
+
+        y = _MPL_INNER_TOP
+        _draw_mpl_cell(c, _MPL_MARGIN, y - 0.20 * inch, _MPL_INNER_W, 0.20 * inch, _MPL_BLACK, _MPL_BLACK, 0.5)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 8.0)
+        c.drawCentredString(
+            _MPL_MARGIN + _MPL_INNER_W / 2,
+            y - 0.10 * inch - 2,
+            f"TI-HI LAYOUT SUMMARY - {mpl.get('id', 'MPL')}",
+        )
+        c.setFillColorRGB(0, 0, 0)
+        y -= 0.26 * inch
+
+        c.setFont("Helvetica", 5.8)
+        c.drawString(_MPL_MARGIN, y, f"PO: {_mpl_clean(mpl.get('customer_po_number')) or '-'}")
+        c.drawRightString(
+            _MPL_MARGIN + _MPL_INNER_W,
+            y,
+            f"Constraints: {constraints['max_length_in']:.0f} x {constraints['max_width_in']:.0f} x {constraints['max_height_in']:.0f} in, max {constraints['max_gross_lbs']:.0f} lbs gross",
+        )
+        y -= 0.11 * inch
+        c.setFont("Helvetica", 5.6)
+        c.drawString(_MPL_MARGIN, y, "All dimensions shown in inches.")
+        y -= 0.12 * inch
+
+        if first_page:
+            warning_text = "; ".join(warnings[:6])
+            if warning_text:
+                y = _draw_warning_box(
+                    c,
+                    warning_text,
+                    _MPL_MARGIN,
+                    y,
+                    _MPL_INNER_W,
+                    font_size=5.6,
+                    padding=3,
+                ) - 0.08 * inch
+
+        if not entries:
+            c.setFont("Helvetica-Bold", 8.0)
+            c.drawCentredString(
+                _MPL_MARGIN + _MPL_INNER_W / 2,
+                y - 0.8 * inch,
+                "No TI-Hi diagram could be generated for this MPL.",
+            )
+            c.setFont("Helvetica", 6.0)
+            c.drawCentredString(
+                _MPL_MARGIN + _MPL_INNER_W / 2,
+                y - 1.05 * inch,
+                "Add Case dimensions and Case weight for the palletized SKU rows in the product master, then render again.",
+            )
+            c.showPage()
+            pages += 1
+            break
+
+        card_h = 3.55 * inch
+        card_gap = 0.10 * inch
+        while entry_index < len(entries) and y - card_h >= _MPL_INNER_BOTTOM:
+            entry_constraints = entries[entry_index].get("constraints") or constraints
+            _render_mpl_tihi_card(c, entries[entry_index], entry_constraints, _MPL_MARGIN, y, _MPL_INNER_W, card_h)
+            y -= card_h + card_gap
+            entry_index += 1
+
+        c.showPage()
+        pages += 1
+        first_page = False
+
+    return pages
+
+
 def render_kehe_master_packing_list_pdf(
     draft: Dict[str, Any],
     out_pdf: str,
@@ -3659,6 +4729,13 @@ def render_kehe_master_packing_list_pdf(
 
             c.showPage()
             total_pages_all += 1
+
+        total_pages_all += _render_mpl_tihi_pages(
+            c,
+            mpl,
+            items,
+            progress_callback=progress_callback,
+        )
 
         ship_to_lines = (_mpl_clean(mpl.get("ship_to"))).split("\n")
         ship_to_display = ship_to_lines[0] if ship_to_lines else "-"
