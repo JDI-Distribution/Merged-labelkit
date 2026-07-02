@@ -5204,8 +5204,18 @@
         warnings.push(`Pallet ${palletId}: no TI-Hi layout could be created from the assigned case measurements.`);
         return null;
       }
+      const layerBuckets = new Map();
+      placements.forEach(p => {
+        const key = Number(p.layerIndex || 0);
+        if (!layerBuckets.has(key)) layerBuckets.set(key, []);
+        layerBuckets.get(key).push(p);
+      });
       const maxLayer = Math.max(...placements.map(p => p.layerIndex));
-      const topPlacements = placements.filter(p => p.layerIndex === maxLayer);
+      const displayLayer = [...layerBuckets.keys()].sort((a, b) => {
+        const byCount = (layerBuckets.get(b).length - layerBuckets.get(a).length);
+        return byCount || (a - b);
+      })[0];
+      const topPlacements = layerBuckets.get(displayLayer) || [];
       const topRowsUsed = new Set(topPlacements.map(p => `${p.y.toFixed(4)}:${p.width.toFixed(4)}`)).size || 1;
       const caseCount = placements.length;
       return {
@@ -5220,6 +5230,7 @@
         overflowCases: overflowCount,
         ti: topPlacements.length,
         hi: maxLayer + 1,
+        displayLayer,
         topRowsUsed,
         topLayerCases: topPlacements.length,
         grossWeightLbs,
@@ -5429,7 +5440,7 @@
       drawSnapshotRect(ctx, rx, ry, Number(p.length || 0) * scale, Number(p.width || 0) * scale, p.color || '#d99a4b', '#6b4c24', 1);
     });
     drawSnapshotText(ctx, `${constraints.max_length_in} in`, px, y + h - 26, { size: 9, weight: 800, color: '#64748b' });
-    drawSnapshotText(ctx, `Top layer ${entry.topLayerCases || 0} visible case(s)`, x + (w / 2), y + h - 26, { align: 'center', size: 9, weight: 800, color: '#64748b' });
+    drawSnapshotText(ctx, `Layer view ${entry.topLayerCases || 0} visible case(s)`, x + (w / 2), y + h - 26, { align: 'center', size: 9, weight: 800, color: '#64748b' });
     drawSnapshotText(ctx, `${constraints.max_width_in} in`, px + palletW, y + h - 26, { align: 'right', size: 9, weight: 800, color: '#64748b' });
   }
 
@@ -5698,7 +5709,7 @@
           <div class="tihi-diagram">
             <div class="tihi-diagram-title">Top View</div>
             ${renderTiHiTopViewSvg(entry, constraints)}
-            <div class="tihi-dim-row"><span>${escapeHtml(String(constraints.max_length_in))} in</span><span>Top layer ${escapeHtml(String(entry.topLayerCases))} visible case(s)</span><span>${escapeHtml(String(constraints.max_width_in))} in</span></div>
+            <div class="tihi-dim-row"><span>${escapeHtml(String(constraints.max_length_in))} in</span><span>Layer view ${escapeHtml(String(entry.topLayerCases))} visible case(s)</span><span>${escapeHtml(String(constraints.max_width_in))} in</span></div>
           </div>
           <div class="tihi-diagram">
             <div class="tihi-diagram-title">Side View</div>

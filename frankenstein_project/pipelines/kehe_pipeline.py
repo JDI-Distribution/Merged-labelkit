@@ -4352,8 +4352,15 @@ def _mpl_build_tihi_entries(
             )
             continue
 
-        max_layer = max(int(p["layer_index"]) for p in placements)
-        top_placements = [p for p in placements if int(p["layer_index"]) == max_layer]
+        layer_buckets: Dict[int, List[Dict[str, Any]]] = {}
+        for placement in placements:
+            layer_buckets.setdefault(int(placement["layer_index"]), []).append(placement)
+        max_layer = max(layer_buckets.keys())
+        display_layer = sorted(
+            layer_buckets.keys(),
+            key=lambda layer: (-len(layer_buckets[layer]), layer),
+        )[0]
+        top_placements = layer_buckets.get(display_layer, [])
         top_rows_used = len({(round(float(p["y"]), 4), round(float(p["case_width"]), 4)) for p in top_placements}) or 1
         overflow_count = int(layout["overflow_count"])
         if overflow_count:
@@ -4373,6 +4380,7 @@ def _mpl_build_tihi_entries(
             "overflow_cases": overflow_count,
             "ti": len(top_placements),
             "hi": max_layer + 1,
+            "display_layer": display_layer,
             "top_rows_used": top_rows_used,
             "top_layer_cases": len(top_placements),
             "gross_weight_lbs": gross_weight,
@@ -4504,7 +4512,7 @@ def _render_mpl_tihi_card(
     c.setFont("Helvetica", 5.5)
     info_rows = [
         f"Assigned: {entry['assigned_cases']} case(s)   Shown: {entry['shown_cases']}   Gross pallet weight: {int(round(entry['gross_weight_lbs']))} lbs",
-        f"TI x HI: {entry['ti']} x {entry['hi']}   Top layer shown: {entry['top_layer_cases']} case(s)   Used pallet volume: {entry['pallet_fill_pct']:.1f}%",
+        f"TI x HI: {entry['ti']} x {entry['hi']}   Layer view shown: {entry['top_layer_cases']} case(s)   Used pallet volume: {entry['pallet_fill_pct']:.1f}%",
         f"Used stack height: {int(round(float(entry.get('used_height') or 0.0)))} in",
         f"Constraints: {int(round(constraints['max_length_in']))} x {int(round(constraints['max_width_in']))} x {int(round(constraints['max_height_in']))} in   Max gross: {int(round(constraints['max_gross_lbs']))} lbs",
     ]
