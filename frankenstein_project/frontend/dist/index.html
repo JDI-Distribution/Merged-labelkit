@@ -4652,24 +4652,25 @@
     return `Auto Palletize created ${calculatedCount || 0} pallet(s).`;
   }
 
-  function maxCasesForProduct(product, warnings, label) {
+  function maxCasesForProduct(product, warnings, label, constraints) {
     const dims = parseDimensionsInches(product.dimensions_in);
     const unitWeight = parseWeight(product.weight_lbs);
     if (!dims) warnings.push(`${label}: missing Case dimensions. Kept Unassigned / Needs Review.`);
     if (unitWeight === null) warnings.push(`${label}: missing Case weight. Kept Unassigned / Needs Review.`);
     if (!dims || unitWeight === null) return null;
-    const perLayerA = Math.floor(48 / dims.l) * Math.floor(40 / dims.w);
-    const perLayerB = Math.floor(48 / dims.w) * Math.floor(40 / dims.l);
+    const perLayerA = Math.floor(constraints.max_length_in / dims.l) * Math.floor(constraints.max_width_in / dims.w);
+    const perLayerB = Math.floor(constraints.max_length_in / dims.w) * Math.floor(constraints.max_width_in / dims.l);
     const perLayer = Math.max(perLayerA, perLayerB);
-    const layers = Math.floor(70 / dims.h);
+    const layers = Math.floor(constraints.max_height_in / dims.h);
     const byDimensions = perLayer * layers;
     if (byDimensions < 1) {
       warnings.push(`${label}: Case dimensions exceed pallet footprint/height. Kept Unassigned / Needs Review.`);
       return null;
     }
-    const byWeight = Math.floor((1950 / 1.05) / unitWeight);
+    const maxProductWeight = Math.max(0, constraints.max_gross_lbs - TIHI_PALLET_TARE_LBS);
+    const byWeight = Math.floor((maxProductWeight / TIHI_PALLET_BUFFER_FACTOR) / unitWeight);
     if (byWeight < 1) {
-      warnings.push(`${label}: one Case exceeds the 2,000 lb pallet limit after buffer/pallet weight. Kept Unassigned / Needs Review.`);
+      warnings.push(`${label}: one Case exceeds the ${constraints.max_gross_lbs} lb pallet limit after buffer/pallet weight. Kept Unassigned / Needs Review.`);
       return null;
     }
     return { dims, unitWeight, maxCases: Math.min(byDimensions, byWeight), caseVolume: dims.l * dims.w * dims.h };
@@ -4684,7 +4685,20 @@
     const warnings = [];
     const pallets = [];
     const unassigned = [];
-    const palletVolumeLimit = 48 * 40 * 70;
+    const defaultConstraints = getMplTiHiConstraints(mpl);
+
+    const constraintsForPallet = (palletId = '') => getMplTiHiConstraints(mpl, palletId);
+    const maxCasesWithinConstraints = (meta, constraints) => {
+      if (!meta || !constraints) return 0;
+      const perLayerA = Math.floor(constraints.max_length_in / meta.dims.l) * Math.floor(constraints.max_width_in / meta.dims.w);
+      const perLayerB = Math.floor(constraints.max_length_in / meta.dims.w) * Math.floor(constraints.max_width_in / meta.dims.l);
+      const perLayer = Math.max(perLayerA, perLayerB);
+      const layers = Math.floor(constraints.max_height_in / meta.dims.h);
+      const byDimensions = perLayer * layers;
+      const maxProductWeight = Math.max(0, constraints.max_gross_lbs - TIHI_PALLET_TARE_LBS);
+      const byWeight = Math.floor((maxProductWeight / TIHI_PALLET_BUFFER_FACTOR) / meta.unitWeight);
+      return Math.min(byDimensions, byWeight);
+    };
 
     function ensurePallet() {
       const nextId = String(pallets.length + 1);
@@ -4693,16 +4707,9 @@
       return p;
     }
 
-    function fits(pallet, meta, qty) {
-      if (!pallet || !meta || qty <= 0) return false;
-      if (qty > meta.maxCases) return false;
-      if (pallet.volume + meta.caseVolume * qty > palletVolumeLimit) return false;
-      return roundProductWeightForPallet((pallet.productWeight + meta.unitWeight * qty)) + 50 <= 2000;
-    }
-
-    function addToPallet(pallet, item, qty, meta) {
+    function buildAutoPalletItemCopy(item, palletId, qty, meta) {
       const copy = { ...item };
-      copy.location_on_pallet = pallet.id;
+      copy.location_on_pallet = palletId;
       copy.qty_on_pallet = String(qty);
       copy.total_ordered = String(qty);
       copy.total_shipped = String(qty);
@@ -4710,6 +4717,44 @@
       copy.calculated_weight_lbs = formatLbs(meta.unitWeight * qty);
       copy.packaging_level = 'Case';
       copy.pallet_weight = '';
+      return copy;
+    }
+
+    function fitsTiHiLayout(pallet, item, meta, qty) {
+      const palletId = normalizePalletId(pallet?.id) || '1';
+      const candidateItems = [
+        ...(pallet?.items || []).map(existing => ({ ...existing })),
+        buildAutoPalletItemCopy(item, palletId, qty, meta)
+      ];
+      const tempMpl = {
+        ...mpl,
+        items: candidateItems,
+        _tihi_constraints: mpl._tihi_constraints,
+        _tihi_pallet_constraints: mpl._tihi_pallet_constraints
+      };
+      const { entries } = buildMplTiHiEntries(tempMpl);
+      const entry = entries.find(row => normalizePalletId(row.pallet) === palletId);
+      if (!entry) return false;
+      const constraints = constraintsForPallet(palletId);
+      if ((entry.overflowCases || 0) > 0) return false;
+      if (Number(entry.usedHeight || 0) > Number(constraints.max_height_in || 0) + 0.0001) return false;
+      if (Number(entry.grossWeightLbs || 0) > Number(constraints.max_gross_lbs || 0) + 0.0001) return false;
+      return true;
+    }
+
+    function fits(pallet, item, meta, qty) {
+      if (!pallet || !meta || qty <= 0) return false;
+      const constraints = constraintsForPallet(pallet.id);
+      const maxCases = maxCasesWithinConstraints(meta, constraints);
+      if (qty > maxCases) return false;
+      const palletVolumeLimit = constraints.max_length_in * constraints.max_width_in * constraints.max_height_in;
+      if (pallet.volume + meta.caseVolume * qty > palletVolumeLimit) return false;
+      if (roundProductWeightForPallet((pallet.productWeight + meta.unitWeight * qty)) + TIHI_PALLET_TARE_LBS > constraints.max_gross_lbs) return false;
+      return fitsTiHiLayout(pallet, item, meta, qty);
+    }
+
+    function addToPallet(pallet, item, qty, meta) {
+      const copy = buildAutoPalletItemCopy(item, pallet.id, qty, meta);
       pallet.productWeight += meta.unitWeight * qty;
       pallet.volume += meta.caseVolume * qty;
       pallet.items.push(copy);
@@ -4723,7 +4768,7 @@
         unassigned.push({ ...item, location_on_pallet: '', pallet_weight: '' });
         return;
       }
-      const meta = maxCasesForProduct(product, warnings, label);
+      const meta = maxCasesForProduct(product, warnings, label, defaultConstraints);
       const qty = Math.max(0, Math.ceil(itemQuantityForWeight(item)));
       if (!meta || qty < 1) {
         unassigned.push({ ...item, location_on_pallet: '', pallet_weight: '' });
@@ -4732,7 +4777,7 @@
 
       let placedWhole = false;
       for (const pallet of pallets) {
-        if (fits(pallet, meta, qty)) {
+        if (fits(pallet, item, meta, qty)) {
           addToPallet(pallet, item, qty, meta);
           placedWhole = true;
           break;
@@ -4740,7 +4785,7 @@
       }
       if (!placedWhole) {
         const newPallet = ensurePallet();
-        if (fits(newPallet, meta, qty)) {
+        if (fits(newPallet, item, meta, qty)) {
           addToPallet(newPallet, item, qty, meta);
           placedWhole = true;
         }
@@ -4751,9 +4796,9 @@
       while (remaining > 0) {
         let pallet = pallets[pallets.length - 1] || ensurePallet();
         let moved = false;
-        const chunkLimit = Math.min(remaining, meta.maxCases);
+        const chunkLimit = Math.max(0, Math.min(remaining, maxCasesWithinConstraints(meta, constraintsForPallet(pallet.id))));
         for (let chunk = chunkLimit; chunk >= 1; chunk -= 1) {
-          if (fits(pallet, meta, chunk)) {
+          if (fits(pallet, item, meta, chunk)) {
             addToPallet(pallet, item, chunk, meta);
             remaining -= chunk;
             moved = true;
@@ -4829,15 +4874,17 @@
 
   function getMplTiHiConstraints(mpl, palletId = '') {
     if (!mpl) return defaultTiHiConstraints();
+    mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
     const normalizedPallet = normalizePalletId(palletId);
     if (normalizedPallet) {
       if (!mpl._tihi_pallet_constraints || typeof mpl._tihi_pallet_constraints !== 'object') {
         mpl._tihi_pallet_constraints = {};
       }
-      mpl._tihi_pallet_constraints[normalizedPallet] = normalizeTiHiConstraints(mpl._tihi_pallet_constraints[normalizedPallet] || {});
+      mpl._tihi_pallet_constraints[normalizedPallet] = normalizeTiHiConstraints(
+        mpl._tihi_pallet_constraints[normalizedPallet] || mpl._tihi_constraints
+      );
       return mpl._tihi_pallet_constraints[normalizedPallet];
     }
-    mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
     return mpl._tihi_constraints;
   }
 
@@ -4983,49 +5030,82 @@
       freeRects = [{ x: 0, y: 0, length: constraints.max_length_in, width: constraints.max_width_in }];
     };
 
-    [...itemGroups].sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex)).forEach(group => {
-      const dims = group.dims;
-      for (let i = 0; i < group.assignedCases; i += 1) {
-        let bestFit = pickBestFreeRectPlacement(freeRects, dims);
-        if (!bestFit) {
-          startNewLayer();
-          bestFit = pickBestFreeRectPlacement(freeRects, dims);
+    const activeGroups = [...itemGroups]
+      .sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex))
+      .map(group => ({ ...group, remainingCases: group.assignedCases }));
+    const isBetter = (left, right) => {
+      for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+        const lv = left[i] ?? 0;
+        const rv = right[i] ?? 0;
+        if (lv === rv) continue;
+        return lv > rv;
+      }
+      return false;
+    };
+
+    while (activeGroups.some(group => group.remainingCases > 0)) {
+      let candidate = null;
+      activeGroups.forEach(group => {
+        if (group.remainingCases <= 0) return;
+        const bestFit = pickBestFreeRectPlacement(freeRects, group.dims);
+        if (!bestFit) return;
+        const placement = bestFit.placement;
+        const score = [
+          placement.length * placement.width,
+          group.unitWeight || 0,
+          ...(bestFit.score || [])
+        ];
+        if (!candidate || isBetter(score, candidate.score)) {
+          candidate = { group, bestFit, score };
         }
-        if (!bestFit) {
-          overflow.push(group);
+      });
+
+      if (!candidate) {
+        if (layerHeight > 0) {
+          startNewLayer();
           continue;
         }
-        const oriented = bestFit.placement;
-        if (layerBaseZ + Math.max(layerHeight, oriented.height) > constraints.max_height_in) {
-          startNewLayer();
-          bestFit = pickBestFreeRectPlacement(freeRects, dims);
-          if (!bestFit) {
+        activeGroups.forEach(group => {
+          while (group.remainingCases > 0) {
             overflow.push(group);
-            continue;
+            group.remainingCases -= 1;
           }
-        }
-        const finalPlacement = bestFit.placement;
-
-        placements.push({
-          pallet: group.pallet,
-          label: group.label,
-          color: group.color,
-          lineLabel: group.lines.join(', '),
-          x: finalPlacement.x,
-          y: finalPlacement.y,
-          z: layerBaseZ,
-          layerIndex,
-          length: finalPlacement.length,
-          width: finalPlacement.width,
-          height: finalPlacement.height
         });
-
-        layerHeight = Math.max(layerHeight, finalPlacement.height);
-        freeRects = bestFit.nextFreeRects
-          .filter(rect => rect.length > 0.001 && rect.width > 0.001)
-          .sort((a, b) => (a.y - b.y) || (a.x - b.x) || ((a.length * a.width) - (b.length * b.width)));
+        break;
       }
-    });
+
+      const { group, bestFit } = candidate;
+      const finalPlacement = bestFit.placement;
+      if (layerBaseZ + Math.max(layerHeight, finalPlacement.height) > constraints.max_height_in) {
+        if (layerHeight > 0) {
+          startNewLayer();
+          continue;
+        }
+        overflow.push(group);
+        group.remainingCases -= 1;
+        continue;
+      }
+
+      placements.push({
+        pallet: group.pallet,
+        label: group.label,
+        color: group.color,
+        lineLabel: group.lines.join(', '),
+        x: finalPlacement.x,
+        y: finalPlacement.y,
+        z: layerBaseZ,
+        layerIndex,
+        length: finalPlacement.length,
+        width: finalPlacement.width,
+        height: finalPlacement.height
+      });
+
+      group.remainingCases -= 1;
+      layerHeight = Math.max(layerHeight, finalPlacement.height);
+      freeRects = bestFit.nextFreeRects
+        .filter(rect => rect.length > 0.001 && rect.width > 0.001)
+        .sort((a, b) => (a.y - b.y) || (a.x - b.x) || ((a.length * a.width) - (b.length * b.width)));
+    }
 
     const usedHeight = layerBaseZ + layerHeight;
     const caseVolume = placements.reduce((sum, p) => sum + (p.length * p.width * p.height), 0);

@@ -4172,47 +4172,77 @@ def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dic
         layer_height = 0.0
         free_rects = [{"x": 0.0, "y": 0.0, "length": constraints["max_length_in"], "width": constraints["max_width_in"]}]
 
-    ordered_groups = sorted(groups, key=lambda group: (-float(group.get("unit_weight") or 0.0), int(group.get("sort_index") or 0)))
-    for group in ordered_groups:
-        dims = group["dimensions"]
-        for _ in range(group["assigned_cases"]):
-            best_fit = _mpl_pick_best_free_rect_placement(free_rects, dims)
-            if best_fit is None:
-                _start_new_layer()
-                best_fit = _mpl_pick_best_free_rect_placement(free_rects, dims)
-            if best_fit is None:
-                overflow_count += 1
+    active_groups = [
+        {**group, "remaining_cases": int(group.get("assigned_cases") or 0)}
+        for group in sorted(
+            groups,
+            key=lambda group: (-float(group.get("unit_weight") or 0.0), int(group.get("sort_index") or 0)),
+        )
+    ]
+
+    while any(group["remaining_cases"] > 0 for group in active_groups):
+        candidate: Optional[Dict[str, Any]] = None
+        for group in active_groups:
+            if group["remaining_cases"] <= 0:
                 continue
-            oriented = best_fit["placement"]
-            if layer_base_z + max(layer_height, oriented["case_height"]) > constraints["max_height_in"]:
-                _start_new_layer()
-                best_fit = _mpl_pick_best_free_rect_placement(free_rects, dims)
-                if best_fit is None:
-                    overflow_count += 1
-                    continue
-                oriented = best_fit["placement"]
-
-            placements.append({
-                "x": oriented["x"],
-                "y": oriented["y"],
-                "z": layer_base_z,
-                "layer_index": layer_index,
-                "case_length": oriented["case_length"],
-                "case_width": oriented["case_width"],
-                "case_height": oriented["case_height"],
-                "unit_weight": group.get("unit_weight") or 0.0,
-                "color": group["color"],
-            })
-
-            layer_height = max(layer_height, oriented["case_height"])
-            free_rects = sorted(
-                (
-                    rect
-                    for rect in best_fit["next_free_rects"]
-                    if rect["length"] > 0.001 and rect["width"] > 0.001
-                ),
-                key=lambda rect: (rect["y"], rect["x"], rect["length"] * rect["width"]),
+            best_fit = _mpl_pick_best_free_rect_placement(free_rects, group["dimensions"])
+            if best_fit is None:
+                continue
+            placement = best_fit["placement"]
+            score = (
+                float(placement["case_length"]) * float(placement["case_width"]),
+                float(group.get("unit_weight") or 0.0),
+                *tuple(best_fit.get("score") or ()),
             )
+            if candidate is None or score > candidate["score"]:
+                candidate = {
+                    "group": group,
+                    "best_fit": best_fit,
+                    "score": score,
+                }
+
+        if candidate is None:
+            if layer_height > 0:
+                _start_new_layer()
+                continue
+            for group in active_groups:
+                overflow_count += max(0, int(group.get("remaining_cases") or 0))
+                group["remaining_cases"] = 0
+            break
+
+        group = candidate["group"]
+        best_fit = candidate["best_fit"]
+        oriented = best_fit["placement"]
+        if layer_base_z + max(layer_height, oriented["case_height"]) > constraints["max_height_in"]:
+            if layer_height > 0:
+                _start_new_layer()
+                continue
+            overflow_count += 1
+            group["remaining_cases"] = max(0, int(group["remaining_cases"]) - 1)
+            continue
+
+        placements.append({
+            "x": oriented["x"],
+            "y": oriented["y"],
+            "z": layer_base_z,
+            "layer_index": layer_index,
+            "case_length": oriented["case_length"],
+            "case_width": oriented["case_width"],
+            "case_height": oriented["case_height"],
+            "unit_weight": group.get("unit_weight") or 0.0,
+            "color": group["color"],
+        })
+
+        group["remaining_cases"] = max(0, int(group["remaining_cases"]) - 1)
+        layer_height = max(layer_height, oriented["case_height"])
+        free_rects = sorted(
+            (
+                rect
+                for rect in best_fit["next_free_rects"]
+                if rect["length"] > 0.001 and rect["width"] > 0.001
+            ),
+            key=lambda rect: (rect["y"], rect["x"], rect["length"] * rect["width"]),
+        )
 
     case_volume = sum(
         float(p.get("case_length") or 0.0)
