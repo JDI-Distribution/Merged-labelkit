@@ -15,6 +15,8 @@ endpoint selected by the user.
 from __future__ import annotations
 
 import json
+import csv
+import io
 import os
 import re
 import shutil
@@ -40,7 +42,6 @@ from pipelines.michaels_label_pipeline import (  # noqa: E402
     run_pipeline as run_michaels_pipeline,
 )
 from pipelines.kehe_pipeline import (  # noqa: E402
-    MatchFailureError as KeheMatchFailureError,
     run_pipeline as run_kehe_pipeline,
     build_kehe_master_packing_list_draft,
     build_kehe_pallet_label_draft,
@@ -51,7 +52,7 @@ from pipelines.kehe_pipeline import (  # noqa: E402
     load_kehe_dc_directory,
 )
 
-MatchFailureErrors = (MichaelsMatchFailureError, KeheMatchFailureError)
+MatchFailureErrors = (MichaelsMatchFailureError,)
 
 # ---------------------------------------------------------------------------
 # BACKEND SECTION 2: shared app configuration and static frontend hosting.
@@ -105,8 +106,6 @@ KEHE_PRODUCT_MASTER_FILE = Path(
 )
 
 # Defaults used when older Product Master rows do not yet contain the new columns.
-DEFAULT_PRODUCT_LABEL_REQUIRED = "✅"
-BARCODE_ON_PRODUCT = "Barcode on Product"
 DEFAULT_CASE_QTY_BY_LEVEL = {
     "Case": "36",
     "Inner Pack": "6",
@@ -121,9 +120,6 @@ DEFAULT_LABELS_PER_UNIT_BY_LEVEL = {
     "Shipper Contents": "",
     "Other": "",
 }
-# These each-level display packs still need generated pack labels.
-DEFAULT_EACH_LABEL_GTINS = {"850068684939", "850068684991"}
-
 # Default Ship From used only for manual DC Directory rows when no value exists.
 DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
@@ -135,6 +131,16 @@ KEHE_DC_DIRECTORY_TABLE = os.getenv("KEHE_DC_DIRECTORY_TABLE", "kehe_dc_director
 KEHE_DC_DIRECTORY_STORE = os.getenv("KEHE_DC_DIRECTORY_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
 KEHE_DC_DIRECTORY_FILE = Path(
     os.getenv("KEHE_DC_DIRECTORY_FILE", str(BASE_DIR / "data" / "kehe_dc_directory.json"))
+)
+KEHE_MPL_DRAFTS_TABLE = os.getenv("KEHE_MPL_DRAFTS_TABLE", "kehe_mpl_drafts")
+KEHE_MPL_DRAFTS_STORE = os.getenv("KEHE_MPL_DRAFTS_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
+KEHE_MPL_DRAFTS_FILE = Path(
+    os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json"))
+)
+KEHE_AUDIT_LOG_TABLE = os.getenv("KEHE_AUDIT_LOG_TABLE", "kehe_audit_log")
+KEHE_AUDIT_LOG_STORE = os.getenv("KEHE_AUDIT_LOG_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
+KEHE_AUDIT_LOG_FILE = Path(
+    os.getenv("KEHE_AUDIT_LOG_FILE", str(BASE_DIR / "data" / "kehe_audit_log.json"))
 )
 
 
@@ -301,10 +307,11 @@ def run_kehe_generation_job(result_id: str, xml_paths: List[str]) -> None:
 # localStorage remains only a browser-side fallback cache.
 # ---------------------------------------------------------------------------
 def normalize_packaging_level(value: Any) -> str:
-    raw = str(value or "").strip().lower()
-    if raw in {"case", "master pack", "mp"}:
+    raw = re.sub(r"\s+", " ", str(value or "").strip().lower())
+    compact = raw.replace(" ", "")
+    if raw in {"case", "cases", "master pack", "master packs", "mp", "case pack", "case packs"} or compact == "casepack":
         return "Case"
-    if raw in {"inner pack", "inner", "ip"}:
+    if raw in {"inner pack", "inner packs", "inner", "ip"} or compact in {"innerpack", "innerpacks"}:
         return "Inner Pack"
     if raw in {"each", "ea"}:
         return "Each"
@@ -322,17 +329,45 @@ def _first_value(row: Dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _boolish(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    raw = str(value).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "y", "on", "checked", "✅", "x"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off", "unchecked", "barcode on product"}:
+        return False
+    if "barcode" in raw and "product" in raw:
+        return False
+    return default
+
+
+def _product_in_packing_list(row: Dict[str, Any], packaging_level: str, label_required: str = "") -> bool:
+    if normalize_packaging_level(packaging_level) != "Case":
+        return False
+    for key in ("in_packing_list", "IN_PACKING_LIST", "In Packing List"):
+        if key in row and row.get(key) is not None:
+            return _boolish(row.get(key), True)
+    if label_required:
+        return _boolish(label_required, True)
+    return True
+
+
 def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
     gtin = _first_value(row, "gtin", "GTIN", "case_upc", "CASE_UPC", "upc", "UPC")
     packaging_level = normalize_packaging_level(
-        _first_value(row, "packaging_level", "PACKAGING_LEVEL", "Packaging Level")
+        _first_value(row, "packaging_level", "packging_level", "PACKAGING_LEVEL", "PACKGING LEVEL", "Packaging Level")
     )
     label_required = _first_value(row, "label_required", "LABEL_REQUIRED", "Label Required")
+    in_packing_list = _product_in_packing_list(row, packaging_level, label_required)
     case_qty = _first_value(row, "case_qty", "CASE_QTY", "Case Qty")
     labels_per_unit = _first_value(row, "labels_per_unit", "LABELS_PER_UNIT", "Labels / Unit")
 
-    if not label_required:
-        label_required = _default_label_required_for_product(gtin, packaging_level)
+    label_required = "1" if in_packing_list else "0"
     if not case_qty:
         case_qty = _default_case_qty_for_product(packaging_level)
     if not labels_per_unit:
@@ -340,6 +375,7 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
 
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
+        "in_packing_list": in_packing_list,
         "label_required": label_required,
         "gtin": gtin,
         "description": _first_value(row, "description", "DESCRIPTION", "Description"),
@@ -355,17 +391,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
 
 def _product_master_unique_key(gtin: str, packaging_level: str) -> str:
     return f"{str(gtin or '').strip()}|{normalize_packaging_level(packaging_level)}"
-
-
-
-def _default_label_required_for_product(gtin: str, packaging_level: str) -> str:
-    level = normalize_packaging_level(packaging_level)
-    if level in {"Case", "Inner Pack"}:
-        return DEFAULT_PRODUCT_LABEL_REQUIRED
-    if level == "Each" and str(gtin or "").strip() in DEFAULT_EACH_LABEL_GTINS:
-        return DEFAULT_PRODUCT_LABEL_REQUIRED
-    return BARCODE_ON_PRODUCT
-
 
 def _default_case_qty_for_product(packaging_level: str) -> str:
     return DEFAULT_CASE_QTY_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
@@ -434,7 +459,7 @@ def _datastore_row_to_product(row: Dict[str, Any]) -> Dict[str, str]:
 def _product_to_datastore_row(row: Dict[str, Any]) -> Dict[str, Any]:
     normalized = normalize_product_master_row(row)
     return {
-        "LABEL_REQUIRED": normalized["label_required"],
+        "LABEL_REQUIRED": "1" if normalized["in_packing_list"] else "0",
         "GTIN": normalized["gtin"],
         "DESCRIPTION": normalized["description"],
         "PACKAGING_LEVEL": normalized["packaging_level"],
@@ -524,6 +549,289 @@ def _chunked(values: List[Any], size: int) -> List[List[Any]]:
     return [values[i:i + size] for i in range(0, len(values), size)]
 
 
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _request_actor(request: Request) -> Dict[str, str]:
+    headers = request.headers
+    name = (
+        headers.get("x-zc-user-name")
+        or headers.get("x-user-name")
+        or headers.get("x-forwarded-user")
+        or ""
+    )
+    email = (
+        headers.get("x-zc-user-email")
+        or headers.get("x-user-email")
+        or headers.get("x-forwarded-email")
+        or ""
+    )
+    user_id = headers.get("x-zc-user-id") or headers.get("x-user-id") or ""
+    if not name and not email:
+        name = "Local user"
+    return {
+        "name": name,
+        "email": email,
+        "user_id": user_id,
+        "client": request.client.host if request.client else "",
+    }
+
+
+def _audit_datastore_table(request: Optional[Request]) -> Any:
+    if request is None:
+        return None
+    return _datastore_table_named(
+        request,
+        KEHE_AUDIT_LOG_TABLE,
+        KEHE_AUDIT_LOG_STORE,
+    )
+
+
+def _datastore_row_to_audit(row: Dict[str, Any]) -> Dict[str, Any]:
+    actor_raw = row.get("ACTOR_JSON") or row.get("actor") or {}
+    actor = actor_raw if isinstance(actor_raw, dict) else {}
+    if isinstance(actor_raw, str) and actor_raw.strip():
+        try:
+            parsed = json.loads(actor_raw)
+            if isinstance(parsed, dict):
+                actor = parsed
+        except Exception:
+            actor = {}
+    return {
+        "id": row.get("AUDIT_ID") or row.get("id") or row.get("ROWID") or "",
+        "timestamp": row.get("TIMESTAMP") or row.get("timestamp") or "",
+        "actor": actor,
+        "table": row.get("TABLE_NAME") or row.get("table") or "",
+        "action": row.get("ACTION") or row.get("action") or "",
+        "record_key": row.get("RECORD_KEY") or row.get("record_key") or "",
+        "record_label": row.get("RECORD_LABEL") or row.get("record_label") or "",
+        "field": row.get("FIELD_NAME") or row.get("field") or "",
+        "old_value": row.get("OLD_VALUE") or row.get("old_value") or "",
+        "new_value": row.get("NEW_VALUE") or row.get("new_value") or "",
+        "source": row.get("SOURCE") or row.get("source") or "",
+        "batch_id": row.get("BATCH_ID") or row.get("batch_id") or "",
+        "filename": row.get("FILENAME") or row.get("filename") or "",
+    }
+
+
+def _audit_to_datastore_row(entry: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "AUDIT_ID": str(entry.get("id") or uuid.uuid4().hex),
+        "TIMESTAMP": str(entry.get("timestamp") or _now_iso()),
+        "ACTOR_JSON": json.dumps(entry.get("actor") or {}, sort_keys=True),
+        "TABLE_NAME": str(entry.get("table") or ""),
+        "ACTION": str(entry.get("action") or ""),
+        "RECORD_KEY": str(entry.get("record_key") or ""),
+        "RECORD_LABEL": str(entry.get("record_label") or ""),
+        "FIELD_NAME": str(entry.get("field") or ""),
+        "OLD_VALUE": str(entry.get("old_value") or ""),
+        "NEW_VALUE": str(entry.get("new_value") or ""),
+        "SOURCE": str(entry.get("source") or ""),
+        "BATCH_ID": str(entry.get("batch_id") or ""),
+        "FILENAME": str(entry.get("filename") or ""),
+        "IS_ACTIVE": True,
+    }
+
+
+def _datastore_load_audit_log(request: Optional[Request], limit: Optional[int] = None, table: str = "") -> Optional[List[Dict[str, Any]]]:
+    table_service = _audit_datastore_table(request)
+    if table_service is None:
+        return None
+    try:
+        raw_rows = _datastore_get_raw_rows(table_service)
+        active_rows = [
+            row for row in raw_rows
+            if str(row.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
+        ]
+        rows = [_datastore_row_to_audit(row) for row in active_rows]
+        if table:
+            rows = [row for row in rows if str(row.get("table", "")) == table]
+        rows.sort(key=lambda row: str(row.get("timestamp", "")), reverse=True)
+        return rows[:limit] if limit else rows
+    except Exception:
+        return None
+
+
+def _datastore_append_audit_log(request: Optional[Request], entries: List[Dict[str, Any]]) -> bool:
+    table_service = _audit_datastore_table(request)
+    if table_service is None:
+        return False
+    try:
+        insert_rows = [_audit_to_datastore_row(entry) for entry in entries]
+        for batch in _chunked(insert_rows, 100):
+            if batch:
+                table_service.insert_rows(batch)
+        return True
+    except Exception:
+        return False
+
+
+def _audit_log_read(limit: Optional[int] = None, table: str = "", request: Optional[Request] = None) -> List[Dict[str, Any]]:
+    datastore_rows = _datastore_load_audit_log(request, limit=limit, table=table)
+    if datastore_rows is not None:
+        return datastore_rows
+    try:
+        if not KEHE_AUDIT_LOG_FILE.exists():
+            return []
+        data = json.loads(KEHE_AUDIT_LOG_FILE.read_text(encoding="utf-8"))
+        entries = data.get("entries") if isinstance(data, dict) else data
+        if not isinstance(entries, list):
+            return []
+        rows = [entry for entry in entries if isinstance(entry, dict)]
+        if table:
+            rows = [row for row in rows if str(row.get("table", "")) == table]
+        rows.sort(key=lambda row: str(row.get("timestamp", "")), reverse=True)
+        return rows[:limit] if limit else rows
+    except Exception:
+        return []
+
+
+def _audit_log_append(entries: List[Dict[str, Any]], request: Optional[Request] = None) -> None:
+    if not entries:
+        return
+    if _datastore_append_audit_log(request, entries):
+        return
+    KEHE_AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    existing = _audit_log_read()
+    combined = entries + existing
+    payload = {
+        "entries": combined[:1000],
+        "updated_at": _now_iso(),
+    }
+    KEHE_AUDIT_LOG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _audit_value(value: Any) -> str:
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, sort_keys=True)
+    return str(value if value is not None else "")
+
+
+def _product_row_key(row: Dict[str, Any]) -> str:
+    normalized = normalize_product_master_row(row)
+    key = normalized.get("unique_key") or ""
+    if key and key != "|Other":
+        return key
+    return "|".join([
+        normalized.get("gtin", ""),
+        normalized.get("sku", ""),
+        normalized.get("description", ""),
+        normalized.get("packaging_level", ""),
+    ])
+
+
+def _dc_row_key(row: Dict[str, Any]) -> str:
+    normalized = normalize_dc_directory_row(row)
+    return normalized.get("dc") or normalized.get("name") or normalized.get("delivery_address") or uuid.uuid4().hex
+
+
+def _row_label(table: str, row: Dict[str, Any]) -> str:
+    if table == "kehe_product_master":
+        normalized = normalize_product_master_row(row)
+        return normalized.get("description") or normalized.get("gtin") or normalized.get("sku") or "Product row"
+    if table == "kehe_dc_directory":
+        normalized = normalize_dc_directory_row(row)
+        return normalized.get("name") or normalized.get("dc") or "DC row"
+    if table == "kehe_mpl_drafts":
+        return str(row.get("name") or row.get("id") or "MPL draft")
+    return "Record"
+
+
+def _normalized_for_audit(table: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    if table == "kehe_product_master":
+        normalized = normalize_product_master_row(row)
+        normalized.pop("unique_key", None)
+        return normalized
+    if table == "kehe_dc_directory":
+        normalized = normalize_dc_directory_row(row)
+        normalized.pop("unique_key", None)
+        normalized.pop("id", None)
+        return normalized
+    return dict(row)
+
+
+def _audit_row_changes(
+    *,
+    request: Request,
+    table: str,
+    old_rows: List[Dict[str, Any]],
+    new_rows: List[Dict[str, Any]],
+    key_fn: Any,
+    source: str,
+    batch_id: str = "",
+    filename: str = "",
+) -> None:
+    actor = _request_actor(request)
+    timestamp = _now_iso()
+    old_by_key = {key_fn(row): _normalized_for_audit(table, row) for row in old_rows}
+    new_by_key = {key_fn(row): _normalized_for_audit(table, row) for row in new_rows}
+    labels = {key_fn(row): _row_label(table, row) for row in [*old_rows, *new_rows]}
+    entries: List[Dict[str, Any]] = []
+
+    for key in sorted(set(old_by_key) | set(new_by_key)):
+        old = old_by_key.get(key)
+        new = new_by_key.get(key)
+        if old is None and new is not None:
+            entries.append({
+                "id": uuid.uuid4().hex,
+                "timestamp": timestamp,
+                "actor": actor,
+                "table": table,
+                "action": "create",
+                "record_key": key,
+                "record_label": labels.get(key, ""),
+                "field": "__row__",
+                "old_value": "",
+                "new_value": _audit_value(new),
+                "source": source,
+                "batch_id": batch_id,
+                "filename": filename,
+            })
+            continue
+        if old is not None and new is None:
+            entries.append({
+                "id": uuid.uuid4().hex,
+                "timestamp": timestamp,
+                "actor": actor,
+                "table": table,
+                "action": "delete",
+                "record_key": key,
+                "record_label": labels.get(key, ""),
+                "field": "__row__",
+                "old_value": _audit_value(old),
+                "new_value": "",
+                "source": source,
+                "batch_id": batch_id,
+                "filename": filename,
+            })
+            continue
+        if old is None or new is None:
+            continue
+        for field in sorted(set(old) | set(new)):
+            old_value = _audit_value(old.get(field))
+            new_value = _audit_value(new.get(field))
+            if old_value == new_value:
+                continue
+            entries.append({
+                "id": uuid.uuid4().hex,
+                "timestamp": timestamp,
+                "actor": actor,
+                "table": table,
+                "action": "update",
+                "record_key": key,
+                "record_label": labels.get(key, ""),
+                "field": field,
+                "old_value": old_value,
+                "new_value": new_value,
+                "source": source,
+                "batch_id": batch_id,
+                "filename": filename,
+            })
+
+    _audit_log_append(entries, request=request)
+
+
 def _datastore_save_product_master(request: Request, rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:
     table_service = _datastore_table(request)
     if table_service is None:
@@ -558,14 +866,32 @@ async def save_kehe_product_master(request: Request, payload: Dict[str, Any]) ->
     rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(rows, list):
         rows = []
+    source = str(payload.get("source") or "manual_edit") if isinstance(payload, dict) else "manual_edit"
+    batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
+    filename = str(payload.get("filename") or "") if isinstance(payload, dict) else ""
+
+    old_rows = _datastore_load_product_master(request)
+    if old_rows is None:
+        old_rows = _product_master_file_read()
 
     saved_rows = _datastore_save_product_master(request, rows)
-    source = "datastore"
+    storage_source = "datastore"
     if saved_rows is None:
         saved_rows = _product_master_file_write(rows)
-        source = "file"
+        storage_source = "file"
 
-    return JSONResponse(content={"rows": saved_rows, "saved": True, "source": source})
+    _audit_row_changes(
+        request=request,
+        table="kehe_product_master",
+        old_rows=old_rows,
+        new_rows=saved_rows,
+        key_fn=_product_row_key,
+        source=source,
+        batch_id=batch_id,
+        filename=filename,
+    )
+
+    return JSONResponse(content={"rows": saved_rows, "saved": True, "source": storage_source})
 
 
 # ---------------------------------------------------------------------------
@@ -786,15 +1112,485 @@ async def save_kehe_dc_directory(request: Request, payload: Dict[str, Any]) -> J
 
     if not isinstance(rows, list):
         rows = []
+    source = str(payload.get("source") or "manual_edit") if isinstance(payload, dict) else "manual_edit"
+    batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
+    filename = str(payload.get("filename") or "") if isinstance(payload, dict) else ""
+
+    old_rows = _datastore_load_dc_directory(request)
+    if old_rows is None:
+        old_rows = _dc_directory_file_read()
 
     saved_rows = _datastore_save_dc_directory(request, rows)
-    source = "datastore"
+    storage_source = "datastore"
 
     if saved_rows is None:
         saved_rows = _dc_directory_file_write(rows)
-        source = "file"
+        storage_source = "file"
 
-    return JSONResponse(content={"rows": saved_rows, "saved": True, "source": source})
+    _audit_row_changes(
+        request=request,
+        table="kehe_dc_directory",
+        old_rows=old_rows,
+        new_rows=saved_rows,
+        key_fn=_dc_row_key,
+        source=source,
+        batch_id=batch_id,
+        filename=filename,
+    )
+
+    return JSONResponse(content={"rows": saved_rows, "saved": True, "source": storage_source})
+
+
+@app.get("/api/kehe/audit-log")
+async def get_kehe_audit_log(request: Request, limit: int = 200, table: str = "") -> JSONResponse:
+    safe_limit = min(max(int(limit or 200), 1), 1000)
+    return JSONResponse(content={"entries": _audit_log_read(limit=safe_limit, table=table, request=request)})
+
+
+def _read_spreadsheet_bytes(filename: str, data: bytes) -> List[Dict[str, Any]]:
+    suffix = Path(filename or "").suffix.lower()
+    rows: List[List[Any]] = []
+
+    if suffix == ".csv":
+        text = data.decode("utf-8-sig", errors="replace")
+        reader = csv.reader(io.StringIO(text))
+        rows = [row for row in reader]
+    elif suffix in {".xlsx", ".xlsm"}:
+        try:
+            from openpyxl import load_workbook  # type: ignore
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Excel upload requires openpyxl in the runtime.") from exc
+
+        workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = [list(row) for row in sheet.iter_rows(values_only=True)]
+        workbook.close()
+    else:
+        raise HTTPException(status_code=400, detail="Upload an .xlsx, .xlsm, or .csv file.")
+
+    while rows and not any(str(cell or "").strip() for cell in rows[0]):
+        rows.pop(0)
+    if not rows:
+        return []
+
+    headers = [str(cell or "").strip() for cell in rows[0]]
+    out: List[Dict[str, Any]] = []
+    for raw_row in rows[1:]:
+        row = {
+            headers[index]: raw_row[index]
+            for index in range(min(len(headers), len(raw_row)))
+            if headers[index]
+        }
+        if any(str(value or "").strip() for value in row.values()):
+            out.append(row)
+    return out
+
+
+def _canonical_import_key(header: str, table: str) -> str:
+    key = re.sub(r"[^a-z0-9]+", "_", str(header or "").strip().lower()).strip("_")
+    aliases = {
+        "kehe_product_master": {
+            "in_packing_list": "in_packing_list",
+            "in_packing_list_": "in_packing_list",
+            "packing_list": "in_packing_list",
+            "include_in_packing_list": "in_packing_list",
+            "include_mpl": "in_packing_list",
+            "label_required": "label_required",
+            "label": "label_required",
+            "gtin": "gtin",
+            "case_upc": "gtin",
+            "upc": "gtin",
+            "description": "description",
+            "item_description": "description",
+            "packaging_level": "packaging_level",
+            "packging_level": "packaging_level",
+            "level": "packaging_level",
+            "l_x_w_x_h_in": "dimensions_in",
+            "dimensions": "dimensions_in",
+            "dimensions_in": "dimensions_in",
+            "lwh_in": "dimensions_in",
+            "weight_lbs": "weight_lbs",
+            "weight": "weight_lbs",
+            "weight_lbs_": "weight_lbs",
+            "case_qty": "case_qty",
+            "case_quantity": "case_qty",
+            "units_per_case": "case_qty",
+            "labels_unit": "labels_per_unit",
+            "labels_per_unit": "labels_per_unit",
+            "labels_to_print_per_unit": "labels_per_unit",
+            "sku": "sku",
+            "item_number": "sku",
+        },
+        "kehe_dc_directory": {
+            "dc": "dc",
+            "name": "name",
+            "dc_name": "name",
+            "ship_from": "ship_from",
+            "ship_from_address": "ship_from",
+            "delivery_address": "delivery_address",
+            "ship_to": "delivery_address",
+            "ship_to_address": "delivery_address",
+            "billing_address": "billing_address",
+            "bill_to": "billing_address",
+            "bill_to_address": "billing_address",
+            "match_values": "match_values",
+            "matching_values": "match_values",
+            "gln": "match_values",
+        },
+    }
+    return aliases.get(table, {}).get(key, key)
+
+
+def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Dict[str, Any]]:
+    canonical_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        next_row: Dict[str, Any] = {}
+        for key, value in row.items():
+            next_row[_canonical_import_key(key, table)] = value
+        canonical_rows.append(next_row)
+    if table == "kehe_product_master":
+        return _dedupe_product_master_rows(canonical_rows)
+    if table == "kehe_dc_directory":
+        return _dedupe_dc_directory_rows(canonical_rows)
+    return canonical_rows
+
+
+def _preview_row_changes(
+    *,
+    table: str,
+    current_rows: List[Dict[str, Any]],
+    imported_rows: List[Dict[str, Any]],
+    key_fn: Any,
+) -> Dict[str, Any]:
+    current_by_key = {key_fn(row): _normalized_for_audit(table, row) for row in current_rows}
+    changes: List[Dict[str, Any]] = []
+    added = updated = unchanged = 0
+
+    for raw_row in imported_rows:
+        key = key_fn(raw_row)
+        imported = _normalized_for_audit(table, raw_row)
+        current = current_by_key.get(key)
+        if current is None:
+            added += 1
+            changes.append({
+                "action": "add",
+                "record_key": key,
+                "record_label": _row_label(table, raw_row),
+                "field": "__row__",
+                "old_value": "",
+                "new_value": _audit_value(imported),
+            })
+            continue
+
+        row_changed = False
+        for field in sorted(set(current) | set(imported)):
+            old_value = _audit_value(current.get(field))
+            new_value = _audit_value(imported.get(field))
+            if old_value == new_value:
+                continue
+            row_changed = True
+            changes.append({
+                "action": "update",
+                "record_key": key,
+                "record_label": _row_label(table, raw_row),
+                "field": field,
+                "old_value": old_value,
+                "new_value": new_value,
+            })
+        if row_changed:
+            updated += 1
+        else:
+            unchanged += 1
+
+    return {
+        "summary": {
+            "imported_rows": len(imported_rows),
+            "added_rows": added,
+            "updated_rows": updated,
+            "unchanged_rows": unchanged,
+            "change_count": len(changes),
+        },
+        "changes": changes,
+    }
+
+
+def _merge_import_rows(current_rows: List[Dict[str, Any]], imported_rows: List[Dict[str, Any]], key_fn: Any) -> List[Dict[str, Any]]:
+    imported_by_key = {key_fn(row): row for row in imported_rows}
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in current_rows:
+        key = key_fn(row)
+        if key in imported_by_key:
+            merged.append(imported_by_key[key])
+            seen.add(key)
+        else:
+            merged.append(row)
+    for key, row in imported_by_key.items():
+        if key not in seen:
+            merged.append(row)
+    return merged
+
+
+async def _preview_excel_import(request: Request, upload: UploadFile, table: str) -> JSONResponse:
+    data = await upload.read()
+    await upload.close()
+    raw_rows = _read_spreadsheet_bytes(upload.filename or "upload.xlsx", data)
+    imported_rows = _canonicalize_import_rows(raw_rows, table)
+    if table == "kehe_product_master":
+        current_rows = _datastore_load_product_master(request)
+        if current_rows is None:
+            current_rows = _product_master_file_read()
+        key_fn = _product_row_key
+    else:
+        current_rows = _datastore_load_dc_directory(request)
+        if current_rows is None:
+            current_rows = _dc_directory_file_read()
+        key_fn = _dc_row_key
+
+    preview = _preview_row_changes(
+        table=table,
+        current_rows=current_rows,
+        imported_rows=imported_rows,
+        key_fn=key_fn,
+    )
+    batch_id = uuid.uuid4().hex
+    return JSONResponse(content={
+        "batch_id": batch_id,
+        "filename": upload.filename,
+        "table": table,
+        "rows": imported_rows,
+        **preview,
+    })
+
+
+@app.post("/api/kehe/product-master/import-preview")
+async def preview_product_master_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+    return await _preview_excel_import(request, file, "kehe_product_master")
+
+
+@app.post("/api/kehe/dc-directory/import-preview")
+async def preview_dc_directory_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+    return await _preview_excel_import(request, file, "kehe_dc_directory")
+
+
+@app.post("/api/kehe/product-master/import-confirm")
+async def confirm_product_master_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    imported_rows = payload.get("rows") if isinstance(payload, dict) else []
+    if not isinstance(imported_rows, list):
+        imported_rows = []
+    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_product_master")
+    current_rows = _datastore_load_product_master(request)
+    if current_rows is None:
+        current_rows = _product_master_file_read()
+    merged_rows = _merge_import_rows(current_rows, imported_rows, _product_row_key)
+    return await save_kehe_product_master(request, {
+        "rows": merged_rows,
+        "source": "excel_import",
+        "batch_id": str(payload.get("batch_id") or uuid.uuid4().hex),
+        "filename": str(payload.get("filename") or ""),
+    })
+
+
+@app.post("/api/kehe/dc-directory/import-confirm")
+async def confirm_dc_directory_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    imported_rows = payload.get("rows") if isinstance(payload, dict) else []
+    if not isinstance(imported_rows, list):
+        imported_rows = []
+    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_dc_directory")
+    current_rows = _datastore_load_dc_directory(request)
+    if current_rows is None:
+        current_rows = _dc_directory_file_read()
+    merged_rows = _merge_import_rows(current_rows, imported_rows, _dc_row_key)
+    return await save_kehe_dc_directory(request, {
+        "rows": merged_rows,
+        "source": "excel_import",
+        "batch_id": str(payload.get("batch_id") or uuid.uuid4().hex),
+        "filename": str(payload.get("filename") or ""),
+    })
+
+
+def _mpl_drafts_datastore_table(request: Optional[Request]) -> Any:
+    if request is None:
+        return None
+    return _datastore_table_named(
+        request,
+        KEHE_MPL_DRAFTS_TABLE,
+        KEHE_MPL_DRAFTS_STORE,
+    )
+
+
+def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
+    draft_raw = row.get("DRAFT_JSON") or row.get("draft") or {}
+    draft = draft_raw if isinstance(draft_raw, dict) else {}
+    if isinstance(draft_raw, str) and draft_raw.strip():
+        try:
+            parsed = json.loads(draft_raw)
+            if isinstance(parsed, dict):
+                draft = parsed
+        except Exception:
+            draft = {}
+    return {
+        "id": row.get("DRAFT_ID") or row.get("id") or row.get("ROWID") or "",
+        "name": row.get("NAME") or row.get("name") or "",
+        "created_at": row.get("CREATED_AT") or row.get("created_at") or "",
+        "updated_at": row.get("UPDATED_AT") or row.get("updated_at") or "",
+        "draft": draft,
+    }
+
+
+def _mpl_draft_to_datastore_row(record: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "DRAFT_ID": str(record.get("id") or uuid.uuid4().hex),
+        "NAME": str(record.get("name") or ""),
+        "CREATED_AT": str(record.get("created_at") or _now_iso()),
+        "UPDATED_AT": str(record.get("updated_at") or _now_iso()),
+        "DRAFT_JSON": json.dumps(record.get("draft") or {}, sort_keys=True),
+        "IS_ACTIVE": True,
+    }
+
+
+def _datastore_load_mpl_drafts(request: Optional[Request]) -> Optional[List[Dict[str, Any]]]:
+    table_service = _mpl_drafts_datastore_table(request)
+    if table_service is None:
+        return None
+    try:
+        raw_rows = _datastore_get_raw_rows(table_service)
+        active_rows = [
+            row for row in raw_rows
+            if str(row.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
+        ]
+        return [_datastore_row_to_mpl_draft(row) for row in active_rows]
+    except Exception:
+        return None
+
+
+def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str, Any]]) -> bool:
+    table_service = _mpl_drafts_datastore_table(request)
+    if table_service is None:
+        return False
+    try:
+        existing_rows = _datastore_get_raw_rows(table_service)
+        row_ids = [row.get("ROWID") for row in existing_rows if row.get("ROWID")]
+        for batch in _chunked(row_ids, 200):
+            table_service.delete_rows(batch)
+        insert_rows = [_mpl_draft_to_datastore_row(record) for record in drafts]
+        for batch in _chunked(insert_rows, 100):
+            if batch:
+                table_service.insert_rows(batch)
+        return True
+    except Exception:
+        return False
+
+
+def _mpl_drafts_read(request: Optional[Request] = None) -> List[Dict[str, Any]]:
+    datastore_rows = _datastore_load_mpl_drafts(request)
+    if datastore_rows is not None:
+        return datastore_rows
+    try:
+        if not KEHE_MPL_DRAFTS_FILE.exists():
+            return []
+        data = json.loads(KEHE_MPL_DRAFTS_FILE.read_text(encoding="utf-8"))
+        drafts = data.get("drafts") if isinstance(data, dict) else data
+        if not isinstance(drafts, list):
+            return []
+        return [draft for draft in drafts if isinstance(draft, dict)]
+    except Exception:
+        return []
+
+
+def _mpl_drafts_write(drafts: List[Dict[str, Any]], request: Optional[Request] = None) -> List[Dict[str, Any]]:
+    if _datastore_save_mpl_drafts(request, drafts):
+        return drafts
+    KEHE_MPL_DRAFTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "drafts": drafts,
+        "updated_at": _now_iso(),
+    }
+    KEHE_MPL_DRAFTS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return drafts
+
+
+def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+    draft = record.get("draft") if isinstance(record.get("draft"), dict) else {}
+    mpl = {}
+    packing_lists = draft.get("packing_lists") if isinstance(draft, dict) else []
+    if isinstance(packing_lists, list) and packing_lists:
+        mpl = packing_lists[0] if isinstance(packing_lists[0], dict) else {}
+    items = mpl.get("items") if isinstance(mpl.get("items"), list) else []
+    return {
+        "id": record.get("id", ""),
+        "name": record.get("name", ""),
+        "created_at": record.get("created_at", ""),
+        "updated_at": record.get("updated_at", ""),
+        "customer_po_number": mpl.get("customer_po_number", ""),
+        "ship_to": str(mpl.get("ship_to", "")).split("\n")[0] if mpl.get("ship_to") else "",
+        "total_pallets": mpl.get("total_pallets", ""),
+        "item_count": len(items),
+    }
+
+
+@app.get("/api/kehe/mpl-drafts")
+async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
+    drafts = _mpl_drafts_read(request)
+    summaries = [_mpl_draft_summary(record) for record in drafts]
+    summaries.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
+    return JSONResponse(content={"drafts": summaries})
+
+
+@app.get("/api/kehe/mpl-drafts/{draft_id}")
+async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
+    for record in _mpl_drafts_read(request):
+        if str(record.get("id")) == draft_id:
+            return JSONResponse(content={"draft": record})
+    raise HTTPException(status_code=404, detail="Saved MPL draft not found.")
+
+
+@app.post("/api/kehe/mpl-drafts")
+async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    draft = payload.get("draft") if isinstance(payload, dict) else None
+    if not isinstance(draft, dict):
+        raise HTTPException(status_code=400, detail="MPL draft payload is required.")
+
+    drafts = _mpl_drafts_read(request)
+    draft_id = str(payload.get("id") or draft.get("_saved_draft_id") or uuid.uuid4().hex)
+    now = _now_iso()
+    name = str(payload.get("name") or draft.get("_saved_draft_name") or "").strip()
+    if not name:
+        packing_lists = draft.get("packing_lists") if isinstance(draft.get("packing_lists"), list) else []
+        first = packing_lists[0] if packing_lists and isinstance(packing_lists[0], dict) else {}
+        name = str(first.get("customer_po_number") or first.get("id") or "Untitled MPL").strip()
+
+    old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    created_at = old_record.get("created_at") if old_record else now
+    record = {
+        "id": draft_id,
+        "name": name,
+        "created_at": created_at,
+        "updated_at": now,
+        "draft": draft,
+    }
+    next_drafts = [record if str(existing.get("id")) == draft_id else existing for existing in drafts]
+    if old_record is None:
+        next_drafts.append(record)
+    _mpl_drafts_write(next_drafts, request)
+
+    _audit_log_append([{
+        "id": uuid.uuid4().hex,
+        "timestamp": now,
+        "actor": _request_actor(request),
+        "table": "kehe_mpl_drafts",
+        "action": "update" if old_record else "create",
+        "record_key": draft_id,
+        "record_label": name,
+        "field": "draft",
+        "old_value": old_record.get("name", "") if old_record else "",
+        "new_value": name,
+        "source": "mpl_save",
+        "batch_id": "",
+        "filename": "",
+    }], request=request)
+
+    return JSONResponse(content={"draft": record, "saved": True})
 
 
 # ---------------------------------------------------------------------------
@@ -1240,28 +2036,6 @@ async def render_kehe_pack_labels_endpoint(draft: Dict[str, Any]) -> JSONRespons
             "X-Result-Id": result_id,
             "Access-Control-Expose-Headers": "X-Result-Id",
         },
-    )
-
-
-@app.post("/generate")
-async def generate_compat(
-    label_kit: Optional[str] = Form(default=None),
-    kit: Optional[str] = Form(default=None),
-    xml_files: List[UploadFile] = File(...),
-    pdf_files: Optional[List[UploadFile]] = File(default=None),
-    mode: Optional[str] = Form(default="xml"),
-) -> JSONResponse:
-    """Backward-compatible endpoint.
-
-    New frontend code should call /generate/michaels or /generate/kehe directly.
-    This endpoint guesses Michaels when PDFs are included, otherwise KeHE.
-    """
-    selected_kit = normalize_kit(label_kit or kit or ("michaels" if pdf_files else "kehe"))
-    return await generate_for_kit(
-        kit=selected_kit,
-        xml_files=xml_files,
-        pdf_files=pdf_files,
-        mode=mode,
     )
 
 

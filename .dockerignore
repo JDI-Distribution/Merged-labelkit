@@ -5,3 +5,7 @@
 **/*.pyo
 **/*.pyd
 node_modules/
+check_frontend.js
+tmp/
+frankenstein_project/.catalystrc
+frankenstein_project/appsail-nodejs/

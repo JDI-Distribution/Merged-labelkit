@@ -1,42 +1,141 @@
 # Merged LabelKit
 
-Single FastAPI app for Michaels and KeHE label workflows, served with one browser UI.
+Merged LabelKit is a FastAPI web app for two label workflows:
 
-This README is the reusable maintenance workflow for local edits, validation, Git release, and Catalyst AppSail deploy.
+- Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, then generate one print-ready output PDF and a match report.
+- KeHE: upload ASN XML, manage reference tables, preview/edit documents, and generate GS1 labels, pack labels, master packing lists, pallet labels, and TI-HI pallet layouts.
+
+The browser UI is served by `frankenstein_project/server.py` from `frankenstein_project/frontend/dist/`.
 
 ## Prerequisites
 
 - Windows PowerShell.
-- Python. Known working path:
+- Python. Known working path on the current workstation:
   `C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe`
-- Node.js. Used for frontend script parsing validation.
+- Node.js, used for frontend JavaScript syntax checks.
+- Docker Desktop, used to build `merged-labelkit:latest`.
 - Zoho Catalyst CLI logged into the JDI account.
 - Git remote:
   `https://github.com/JDI-Distribution/Merged-labelkit.git`
 
-Repo paths:
+Useful paths:
 
 ```powershell
 $repo = "C:\Users\JDI Employee\Downloads\merged_labelkit"
 $app = "$repo\frankenstein_project"
 ```
 
-Catalyst target:
+## What The App Does
 
-- Project: `Label-kit`
-- Project ID: `27327000000040032`
-- Env: `Development`
-- Env ID: `921277719`
-- Domain: `label-kit-921277719.development`
-- AppSail app: `merged-labelkit`
-- AppSail source: `docker://merged-labelkit:latest`
-- AppSail port: `9000`
-- AppSail URL shown by deploy:
-  `https://mergedlabelkit.development.catalystappsail.com`
+LabelKit has three entry points on the landing page:
+
+- `Michaels DTS`: XML plus shipping-label PDF matching.
+- `KeHE GS1`: XML-driven KeHE label and document generation.
+- `Packing List & Ti-Hi`: standalone access to the KeHE MPL/TI-HI editor using the same Product Master and DC Directory data.
+
+Shared backend routes:
+
+- `GET /health`
+- `POST /generate/{kit}`
+- `GET /results/{result_id}/status`
+- `GET /results/{result_id}/report`
+- `GET /results/{result_id}/file`
+
+The old plain `POST /generate` compatibility route is intentionally removed.
+
+## Michaels Workflow
+
+1. Open the app and select `Michaels DTS`.
+2. Upload one or more EDI 856 ASN XML files from Infocon.
+3. Upload ShipStation shipping-label PDFs.
+4. Click `Generate Labels`.
+5. Review the `Matching Report`.
+6. Use `Open Preview` or download the generated PDF.
+7. Use `Export for Excel` for the match report CSV.
+
+The report table shows:
+
+- Page
+- Status
+- Method
+- OCR Tracking
+- OCR PO
+- OCR Store
+- Matched XML
+- Note
+
+The table is horizontally scrollable and wraps long OCR/XML values so tracking numbers and notes do not overlap.
+
+## KeHE Workflow
+
+Important upload note:
+
+> Upload multiple XML files only when multiple POs are being shipped together in the same shipment. Otherwise, upload a single XML file for the individual PO.
+
+1. Open the app and select `KeHE GS1`.
+2. Upload KeHE ASN XML.
+3. Review parsed XML data in `KeHE XML Data & Output Status`.
+4. Use reference tables as needed:
+   - `GTIN / Packaging Master Table`
+   - `DC Directory`
+5. Generate or prepare outputs:
+   - `GS1 Labels Preview`
+   - `Pallet Label Preview`
+   - `Master Packing List Preview`
+   - `Pack Labels Preview`
+   - `Export for Excel`
+
+KeHE functionality:
+
+- `GS1 Labels`: XML-only SSCC-18 / GS1-128 labels.
+- `Pack Labels`: editable GTIN-14 / ITF-14 case and inner-pack labels.
+- `Master Packing List`: editable MPL draft with line-item and pallet assignment.
+- `Pallet Label`: editable pallet placard output.
+- Editable previews for pallet labels, master packing lists, and pack labels before final PDF render.
+- `GTIN / Packaging Master Table` for SKU, GTIN, descriptions, packaging level, dimensions, weights, case quantities, label counts, and whether an item is included in the packing list.
+- `DC Directory` for DC/name, ship-from, delivery, billing, and matching values.
+- `Auto Palletize` for case rows in the MPL editor.
+- `Reverse to XML Palletization` to restore XML-derived pallet assignment.
+- Palletization source display values:
+  - `XML`
+  - `Auto Palletize`
+  - `Manual`
+  - `MPL`
+- Unassigned and needs-review rows remain visible for user correction.
+- Pallet labels render two placards per pallet.
+- Manual MPL creation is available from both KeHE and `Packing List & Ti-Hi`.
+- Saved MPL drafts can be reopened through `Open Saved MPL`.
+- Excel upload supports bulk update preview and confirm for Product Master and DC Directory.
+- Change History shows audit entries for supported table edits/imports.
+
+## Master Packing List And TI-HI
+
+The MPL editor supports:
+
+- Add pallet.
+- Add line item.
+- Drag line items between pallets.
+- Auto palletize.
+- Reverse to XML palletization.
+- Recalculate weights.
+- Move unassigned items to Pallet 1.
+- Save and reopen drafts.
+- Generate PDF from edited values.
+
+TI-HI behavior:
+
+- TI-HI constraints are pallet-specific.
+- Pallet constraints include max length, max width, max height, and max gross weight.
+- Heavier SKUs are considered first so heavier cases stay lower and lighter cases stack above.
+- Case orientation checks both `L x W` and `W x L`.
+- Alternating layers rotate for structure when supported by the layout.
+- The visual preview is used by the generated MPL PDF.
+
+`Generate PDF from Edited Values` uses the current editable draft, current Product Master rows, current pallet assignments, and current TI-HI preview state.
 
 ## Local Run
 
-From repo root:
+From the repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
@@ -53,198 +152,58 @@ Open:
 http://127.0.0.1:9000
 ```
 
-Expected local signal:
+Health check:
 
-- The KeHE and Michaels workflow tiles load.
-- `/health` responds.
-- KeHE upload, edit, preview, and PDF generation controls are visible after choosing KeHE.
+```powershell
+Invoke-WebRequest "http://127.0.0.1:9000/health" | Select-Object -ExpandProperty Content
+```
 
-## Current KeHE Workflow
+Expected signal:
 
-Core outputs:
+- `status` is `ok`.
+- `frontend_found` is `true`.
 
-- GS1 Labels
-- Pack Labels
-- Master Packing List
-- Pallet Label
+## Docker Run
 
-Reference tables:
-
-- `GTIN / Packaging Master Table`
-  - Drives Pack Labels.
-  - Drives Create MPL product dropdowns.
-  - Supplies SKU, GTIN, description, packaging level, dimensions, weight, case quantity, and label counts.
-- `DC Directory`
-  - Drives Pallet Label previews.
-  - Drives Create MPL dropdowns for `DC / Name`, `Ship From`, `Ship To`, and `Bill To`.
-
-Manual Create MPL:
-
-1. Open KeHE.
-2. In `KeHE XML Data & Output Status`, click `Create MPL`.
-3. Select `DC / Name`, `Ship From`, `Ship To`, and `Bill To` from DC Directory dropdowns.
-4. Add line items as needed.
-5. For each line item, select a product from the product dropdown.
-6. Use `Add Pallet`, `Auto Palletize`, `Recalculate Weights`, and `Move Unassigned to Pallet 1` as needed.
-7. Use `TI-Hi` on each pallet to inspect the pallet layout.
-8. Click `Generate PDF from Edited Values`.
-
-Manual Create MPL is one draft at a time and is not saved. It exists only in the current browser session until printed/generated.
-
-## TI-HI Edit Flow
-
-The TI-HI workflow is part of the Master Packing List editor.
-
-1. Prepare or create an MPL.
-2. In `Review & Edit Master Packing List`, assign line items to pallets.
-3. Click `TI-Hi` on a pallet row.
-4. The popup shows that pallet's TI-HI layout.
-5. Edit that pallet's constraints:
-   - `Max Length (in)`
-   - `Max Width (in)`
-   - `Max Height (in)`
-   - `Max Gross (lbs)`
-6. Click `Recalculate`.
-7. Click `Close` when the layout looks right.
-8. Click `Generate PDF from Edited Values`.
-
-Important behavior:
-
-- TI-HI constraints are pallet-specific when opened from a pallet.
-- The PDF generation flow captures the current TI-HI visual snapshot before rendering.
-- The generated MPL uses the edited pallet layout and the current TI-HI preview state.
-- Heavier SKU groups are considered first for pallet layout, so heavier cases stay lower before lighter cases are stacked above.
-- The simplified orientation logic uses `L x W` and `W x L` fit checks with the active pallet constraints.
-
-## Generate PDF From Edited Values
-
-`Generate PDF from Edited Values` posts the current editor draft to the backend render endpoint.
-
-For MPL:
-
-- Applies the current GTIN / Packaging Master Table before render.
-- Finalizes pallet IDs and pallet weights.
-- Captures TI-HI preview snapshots.
-- Renders the MPL PDF.
-- Adds TI-HI layout summary pages.
-- Updates preview/download links.
-- Updates downstream Pallet Label source to use the latest MPL palletization.
-
-For Pack Labels:
-
-- Uses edited label text, lot, best-before date, weight, case quantity, GTIN, and copy count.
-- Uses ITF-14 / GTIN-14 barcode rendering in the PDF.
-- Enforces the current two-side case-label copy rule for case/inner-pack labels.
-
-For Pallet Labels:
-
-- Uses the current edited pallet placard fields.
-- Supports MPL-driven pallet groups or manually added pallet groups.
-
-## Validation Commands
-
-Run from repo root.
+Build from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
+docker build -t merged-labelkit:latest .
 ```
 
-Frontend script parse:
+Run locally:
 
 ```powershell
-@'
-const fs = require('fs');
-const html = fs.readFileSync('frankenstein_project\\frontend\\dist\\index.html','utf8');
-const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]);
-new Function(scripts.join('\n'));
-console.log('frontend-script-parse-ok', scripts.length);
-'@ | node -
+docker run --rm -p 9000:9000 --name merged-labelkit-local merged-labelkit:latest
 ```
 
-Expected output:
+Open:
 
 ```text
-frontend-script-parse-ok <script-count>
+http://127.0.0.1:9000
 ```
 
-Backend compile:
+The Dockerfile must keep this AppSail-compatible command:
 
-```powershell
-& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m compileall ".\frankenstein_project\pipelines\kehe_pipeline.py"
+```dockerfile
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${X_ZOHO_CATALYST_LISTEN_PORT:-${PORT:-9000}}"]
 ```
 
-Expected output:
+## Zoho Catalyst Deploy
 
-```text
-Compiling '.\frankenstein_project\pipelines\kehe_pipeline.py'...
-```
+Target:
 
-No Python traceback means the compile check passed.
+- Project: `Label-kit`
+- Project ID: `27327000000040032`
+- Environment: `Development`
+- Env ID: `921277719`
+- AppSail name: `merged-labelkit`
+- Source: `docker://merged-labelkit:latest`
+- Port: `9000`
+- URL: `https://mergedlabelkit.development.catalystappsail.com`
 
-Optional quick check:
-
-```powershell
-git diff --check -- README.md frankenstein_project\frontend\dist\index.html frankenstein_project\pipelines\kehe_pipeline.py
-```
-
-Expected output:
-
-```text
-<no errors>
-```
-
-## Git Workflow
-
-Inspect state:
-
-```powershell
-Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-git --no-pager status --short
-git --no-pager branch --show-current
-git --no-pager remote -v
-```
-
-Stage only the required files:
-
-```powershell
-git add ".\README.md" ".\frankenstein_project\frontend\dist\index.html" ".\frankenstein_project\pipelines\kehe_pipeline.py"
-```
-
-Confirm staged files:
-
-```powershell
-git --no-pager diff --cached --stat
-git --no-pager diff --cached --name-only
-```
-
-Commit:
-
-```powershell
-git commit -m "Clean TI-HI flow, refresh README workflow, and keep deploy path reusable"
-```
-
-Push current branch:
-
-```powershell
-$branch = git branch --show-current
-git push -u origin $branch
-```
-
-Expected output:
-
-```text
-branch '<branch>' set up to track 'origin/<branch>'
-```
-
-or:
-
-```text
-Everything up-to-date
-```
-
-## Catalyst Deploy
-
-Build the Docker image first, then deploy from the repo root. The root `.catalystrc` is the `Label-kit` Catalyst project.
+Deploy from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
@@ -253,116 +212,245 @@ docker build -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
 
-Optional verbose deploy:
+Verify:
 
 ```powershell
-catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000 --verbose
+Invoke-WebRequest "https://mergedlabelkit.development.catalystappsail.com/health" | Select-Object -ExpandProperty Content
 ```
 
-Verify project selection:
+Expected health response:
+
+```json
+{"status":"ok"}
+```
+
+## Validation Commands
+
+Run from repo root:
 
 ```powershell
-catalyst project:list
+Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 ```
 
-Expected project signal:
+Python compile:
+
+```powershell
+& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\server.py"
+& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe_pipeline.py"
+& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\michaels_label_pipeline.py"
+```
+
+Frontend script parse:
+
+```powershell
+@'
+const fs = require('fs');
+const html = fs.readFileSync('frankenstein_project\\frontend\\dist\\index.html','utf8');
+const inlineScripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]).filter(Boolean);
+const app = fs.readFileSync('frankenstein_project\\frontend\\dist\\assets\\js\\app.js','utf8');
+new Function(inlineScripts.join('\n'));
+new Function(app);
+console.log('frontend-script-parse-ok', inlineScripts.length + 1);
+'@ | node -
+```
+
+Import smoke:
+
+```powershell
+@'
+import importlib
+mods = [
+    "server",
+    "pipelines.kehe_pipeline",
+    "pipelines.kehe.common",
+    "pipelines.michaels_label_pipeline",
+    "pipelines.michaels.pipeline",
+]
+for mod in mods:
+    importlib.import_module(mod)
+print("python-app-imports-ok", len(mods))
+'@ | & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -
+```
+
+Route smoke:
+
+```powershell
+@'
+import server
+routes = sorted(
+    f"{method} {route.path}"
+    for route in server.app.routes
+    for method in getattr(route, "methods", [])
+    if method in {"GET", "POST", "PUT", "DELETE"}
+)
+assert "POST /generate" not in routes
+assert "POST /generate/{kit}" in routes
+assert "GET /api/kehe/mpl-drafts" in routes
+assert "GET /api/kehe/audit-log" in routes
+print("server-route-smoke-ok", {"routes": len(routes), "compat_generate_removed": True})
+'@ | & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -
+```
+
+## Git Workflow
+
+Stay on `main`:
+
+```powershell
+Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
+git --no-pager branch --show-current
+git --no-pager status --short
+git --no-pager remote -v
+```
+
+Stage the cleaned app:
+
+```powershell
+git add -A
+git --no-pager diff --cached --stat
+git --no-pager diff --cached --name-status
+```
+
+Commit:
+
+```powershell
+git commit -m "Clean app source, refresh docs, and deploy current LabelKit"
+```
+
+Push:
+
+```powershell
+git push origin main
+```
+
+Confirm clean:
+
+```powershell
+git status --short
+```
+
+## Current File Structure
+
+Tracked app source:
 
 ```text
-Label-kit (active) (base) 27327000000040032
+.
+|-- .catalystrc
+|-- .dockerignore
+|-- .gitignore
+|-- Dockerfile
+|-- README.md
+`-- frankenstein_project
+    |-- catalyst.json
+    |-- requirements.txt
+    |-- server.py
+    |-- start.sh
+    |-- data
+    |   |-- kehe_dc_directory.json
+    |   `-- kehe_product_master.json
+    |-- frontend
+    |   `-- dist
+    |       |-- index.html
+    |       `-- assets
+    |           |-- css
+    |           |   `-- app.css
+    |           `-- js
+    |               `-- app.js
+    `-- pipelines
+        |-- kehe_pipeline.py
+        |-- michaels_label_pipeline.py
+        |-- kehe
+        |   |-- __init__.py
+        |   |-- asn_parser.py
+        |   |-- common.py
+        |   |-- document_headers.py
+        |   |-- gs1_labels.py
+        |   |-- mpl.py
+        |   |-- pack_labels.py
+        |   |-- pallet_labels.py
+        |   |-- product_master.py
+        |   `-- tihi.py
+        `-- michaels
+            |-- __init__.py
+            |-- asn_parser.py
+            |-- common.py
+            |-- matcher.py
+            |-- ocr.py
+            |-- pipeline.py
+            `-- renderers.py
 ```
 
-Expected successful deploy output:
+Correct KeHE wrapper filename:
 
 ```text
-DEPLOYMENT SUCCESSFUL: merged-labelkit
-APPSAIL URL: https://mergedlabelkit.development.catalystappsail.com
-Catalyst AppSail Deploy completed successfully
+frankenstein_project/pipelines/kehe_pipeline.py
 ```
 
-Note: Catalyst CLI `1.25.1` on this workstation does not support `catalyst appsail:list` or `catalyst appsail:deploy`. Use `catalyst deploy appsail ...`.
+The wrapper keeps legacy imports working while implementation lives under `frankenstein_project/pipelines/kehe/`.
+
+## Cleanup Rules
+
+Do not commit:
+
+- `.git/`
+- `__pycache__/`
+- `*.pyc`
+- `check_frontend.js`
+- temporary test files
+- `merge_pipelines.py`
+- `merge_script.py`
+- `frankenstein_project/appsail-nodejs/`
+- `frankenstein_project/pipelines/kehe_dc_directory.py`
+- `frankenstein_project/pipelines/kehe_dc_directory.json`
+
+The old `frankenstein_project/pipelines/__init__.py` was empty and is not required by the current imports.
 
 ## Quick Rollback / Troubleshooting
 
 If validation fails before commit:
 
 ```powershell
-git --no-pager diff -- README.md frankenstein_project\frontend\dist\index.html frankenstein_project\pipelines\kehe_pipeline.py
+git --no-pager diff
 ```
 
-Fix the issue and rerun validation.
+Fix the failing file and rerun validation.
+
+If Docker build fails:
+
+```powershell
+docker build --no-cache -t merged-labelkit:latest .
+```
+
+If Catalyst deploy targets the wrong project:
+
+```powershell
+catalyst project:use 27327000000040032
+catalyst project:list
+```
 
 If a bad commit was pushed:
 
 ```powershell
 git log --oneline -5
 git revert <bad-commit-sha>
-git push
+git push origin main
+docker build -t merged-labelkit:latest .
+catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
-
-Then rebuild the Docker image and redeploy Catalyst from the repo root.
-
-If Catalyst deploy targets the wrong project:
-
-```powershell
-Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-catalyst project:use 27327000000040032
-catalyst project:list
-```
-
-Confirm `Label-kit` and `merged-labelkit` before deploying again.
-
-If the app does not load after deploy:
-
-1. Run `catalyst project:list` and confirm `Label-kit` is active.
-2. Confirm `frankenstein_project\catalyst.json` still points to `docker://merged-labelkit:latest` and port `9000`.
-3. Rebuild the image: `docker build -t merged-labelkit:latest .`
-4. Re-run frontend parse and Python compile locally.
-5. Redeploy AppSail.
-6. If the deployed app is still unhealthy, revert the last commit and redeploy.
-
-If MPL PDF generation is stale:
-
-- Reopen `Review & Edit Master Packing List`.
-- Reopen the relevant pallet `TI-Hi` popup.
-- Click `Recalculate`.
-- Close the popup.
-- Click `Generate PDF from Edited Values`.
 
 ## Reusable Release Checklist
 
-- [ ] Start at repo root: `C:\Users\JDI Employee\Downloads\merged_labelkit`
-- [ ] Inspect `git status`, branch, and remote.
-- [ ] Touch only required files.
-- [ ] Keep behavior stable except the intended fix.
-- [ ] Update README when workflow, validation, or deploy steps change.
-- [ ] Run frontend script parse and see `frontend-script-parse-ok`.
-- [ ] Run Python compile with no traceback.
-- [ ] Run `git diff --check`.
-- [ ] Stage only:
-  - `README.md`
-  - `frankenstein_project\frontend\dist\index.html`
-  - `frankenstein_project\pipelines\kehe_pipeline.py`
-- [ ] Commit with a clear workflow/fix message.
-- [ ] Push current branch to GitHub.
-- [ ] Build `merged-labelkit:latest` from repo root.
-- [ ] Deploy AppSail from repo root.
-- [ ] Use Catalyst project `Label-kit` / `27327000000040032`.
-- [ ] Verify deploy output says `DEPLOYMENT SUCCESSFUL: merged-labelkit`.
-- [ ] Open the Development domain and smoke-test KeHE edit/render flow.
-
-## Main Files
-
-- `frankenstein_project\frontend\dist\index.html`
-- `frankenstein_project\pipelines\kehe_pipeline.py`
-- `frankenstein_project\server.py`
-- `frankenstein_project\catalyst.json`
-- `frankenstein_project\data\kehe_product_master.json`
-- `frankenstein_project\data\kehe_dc_directory.json`
-
-The active KeHE pipeline file is:
-
-```text
-frankenstein_project\pipelines\kehe_pipeline.py
-```
-
-`kehe_label_pipeline.py` is not used.
+- [ ] Stay in `C:\Users\JDI Employee\Downloads\merged_labelkit`.
+- [ ] Confirm branch is `main`.
+- [ ] Confirm remote is `JDI-Distribution/Merged-labelkit`.
+- [ ] Remove obsolete/local-only files.
+- [ ] Keep current app source, including `frontend/dist/assets/`, `pipelines/kehe/`, and `pipelines/michaels/`.
+- [ ] Update README if workflow, structure, validation, Docker, or deploy steps changed.
+- [ ] Run Python compile checks.
+- [ ] Run frontend script parse.
+- [ ] Run import and route smoke checks.
+- [ ] Build `docker build -t merged-labelkit:latest .`.
+- [ ] Deploy with `catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000`.
+- [ ] Health-check `https://mergedlabelkit.development.catalystappsail.com/health`.
+- [ ] Commit on `main`.
+- [ ] Push `origin main`.
+- [ ] Confirm `git status --short` is clean.

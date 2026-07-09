@@ -22,14 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY frankenstein_project/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir "pip<26" && \
+    python -m pip install --no-cache-dir -r requirements.txt
 
 COPY frankenstein_project/ ./
 
 EXPOSE 9000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=4).getcode()==200 else 1)"
+  CMD python -c "import os,urllib.request,sys; port=os.getenv('X_ZOHO_CATALYST_LISTEN_PORT') or os.getenv('PORT') or '9000'; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=4).getcode()==200 else 1)"
 
 CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${X_ZOHO_CATALYST_LISTEN_PORT:-${PORT:-9000}}"]
