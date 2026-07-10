@@ -2,7 +2,9 @@
   "rows": [
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "40850068684654",
       "description": "SUGAR RIMM GLITTER GOLD BREW GLITTER",
       "packaging_level": "Case",
@@ -15,7 +17,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "30850068684657",
       "description": "SUGAR RIMM GLITTER GOLD BREW GLITTER",
       "packaging_level": "Inner Pack",
@@ -28,7 +32,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684656",
       "description": "SUGAR RIMM GLITTER GOLD BREW GLITTER",
       "packaging_level": "Each",
@@ -41,7 +47,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "40850068684777",
       "description": "SUGAR RIMM GLITTER SILVR BREW GLITTER",
       "packaging_level": "Case",
@@ -54,7 +62,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "30850068684770",
       "description": "SUGAR RIMM GLITTER SILVR BREW GLITTER",
       "packaging_level": "Inner Pack",
@@ -67,7 +77,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684779",
       "description": "SUGAR RIMM GLITTER SILVR BREW GLITTER",
       "packaging_level": "Each",
@@ -80,7 +92,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "40850068684791",
       "description": "SALT RIM GLITTER WHITE BREW GLITTER",
       "packaging_level": "Case",
@@ -93,7 +107,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "30850068684794",
       "description": "SALT RIM GLITTER WHITE BREW GLITTER",
       "packaging_level": "Inner Pack",
@@ -106,7 +122,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684793",
       "description": "SALT RIM GLITTER WHITE BREW GLITTER",
       "packaging_level": "Each",
@@ -119,7 +137,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "20850068684780",
       "description": "SALT RIM GLITTER PINK BREW GLITTER",
       "packaging_level": "Case",
@@ -132,7 +152,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "10850068684783",
       "description": "SALT RIM GLITTER PINK BREW GLITTER",
       "packaging_level": "Inner Pack",
@@ -145,7 +167,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684786",
       "description": "SALT RIM GLITTER PINK BREW GLITTER",
       "packaging_level": "Each",
@@ -158,7 +182,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "198168349502",
       "description": "GLITTER STICK 4PC HOL",
       "packaging_level": "Shipper Contents",
@@ -171,7 +197,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684939",
       "description": "GLITTER CKTL HOL CLIP6PC BREW GLITTER",
       "packaging_level": "Each",
@@ -184,7 +212,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "20850068684933",
       "description": "GLITTER CKTL HOL CLIP6PC BREW GLITTER",
       "packaging_level": "Case",
@@ -197,7 +227,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684809",
       "description": "GLITTER STICK 4PC FANFAV",
       "packaging_level": "Shipper Contents",
@@ -210,7 +242,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850068684991",
       "description": "GLITTER CKTL CLPSTR 6PC BREW GLITTER",
       "packaging_level": "Each",
@@ -223,7 +257,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "10850068684998",
       "description": "GLITTER CKTL CLPSTR 6PC BREW GLITTER",
       "packaging_level": "Case",
@@ -236,7 +272,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
       "gtin": "20850079841035",
       "description": "SUGAR RIMM GLITTER RWB BREW GLITTER",
       "packaging_level": "Case",
@@ -249,7 +287,9 @@
     },
     {
       "id": "",
-      "label_required": "\u2705",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "10850079841038",
       "description": "SUGAR RIMM GLITTER RWB BREW GLITTER",
       "packaging_level": "Inner Pack",
@@ -262,7 +302,9 @@
     },
     {
       "id": "",
-      "label_required": "Barcode on Product",
+      "storefront": "KeHE",
+      "in_packing_list": false,
+      "label_required": "0",
       "gtin": "850079841031",
       "description": "SUGAR RIMM GLITTER RWB BREW GLITTER",
       "packaging_level": "Each",
@@ -274,5 +316,5 @@
       "unique_key": "850079841031|Each"
     }
   ],
-  "updated_at": "2026-06-23T20:52:38Z"
+  "updated_at": "2026-07-10T21:21:19Z"
 }

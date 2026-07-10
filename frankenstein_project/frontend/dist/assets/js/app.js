@@ -292,10 +292,18 @@
   let keheProductMasterLoadPromise = null;
   let keheProductMasterSaveTimer = null;
   const KEHE_DC_DIRECTORY_STORAGE_KEY = 'jdi_kehe_dc_directory_rows_v1';
+  const MPL_PRODUCT_MASTER_STORAGE_KEY = 'jdi_mpl_product_master_rows_v1';
+  const MPL_DIRECTORY_STORAGE_KEY = 'jdi_mpl_directory_rows_v1';
   const DEFAULT_KEHE_SHIP_FROM = 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA';
   let keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
   let keheDcDirectoryLoadPromise = null;
   let keheDcDirectorySaveTimer = null;
+  let mplProductMasterRows = loadMplProductMasterFromStorage();
+  let mplProductMasterLoadPromise = null;
+  let mplProductMasterSaveTimer = null;
+  let mplDirectoryRows = loadMplDirectoryFromStorage();
+  let mplDirectoryLoadPromise = null;
+  let mplDirectorySaveTimer = null;
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
   const pages = ['home', 'michaels', 'kehe', 'mpl'];
@@ -470,6 +478,15 @@
     return defaultValue;
   }
 
+  function normalizeStorefront(value) {
+    const clean = String(value ?? '').trim();
+    return clean || 'KeHE';
+  }
+
+  function isKeheStorefront(value) {
+    return normalizeStorefront(value).toLowerCase() === 'kehe';
+  }
+
   function normalizeInPackingList(row, packagingLevel) {
     if (!isCasePackagingLevel(packagingLevel)) return false;
     if (row && Object.prototype.hasOwnProperty.call(row, 'in_packing_list')) {
@@ -530,6 +547,7 @@
     const packagingLevel = normalizePackagingLevel(row.packaging_level ?? row.packging_level ?? row['PACKGING LEVEL'] ?? row['PACKAGING LEVEL']);
     const inPackingList = normalizeInPackingList(row, packagingLevel);
     return {
+      storefront: normalizeStorefront(row.storefront ?? row.STOREFRONT ?? row['Storefront']),
       in_packing_list: inPackingList,
       label_required: inPackingList ? '1' : '0',
       gtin: String(row.gtin ?? row.GTIN ?? row.case_upc ?? row.upc ?? '').trim(),
@@ -555,25 +573,218 @@
   function getKeheProductMasterRows() {
     return keheProductMasterRows
       .map(normalizeProductRow)
+      .filter(row => isKeheStorefront(row.storefront))
       .filter(row => row.in_packing_list || row.gtin || row.description || row.dimensions_in || row.weight_lbs || row.case_qty || row.labels_per_unit || row.sku);
+  }
+
+  function getMplProductMasterRows() {
+    return mplProductMasterRows
+      .map(normalizeProductRow)
+      .filter(isProductInPackingList);
+  }
+
+  function productMasterRowIdentity(row) {
+    const normalized = normalizeProductRow(row);
+    const primary = canonicalId(normalized.gtin) || canonicalId(normalized.sku) || String(normalized.description || '').trim().toLowerCase();
+    return [
+      normalizeStorefront(normalized.storefront).toLowerCase(),
+      normalizePackagingLevel(normalized.packaging_level),
+      primary
+    ].join('|');
+  }
+
+  function mergeMplProductRows(primaryRows, secondaryRows) {
+    const merged = new Map();
+    [...(primaryRows || []), ...(secondaryRows || [])].forEach(raw => {
+      const row = normalizeProductRow(raw);
+      if (!isProductInPackingList(row)) return;
+      const key = productMasterRowIdentity(row);
+      if (!merged.has(key)) merged.set(key, row);
+    });
+    return [...merged.values()];
+  }
+
+  function isStandaloneMplReferenceMode() {
+    return selectedKit === 'mpl' || !!activeKeheDocumentDraft?.standalone_mpl;
+  }
+
+  function getActiveProductMasterRows() {
+    return isStandaloneMplReferenceMode() ? getMplProductMasterRows() : getKeheProductMasterRows();
+  }
+
+  function loadMplProductMasterFromStorage() {
+    try {
+      const raw = localStorage.getItem(MPL_PRODUCT_MASTER_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(normalizeProductRow).filter(isProductInPackingList);
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function saveMplProductMasterToStorage() {
+    try {
+      localStorage.setItem(MPL_PRODUCT_MASTER_STORAGE_KEY, JSON.stringify(getMplProductMasterRows()));
+    } catch (_err) {}
+  }
+
+  async function loadMplProductMasterFromBackend() {
+    const localRows = loadMplProductMasterFromStorage();
+    try {
+      const res = await fetchWithTimeout('/api/mpl/product-master', { cache: 'no-store' }, 15000);
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || 'Could not load MPL product master.');
+      const backendRows = Array.isArray(payload.rows) ? payload.rows.map(normalizeProductRow) : [];
+      if (backendRows.length) {
+        mplProductMasterRows = mergeMplProductRows(backendRows, localRows);
+        saveMplProductMasterToStorage();
+        if (mplProductMasterRows.length !== backendRows.length) {
+          await saveMplProductMasterToBackend();
+        }
+      } else if (localRows.length) {
+        mplProductMasterRows = localRows;
+        await saveMplProductMasterToBackend();
+      } else {
+        mplProductMasterRows = [];
+      }
+      renderMplProductMasterTable();
+      return payload;
+    } catch (_err) {
+      mplProductMasterRows = localRows;
+      renderMplProductMasterTable();
+      return { rows: mplProductMasterRows, source: 'localStorage' };
+    }
+  }
+
+  function saveMplProductMasterToBackendDebounced() {
+    clearTimeout(mplProductMasterSaveTimer);
+    mplProductMasterSaveTimer = setTimeout(saveMplProductMasterToBackend, 500);
+  }
+
+  async function saveMplProductMasterToBackend() {
+    const rows = getMplProductMasterRows();
+    saveMplProductMasterToStorage();
+    try {
+      await fetch('/api/mpl/product-master', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows })
+      });
+    } catch (_err) {
+      // Browser cache remains available if backend persistence is temporarily unavailable.
+    }
+  }
+
+  function seedMplProductMasterFromKeheIfNeeded() {
+    if (localStorage.getItem(MPL_PRODUCT_MASTER_STORAGE_KEY) !== null) return;
+    mplProductMasterRows = getKeheProductMasterRows().map(row => normalizeProductRow({ ...row, storefront: row.storefront || 'KeHE' }));
+    saveMplProductMasterToStorage();
+    saveMplProductMasterToBackendDebounced();
+  }
+
+  function openMplProductMasterModal() {
+    renderMplProductMasterTable();
+    document.getElementById('mpl-product-master-modal').classList.add('visible');
+  }
+
+  function closeMplProductMasterModal() {
+    document.getElementById('mpl-product-master-modal').classList.remove('visible');
+  }
+
+  function renderMplProductMasterTable() {
+    const body = document.getElementById('mpl-product-master-body');
+    if (!body) return;
+    const rows = mplProductMasterRows
+      .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
+      .filter(entry => isProductInPackingList(entry.row));
+    if (!rows.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="9">No rows yet. Add manually or seed from KeHE.</td></tr>';
+      return;
+    }
+    const levelOptions = ['Case', 'Inner Pack', 'Each', 'Shipper Contents', 'Other'];
+    body.innerHTML = rows.map(({ row, index }) => {
+      return `
+      <tr>
+        <td><input value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)"></td>
+        <td><input value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></td>
+        <td><input value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)"></td>
+        <td><select onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
+          ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+        </select></td>
+        <td><input value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"></td>
+        <td><input value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"></td>
+        <td><input type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
+        <td><input value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)"></td>
+        <td><button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function addMplProductRow(seed = {}) {
+    mplProductMasterRows.push(normalizeProductRow({ storefront: 'KeHE', packaging_level: 'Case', in_packing_list: true, ...seed }));
+    saveMplProductMasterToStorage();
+    saveMplProductMasterToBackendDebounced();
+    renderMplProductMasterTable();
+  }
+
+  function deleteMplProductRow(index) {
+    mplProductMasterRows.splice(index, 1);
+    saveMplProductMasterToStorage();
+    saveMplProductMasterToBackendDebounced();
+    renderMplProductMasterTable();
+  }
+
+  function updateMplProductRow(index, key, value) {
+    if (!mplProductMasterRows[index]) mplProductMasterRows[index] = normalizeProductRow({ storefront: 'KeHE' });
+    if (key === 'packaging_level') {
+      const nextLevel = normalizePackagingLevel(value);
+      mplProductMasterRows[index][key] = nextLevel;
+      mplProductMasterRows[index].in_packing_list = isCasePackagingLevel(nextLevel);
+      mplProductMasterRows[index].label_required = mplProductMasterRows[index].in_packing_list ? '1' : '0';
+      if (!String(mplProductMasterRows[index].labels_per_unit || '').trim()) {
+        mplProductMasterRows[index].labels_per_unit = defaultLabelsPerUnitForLevel(nextLevel);
+      }
+      if (!String(mplProductMasterRows[index].case_qty || '').trim()) {
+        mplProductMasterRows[index].case_qty = defaultCaseQtyForLevel(nextLevel);
+      }
+    } else if (key === 'labels_per_unit') {
+      mplProductMasterRows[index][key] = normalizeLabelsPerUnit(value, mplProductMasterRows[index].packaging_level);
+    } else if (key === 'case_qty') {
+      mplProductMasterRows[index][key] = normalizeCaseQty(value, mplProductMasterRows[index].packaging_level);
+    } else if (key === 'in_packing_list') {
+      const checked = isCasePackagingLevel(mplProductMasterRows[index].packaging_level) && !!value;
+      mplProductMasterRows[index].in_packing_list = checked;
+      mplProductMasterRows[index].label_required = checked ? '1' : '0';
+    } else if (key === 'storefront') {
+      mplProductMasterRows[index][key] = normalizeStorefront(value);
+    } else {
+      mplProductMasterRows[index][key] = value;
+    }
+    saveMplProductMasterToStorage();
+    saveMplProductMasterToBackendDebounced();
+    if (key === 'packaging_level' || key === 'in_packing_list') {
+      renderMplProductMasterTable();
+    }
   }
 
   function renderKeheProductMasterTable() {
     const body = document.getElementById('kehe-product-master-body');
     if (!body) return;
-    const rows = keheProductMasterRows.map(normalizeProductRow);
+    const rows = keheProductMasterRows
+      .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
+      .filter(entry => isKeheStorefront(entry.row.storefront));
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="11">No rows yet. Add manually or upload XML to seed rows.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="10">No rows yet. Add manually or upload XML to seed rows.</td></tr>';
       return;
     }
     const levelOptions = ['Case', 'Inner Pack', 'Each', 'Shipper Contents', 'Other'];
-    body.innerHTML = rows.map((row, index) => {
+    body.innerHTML = rows.map(({ row, index }) => {
       const printable = canPrintProductMasterLabel(row);
-      const caseEligible = isCasePackagingLevel(row.packaging_level);
       const disabledReason = !isPackLabelLevel(row) ? 'Only Case/MP and Inner Pack/IP labels can be printed here.' : 'GTIN is required.';
       return `
       <tr>
-        <td><input type="checkbox" ${row.in_packing_list ? 'checked' : ''} ${caseEligible ? '' : 'disabled'} title="${escapeHtml(caseEligible ? 'Use this Case row in Create MPL dropdowns and Auto Palletize.' : 'Only Case packaging rows can be selected for MPL.')}" onchange="updateKeheProductRow(${index}, 'in_packing_list', this.checked)"></td>
         <td><input value="${escapeHtml(row.gtin)}" oninput="updateKeheProductRow(${index}, 'gtin', this.value)"></td>
         <td><input value="${escapeHtml(row.description)}" oninput="updateKeheProductRow(${index}, 'description', this.value)"></td>
         <td><select onchange="updateKeheProductRow(${index}, 'packaging_level', this.value)">
@@ -591,7 +802,7 @@
   }
 
   function addKeheProductRow(seed = {}) {
-    keheProductMasterRows.push(normalizeProductRow(seed));
+    keheProductMasterRows.push(normalizeProductRow({ ...seed, storefront: 'KeHE' }));
     saveKeheProductMasterToStorage();
     saveKeheProductMasterToBackendDebounced();
     renderKeheProductMasterTable();
@@ -738,6 +949,7 @@
   function normalizeDcDirectoryRow(row = {}) {
     const shipFrom = String(row.ship_from ?? row.SHIP_FROM ?? row['SHIP FROM'] ?? DEFAULT_KEHE_SHIP_FROM).trim() || DEFAULT_KEHE_SHIP_FROM;
     return {
+      storefront: normalizeStorefront(row.storefront ?? row.STOREFRONT ?? row['Storefront']),
       dc: String(row.dc ?? row.DC ?? '').trim(),
       name: String(row.name ?? row.NAME ?? '').trim(),
       ship_from: shipFrom,
@@ -750,7 +962,144 @@
   function getKeheDcDirectoryRows() {
     return keheDcDirectoryRows
       .map(normalizeDcDirectoryRow)
+      .filter(row => isKeheStorefront(row.storefront))
       .filter(row => row.dc || row.name || row.delivery_address || row.billing_address || row.match_values.length);
+  }
+
+  function getMplDirectoryRows() {
+    return mplDirectoryRows
+      .map(normalizeDcDirectoryRow)
+      .filter(row => row.dc || row.name || row.delivery_address || row.billing_address || (row.ship_from && row.ship_from !== DEFAULT_KEHE_SHIP_FROM));
+  }
+
+  function getActiveDcDirectoryRows() {
+    return isStandaloneMplReferenceMode() ? getMplDirectoryRows() : getKeheDcDirectoryRows();
+  }
+
+  function loadMplDirectoryFromStorage() {
+    try {
+      const raw = localStorage.getItem(MPL_DIRECTORY_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(normalizeDcDirectoryRow);
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function saveMplDirectoryToStorage() {
+    try {
+      localStorage.setItem(MPL_DIRECTORY_STORAGE_KEY, JSON.stringify(getMplDirectoryRows()));
+    } catch (_err) {}
+  }
+
+  async function loadMplDirectoryFromBackend() {
+    const localRows = loadMplDirectoryFromStorage();
+    try {
+      const res = await fetchWithTimeout('/api/mpl/directory', { cache: 'no-store' }, 15000);
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || 'Could not load MPL directory.');
+      const backendRows = Array.isArray(payload.rows) ? payload.rows.map(normalizeDcDirectoryRow) : [];
+      if (localRows.length) {
+        mplDirectoryRows = localRows;
+        await saveMplDirectoryToBackend();
+      } else if (backendRows.length) {
+        mplDirectoryRows = backendRows;
+        saveMplDirectoryToStorage();
+      } else {
+        mplDirectoryRows = [];
+      }
+      renderMplDirectoryTable();
+      return payload;
+    } catch (_err) {
+      mplDirectoryRows = localRows;
+      renderMplDirectoryTable();
+      return { rows: mplDirectoryRows, source: 'localStorage' };
+    }
+  }
+
+  function saveMplDirectoryToBackendDebounced() {
+    clearTimeout(mplDirectorySaveTimer);
+    mplDirectorySaveTimer = setTimeout(saveMplDirectoryToBackend, 500);
+  }
+
+  async function saveMplDirectoryToBackend() {
+    const rows = getMplDirectoryRows();
+    saveMplDirectoryToStorage();
+    try {
+      await fetch('/api/mpl/directory', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows })
+      });
+    } catch (_err) {
+      // Browser cache remains available if backend persistence is temporarily unavailable.
+    }
+  }
+
+  function seedMplDirectoryFromKeheIfNeeded() {
+    if (localStorage.getItem(MPL_DIRECTORY_STORAGE_KEY) !== null) return;
+    mplDirectoryRows = getKeheDcDirectoryRows().map(row => normalizeDcDirectoryRow({ ...row, storefront: row.storefront || 'KeHE' }));
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+  }
+
+  function openMplDirectoryModal() {
+    renderMplDirectoryTable();
+    document.getElementById('mpl-directory-modal').classList.add('visible');
+  }
+
+  function closeMplDirectoryModal() {
+    document.getElementById('mpl-directory-modal').classList.remove('visible');
+  }
+
+  function renderMplDirectoryTable() {
+    const body = document.getElementById('mpl-directory-body');
+    if (!body) return;
+    const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
+    if (!rows.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="7">No directory rows yet. Add a row manually.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((row, index) => `
+      <tr>
+        <td><input value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplDirectoryRow(${index}, 'storefront', this.value)"></td>
+        <td><input value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></td>
+        <td><input value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></td>
+        <td><textarea placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></td>
+        <td><textarea placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></td>
+        <td><textarea placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></td>
+        <td><button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button></td>
+      </tr>
+    `).join('');
+  }
+
+  function addMplDirectoryRow(seed = {}) {
+    mplDirectoryRows.push(normalizeDcDirectoryRow({ storefront: 'KeHE', ...seed }));
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    renderMplDirectoryTable();
+  }
+
+  function deleteMplDirectoryRow(index) {
+    mplDirectoryRows.splice(index, 1);
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    renderMplDirectoryTable();
+  }
+
+  function updateMplDirectoryRow(index, key, value) {
+    if (!mplDirectoryRows[index]) {
+      mplDirectoryRows[index] = normalizeDcDirectoryRow({ storefront: 'KeHE' });
+    }
+    if (key === 'storefront') {
+      mplDirectoryRows[index][key] = normalizeStorefront(value);
+    } else {
+      mplDirectoryRows[index][key] = value;
+    }
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
   }
 
   function loadKeheDcDirectoryFromStorage() {
@@ -819,14 +1168,16 @@
     const body = document.getElementById('kehe-dc-directory-body');
     if (!body) return;
 
-    const rows = keheDcDirectoryRows.map(normalizeDcDirectoryRow);
+    const rows = keheDcDirectoryRows
+      .map((raw, index) => ({ row: normalizeDcDirectoryRow(raw), index }))
+      .filter(entry => isKeheStorefront(entry.row.storefront));
 
     if (!rows.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="8">No DC rows yet. Add a DC manually.</td></tr>';
       return;
     }
 
-    body.innerHTML = rows.map((row, index) => `
+    body.innerHTML = rows.map(({ row, index }) => `
       <tr>
         <td><input value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateKeheDcDirectoryRow(${index}, 'dc', this.value)"></td>
         <td><input value="${escapeHtml(row.name)}" placeholder="DC 45 Ontario" oninput="updateKeheDcDirectoryRow(${index}, 'name', this.value)"></td>
@@ -843,7 +1194,7 @@
   }
 
   function addKeheDcDirectoryRow(seed = {}) {
-    keheDcDirectoryRows.push(normalizeDcDirectoryRow(seed));
+    keheDcDirectoryRows.push(normalizeDcDirectoryRow({ ...seed, storefront: 'KeHE' }));
     saveKeheDcDirectoryToStorage();
     saveKeheDcDirectoryToBackendDebounced();
     renderKeheDcDirectoryTable();
@@ -971,7 +1322,7 @@
   }
 
   function matchProductMaster(item, options = {}) {
-    const rows = getKeheProductMasterRows()
+    const rows = getActiveProductMasterRows()
       .filter(row => !options.caseOnly || isProductInPackingList(row));
     const candidates = [item.gtin, item.case_upc, item.upc, item.item_number, item.sku].map(canonicalId).filter(Boolean);
     return rows.find(row => {
@@ -981,7 +1332,7 @@
   }
 
   function getMplItemProductIndex(item) {
-    const rows = getKeheProductMasterRows();
+    const rows = getActiveProductMasterRows();
     const candidates = [item?.gtin, item?.case_upc, item?.upc, item?.item_number, item?.sku].map(canonicalId).filter(Boolean);
     let index = rows.findIndex(row => {
       if (!isCasePackagingLevel(row.packaging_level)) return false;
@@ -997,6 +1348,7 @@
 
   function productMasterOptionLabel(row, index) {
     const parts = [
+      row.storefront ? `[${row.storefront}]` : '',
       row.description || `Product ${index + 1}`,
       row.sku ? `SKU ${row.sku}` : '',
       row.gtin ? `GTIN ${row.gtin}` : '',
@@ -1014,6 +1366,7 @@
     item.gtin = product.gtin || item.gtin || '';
     item.sku = product.sku || item.sku || '';
     item.description = product.description || item.description || '';
+    item.storefront = normalizeStorefront(product.storefront || item.storefront || '');
     item.packaging_level = product.packaging_level || item.packaging_level || '';
     item.dimensions_in = product.dimensions_in || item.dimensions_in || '';
     item.unit_weight_lbs = product.weight_lbs || item.unit_weight_lbs || '';
@@ -1021,6 +1374,46 @@
     if (!String(item.qty_on_pallet || '').trim()) item.qty_on_pallet = qtyFallback;
     if (!String(item.total_ordered || '').trim()) item.total_ordered = item.qty_on_pallet || qtyFallback;
     if (!String(item.total_shipped || '').trim()) item.total_shipped = item.qty_on_pallet || qtyFallback;
+  }
+
+  function getMplItemStorefront(item) {
+    if (!item) return '';
+    const explicit = String(item.storefront || '').trim();
+    if (explicit) return normalizeStorefront(explicit);
+    const product = matchProductMaster(item, { caseOnly: true });
+    return product ? normalizeStorefront(product.storefront || '') : '';
+  }
+
+  function getMplSelectedStorefronts(mpl) {
+    const seen = new Set();
+    (mpl?.items || []).forEach(item => {
+      const hasSkuData = [item.gtin, item.case_upc, item.upc, item.item_number, item.sku, item.description]
+        .some(value => String(value || '').trim());
+      if (!hasSkuData) return;
+      const storefront = getMplItemStorefront(item);
+      if (storefront) seen.add(storefront);
+    });
+    return [...seen].sort((a, b) => a.localeCompare(b));
+  }
+
+  function validateMplStorefrontConsistency(draft = activeKeheDocumentDraft) {
+    if (!draft?.standalone_mpl) return { ok: true, message: '' };
+    const issues = [];
+    (draft.packing_lists || []).forEach(mpl => {
+      const skuStorefronts = getMplSelectedStorefronts(mpl);
+      if (skuStorefronts.length > 1) {
+        issues.push(`${mpl.id || 'MPL'} has selected SKUs from multiple storefronts: ${skuStorefronts.join(', ')}.`);
+        return;
+      }
+      const directoryStorefront = normalizeStorefront(mpl.storefront || draft.storefront || '');
+      if (skuStorefronts.length === 1 && directoryStorefront && skuStorefronts[0] !== directoryStorefront) {
+        issues.push(`${mpl.id || 'MPL'} uses ${skuStorefronts[0]} SKU(s), but the selected directory storefront is ${directoryStorefront}.`);
+      }
+    });
+    return {
+      ok: issues.length === 0,
+      message: issues.join(' ')
+    };
   }
 
   function uniqueManualOptions(values) {
@@ -1044,7 +1437,7 @@
     const key = field === 'supplier_info'
       ? 'ship_from'
       : (field === 'bill_to' ? 'billing_address' : 'delivery_address');
-    return uniqueManualOptions(getKeheDcDirectoryRows().map(row => row[key]));
+    return uniqueManualOptions(getActiveDcDirectoryRows().map(row => row[key]));
   }
 
   function manualMplSelectedAddressIndex(field, value) {
@@ -1062,6 +1455,7 @@
       case_upc: '',
       gtin: '',
       sku: '',
+      storefront: '',
       description: '',
       packaging_level: '',
       dimensions_in: '',
@@ -1079,16 +1473,20 @@
   }
 
   function buildManualMasterPackingListDraft() {
-    const dcRows = getKeheDcDirectoryRows();
+    const standalone = selectedKit === 'mpl';
+    const dcRows = getActiveDcDirectoryRows();
     const firstDc = dcRows[0] || {};
     const firstItem = blankManualMplItem(1, '1');
+    const storefront = normalizeStorefront(firstDc.storefront || 'KeHE');
     return {
       document_type: 'kehe_master_packing_list',
       version: 3,
       manual_mpl: true,
+      standalone_mpl: standalone,
+      storefront,
       summary: { packing_lists: 1, manual_mpl: true },
       warnings: [],
-      product_master: getKeheProductMasterRows(),
+      product_master: getActiveProductMasterRows(),
       extracted_headers: [],
       extracted_items: [],
       packing_lists: [{
@@ -1096,6 +1494,7 @@
         title: 'MASTER PACKING LIST',
         status: firstDc.delivery_address ? 'Ready' : 'Needs Review',
         manual_mpl: true,
+        storefront,
         dc: firstDc.dc || '',
         dc_name: firstDc.name || '',
         customer_po_number: '',
@@ -1113,7 +1512,9 @@
         est_ship_date: '',
         shipping_instructions: '',
         palletization_source: 'Manual',
-        palletization_note: 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.',
+        palletization_note: standalone
+          ? 'Manual MPL created from standalone Product Master Table and Directory.'
+          : 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.',
         source_files: ['Manual Create MPL'],
         items: [firstItem],
         _pallet_ids: ['1'],
@@ -1126,6 +1527,12 @@
   }
 
   async function ensureKeheReferenceDataLoaded() {
+    if (selectedKit === 'mpl') {
+      seedMplProductMasterFromKeheIfNeeded();
+      seedMplDirectoryFromKeheIfNeeded();
+      return;
+    }
+
     try {
       if (keheProductMasterLoadPromise) await keheProductMasterLoadPromise;
       if (!getKeheProductMasterRows().length) {
@@ -1235,9 +1642,34 @@
         <td>${escapeHtml(draft.total_pallets || '—')}</td>
         <td>${escapeHtml(draft.item_count || '0')}</td>
         <td>${escapeHtml(formatDateTime(draft.updated_at))}</td>
-        <td><button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button></td>
+        <td>
+          <div class="saved-mpl-actions">
+            <button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button>
+            <button class="btn-mini-danger" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>
+          </div>
+        </td>
       </tr>
     `).join('');
+  }
+
+  async function deleteSavedMplDraft(draftId, draftName = '') {
+    const name = String(draftName || 'this saved MPL');
+    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+    try {
+      setStatus('Deleting saved MPL draft...', 'info');
+      const res = await fetch(`/api/kehe/mpl-drafts/${encodeURIComponent(draftId)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not delete saved MPL draft.');
+      savedMplDrafts = savedMplDrafts.filter(draft => String(draft.id) !== String(draftId));
+      if (activeKeheDocumentDraft?._saved_draft_id && String(activeKeheDocumentDraft._saved_draft_id) === String(draftId)) {
+        delete activeKeheDocumentDraft._saved_draft_id;
+        delete activeKeheDocumentDraft._saved_draft_name;
+      }
+      renderSavedMplList();
+      setStatus('Saved MPL draft deleted.', 'success');
+    } catch (err) {
+      setStatus('Error: ' + (err.message || 'Could not delete saved MPL draft.'), 'error');
+    }
   }
 
   async function loadSavedMplDraft(draftId) {
@@ -1414,15 +1846,22 @@
 
   function renderManualMplTools(mpl, mplIndex) {
     if (!mpl?.manual_mpl && !activeKeheDocumentDraft?.manual_mpl) return '';
-    const dcRows = getKeheDcDirectoryRows();
+    const dcRows = getActiveDcDirectoryRows();
+    const storefrontCheck = validateMplStorefrontConsistency(activeKeheDocumentDraft);
     const selectedDcIndex = dcRows.findIndex(row =>
       String(row.dc || '') === String(mpl.dc || '') &&
-      String(row.name || '') === String(mpl.dc_name || '')
+      String(row.name || '') === String(mpl.dc_name || '') &&
+      (!isStandaloneMplReferenceMode() || normalizeStorefront(row.storefront || 'KeHE') === normalizeStorefront(mpl.storefront || activeKeheDocumentDraft?.storefront || 'KeHE'))
     );
     const dcSelect = dcRows.length
       ? `<select onchange="applyManualMplDcRow(${mplIndex}, this.value)">
           <option value="">Select DC / Name</option>
-          ${dcRows.map((row, index) => `<option value="${index}" ${index === selectedDcIndex ? 'selected' : ''}>${escapeHtml(dcDirectoryDisplayName(row, index))}</option>`).join('')}
+          ${dcRows.map((row, index) => {
+            const label = isStandaloneMplReferenceMode()
+              ? `[${normalizeStorefront(row.storefront || 'KeHE')}] ${dcDirectoryDisplayName(row, index)}`
+              : dcDirectoryDisplayName(row, index);
+            return `<option value="${index}" ${index === selectedDcIndex ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('')}
         </select>`
       : '<select disabled><option>No DC Directory rows</option></select>';
 
@@ -1440,26 +1879,35 @@
 
     return `
       <div class="manual-mpl-tools">
-        <div class="manual-mpl-title">Create MPL References</div>
+        <div class="manual-mpl-title">${isStandaloneMplReferenceMode() ? 'Packing List & Ti-Hi References' : 'Create MPL References'}</div>
         <div class="manual-mpl-grid">
           ${renderManualMplSelect('DC / Name', dcSelect)}
           ${addressSelect('supplier_info', 'Ship From')}
           ${addressSelect('ship_to', 'Ship To')}
           ${addressSelect('bill_to', 'Bill To')}
         </div>
+        ${storefrontCheck.ok ? '' : `<div class="manual-mpl-warning">${escapeHtml(storefrontCheck.message)}</div>`}
       </div>`;
   }
 
   function applyManualMplDcRow(mplIndex, rowIndex) {
     if (rowIndex === '') return;
     const mpl = getMpl(mplIndex);
-    const row = getKeheDcDirectoryRows()[Number(rowIndex)];
+    const row = getActiveDcDirectoryRows()[Number(rowIndex)];
     if (!mpl || !row) return;
+    const nextStorefront = normalizeStorefront(row.storefront || 'KeHE');
+    const selectedStores = getMplSelectedStorefronts(mpl);
     mpl.dc = row.dc || '';
     mpl.dc_name = row.name || '';
+    mpl.storefront = nextStorefront;
+    if (activeKeheDocumentDraft) activeKeheDocumentDraft.storefront = nextStorefront;
     mpl.supplier_info = row.ship_from || DEFAULT_KEHE_SHIP_FROM;
     mpl.ship_to = row.delivery_address || '';
     mpl.bill_to = row.billing_address || '';
+    if (selectedStores.length && !selectedStores.includes(nextStorefront)) {
+      refreshManualMplAfterChange(mpl, `Warning: Directory storefront changed to ${nextStorefront}. Existing selected SKU storefronts must match before PDF generation.`);
+      return;
+    }
     refreshManualMplAfterChange(mpl, 'DC Directory row applied to Create MPL.');
   }
 
@@ -1477,7 +1925,13 @@
     if (!mpl || !activeKeheDocumentDraft) return;
     ensureMplPalletState(mpl);
     syncMplLineNumbers(mpl);
-    markMplPalletizationSource(mpl, 'Manual', 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.');
+    markMplPalletizationSource(
+      mpl,
+      'Manual',
+      isStandaloneMplReferenceMode()
+        ? 'Manual MPL created from standalone Product Master Table and Directory.'
+        : 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.'
+    );
     keheLastMplDraft = activeKeheDocumentDraft;
     renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
@@ -1485,7 +1939,7 @@
   }
 
   function renderMplProductSelect(mplIndex, itemIndex, item) {
-    const rows = getKeheProductMasterRows();
+    const rows = getActiveProductMasterRows();
     const caseRows = rows
       .map((row, index) => ({ row, index }))
       .filter(entry => isProductInPackingList(entry.row));
@@ -1511,7 +1965,7 @@
   function selectMplItemProduct(mplIndex, itemIndex, rowIndex) {
     const mpl = getMpl(mplIndex);
     const item = mpl?.items?.[itemIndex];
-    const product = getKeheProductMasterRows()[Number(rowIndex)];
+    const product = getActiveProductMasterRows()[Number(rowIndex)];
     if (!mpl || !item || !product) return;
     if (!isProductInPackingList(product)) return;
     ensureMplPalletState(mpl);
@@ -1520,15 +1974,25 @@
       item.location_on_pallet = (mpl._pallet_ids && mpl._pallet_ids[0]) || '1';
     }
     applyProductMasterToDraft(activeKeheDocumentDraft, false);
-    setMplManualSource(mpl, 'Manual MPL line item selected from GTIN / Packaging Master Table.');
+    setMplManualSource(
+      mpl,
+      isStandaloneMplReferenceMode()
+        ? 'Manual MPL line item selected from standalone Product Master Table.'
+        : 'Manual MPL line item selected from GTIN / Packaging Master Table.'
+    );
     keheLastMplDraft = activeKeheDocumentDraft;
     renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    setStatus('Line item filled from GTIN / Packaging Master Table.', 'info');
+    const storefronts = getMplSelectedStorefronts(mpl);
+    if (storefronts.length > 1) {
+      setStatus(`Warning: selected SKUs use multiple storefronts (${storefronts.join(', ')}). PDF generation is blocked until they match.`, 'error');
+    } else {
+      setStatus(isStandaloneMplReferenceMode() ? 'Line item filled from standalone Product Master Table.' : 'Line item filled from GTIN / Packaging Master Table.', 'info');
+    }
   }
 
   function matchCaseProductForPallet(item) {
-    const rows = getKeheProductMasterRows().filter(isProductInPackingList);
+    const rows = getActiveProductMasterRows().filter(isProductInPackingList);
     const exactCandidates = [item.case_upc].map(canonicalId).filter(Boolean);
     const exact = rows.find(row => exactCandidates.includes(canonicalId(row.gtin)));
     if (exact) return exact;
@@ -1558,7 +2022,7 @@
 
   function applyProductMasterToDraft(draft, preserveManualWeights = true) {
     if (!draft) return;
-    draft.product_master = getKeheProductMasterRows();
+    draft.product_master = getActiveProductMasterRows();
     if (!Array.isArray(draft.packing_lists)) return;
     draft.packing_lists.forEach(mpl => {
       ensureMplPalletState(mpl);
@@ -1569,6 +2033,7 @@
         if (!product) return;
         item.gtin = product.gtin || item.gtin || '';
         item.sku = product.sku || item.sku || '';
+        item.storefront = normalizeStorefront(product.storefront || item.storefront || '');
         if (product.description && !item.description) item.description = product.description;
         item.packaging_level = product.packaging_level || '';
         item.dimensions_in = product.dimensions_in || '';
@@ -1605,12 +2070,18 @@
     if (!mpl || !activeKeheDocumentDraft) return;
     applyProductMasterToDraft(activeKeheDocumentDraft, false);
     if (mpl.manual_mpl) {
-      markMplPalletizationSource(mpl, 'Manual', 'Manual MPL weights recalculated from GTIN / Packaging Master Table.');
+      markMplPalletizationSource(
+        mpl,
+        'Manual',
+        isStandaloneMplReferenceMode()
+          ? 'Manual MPL weights recalculated from standalone Product Master Table.'
+          : 'Manual MPL weights recalculated from GTIN / Packaging Master Table.'
+      );
     }
     keheLastMplDraft = activeKeheDocumentDraft;
     renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    setStatus('MPL weights recalculated from GTIN / Packaging Master Table.', 'info');
+    setStatus(isStandaloneMplReferenceMode() ? 'MPL weights recalculated from standalone Product Master Table.' : 'MPL weights recalculated from GTIN / Packaging Master Table.', 'info');
   }
 
 
@@ -2035,6 +2506,11 @@
     return candidates.sort((a, b) => (b.ti - a.ti) || (b.fillRatio - a.fillRatio) || (a.caseWidth - b.caseWidth))[0];
   }
 
+  function tihiLayerCapacity(group, constraints) {
+    const orientation = group.baseOrientation || bestTiHiOrientation(group.dims, constraints);
+    return Math.max(1, Number(orientation?.ti || 1));
+  }
+
   function tihiItemLabel(item, index = 0) {
     return item?.sku || item?.item_number || item?.gtin || item?.case_upc || item?.description || `Line ${index + 1}`;
   }
@@ -2066,6 +2542,16 @@
     return tihiIntersectionArea(a, b) > 0.001;
   }
 
+  function tihiTopZ(placement) {
+    return Number(placement.z || 0) + Number(placement.height ?? placement.case_height ?? 0);
+  }
+
+  function tihiZOverlaps(placement, baseZ, height) {
+    const bottom = Number(placement.z || 0);
+    const top = tihiTopZ(placement);
+    return bottom < Number(baseZ || 0) + Number(height || 0) - 0.001 && top > Number(baseZ || 0) + 0.001;
+  }
+
   function tihiSupportSurfaces(placements, layerBaseZ, constraints) {
     if (layerBaseZ <= 0.001) {
       return [{ x: 0, y: 0, length: constraints.max_length_in, width: constraints.max_width_in }];
@@ -2075,6 +2561,17 @@
       .map(p => ({ x: p.x, y: p.y, length: p.length, width: p.width, unitWeight: Number(p.unitWeight || 0) }));
   }
 
+  function tihiSupportLevels(placements, constraints) {
+    const levels = [0];
+    (placements || []).forEach(placement => {
+      const top = tihiTopZ(placement);
+      if (top <= Number(constraints.max_height_in || 0) + 0.001 && !levels.some(level => Math.abs(level - top) <= 0.001)) {
+        levels.push(top);
+      }
+    });
+    return levels.sort((a, b) => a - b);
+  }
+
   function tihiSupportRatio(placement, supportSurfaces, minSupportWeight = 0) {
     const area = placement.length * placement.width;
     if (!(area > 0)) return 0;
@@ -2082,6 +2579,16 @@
       .filter(surface => !Number.isFinite(Number(surface.unitWeight)) || Number(surface.unitWeight || 0) + 0.001 >= minSupportWeight)
       .reduce((sum, surface) => sum + tihiIntersectionArea(placement, surface), 0);
     return Math.min(1, supported / area);
+  }
+
+  function tihiHasLighterSupportOverlap(placement, supportSurfaces, minSupportWeight = 0) {
+    const requiredWeight = Number(minSupportWeight || 0);
+    if (!(requiredWeight > 0)) return false;
+    return supportSurfaces.some(surface => (
+      Number.isFinite(Number(surface.unitWeight))
+      && Number(surface.unitWeight || 0) + 0.001 < requiredWeight
+      && tihiIntersectionArea(placement, surface) > 0.001
+    ));
   }
 
   function tihiCandidateValues(rawValues, maxValue) {
@@ -2095,13 +2602,14 @@
     return values.sort((a, b) => a - b);
   }
 
-  function pickBestLayerPlacement(layerPlacements, supportSurfaces, itemDims, constraints, preferRotated = false, minSupportWeight = 0) {
+  function pickBestLayerPlacement(layerPlacements, supportSurfaces, itemDims, constraints, preferRotated = false, minSupportWeight = 0, blockingPlacements = null, baseZ = 0) {
     const options = [
       { length: itemDims.l, width: itemDims.w, height: itemDims.h, rotated: false },
       { length: itemDims.w, width: itemDims.l, height: itemDims.h, rotated: true }
     ].filter((opt, idx, arr) => idx === arr.findIndex(other => other.length === opt.length && other.width === opt.width));
 
     let best = null;
+    const blockers = Array.isArray(blockingPlacements) ? blockingPlacements : layerPlacements;
     const isBetterScore = (left, right) => {
       for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
         const lv = left[i] ?? 0;
@@ -2118,7 +2626,7 @@
       const maxY = constraints.max_width_in - opt.width;
       const xSeeds = [0, maxX];
       const ySeeds = [0, maxY];
-      layerPlacements.forEach(p => {
+      blockers.forEach(p => {
         xSeeds.push(p.x, p.x + p.length, p.x - opt.length);
         ySeeds.push(p.y, p.y + p.width, p.y - opt.width);
       });
@@ -2132,7 +2640,8 @@
       xs.forEach(x => {
         ys.forEach(y => {
           const placement = { ...opt, x, y };
-          if (layerPlacements.some(existing => tihiRectsOverlap(placement, existing))) return;
+          if (blockers.some(existing => tihiZOverlaps(existing, baseZ, opt.height) && tihiRectsOverlap(placement, existing))) return;
+          if (tihiHasLighterSupportOverlap(placement, supportSurfaces, minSupportWeight)) return;
           const supportRatio = tihiSupportRatio(placement, supportSurfaces, minSupportWeight);
           if (supportRatio < 0.8) return;
           const orientationTie = Math.floor(constraints.max_length_in / opt.length) * Math.floor(constraints.max_width_in / opt.width);
@@ -2262,20 +2771,147 @@
     return { patterns, rows };
   }
 
+  function transformTiHiLayer(layer, constraints, flipX, flipY) {
+    return (layer || []).map(placement => {
+      const x = Number(placement.x || 0);
+      const y = Number(placement.y || 0);
+      const length = Number(placement.length || 0);
+      const width = Number(placement.width || 0);
+      return {
+        ...placement,
+        x: flipX ? Math.max(0, Number(constraints.max_length_in || 0) - x - length) : x,
+        y: flipY ? Math.max(0, Number(constraints.max_width_in || 0) - y - width) : y
+      };
+    });
+  }
+
+  function tihiInternalXEdges(layer, maxLength) {
+    const edges = [];
+    (layer || []).forEach(placement => {
+      const x = Number(placement.x || 0);
+      const length = Number(placement.length || 0);
+      [x, x + length].forEach(edge => {
+        if (edge > 0.001 && edge < Number(maxLength || 0) - 0.001) {
+          edges.push(Number(edge.toFixed(3)));
+        }
+      });
+    });
+    return edges;
+  }
+
+  function tihiEdgeOverlapScore(leftEdges, rightEdges) {
+    let score = 0;
+    const used = new Set();
+    (leftEdges || []).forEach(left => {
+      for (let index = 0; index < (rightEdges || []).length; index += 1) {
+        if (used.has(index)) continue;
+        if (Math.abs(left - rightEdges[index]) <= 0.001) {
+          score += 1;
+          used.add(index);
+          break;
+        }
+      }
+    });
+    return score;
+  }
+
+  function tihiLayerVariantValid(originalLayer, candidateLayer, placements, constraints, levelZ) {
+    const supportSurfaces = tihiSupportSurfaces(placements, levelZ, constraints);
+    const originalSet = new Set(originalLayer || []);
+
+    for (const placement of candidateLayer || []) {
+      const placementWeight = Number(placement.unitWeight || 0);
+      if (tihiHasLighterSupportOverlap(placement, supportSurfaces, placementWeight)) return false;
+      const supportRatio = tihiSupportRatio(placement, supportSurfaces, placementWeight);
+      if (supportRatio < 0.8) return false;
+      placement.supportRatio = supportRatio;
+    }
+
+    for (let index = 0; index < candidateLayer.length; index += 1) {
+      const placement = candidateLayer[index];
+      for (let otherIndex = 0; otherIndex < candidateLayer.length; otherIndex += 1) {
+        if (index === otherIndex) continue;
+        const other = candidateLayer[otherIndex];
+        if (tihiZOverlaps(other, Number(placement.z || 0), Number(placement.height || 0)) && tihiRectsOverlap(placement, other)) return false;
+      }
+      for (const other of placements || []) {
+        if (originalSet.has(other)) continue;
+        if (tihiZOverlaps(other, Number(placement.z || 0), Number(placement.height || 0)) && tihiRectsOverlap(placement, other)) return false;
+      }
+    }
+    return true;
+  }
+
+  function finalizeHeightZonePatterns(placements, constraints) {
+    if (!Array.isArray(placements) || !placements.length) return;
+    const levels = [];
+    placements.forEach(placement => {
+      const z = Number(placement.z || 0);
+      if (!levels.some(level => Math.abs(level - z) <= 0.001)) levels.push(z);
+    });
+    levels.sort((a, b) => a - b);
+
+    levels.forEach((levelZ, levelIndex) => {
+      const layer = placements.filter(placement => Math.abs(Number(placement.z || 0) - levelZ) <= 0.001);
+      layer.forEach(placement => {
+        placement.layerIndex = levelIndex;
+      });
+
+      const previousLayers = levels.slice(Math.max(0, levelIndex - 3), levelIndex)
+        .map(previousZ => placements.filter(placement => Math.abs(Number(placement.z || 0) - previousZ) <= 0.001));
+      const previousEdges = previousLayers.map(previousLayer => tihiInternalXEdges(previousLayer, constraints.max_length_in));
+      const previousSignature = previousLayers.length ? tihiPatternSignature(previousLayers[previousLayers.length - 1]) : '';
+      const variants = [
+        [0, false, false],
+        [1, true, false],
+        [2, false, true],
+        [3, true, true]
+      ];
+      let bestVariant = null;
+      let bestScore = null;
+      const isBetterScore = (left, right) => {
+        if (!right) return true;
+        for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+          const lv = left[index] ?? 0;
+          const rv = right[index] ?? 0;
+          if (lv === rv) continue;
+          return lv > rv;
+        }
+        return false;
+      };
+
+      variants.forEach(([transformIndex, flipX, flipY]) => {
+        const candidateLayer = transformTiHiLayer(layer, constraints, flipX, flipY);
+        if (!tihiLayerVariantValid(layer, candidateLayer, placements, constraints, levelZ)) return;
+        const candidateEdges = tihiInternalXEdges(candidateLayer, constraints.max_length_in);
+        const immediatePenalty = previousEdges.length ? tihiEdgeOverlapScore(candidateEdges, previousEdges[previousEdges.length - 1]) : 0;
+        const recentPenalty = previousEdges.slice(0, -1).reduce((sum, edges) => sum + tihiEdgeOverlapScore(candidateEdges, edges), 0);
+        const signature = tihiPatternSignature(candidateLayer);
+        const transformPreference = transformIndex === levelIndex % 4 ? 1 : 0;
+        const score = [
+          -(immediatePenalty * 3 + recentPenalty),
+          signature === previousSignature ? 0 : 1,
+          transformPreference,
+          -transformIndex
+        ];
+        if (isBetterScore(score, bestScore)) {
+          bestScore = score;
+          bestVariant = candidateLayer;
+        }
+      });
+
+      if (!bestVariant) return;
+      layer.forEach((placement, index) => {
+        placement.x = bestVariant[index].x;
+        placement.y = bestVariant[index].y;
+        placement.supportRatio = bestVariant[index].supportRatio;
+      });
+    });
+  }
+
   function buildPalletTiHiLayout(itemGroups, constraints) {
     const placements = [];
     const overflow = [];
-    let layerIndex = 0;
-    let layerBaseZ = 0;
-    let layerHeight = 0;
-    let layerPlacements = [];
-
-    const startNewLayer = () => {
-      layerBaseZ += layerHeight;
-      layerIndex += 1;
-      layerHeight = 0;
-      layerPlacements = [];
-    };
 
     const activeGroups = [...itemGroups]
       .sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex))
@@ -2283,7 +2919,7 @@
 
     while (activeGroups.some(group => group.remainingCases > 0)) {
       let candidate = null;
-      const supportSurfaces = tihiSupportSurfaces(placements, layerBaseZ, constraints);
+      const supportLevels = tihiSupportLevels(placements, constraints);
       const isBetterCandidateScore = (left, right) => {
         for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
           const lv = left[i] ?? 0;
@@ -2295,25 +2931,31 @@
       };
       activeGroups.forEach(group => {
         if (group.remainingCases <= 0) return;
-        const bestFit = pickBestLayerPlacement(layerPlacements, supportSurfaces, group.dims, constraints, layerIndex % 2 === 1, group.unitWeight || 0);
-        if (!bestFit) return;
-        const placement = bestFit.placement;
-        if (layerBaseZ + Math.max(layerHeight, placement.height) > constraints.max_height_in) return;
-        const score = [
-          group.unitWeight || 0,
-          placement.length * placement.width,
-          ...(bestFit.score || [])
-        ];
-        if (!candidate || isBetterCandidateScore(score, candidate.score)) {
-          candidate = { group, bestFit, score };
-        }
+        supportLevels.forEach((baseZ, levelIndex) => {
+          if (baseZ >= Number(constraints.max_height_in || 0) - 0.001) return;
+          const supportSurfaces = tihiSupportSurfaces(placements, baseZ, constraints);
+          if (!supportSurfaces.length) return;
+          const bestFit = pickBestLayerPlacement([], supportSurfaces, group.dims, constraints, levelIndex % 2 === 1, group.unitWeight || 0, placements, baseZ);
+          if (!bestFit) return;
+          const placement = bestFit.placement;
+          if (baseZ + Number(placement.height || 0) > constraints.max_height_in + 0.001) return;
+          const layerCapacity = tihiLayerCapacity(group, constraints);
+          const layerCaseCount = Math.min(Number(group.remainingCases || 0), layerCapacity);
+          const score = [
+            -(Number(baseZ || 0)),
+            group.unitWeight || 0,
+            Number(group.remainingCases || 0) >= layerCapacity ? 1 : 0,
+            layerCaseCount,
+            placement.length * placement.width,
+            ...(bestFit.score || [])
+          ];
+          if (!candidate || isBetterCandidateScore(score, candidate.score)) {
+            candidate = { group, bestFit, score, baseZ };
+          }
+        });
       });
 
       if (!candidate) {
-        if (layerHeight > 0) {
-          startNewLayer();
-          continue;
-        }
         activeGroups.forEach(group => {
           while (group.remainingCases > 0) {
             overflow.push(group);
@@ -2325,6 +2967,7 @@
 
       const { group, bestFit } = candidate;
       const finalPlacement = bestFit.placement;
+      const baseZ = Number(candidate.baseZ || 0);
       const placed = {
         pallet: group.pallet,
         label: group.label,
@@ -2332,8 +2975,8 @@
         lineLabel: group.lines.join(', '),
         x: finalPlacement.x,
         y: finalPlacement.y,
-        z: layerBaseZ,
-        layerIndex,
+        z: baseZ,
+        layerIndex: 0,
         length: finalPlacement.length,
         width: finalPlacement.width,
         height: finalPlacement.height,
@@ -2342,13 +2985,13 @@
         unitWeight: Number(group.unitWeight || 0)
       };
       placements.push(placed);
-      layerPlacements.push(placed);
 
       group.remainingCases -= 1;
-      layerHeight = Math.max(layerHeight, finalPlacement.height);
     }
 
-    const usedHeight = layerBaseZ + layerHeight;
+    finalizeHeightZonePatterns(placements, constraints);
+
+    const usedHeight = placements.reduce((max, placement) => Math.max(max, tihiTopZ(placement)), 0);
     const caseVolume = placements.reduce((sum, p) => sum + (p.length * p.width * p.height), 0);
     return {
       placements,
@@ -2652,9 +3295,10 @@
       const ry = stackBaseY - ((Number(p.z || 0) + Number(p.height || 0)) * scale);
       drawSnapshotRect(ctx, rx, ry, Number(p.length || 0) * scale, Number(p.height || 0) * scale, p.color || '#d99a4b', '#6b4c24', 1);
     });
-    (entry.layerPatternRows || []).forEach(row => {
+    (entry.layerPatternRows || []).forEach((row, index) => {
       const cy = stackBaseY - ((Number(row.z || 0) + (Number(row.height || 0) / 2)) * scale);
-      drawSnapshotText(ctx, row.letter || '', Math.min(x + w - 20, px + palletW + 16), cy - 7, { align: 'center', size: 13, weight: 900, color: '#dc2626' });
+      const lx = index % 2 === 0 ? Math.max(x + 18, px - 16) : Math.min(x + w - 20, px + palletW + 16);
+      drawSnapshotText(ctx, row.letter || '', lx, cy - 7, { align: 'center', size: 13, weight: 900, color: '#dc2626' });
     });
     drawSnapshotRect(ctx, px, stackBaseY, palletW, palletBaseH, '#ad9d77', '#5b5240', 1);
     const notchW = palletW / 4.5;
@@ -2910,9 +3554,9 @@
     const rects = (entry.placements || []).map(p =>
       `<rect x="${(originX + (p.x * scale)).toFixed(2)}" y="${(stackBaseY - ((p.z + p.height) * scale)).toFixed(2)}" width="${(p.length * scale).toFixed(2)}" height="${(p.height * scale).toFixed(2)}" fill="${p.color}" stroke="#6b4c24" stroke-width="1"/>`
     );
-    const patternLabels = (entry.layerPatternRows || []).map(row => {
+    const patternLabels = (entry.layerPatternRows || []).map((row, index) => {
       const cy = stackBaseY - ((Number(row.z || 0) + (Number(row.height || 0) / 2)) * scale);
-      const lx = Math.min(width - 18, originX + palletW + 11);
+      const lx = index % 2 === 0 ? Math.max(12, originX - 11) : Math.min(width - 18, originX + palletW + 11);
       return `<text x="${lx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="900" fill="#dc2626">${escapeHtml(row.letter || '')}</text>`;
     });
     const notchW = palletW / 4.5;
@@ -3229,6 +3873,8 @@
     activeKeheDocumentDraft = null;
     keheProductMasterRows = loadKeheProductMasterFromStorage();
     keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
+    mplProductMasterRows = loadMplProductMasterFromStorage();
+    mplDirectoryRows = loadMplDirectoryFromStorage();
     keheLastMplDraft = null;
     keheLastPalletLabelDraft = null;
     keheMplPalletizationSource = 'Manual';
@@ -3252,14 +3898,26 @@
     closePreview();
     closeKeheProductMasterModal();
     closeKeheDcDirectoryModal();
+    closeMplProductMasterModal();
+    closeMplDirectoryModal();
     setStatus('', '');
 
     keheProductMasterLoadPromise = loadKeheProductMasterFromBackend();
     keheDcDirectoryLoadPromise = loadKeheDcDirectoryFromBackend();
+    mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
+    mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
     try {
-      await Promise.allSettled([keheProductMasterLoadPromise, keheDcDirectoryLoadPromise]);
+      await Promise.allSettled([
+        keheProductMasterLoadPromise,
+        keheDcDirectoryLoadPromise,
+        mplProductMasterLoadPromise,
+        mplDirectoryLoadPromise
+      ]);
+      seedMplProductMasterFromKeheIfNeeded();
+      seedMplDirectoryFromKeheIfNeeded();
     } finally {
-      renderKeheProductMasterTable();
+      renderMplProductMasterTable();
+      renderMplDirectoryTable();
     }
 
     if (updateHistory) {
@@ -3283,6 +3941,8 @@
     toggleKeheProductMasterPanel(false);
     closeKeheProductMasterModal();
     closeKeheDcDirectoryModal();
+    closeMplProductMasterModal();
+    closeMplDirectoryModal();
     resetKeheXmlDerivedState();
     keheCurrentExtractedSource = null;
     setStatus('', '');
@@ -4571,7 +5231,13 @@
       const mpl = mplMatch ? getMpl(Number(mplMatch[1])) : null;
       if (mpl) {
         if (mpl.manual_mpl) {
-          markMplPalletizationSource(mpl, 'Manual', 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.');
+          markMplPalletizationSource(
+            mpl,
+            'Manual',
+            isStandaloneMplReferenceMode()
+              ? 'Manual MPL created from standalone Product Master Table and Directory.'
+              : 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.'
+          );
         }
         keheLastMplDraft = activeKeheDocumentDraft;
         renderKeheUnifiedReport(activeKeheDocumentDraft);
@@ -5261,9 +5927,13 @@
     const btn = document.getElementById('btn-render-edited-document');
     btn.disabled = true;
     try {
-      activeKeheDocumentDraft.product_master = getKeheProductMasterRows();
+      activeKeheDocumentDraft.product_master = getActiveProductMasterRows();
       applyProductMasterToDraft(activeKeheDocumentDraft, true);
       if (activeKeheDocumentType === 'masterPackingList') {
+        const storefrontCheck = validateMplStorefrontConsistency(activeKeheDocumentDraft);
+        if (!storefrontCheck.ok) {
+          throw new Error(`MPL generation blocked: ${storefrontCheck.message}`);
+        }
         finalizeMplPalletDraft();
         setStatus('Preparing TI-HI preview snapshot for MPL...', 'info');
         await captureCurrentMplTiHiSnapshots(activeKeheDocumentDraft);

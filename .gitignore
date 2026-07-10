@@ -30,3 +30,7 @@ build/
 check_frontend.js
 *.tmp
 *.temp
+
+# Runtime-generated local state
+frankenstein_project/data/kehe_audit_log.json
+frankenstein_project/data/kehe_mpl_drafts.json

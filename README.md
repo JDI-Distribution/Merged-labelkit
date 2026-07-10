@@ -1,20 +1,21 @@
 # Merged LabelKit
 
-Merged LabelKit is a FastAPI web app for two label workflows:
+Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-- Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, then generate one print-ready output PDF and a match report.
-- KeHE: upload ASN XML, manage reference tables, preview/edit documents, and generate GS1 labels, pack labels, master packing lists, pallet labels, and TI-HI pallet layouts.
+- Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
+- KeHE GS1: upload KeHE ASN XML, manage reference tables, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
+- Packing List & Ti-Hi: standalone MPL/TI-HI workspace with its own Product Master and Directory tables, separate from KeHE after the first seed.
 
-The browser UI is served by `frankenstein_project/server.py` from `frankenstein_project/frontend/dist/`.
+The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
 ## Prerequisites
 
 - Windows PowerShell.
-- Python. Known working path on the current workstation:
+- Python. Known working workstation path:
   `C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe`
-- Node.js, used for frontend JavaScript syntax checks.
-- Docker Desktop, used to build `merged-labelkit:latest`.
-- Zoho Catalyst CLI logged into the JDI account.
+- Node.js for frontend JavaScript syntax checks.
+- Docker Desktop for `merged-labelkit:latest`.
+- Zoho Catalyst CLI, logged in to the JDI account.
 - Git remote:
   `https://github.com/JDI-Distribution/Merged-labelkit.git`
 
@@ -27,11 +28,11 @@ $app = "$repo\frankenstein_project"
 
 ## What The App Does
 
-LabelKit has three entry points on the landing page:
+Landing page options:
 
-- `Michaels DTS`: XML plus shipping-label PDF matching.
-- `KeHE GS1`: XML-driven KeHE label and document generation.
-- `Packing List & Ti-Hi`: standalone access to the KeHE MPL/TI-HI editor using the same Product Master and DC Directory data.
+- `Michaels DTS`
+- `KeHE GS1`
+- `Packing List & Ti-Hi`
 
 Shared backend routes:
 
@@ -41,11 +42,18 @@ Shared backend routes:
 - `GET /results/{result_id}/report`
 - `GET /results/{result_id}/file`
 
-The old plain `POST /generate` compatibility route is intentionally removed.
+KeHE and standalone MPL reference table routes:
+
+- `GET/PUT /api/kehe/product-master`
+- `GET/PUT /api/kehe/dc-directory`
+- `GET/PUT /api/mpl/product-master`
+- `GET/PUT /api/mpl/directory`
+- `GET/POST/DELETE /api/kehe/mpl-drafts`
+- `GET /api/kehe/audit-log`
 
 ## Michaels Workflow
 
-1. Open the app and select `Michaels DTS`.
+1. Select `Michaels DTS`.
 2. Upload one or more EDI 856 ASN XML files from Infocon.
 3. Upload ShipStation shipping-label PDFs.
 4. Click `Generate Labels`.
@@ -53,32 +61,19 @@ The old plain `POST /generate` compatibility route is intentionally removed.
 6. Use `Open Preview` or download the generated PDF.
 7. Use `Export for Excel` for the match report CSV.
 
-The report table shows:
-
-- Page
-- Status
-- Method
-- OCR Tracking
-- OCR PO
-- OCR Store
-- Matched XML
-- Note
-
-The table is horizontally scrollable and wraps long OCR/XML values so tracking numbers and notes do not overlap.
+The matching report includes page, status, method, OCR tracking, OCR PO, OCR store, matched XML, and note. The report table is horizontally scrollable and wraps long values so data does not overlap.
 
 ## KeHE Workflow
 
-Important upload note:
+Important XML note:
 
 > Upload multiple XML files only when multiple POs are being shipped together in the same shipment. Otherwise, upload a single XML file for the individual PO.
 
-1. Open the app and select `KeHE GS1`.
+1. Select `KeHE GS1`.
 2. Upload KeHE ASN XML.
 3. Review parsed XML data in `KeHE XML Data & Output Status`.
-4. Use reference tables as needed:
-   - `GTIN / Packaging Master Table`
-   - `DC Directory`
-5. Generate or prepare outputs:
+4. Use `GTIN / Packaging Master Table` and `DC Directory` as needed.
+5. Generate or open:
    - `GS1 Labels Preview`
    - `Pallet Label Preview`
    - `Master Packing List Preview`
@@ -87,26 +82,39 @@ Important upload note:
 
 KeHE functionality:
 
-- `GS1 Labels`: XML-only SSCC-18 / GS1-128 labels.
-- `Pack Labels`: editable GTIN-14 / ITF-14 case and inner-pack labels.
-- `Master Packing List`: editable MPL draft with line-item and pallet assignment.
-- `Pallet Label`: editable pallet placard output.
-- Editable previews for pallet labels, master packing lists, and pack labels before final PDF render.
-- `GTIN / Packaging Master Table` for SKU, GTIN, descriptions, packaging level, dimensions, weights, case quantities, label counts, and whether an item is included in the packing list.
-- `DC Directory` for DC/name, ship-from, delivery, billing, and matching values.
-- `Auto Palletize` for case rows in the MPL editor.
-- `Reverse to XML Palletization` to restore XML-derived pallet assignment.
-- Palletization source display values:
-  - `XML`
-  - `Auto Palletize`
-  - `Manual`
-  - `MPL`
+- GS1 Labels: XML-driven SSCC-18 / GS1-128 label output.
+- Pack Labels: editable GTIN-14 / ITF-14 case and inner-pack labels.
+- Master Packing List: editable MPL draft with line-item and pallet assignment.
+- Pallet Label: editable pallet placard output.
+- Editable previews for GS1 labels, pack labels, pallet labels, and master packing lists.
+- DC Directory for DC/name, ship-from, delivery, billing, and match values.
+- GTIN / Packaging Master Table for GTIN, description, packaging level, dimensions, weight, case quantity, label count, and SKU.
+- Case rows feed MPL dropdowns and auto palletization automatically.
+- Auto Palletize.
+- Reverse to XML Palletization.
+- Palletization source display: `XML`, `Auto Palletize`, `Manual`, or `MPL`.
 - Unassigned and needs-review rows remain visible for user correction.
-- Pallet labels render two placards per pallet.
-- Manual MPL creation is available from both KeHE and `Packing List & Ti-Hi`.
-- Saved MPL drafts can be reopened through `Open Saved MPL`.
-- Excel upload supports bulk update preview and confirm for Product Master and DC Directory.
-- Change History shows audit entries for supported table edits/imports.
+- Pallet labels render 2 placards per pallet.
+- Saved MPL drafts can be reopened and deleted.
+- Excel upload supports preview and confirm for KeHE Product Master and DC Directory.
+- Change History shows supported table edits/imports.
+
+## Packing List & Ti-Hi Workflow
+
+`Packing List & Ti-Hi` is a standalone MPL workspace. It reuses the same editor and TI-HI renderer, but it has separate backend tables:
+
+- `frankenstein_project/data/mpl_product_master.json`
+- `frankenstein_project/data/mpl_directory.json`
+
+The standalone tables seed from KeHE only when they do not exist yet. After that:
+
+- KeHE Product Master changes do not modify the standalone MPL Product Master.
+- KeHE DC Directory changes do not modify the standalone MPL Directory.
+- Standalone MPL table edits do not modify KeHE tables.
+- A storefront can be typed freely.
+- MPL generation blocks mixed storefront SKUs in the same standalone MPL.
+
+The standalone Product Master shows only rows that are usable by MPL. It does not show redundant `In MPL` or `Labels / Unit` columns.
 
 ## Master Packing List And TI-HI
 
@@ -120,22 +128,25 @@ The MPL editor supports:
 - Recalculate weights.
 - Move unassigned items to Pallet 1.
 - Save and reopen drafts.
+- Delete saved drafts.
 - Generate PDF from edited values.
 
 TI-HI behavior:
 
-- TI-HI constraints are pallet-specific.
-- Pallet constraints include max length, max width, max height, and max gross weight.
-- Heavier SKUs are considered first so heavier cases stay lower and lighter cases stack above.
+- Constraints are pallet-specific.
+- Constraints include max length, max width, max height, and max gross weight.
 - Case orientation checks both `L x W` and `W x L`.
-- Alternating layers rotate for structure when supported by the layout.
-- The visual preview is used by the generated MPL PDF.
+- Heavier SKUs stay lower; lighter SKUs stack above.
+- Layers stay height-compatible.
+- Height-zone palletization can fill supported areas at different heights.
+- Alternating and mirrored layer patterns reduce repeated weak seams when feasible.
+- The TI-HI preview snapshot is used by the generated MPL PDF.
 
-`Generate PDF from Edited Values` uses the current editable draft, current Product Master rows, current pallet assignments, and current TI-HI preview state.
+`Generate PDF from Edited Values` uses the current editable draft, current reference tables, current pallet assignments, current pallet constraints, and current TI-HI preview state.
 
 ## Local Run
 
-From the repo root:
+From repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
@@ -218,7 +229,7 @@ Verify:
 Invoke-WebRequest "https://mergedlabelkit.development.catalystappsail.com/health" | Select-Object -ExpandProperty Content
 ```
 
-Expected health response:
+Expected response includes:
 
 ```json
 {"status":"ok"}
@@ -263,12 +274,13 @@ mods = [
     "server",
     "pipelines.kehe_pipeline",
     "pipelines.kehe.common",
+    "pipelines.kehe.tihi",
     "pipelines.michaels_label_pipeline",
     "pipelines.michaels.pipeline",
 ]
 for mod in mods:
     importlib.import_module(mod)
-print("python-app-imports-ok", len(mods))
+print("python-import-ok", len(mods))
 '@ | & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -
 ```
 
@@ -283,11 +295,19 @@ routes = sorted(
     for method in getattr(route, "methods", [])
     if method in {"GET", "POST", "PUT", "DELETE"}
 )
-assert "POST /generate" not in routes
-assert "POST /generate/{kit}" in routes
-assert "GET /api/kehe/mpl-drafts" in routes
-assert "GET /api/kehe/audit-log" in routes
-print("server-route-smoke-ok", {"routes": len(routes), "compat_generate_removed": True})
+required = {
+    "POST /generate/{kit}",
+    "GET /api/kehe/mpl-drafts",
+    "DELETE /api/kehe/mpl-drafts/{draft_id}",
+    "POST /api/kehe/mpl-drafts/{draft_id}/delete",
+    "GET /api/mpl/product-master",
+    "PUT /api/mpl/product-master",
+    "GET /api/mpl/directory",
+    "PUT /api/mpl/directory",
+}
+missing = sorted(required - set(routes))
+assert not missing, missing
+print("server-route-smoke-ok", {"routes": len(routes), "missing": missing})
 '@ | & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -
 ```
 
@@ -346,7 +366,9 @@ Tracked app source:
     |-- start.sh
     |-- data
     |   |-- kehe_dc_directory.json
-    |   `-- kehe_product_master.json
+    |   |-- kehe_product_master.json
+    |   |-- mpl_directory.json
+    |   `-- mpl_product_master.json
     |-- frontend
     |   `-- dist
     |       |-- index.html
@@ -396,13 +418,14 @@ Do not commit:
 - `*.pyc`
 - `check_frontend.js`
 - temporary test files
+- local-only runtime audit/draft files unless intentionally seeding them
 - `merge_pipelines.py`
 - `merge_script.py`
 - `frankenstein_project/appsail-nodejs/`
 - `frankenstein_project/pipelines/kehe_dc_directory.py`
 - `frankenstein_project/pipelines/kehe_dc_directory.json`
 
-The old `frankenstein_project/pipelines/__init__.py` was empty and is not required by the current imports.
+The old `frankenstein_project/pipelines/__init__.py` is not required by the current imports.
 
 ## Quick Rollback / Troubleshooting
 

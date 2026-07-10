@@ -231,6 +231,12 @@
   <section class="mpl-workspace-page hidden" id="mpl-workspace-page">
     <div class="mpl-workspace-shell">
       <div class="mpl-workspace-header mpl-workspace-actions-only">
+        <button class="btn-secondary" type="button" onclick="openMplProductMasterModal()">
+          Product Master Table
+        </button>
+        <button class="btn-secondary" type="button" onclick="openMplDirectoryModal()">
+          Directory Table
+        </button>
         <button class="btn-generate" type="button" onclick="openManualMasterPackingList()">
           Create MPL
         </button>
@@ -295,7 +301,7 @@
       <div class="editor-toolbar">
         <div>
           <div class="editor-title">GTIN / Packaging Master Table</div>
-          <div class="kehe-product-master-subtitle">Saved automatically in this browser. In Packing List controls Create MPL dropdowns and Auto Palletize for Case rows. Case Qty prints on the label; Labels / Unit controls generated copy count.</div>
+          <div class="kehe-product-master-subtitle">Saved automatically in this browser. Case rows feed Create MPL dropdowns and Auto Palletize. Case Qty prints on the label; Labels / Unit controls generated copy count.</div>
         </div>
         <button class="btn-secondary" onclick="closeKeheProductMasterModal()">Close</button>
       </div>
@@ -316,9 +322,8 @@
           <table class="kehe-product-master-table">
             <thead>
               <tr>
-                <th style="width:8%">In Packing List</th>
-                <th style="width:11%">GTIN</th>
-                <th style="width:19%">Description</th>
+                <th style="width:12%">GTIN</th>
+                <th style="width:21%">Description</th>
                 <th style="width:10%">Packaging Level</th>
                 <th style="width:10%">L × W × H (in)</th>
                 <th style="width:7%">Weight (lbs)</th>
@@ -330,7 +335,7 @@
               </tr>
             </thead>
             <tbody id="kehe-product-master-body">
-              <tr><td class="empty-row" colspan="11">No rows yet. Add manually or upload XML to seed rows.</td></tr>
+              <tr><td class="empty-row" colspan="10">No rows yet. Add manually or upload XML to seed rows.</td></tr>
             </tbody>
           </table>
         </div>
@@ -390,6 +395,102 @@
       <div class="editor-footer">
         <button class="btn-secondary" type="button" onclick="addKeheDcDirectoryRow()">Add DC</button>
         <button class="btn-generate" type="button" onclick="closeKeheDcDirectoryModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Standalone MPL Product Master Modal -->
+  <div class="editor-panel" id="mpl-product-master-modal">
+    <div class="editor-dialog kehe-product-master-dialog">
+      <div class="editor-toolbar">
+        <div>
+          <div class="editor-title">Packing List &amp; Ti-Hi Product Master Table</div>
+          <div class="kehe-product-master-subtitle">Independent from KeHE after the first copy. Storefront can be typed freely; selected Case rows appear in Create MPL.</div>
+        </div>
+        <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
+      </div>
+
+      <div class="editor-body">
+        <div class="kehe-product-master-toolbar">
+          <div>
+            <div class="kehe-product-master-title">Editable Product Data</div>
+            <div class="kehe-product-master-subtitle">Use one storefront per MPL. Mixed storefront SKUs block PDF generation.</div>
+          </div>
+          <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
+        </div>
+
+        <div class="kehe-product-master-scroll">
+          <table class="kehe-product-master-table">
+            <thead>
+              <tr>
+                <th style="width:10%">Storefront</th>
+                <th style="width:12%">GTIN</th>
+                <th style="width:20%">Description</th>
+                <th style="width:10%">Packaging Level</th>
+                <th style="width:10%">L × W × H (in)</th>
+                <th style="width:8%">Weight</th>
+                <th style="width:8%">Case Qty</th>
+                <th style="width:12%">SKU</th>
+                <th style="width:5%">Action</th>
+              </tr>
+            </thead>
+            <tbody id="mpl-product-master-body">
+              <tr><td class="empty-row" colspan="9">No rows yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="editor-footer">
+        <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
+        <button class="btn-generate" type="button" onclick="closeMplProductMasterModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Standalone MPL Directory Modal -->
+  <div class="editor-panel" id="mpl-directory-modal">
+    <div class="editor-dialog kehe-dc-directory-dialog">
+      <div class="editor-toolbar">
+        <div>
+          <div class="editor-title">Packing List &amp; Ti-Hi Directory Table</div>
+          <div class="kehe-product-master-subtitle">Independent Ship From, Ship To, and Bill To directory for generic storefront MPLs.</div>
+        </div>
+        <button class="btn-secondary" onclick="closeMplDirectoryModal()">Close</button>
+      </div>
+
+      <div class="editor-body">
+        <div class="kehe-product-master-toolbar">
+          <div>
+            <div class="kehe-product-master-title">Editable Directory Data</div>
+            <div class="kehe-product-master-subtitle">Match Values and Print Pallet Label are intentionally not included here.</div>
+          </div>
+          <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
+        </div>
+
+        <div class="kehe-product-master-scroll">
+          <table class="kehe-dc-directory-table">
+            <thead>
+              <tr>
+                <th style="width:10%">Storefront</th>
+                <th style="width:6%">Code</th>
+                <th style="width:12%">Name</th>
+                <th style="width:22%">Ship From</th>
+                <th style="width:22%">Ship To</th>
+                <th style="width:22%">Bill To</th>
+                <th style="width:6%">Action</th>
+              </tr>
+            </thead>
+            <tbody id="mpl-directory-body">
+              <tr><td class="empty-row" colspan="7">No directory rows yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="editor-footer">
+        <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
+        <button class="btn-generate" type="button" onclick="closeMplDirectoryModal()">Done</button>
       </div>
     </div>
   </div>

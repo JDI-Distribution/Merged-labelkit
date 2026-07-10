@@ -9,3 +9,5 @@ check_frontend.js
 tmp/
 frankenstein_project/.catalystrc
 frankenstein_project/appsail-nodejs/
+frankenstein_project/data/kehe_audit_log.json
+frankenstein_project/data/kehe_mpl_drafts.json

@@ -14,7 +14,11 @@
         "KEHE_MPL_DRAFTS_STORE": "auto",
         "KEHE_MPL_DRAFTS_TABLE": "kehe_mpl_drafts",
         "KEHE_AUDIT_LOG_STORE": "auto",
-        "KEHE_AUDIT_LOG_TABLE": "kehe_audit_log"
+        "KEHE_AUDIT_LOG_TABLE": "kehe_audit_log",
+        "MPL_PRODUCT_MASTER_STORE": "auto",
+        "MPL_PRODUCT_MASTER_TABLE": "mpl_product_master",
+        "MPL_DIRECTORY_STORE": "auto",
+        "MPL_DIRECTORY_TABLE": "mpl_directory"
       }
     }
   ]

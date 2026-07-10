@@ -4007,6 +4007,16 @@ def _mpl_score_gt(left: Tuple[float, ...], right: Tuple[float, ...]) -> bool:
     return False
 
 
+def _mpl_tihi_layer_capacity(group: Dict[str, Any], constraints: Dict[str, float]) -> int:
+    orientation = group.get("base_orientation")
+    if not orientation:
+        orientation = _mpl_best_tihi_orientation(group.get("dimensions") or (0.0, 0.0, 0.0), constraints)
+    try:
+        return max(1, int((orientation or {}).get("tie") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _mpl_rect_length(rect: Dict[str, Any]) -> float:
     return float(rect["length"] if "length" in rect else rect.get("case_length") or 0.0)
 
@@ -4025,6 +4035,16 @@ def _mpl_tihi_intersection_area(a: Dict[str, Any], b: Dict[str, Any]) -> float:
 
 def _mpl_tihi_rects_overlap(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return _mpl_tihi_intersection_area(a, b) > 0.001
+
+
+def _mpl_tihi_top_z(placement: Dict[str, Any]) -> float:
+    return float(placement.get("z") or 0.0) + float(placement.get("case_height") or placement.get("height") or 0.0)
+
+
+def _mpl_tihi_z_overlaps(placement: Dict[str, Any], base_z: float, height: float) -> bool:
+    bottom = float(placement.get("z") or 0.0)
+    top = _mpl_tihi_top_z(placement)
+    return bottom < base_z + height - 0.001 and top > base_z + 0.001
 
 
 def _mpl_tihi_support_surfaces(
@@ -4048,6 +4068,18 @@ def _mpl_tihi_support_surfaces(
     return surfaces
 
 
+def _mpl_tihi_support_levels(
+    placements: List[Dict[str, Any]],
+    constraints: Dict[str, float],
+) -> List[float]:
+    levels = [0.0]
+    for placement in placements:
+        top_z = _mpl_tihi_top_z(placement)
+        if top_z <= constraints["max_height_in"] + 0.001 and not any(abs(top_z - level) <= 0.001 for level in levels):
+            levels.append(top_z)
+    return sorted(levels)
+
+
 def _mpl_tihi_support_ratio(
     placement: Dict[str, Any],
     support_surfaces: List[Dict[str, float]],
@@ -4062,6 +4094,22 @@ def _mpl_tihi_support_ratio(
         if "unit_weight" not in surface or float(surface.get("unit_weight") or 0.0) + 0.001 >= min_support_weight
     )
     return min(1.0, supported_area / area)
+
+
+def _mpl_tihi_has_lighter_support_overlap(
+    placement: Dict[str, Any],
+    support_surfaces: List[Dict[str, float]],
+    min_support_weight: float = 0.0,
+) -> bool:
+    required_weight = float(min_support_weight or 0.0)
+    if required_weight <= 0:
+        return False
+    return any(
+        "unit_weight" in surface
+        and float(surface.get("unit_weight") or 0.0) + 0.001 < required_weight
+        and _mpl_tihi_intersection_area(placement, surface) > 0.001
+        for surface in support_surfaces
+    )
 
 
 def _mpl_tihi_candidate_values(raw_values: List[float], max_value: float) -> List[float]:
@@ -4086,9 +4134,12 @@ def _mpl_pick_best_layer_placement(
     constraints: Dict[str, float],
     prefer_rotated: bool = False,
     min_support_weight: float = 0.0,
+    blocking_placements: Optional[List[Dict[str, Any]]] = None,
+    base_z: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     options = _mpl_tihi_placement_options(dimensions)
     best: Optional[Dict[str, Any]] = None
+    blockers = blocking_placements if blocking_placements is not None else layer_placements
     for option in options:
         if option["case_length"] > constraints["max_length_in"] or option["case_width"] > constraints["max_width_in"]:
             continue
@@ -4096,11 +4147,11 @@ def _mpl_pick_best_layer_placement(
         max_y = constraints["max_width_in"] - option["case_width"]
         x_seeds = [0.0, max_x]
         y_seeds = [0.0, max_y]
-        for placed in layer_placements:
+        for placed in blockers:
             x = float(placed.get("x") or 0.0)
             y = float(placed.get("y") or 0.0)
-            x_seeds.extend([x, x + float(placed.get("case_length") or 0.0), x - option["case_length"]])
-            y_seeds.extend([y, y + float(placed.get("case_width") or 0.0), y - option["case_width"]])
+            x_seeds.extend([x, x + _mpl_rect_length(placed), x - option["case_length"]])
+            y_seeds.extend([y, y + _mpl_rect_width(placed), y - option["case_width"]])
         for surface in support_surfaces:
             x = float(surface.get("x") or 0.0)
             y = float(surface.get("y") or 0.0)
@@ -4112,7 +4163,13 @@ def _mpl_pick_best_layer_placement(
         for x in _mpl_tihi_candidate_values(x_seeds, max_x):
             for y in _mpl_tihi_candidate_values(y_seeds, max_y):
                 placement = {**option, "x": x, "y": y}
-                if any(_mpl_tihi_rects_overlap(placement, existing) for existing in layer_placements):
+                if any(
+                    _mpl_tihi_z_overlaps(existing, base_z, float(option["case_height"]))
+                    and _mpl_tihi_rects_overlap(placement, existing)
+                    for existing in blockers
+                ):
+                    continue
+                if _mpl_tihi_has_lighter_support_overlap(placement, support_surfaces, min_support_weight):
                     continue
                 support_ratio = _mpl_tihi_support_ratio(placement, support_surfaces, min_support_weight)
                 if support_ratio < 0.8:
@@ -4277,20 +4334,151 @@ def _mpl_build_tihi_layer_patterns(placements: List[Dict[str, Any]]) -> Tuple[Li
     return patterns, rows
 
 
+def _mpl_tihi_transform_layer(
+    layer: List[Dict[str, Any]],
+    constraints: Dict[str, float],
+    flip_x: bool,
+    flip_y: bool,
+) -> List[Dict[str, Any]]:
+    transformed: List[Dict[str, Any]] = []
+    for placement in layer:
+        x = float(placement.get("x") or 0.0)
+        y = float(placement.get("y") or 0.0)
+        length = float(placement.get("case_length") or 0.0)
+        width = float(placement.get("case_width") or 0.0)
+        transformed.append({
+            **placement,
+            "x": max(0.0, constraints["max_length_in"] - x - length) if flip_x else x,
+            "y": max(0.0, constraints["max_width_in"] - y - width) if flip_y else y,
+        })
+    return transformed
+
+
+def _mpl_tihi_internal_x_edges(layer: List[Dict[str, Any]], max_length: float) -> List[float]:
+    edges: List[float] = []
+    for placement in layer:
+        x = float(placement.get("x") or 0.0)
+        length = _mpl_rect_length(placement)
+        for edge in (x, x + length):
+            if 0.001 < edge < max_length - 0.001:
+                edges.append(round(edge, 3))
+    return edges
+
+
+def _mpl_tihi_edge_overlap_score(left_edges: List[float], right_edges: List[float]) -> int:
+    score = 0
+    used: set[int] = set()
+    for left in left_edges:
+        for index, right in enumerate(right_edges):
+            if index in used:
+                continue
+            if abs(left - right) <= 0.001:
+                score += 1
+                used.add(index)
+                break
+    return score
+
+
+def _mpl_tihi_layer_variant_valid(
+    original_layer: List[Dict[str, Any]],
+    candidate_layer: List[Dict[str, Any]],
+    placements: List[Dict[str, Any]],
+    constraints: Dict[str, float],
+    level_z: float,
+) -> bool:
+    support_surfaces = _mpl_tihi_support_surfaces(placements, level_z, constraints)
+    layer_ids = {id(placement) for placement in original_layer}
+
+    for placement in candidate_layer:
+        placement_weight = float(placement.get("unit_weight") or 0.0)
+        if _mpl_tihi_has_lighter_support_overlap(placement, support_surfaces, placement_weight):
+            return False
+        support_ratio = _mpl_tihi_support_ratio(placement, support_surfaces, placement_weight)
+        if support_ratio < 0.8:
+            return False
+        placement["support_ratio"] = support_ratio
+
+    for index, placement in enumerate(candidate_layer):
+        for other_index, other in enumerate(candidate_layer):
+            if index == other_index:
+                continue
+            if _mpl_tihi_z_overlaps(other, float(placement.get("z") or 0.0), float(placement.get("case_height") or 0.0)) and _mpl_tihi_rects_overlap(placement, other):
+                return False
+        for other in placements:
+            if id(other) in layer_ids:
+                continue
+            if _mpl_tihi_z_overlaps(other, float(placement.get("z") or 0.0), float(placement.get("case_height") or 0.0)) and _mpl_tihi_rects_overlap(placement, other):
+                return False
+    return True
+
+
+def _mpl_finalize_height_zone_patterns(
+    placements: List[Dict[str, Any]],
+    constraints: Dict[str, float],
+) -> None:
+    if not placements:
+        return
+    levels: List[float] = []
+    for placement in placements:
+        z = float(placement.get("z") or 0.0)
+        if not any(abs(z - level) <= 0.001 for level in levels):
+            levels.append(z)
+    levels.sort()
+    for level_index, level_z in enumerate(levels):
+        layer = [placement for placement in placements if abs(float(placement.get("z") or 0.0) - level_z) <= 0.001]
+        for placement in layer:
+            placement["layer_index"] = level_index
+
+        previous_layers = [
+            [placement for placement in placements if abs(float(placement.get("z") or 0.0) - previous_z) <= 0.001]
+            for previous_z in levels[max(0, level_index - 3):level_index]
+        ]
+        previous_edges = [
+            _mpl_tihi_internal_x_edges(previous_layer, constraints["max_length_in"])
+            for previous_layer in previous_layers
+        ]
+        previous_signature = _mpl_tihi_layer_signature(previous_layers[-1]) if previous_layers else ""
+
+        variants = [
+            (0, False, False),
+            (1, True, False),
+            (2, False, True),
+            (3, True, True),
+        ]
+        best_variant: Optional[List[Dict[str, Any]]] = None
+        best_score: Optional[Tuple[float, ...]] = None
+        for transform_index, flip_x, flip_y in variants:
+            candidate_layer = _mpl_tihi_transform_layer(layer, constraints, flip_x, flip_y)
+            if not _mpl_tihi_layer_variant_valid(layer, candidate_layer, placements, constraints, level_z):
+                continue
+
+            candidate_edges = _mpl_tihi_internal_x_edges(candidate_layer, constraints["max_length_in"])
+            immediate_penalty = _mpl_tihi_edge_overlap_score(candidate_edges, previous_edges[-1]) if previous_edges else 0
+            recent_penalty = sum(_mpl_tihi_edge_overlap_score(candidate_edges, edges) for edges in previous_edges[:-1])
+            signature = _mpl_tihi_layer_signature(candidate_layer)
+            transform_preference = 1.0 if transform_index == level_index % 4 else 0.0
+            score = (
+                -float(immediate_penalty * 3 + recent_penalty),
+                0.0 if signature == previous_signature else 1.0,
+                transform_preference,
+                -float(transform_index),
+            )
+            if best_score is None or _mpl_score_gt(score, best_score):
+                best_score = score
+                best_variant = candidate_layer
+
+        if best_variant is None:
+            continue
+
+        for placement, candidate in zip(layer, best_variant):
+            placement["x"] = candidate["x"]
+            placement["y"] = candidate["y"]
+            placement["support_ratio"] = candidate["support_ratio"]
+
+
 def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dict[str, float]) -> Dict[str, Any]:
     placements: List[Dict[str, Any]] = []
     overflow_count = 0
-    layer_index = 0
-    layer_base_z = 0.0
-    layer_height = 0.0
-    layer_placements: List[Dict[str, Any]] = []
-
-    def _start_new_layer() -> None:
-        nonlocal layer_index, layer_base_z, layer_height, layer_placements
-        layer_base_z += layer_height
-        layer_index += 1
-        layer_height = 0.0
-        layer_placements = []
 
     active_groups = [
         {**group, "remaining_cases": int(group.get("assigned_cases") or 0)}
@@ -4302,39 +4490,50 @@ def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dic
 
     while any(group["remaining_cases"] > 0 for group in active_groups):
         candidate: Optional[Dict[str, Any]] = None
-        support_surfaces = _mpl_tihi_support_surfaces(placements, layer_base_z, constraints)
+        support_levels = _mpl_tihi_support_levels(placements, constraints)
         for group in active_groups:
             if group["remaining_cases"] <= 0:
                 continue
-            best_fit = _mpl_pick_best_layer_placement(
-                layer_placements,
-                support_surfaces,
-                group["dimensions"],
-                constraints,
-                layer_index % 2 == 1,
-                float(group.get("unit_weight") or 0.0),
-            )
-            if best_fit is None:
-                continue
-            placement = best_fit["placement"]
-            if layer_base_z + max(layer_height, placement["case_height"]) > constraints["max_height_in"]:
-                continue
-            score = (
-                float(group.get("unit_weight") or 0.0),
-                float(placement["case_length"]) * float(placement["case_width"]),
-                *tuple(best_fit.get("score") or ()),
-            )
-            if candidate is None or _mpl_score_gt(score, candidate["score"]):
-                candidate = {
-                    "group": group,
-                    "best_fit": best_fit,
-                    "score": score,
-                }
+            for level_index, base_z in enumerate(support_levels):
+                if base_z >= constraints["max_height_in"] - 0.001:
+                    continue
+                support_surfaces = _mpl_tihi_support_surfaces(placements, base_z, constraints)
+                if not support_surfaces:
+                    continue
+                best_fit = _mpl_pick_best_layer_placement(
+                    [],
+                    support_surfaces,
+                    group["dimensions"],
+                    constraints,
+                    level_index % 2 == 1,
+                    float(group.get("unit_weight") or 0.0),
+                    placements,
+                    base_z,
+                )
+                if best_fit is None:
+                    continue
+                placement = best_fit["placement"]
+                if base_z + float(placement["case_height"]) > constraints["max_height_in"] + 0.001:
+                    continue
+                layer_capacity = _mpl_tihi_layer_capacity(group, constraints)
+                layer_case_count = min(int(group.get("remaining_cases") or 0), layer_capacity)
+                score = (
+                    -float(base_z),
+                    float(group.get("unit_weight") or 0.0),
+                    1.0 if int(group.get("remaining_cases") or 0) >= layer_capacity else 0.0,
+                    float(layer_case_count),
+                    float(placement["case_length"]) * float(placement["case_width"]),
+                    *tuple(best_fit.get("score") or ()),
+                )
+                if candidate is None or _mpl_score_gt(score, candidate["score"]):
+                    candidate = {
+                        "group": group,
+                        "best_fit": best_fit,
+                        "score": score,
+                        "base_z": base_z,
+                    }
 
         if candidate is None:
-            if layer_height > 0:
-                _start_new_layer()
-                continue
             for group in active_groups:
                 overflow_count += max(0, int(group.get("remaining_cases") or 0))
                 group["remaining_cases"] = 0
@@ -4343,12 +4542,13 @@ def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dic
         group = candidate["group"]
         best_fit = candidate["best_fit"]
         oriented = best_fit["placement"]
+        base_z = float(candidate["base_z"])
 
         placed = {
             "x": oriented["x"],
             "y": oriented["y"],
-            "z": layer_base_z,
-            "layer_index": layer_index,
+            "z": base_z,
+            "layer_index": 0,
             "case_length": oriented["case_length"],
             "case_width": oriented["case_width"],
             "case_height": oriented["case_height"],
@@ -4359,10 +4559,10 @@ def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dic
             "support_ratio": float(best_fit.get("support_ratio") or 1.0),
         }
         placements.append(placed)
-        layer_placements.append(placed)
 
         group["remaining_cases"] = max(0, int(group["remaining_cases"]) - 1)
-        layer_height = max(layer_height, oriented["case_height"])
+
+    _mpl_finalize_height_zone_patterns(placements, constraints)
 
     case_volume = sum(
         float(p.get("case_length") or 0.0)
@@ -4374,7 +4574,7 @@ def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dic
     pallet_fill_pct = min(100.0, (case_volume / pallet_volume) * 100.0) if pallet_volume > 0 else 0.0
     return {
         "placements": placements,
-        "used_height": layer_base_z + layer_height,
+        "used_height": max((_mpl_tihi_top_z(placement) for placement in placements), default=0.0),
         "overflow_count": overflow_count,
         "pallet_fill_pct": pallet_fill_pct,
     }
@@ -4596,18 +4796,20 @@ def _mpl_draw_tihi_side_view(
             0.35,
         )
 
-    label_x = min(x + w - 5, px + pallet_w + 8)
+    label_left_x = max(x + 5, px - 10)
+    label_right_x = min(x + w - 5, px + pallet_w + 8)
     c.setFillColorRGB(0.86, 0.15, 0.15)
     c.setFont("Helvetica-Bold", 6.8)
-    for row in entry.get("layer_pattern_rows", []):
+    for index, row in enumerate(entry.get("layer_pattern_rows", [])):
         center_y = py + pallet_base_h + (float(row.get("z") or 0.0) + (float(row.get("height") or 0.0) / 2.0)) * scale
+        label_x = label_left_x if index % 2 == 0 else label_right_x
         c.drawCentredString(label_x, center_y - 2.3, _mpl_clean(row.get("letter"))[:3])
 
     c.setFillColorRGB(*_COLOR_LABEL)
     c.setFont("Helvetica", 5.0)
     c.drawCentredString(px + pallet_w / 2, py - 7, f"{int(round(constraints['max_length_in']))} in")
     c.saveState()
-    c.translate(px - 8, py + pallet_base_h + stack_h / 2)
+    c.translate(px - 20, py + pallet_base_h + stack_h / 2)
     c.rotate(90)
     c.drawCentredString(0, 0, f"{int(round(float(entry.get('used_height') or 0.0)))} in")
     c.restoreState()
