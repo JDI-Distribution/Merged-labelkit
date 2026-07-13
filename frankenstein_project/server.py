@@ -516,10 +516,10 @@ def _init_catalyst_app(request: Request) -> Any:
     except Exception:
         return None
     try:
-        return zcatalyst_sdk.initialize(req=request)
+        return zcatalyst_sdk.initialize(scope="admin", req=request)
     except Exception:
         try:
-            return zcatalyst_sdk.initialize(request)
+            return zcatalyst_sdk.initialize(req=request)
         except Exception:
             return None
 
