@@ -660,7 +660,7 @@ def _datastore_row_to_audit(row: Dict[str, Any]) -> Dict[str, Any]:
             actor = {}
     return {
         "id": row.get("AUDIT_ID") or row.get("id") or row.get("ROWID") or "",
-        "timestamp": row.get("TIMESTAMP") or row.get("timestamp") or "",
+        "timestamp": row.get("EVENT_TIMESTAMP") or row.get("TIMESTAMP") or row.get("timestamp") or "",
         "actor": actor,
         "table": row.get("TABLE_NAME") or row.get("table") or "",
         "action": row.get("ACTION") or row.get("action") or "",
@@ -678,7 +678,7 @@ def _datastore_row_to_audit(row: Dict[str, Any]) -> Dict[str, Any]:
 def _audit_to_datastore_row(entry: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "AUDIT_ID": str(entry.get("id") or uuid.uuid4().hex),
-        "TIMESTAMP": str(entry.get("timestamp") or _now_iso()),
+        "EVENT_TIMESTAMP": str(entry.get("timestamp") or _now_iso()),
         "ACTOR_JSON": json.dumps(entry.get("actor") or {}, sort_keys=True),
         "TABLE_NAME": str(entry.get("table") or ""),
         "ACTION": str(entry.get("action") or ""),

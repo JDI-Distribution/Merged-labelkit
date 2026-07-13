@@ -283,7 +283,7 @@ catalyst ds:export --table kehe_audit_log
 Planned audit fields:
 
 - `AUDIT_ID`
-- `TIMESTAMP`
+- `EVENT_TIMESTAMP`
 - `USER_ID`
 - `USER_EMAIL`
 - `USER_NAME`
