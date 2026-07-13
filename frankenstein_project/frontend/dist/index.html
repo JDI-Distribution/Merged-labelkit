@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260713-auth-lock">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260713-embedded-auth">
 </head>
 <body>
 
@@ -35,12 +35,12 @@
 </header>
 
 <section class="auth-gate visible" id="auth-gate">
-  <div class="auth-card">
+  <div class="auth-card auth-card-embedded">
     <div class="auth-kicker">JDI LabelKit</div>
     <h1>Sign in to continue</h1>
-    <p id="auth-login-hint">Use your invited Catalyst account to continue.</p>
-    <button class="btn-generate" id="auth-login-btn" type="button" onclick="handleAuthLogin()">Sign In</button>
-    <a class="auth-reset-link hidden" id="auth-reset-link" href="#">Reset password</a>
+    <p id="auth-login-hint">Use your invited Catalyst account below.</p>
+    <div class="embedded-auth-frame" id="embedded-auth-frame"></div>
+    <div class="embedded-auth-status" id="embedded-auth-status">Loading secure sign-in...</div>
   </div>
 </section>
 
@@ -618,9 +618,9 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://static.zohocdn.com/catalyst/sdk/js/4.0.0/catalystWebSDK.js"></script>
+<script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260713-auth-lock"></script>
+<script src="/assets/js/app.js?v=20260713-embedded-auth"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

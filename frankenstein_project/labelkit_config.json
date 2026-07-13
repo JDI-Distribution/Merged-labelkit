@@ -5,9 +5,7 @@
     "local": {
       "app_env": "local",
       "auth_required": false,
-      "auth_login_url": "",
-      "auth_logout_url": "",
-      "auth_reset_url": "",
+      "auth_mode": "none",
       "allow_local_json_fallback": true,
       "allow_browser_local_cache": true,
       "mpl_product_master_store": "auto",
@@ -22,9 +20,7 @@
     "catalyst": {
       "app_env": "production",
       "auth_required": true,
-      "auth_login_url": "/__catalyst/auth/login",
-      "auth_logout_url": "/__catalyst/auth/login",
-      "auth_reset_url": "/__catalyst/auth/login",
+      "auth_mode": "embedded",
       "allow_local_json_fallback": false,
       "allow_browser_local_cache": false,
       "mpl_product_master_store": "datastore",

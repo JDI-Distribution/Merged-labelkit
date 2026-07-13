@@ -193,16 +193,17 @@
     }
     .auth-gate.visible { display: flex; }
     .auth-card {
-      width: min(460px, 92vw);
+      width: min(520px, 92vw);
       border: 1px solid #d6dee9;
       border-radius: 8px;
       background: #fff;
-      padding: 30px;
+      padding: 28px;
       box-shadow: 0 20px 50px rgba(15, 23, 42, 0.14);
       display: grid;
       gap: 14px;
       text-align: left;
     }
+    .auth-card-embedded { gap: 12px; }
     .auth-kicker {
       color: var(--jdi-orange);
       font-size: 11px;
@@ -221,14 +222,22 @@
       font-size: 14px;
       line-height: 1.5;
     }
-    .auth-reset-link {
-      color: #0f5ea8;
-      font-size: 12px;
-      font-weight: 800;
-      text-decoration: none;
-      width: max-content;
+    .embedded-auth-frame {
+      min-height: 430px;
+      width: 100%;
+      overflow: hidden;
     }
-    .auth-reset-link:hover { text-decoration: underline; }
+    .embedded-auth-frame iframe {
+      width: 100%;
+      min-height: 430px;
+      border: 0;
+    }
+    .embedded-auth-status {
+      color: #52627a;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .embedded-auth-status.hidden { display: none; }
     header.auth-locked .btn-change-kit,
     .main.auth-locked { pointer-events: none; user-select: none; }
     .main.auth-locked { visibility: hidden; }

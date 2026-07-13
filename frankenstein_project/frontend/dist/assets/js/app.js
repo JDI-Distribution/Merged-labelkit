@@ -290,10 +290,8 @@
   let appRuntimeConfig = {
     app_env: 'local',
     auth_required: false,
+    auth_mode: 'none',
     authenticated: true,
-    login_url: '',
-    logout_url: '',
-    reset_url: '',
     allow_local_json_fallback: true,
     allow_browser_local_cache: true,
     user: { authenticated: true, name: 'Local user', role: 'Admin', role_name: 'Local Admin' },
@@ -324,6 +322,7 @@
   let mplDirectorySaveTimer = null;
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
+  let embeddedAuthMounted = false;
   const pages = ['home', 'michaels', 'kehe', 'mpl'];
 
   fetch('/health').catch(() => {});
@@ -355,10 +354,8 @@
       appRuntimeConfig = {
         ...appRuntimeConfig,
         auth_required: true,
+        auth_mode: 'embedded',
         authenticated: false,
-        login_url: appRuntimeConfig.login_url || '/__catalyst/auth/login',
-        logout_url: appRuntimeConfig.logout_url || '/__catalyst/auth/login',
-        reset_url: appRuntimeConfig.reset_url || '/__catalyst/auth/login',
         user: { authenticated: false, role: 'User', role_name: 'Unknown' },
         permissions: {}
       };
@@ -380,9 +377,7 @@
     const userChip = document.getElementById('auth-user-chip');
     const userName = document.getElementById('auth-user-name');
     const userRole = document.getElementById('auth-user-role');
-    const loginButton = document.getElementById('auth-login-btn');
     const logoutButton = document.getElementById('auth-logout-btn');
-    const resetLink = document.getElementById('auth-reset-link');
     const loginHint = document.getElementById('auth-login-hint');
     const needsLogin = !!appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated;
 
@@ -393,40 +388,52 @@
     if (userChip) userChip.classList.toggle('hidden', !appRuntimeConfig.authenticated);
     if (userName) userName.textContent = authUserLabel();
     if (userRole) userRole.textContent = appRuntimeConfig?.user?.role_name || appRuntimeConfig?.user?.role || 'User';
-    if (logoutButton) logoutButton.classList.toggle('hidden', !appRuntimeConfig.authenticated || !appRuntimeConfig.logout_url);
-    if (resetLink) {
-      resetLink.classList.toggle('hidden', !appRuntimeConfig.reset_url);
-      resetLink.href = appRuntimeConfig.reset_url || '#';
-    }
-    if (loginButton) {
-      loginButton.disabled = !appRuntimeConfig.login_url;
-      loginButton.textContent = appRuntimeConfig.login_url ? 'Sign In' : 'Hosted Login URL Missing';
-    }
+    if (logoutButton) logoutButton.classList.toggle('hidden', !appRuntimeConfig.authenticated);
     if (loginHint) {
-      loginHint.textContent = appRuntimeConfig.login_url
-        ? 'Use your invited Catalyst account to continue.'
-        : 'Set profiles.catalyst.auth_login_url in frankenstein_project/labelkit_config.json after configuring Hosted Authentication.';
+      loginHint.textContent = needsLogin
+        ? 'Use your invited Catalyst account below.'
+        : 'Signed in.';
     }
+    renderEmbeddedAuth(needsLogin);
     applyPermissionUi();
   }
 
-  function handleAuthLogin() {
-    if (appRuntimeConfig.login_url) {
-      window.location.href = appRuntimeConfig.login_url;
+  function renderEmbeddedAuth(needsLogin) {
+    const frame = document.getElementById('embedded-auth-frame');
+    const status = document.getElementById('embedded-auth-status');
+    if (!frame || !needsLogin) return;
+    if (appRuntimeConfig.auth_mode !== 'embedded') {
+      if (status) status.textContent = 'Authentication is not enabled for this environment.';
+      return;
+    }
+    if (embeddedAuthMounted) return;
+    if (!window.catalyst?.auth?.signIn) {
+      if (status) status.textContent = 'Embedded Authentication is available after Catalyst initializes this app.';
+      return;
+    }
+    try {
+      embeddedAuthMounted = true;
+      frame.innerHTML = '';
+      window.catalyst.auth.signIn('embedded-auth-frame', {
+        service_url: window.location.pathname + window.location.search + window.location.hash
+      });
+      if (status) status.classList.add('hidden');
+    } catch (err) {
+      embeddedAuthMounted = false;
+      if (status) status.textContent = err?.message || 'Embedded Authentication could not be loaded.';
     }
   }
 
   function handleAuthLogout() {
-    const redirectUrl = appRuntimeConfig.logout_url || appRuntimeConfig.login_url || '/__catalyst/auth/login';
     try {
       if (window.catalyst?.auth?.signOut) {
-        window.catalyst.auth.signOut(redirectUrl);
+        window.catalyst.auth.signOut('/');
         return;
       }
     } catch (_err) {
-      // Fall back to the hosted login page if the Catalyst SDK is unavailable.
+      // Fall back to a reload if the Catalyst SDK is unavailable.
     }
-    window.location.href = redirectUrl;
+    window.location.reload();
   }
 
   function applyPermissionUi() {

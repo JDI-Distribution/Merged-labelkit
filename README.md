@@ -29,19 +29,15 @@ Recommended setting:
 
 - `auto`: local runs use the `local` profile; Catalyst AppSail runs use the `catalyst` profile.
 - `local`: force local JSON fallback, no login gate.
-- `catalyst`: force Catalyst Hosted Authentication and Catalyst Data Store.
+- `catalyst`: force Catalyst Embedded Authentication and Catalyst Data Store.
 
 For Catalyst, edit only the `profiles.catalyst` block in `labelkit_config.json`:
 
 - Keep `auth_required` as `true`.
+- Keep `auth_mode` as `embedded`.
 - Keep `allow_local_json_fallback` as `false`.
 - Keep all `*_store` values as `datastore`.
-- Keep the default same-origin Hosted Authentication URLs unless Catalyst changes the route:
-  - `auth_login_url=/__catalyst/auth/login`
-  - `auth_logout_url=/__catalyst/auth/login`
-  - `auth_reset_url=/__catalyst/auth/login`
-- The relative `/__catalyst/auth/login` route works from the current Catalyst host, so the same config works in Development and Production.
-- The reset link opens the hosted login page, where Catalyst provides the forgot-password flow.
+- No separate login URLs are stored in this config. The frontend embeds Catalyst's sign-in iframe directly in the app page with the Catalyst Web SDK.
 
 Because Docker copies this file into the AppSail image, rebuild and redeploy after changing Catalyst profile values.
 
@@ -279,7 +275,7 @@ Expected response includes:
 
 Current production design:
 
-- Hosted Authentication.
+- Embedded Authentication.
 - Invite-only users controlled from Zoho/Catalyst.
 - Roles: `Admin`, `Editor`, `User`.
 - Catalyst Data Store is the production source of truth.
@@ -295,14 +291,15 @@ Cloud source-of-truth rule:
 - The `catalyst` profile must keep:
   - `app_env=production`
   - `auth_required=true`
+  - `auth_mode=embedded`
   - `allow_local_json_fallback=false`
   - `allow_browser_local_cache=false`
   - `mpl_product_master_store=datastore`
   - `mpl_directory_store=datastore`
   - `mpl_drafts_store=datastore`
   - `audit_log_store=datastore`
-- Hosted Authentication uses the same-origin Catalyst route `/__catalyst/auth/login`; no Development-vs-Production hostname needs to be committed.
-- Sign out uses the Catalyst Web SDK and redirects back to `/__catalyst/auth/login`.
+- Embedded Authentication renders inside `#embedded-auth-frame` on the app page using `catalyst.auth.signIn(...)`.
+- Sign out uses the Catalyst Web SDK and reloads the app.
 - `datastore` mode is strict. If Data Store is unavailable in deployed Catalyst, table reads/writes and saved MPL reads/writes fail with `Cloud data unavailable` instead of falling back to bundled JSON.
 - `auto` mode is for local/development only; it can try Data Store first and then fall back to JSON.
 - `file` mode is for local JSON-only testing.
@@ -354,11 +351,11 @@ Role behavior:
 
 Operational setup checklist:
 
-1. Configure Catalyst Hosted Authentication in the Catalyst console.
+1. Configure Catalyst Embedded Authentication in the Catalyst console.
 2. Keep Public Signup disabled for invite-only access.
 3. Create Catalyst roles: `Admin`, `Editor`, `User`.
 4. Add invited users and assign roles from Catalyst Authentication > User Management.
-5. Keep the same-origin Hosted Auth route `/__catalyst/auth/login` in `frankenstein_project/labelkit_config.json`.
+5. Keep `auth_mode=embedded` in `frankenstein_project/labelkit_config.json`.
 6. Confirm the four Data Store tables exist and are seeded.
 7. Deploy with `active_profile=auto` or `active_profile=catalyst`; keep the `catalyst` profile on Data Store with local fallback disabled.
 8. Verify `/api/auth/session` returns the signed-in user and role.

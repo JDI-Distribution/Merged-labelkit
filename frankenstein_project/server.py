@@ -148,9 +148,7 @@ def _config_bool(env_name: str, key: str, default: bool = False) -> bool:
 
 APP_ENV = str(_config_value("APP_ENV", "app_env", os.getenv("ENVIRONMENT", "local"))).strip().lower()
 AUTH_REQUIRED = _config_bool("AUTH_REQUIRED", "auth_required", APP_ENV in {"production", "prod"})
-AUTH_LOGIN_URL = str(_config_value("AUTH_LOGIN_URL", "auth_login_url", "") or "").strip()
-AUTH_LOGOUT_URL = str(_config_value("AUTH_LOGOUT_URL", "auth_logout_url", "") or "").strip()
-AUTH_RESET_URL = str(_config_value("AUTH_RESET_URL", "auth_reset_url", "") or "").strip()
+AUTH_MODE = str(_config_value("AUTH_MODE", "auth_mode", "embedded" if AUTH_REQUIRED else "none") or "none").strip().lower()
 ALLOW_LOCAL_JSON_FALLBACK = _config_bool("ALLOW_LOCAL_JSON_FALLBACK", "allow_local_json_fallback", not AUTH_REQUIRED)
 ALLOW_BROWSER_LOCAL_CACHE = _config_bool("ALLOW_BROWSER_LOCAL_CACHE", "allow_browser_local_cache", not AUTH_REQUIRED)
 
@@ -680,7 +678,7 @@ def _request_user_from_headers(request: Request) -> Dict[str, Any]:
         "role_name": role_name or "User",
         "source": "headers",
     }
-    # Catalyst may inject infrastructure IDs even before a real Hosted Auth
+    # Catalyst may inject infrastructure IDs even before a real authenticated
     # user session exists, so do not treat a bare ID as signed in.
     user["authenticated"] = bool(user["email"] or user["name"])
     if not AUTH_REQUIRED and not user["authenticated"]:
@@ -763,10 +761,8 @@ def _app_runtime_config(request: Optional[Request] = None) -> Dict[str, Any]:
         "config_profile": LABELKIT_CONFIG_PROFILE,
         "config_file": str(APP_CONFIG_FILE),
         "auth_required": AUTH_REQUIRED,
+        "auth_mode": AUTH_MODE,
         "authenticated": bool(user.get("authenticated")),
-        "login_url": AUTH_LOGIN_URL,
-        "logout_url": AUTH_LOGOUT_URL,
-        "reset_url": AUTH_RESET_URL,
         "allow_local_json_fallback": ALLOW_LOCAL_JSON_FALLBACK,
         "allow_browser_local_cache": ALLOW_BROWSER_LOCAL_CACHE,
         "user": user,
