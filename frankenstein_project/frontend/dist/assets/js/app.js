@@ -356,6 +356,9 @@
         ...appRuntimeConfig,
         auth_required: true,
         authenticated: false,
+        login_url: appRuntimeConfig.login_url || '/__catalyst/auth/login',
+        logout_url: appRuntimeConfig.logout_url || '/__catalyst/auth/login',
+        reset_url: appRuntimeConfig.reset_url || '/__catalyst/auth/login',
         user: { authenticated: false, role: 'User', role_name: 'Unknown' },
         permissions: {}
       };

@@ -231,6 +231,7 @@
     .auth-reset-link:hover { text-decoration: underline; }
     header.auth-locked .btn-change-kit,
     .main.auth-locked { pointer-events: none; user-select: none; }
+    .main.auth-locked { visibility: hidden; }
 
     /* ── Main area ── */
     .main {

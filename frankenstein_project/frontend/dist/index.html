@@ -6,11 +6,11 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260709-preview-left">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260713-auth-lock">
 </head>
 <body>
 
-<header>
+<header class="auth-locked">
   <button class="jdi-mark" onclick="resetToSelection()" aria-label="Go to kit selection">
     <div class="jdi-slash"></div>
     <div class="jdi-slash"></div>
@@ -34,7 +34,7 @@
   <button class="btn-change-kit" id="btn-change-kit" onclick="resetToSelection()">Change Kit</button>
 </header>
 
-<section class="auth-gate" id="auth-gate">
+<section class="auth-gate visible" id="auth-gate">
   <div class="auth-card">
     <div class="auth-kicker">JDI LabelKit</div>
     <h1>Sign in to continue</h1>
@@ -44,7 +44,7 @@
   </div>
 </section>
 
-<div class="main" id="app-shell">
+<div class="main auth-locked" id="app-shell">
   <!-- FRONTEND: Landing page. Explanations removed; only workflow buttons remain. -->
   <section class="selection-page" id="kit-selection">
     <div class="selection-shell">
@@ -620,7 +620,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.0.0/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260713-auth-gate"></script>
+<script src="/assets/js/app.js?v=20260713-auth-lock"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
