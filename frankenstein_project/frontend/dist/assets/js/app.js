@@ -290,14 +290,12 @@
   const KEHE_PRODUCT_MASTER_STORAGE_KEY = 'jdi_kehe_product_master_rows_v2';
   let keheProductMasterRows = loadKeheProductMasterFromStorage();
   let keheProductMasterLoadPromise = null;
-  let keheProductMasterSaveTimer = null;
   const KEHE_DC_DIRECTORY_STORAGE_KEY = 'jdi_kehe_dc_directory_rows_v1';
   const MPL_PRODUCT_MASTER_STORAGE_KEY = 'jdi_mpl_product_master_rows_v1';
   const MPL_DIRECTORY_STORAGE_KEY = 'jdi_mpl_directory_rows_v1';
   const DEFAULT_KEHE_SHIP_FROM = 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA';
   let keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
   let keheDcDirectoryLoadPromise = null;
-  let keheDcDirectorySaveTimer = null;
   let mplProductMasterRows = loadMplProductMasterFromStorage();
   let mplProductMasterLoadPromise = null;
   let mplProductMasterSaveTimer = null;
@@ -379,6 +377,11 @@
       .replace(/'/g, '&#39;');
   }
 
+  function displayMultiline(value) {
+    const text = Array.isArray(value) ? value.join('\n') : value;
+    return escapeHtml(text || '—').replace(/\n/g, '<br>');
+  }
+
   function toggleKeheProductMasterPanel(isVisible) {
     const actions = document.getElementById('kehe-reference-actions');
     if (!actions) return;
@@ -431,25 +434,6 @@
       keheProductMasterRows = loadKeheProductMasterFromStorage();
       renderKeheProductMasterTable();
       return { rows: keheProductMasterRows, source: 'localStorage' };
-    }
-  }
-
-  function saveKeheProductMasterToBackendDebounced() {
-    clearTimeout(keheProductMasterSaveTimer);
-    keheProductMasterSaveTimer = setTimeout(saveKeheProductMasterToBackend, 500);
-  }
-
-  async function saveKeheProductMasterToBackend() {
-    const rows = getKeheProductMasterRows();
-    saveKeheProductMasterToStorage();
-    try {
-      await fetch('/api/kehe/product-master', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows })
-      });
-    } catch (_err) {
-      // Browser cache remains available if backend persistence is temporarily unavailable.
     }
   }
 
@@ -583,25 +567,10 @@
       .filter(isProductInPackingList);
   }
 
-  function productMasterRowIdentity(row) {
-    const normalized = normalizeProductRow(row);
-    const primary = canonicalId(normalized.gtin) || canonicalId(normalized.sku) || String(normalized.description || '').trim().toLowerCase();
-    return [
-      normalizeStorefront(normalized.storefront).toLowerCase(),
-      normalizePackagingLevel(normalized.packaging_level),
-      primary
-    ].join('|');
-  }
-
-  function mergeMplProductRows(primaryRows, secondaryRows) {
-    const merged = new Map();
-    [...(primaryRows || []), ...(secondaryRows || [])].forEach(raw => {
-      const row = normalizeProductRow(raw);
-      if (!isProductInPackingList(row)) return;
-      const key = productMasterRowIdentity(row);
-      if (!merged.has(key)) merged.set(key, row);
-    });
-    return [...merged.values()];
+  function getAllMplProductMasterRows() {
+    return mplProductMasterRows
+      .map(normalizeProductRow)
+      .filter(row => row.gtin || row.description || row.dimensions_in || row.weight_lbs || row.case_qty || row.labels_per_unit || row.sku);
   }
 
   function isStandaloneMplReferenceMode() {
@@ -618,7 +587,7 @@
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
-      return parsed.map(normalizeProductRow).filter(isProductInPackingList);
+      return parsed.map(normalizeProductRow);
     } catch (_err) {
       return [];
     }
@@ -626,7 +595,7 @@
 
   function saveMplProductMasterToStorage() {
     try {
-      localStorage.setItem(MPL_PRODUCT_MASTER_STORAGE_KEY, JSON.stringify(getMplProductMasterRows()));
+      localStorage.setItem(MPL_PRODUCT_MASTER_STORAGE_KEY, JSON.stringify(getAllMplProductMasterRows()));
     } catch (_err) {}
   }
 
@@ -638,11 +607,8 @@
       if (!res.ok) throw new Error(payload.detail || 'Could not load MPL product master.');
       const backendRows = Array.isArray(payload.rows) ? payload.rows.map(normalizeProductRow) : [];
       if (backendRows.length) {
-        mplProductMasterRows = mergeMplProductRows(backendRows, localRows);
+        mplProductMasterRows = backendRows;
         saveMplProductMasterToStorage();
-        if (mplProductMasterRows.length !== backendRows.length) {
-          await saveMplProductMasterToBackend();
-        }
       } else if (localRows.length) {
         mplProductMasterRows = localRows;
         await saveMplProductMasterToBackend();
@@ -664,7 +630,7 @@
   }
 
   async function saveMplProductMasterToBackend() {
-    const rows = getMplProductMasterRows();
+    const rows = getAllMplProductMasterRows();
     saveMplProductMasterToStorage();
     try {
       await fetch('/api/mpl/product-master', {
@@ -675,13 +641,6 @@
     } catch (_err) {
       // Browser cache remains available if backend persistence is temporarily unavailable.
     }
-  }
-
-  function seedMplProductMasterFromKeheIfNeeded() {
-    if (localStorage.getItem(MPL_PRODUCT_MASTER_STORAGE_KEY) !== null) return;
-    mplProductMasterRows = getKeheProductMasterRows().map(row => normalizeProductRow({ ...row, storefront: row.storefront || 'KeHE' }));
-    saveMplProductMasterToStorage();
-    saveMplProductMasterToBackendDebounced();
   }
 
   function openMplProductMasterModal() {
@@ -697,14 +656,15 @@
     const body = document.getElementById('mpl-product-master-body');
     if (!body) return;
     const rows = mplProductMasterRows
-      .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
-      .filter(entry => isProductInPackingList(entry.row));
+      .map((raw, index) => ({ row: normalizeProductRow(raw), index }));
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="9">No rows yet. Add manually or seed from KeHE.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="11">No product rows yet. Add manually or upload data.</td></tr>';
       return;
     }
     const levelOptions = ['Case', 'Inner Pack', 'Each', 'Shipper Contents', 'Other'];
     body.innerHTML = rows.map(({ row, index }) => {
+      const printable = canPrintProductMasterLabel(row);
+      const disabledReason = !isPackLabelLevel(row) ? 'Only Case/MP and Inner Pack/IP labels can be printed here.' : 'GTIN is required.';
       return `
       <tr>
         <td><input value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)"></td>
@@ -716,7 +676,9 @@
         <td><input value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"></td>
         <td><input value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"></td>
         <td><input type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
+        <td><input type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" oninput="updateMplProductRow(${index}, 'labels_per_unit', this.value)"></td>
         <td><input value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)"></td>
+        <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualMplProductPackLabel(${index})">Preview</button></td>
         <td><button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button></td>
       </tr>`;
     }).join('');
@@ -776,81 +738,26 @@
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
       .filter(entry => isKeheStorefront(entry.row.storefront));
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="10">No rows yet. Add manually or upload XML to seed rows.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="10">No KeHE rows yet. Add Storefront = KeHE rows from Packing List & Ti-Hi.</td></tr>';
       return;
     }
-    const levelOptions = ['Case', 'Inner Pack', 'Each', 'Shipper Contents', 'Other'];
     body.innerHTML = rows.map(({ row, index }) => {
       const printable = canPrintProductMasterLabel(row);
       const disabledReason = !isPackLabelLevel(row) ? 'Only Case/MP and Inner Pack/IP labels can be printed here.' : 'GTIN is required.';
       return `
       <tr>
-        <td><input value="${escapeHtml(row.gtin)}" oninput="updateKeheProductRow(${index}, 'gtin', this.value)"></td>
-        <td><input value="${escapeHtml(row.description)}" oninput="updateKeheProductRow(${index}, 'description', this.value)"></td>
-        <td><select onchange="updateKeheProductRow(${index}, 'packaging_level', this.value)">
-          ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
-        </select></td>
-        <td><input value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 × 8 × 6" oninput="updateKeheProductRow(${index}, 'dimensions_in', this.value)"></td>
-        <td><input value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateKeheProductRow(${index}, 'weight_lbs', this.value)"></td>
-        <td><input type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" title="Value printed on the pack label as MP/IP Case Qty." oninput="updateKeheProductRow(${index}, 'case_qty', this.value)"></td>
-        <td><input type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" title="How many labels to print per XML quantity. Minimum: 2 for two-side case placement. Default: MP=2, IP=6." oninput="updateKeheProductRow(${index}, 'labels_per_unit', this.value)"></td>
-        <td><input value="${escapeHtml(row.sku)}" oninput="updateKeheProductRow(${index}, 'sku', this.value)"></td>
+        <td>${escapeHtml(row.storefront || '—')}</td>
+        <td>${escapeHtml(row.gtin || '—')}</td>
+        <td>${escapeHtml(row.description || '—')}</td>
+        <td>${escapeHtml(row.packaging_level || '—')}</td>
+        <td>${escapeHtml(row.dimensions_in || '—')}</td>
+        <td>${escapeHtml(row.weight_lbs || '—')}</td>
+        <td>${escapeHtml(row.case_qty || '—')}</td>
+        <td>${escapeHtml(row.labels_per_unit || '—')}</td>
+        <td>${escapeHtml(row.sku || '—')}</td>
         <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualProductPackLabel(${index})">Preview</button></td>
-        <td><button class="btn-mini-danger" type="button" onclick="deleteKeheProductRow(${index})">Delete</button></td>
       </tr>`;
     }).join('');
-  }
-
-  function addKeheProductRow(seed = {}) {
-    keheProductMasterRows.push(normalizeProductRow({ ...seed, storefront: 'KeHE' }));
-    saveKeheProductMasterToStorage();
-    saveKeheProductMasterToBackendDebounced();
-    renderKeheProductMasterTable();
-  }
-
-  function deleteKeheProductRow(index) {
-    keheProductMasterRows.splice(index, 1);
-    saveKeheProductMasterToStorage();
-    saveKeheProductMasterToBackendDebounced();
-    renderKeheProductMasterTable();
-
-    if (activeKeheDocumentDraft && activeKeheDocumentType === 'masterPackingList') {
-      applyProductMasterToDraft(activeKeheDocumentDraft, false);
-    }
-  }
-
-  function updateKeheProductRow(index, key, value) {
-    if (!keheProductMasterRows[index]) keheProductMasterRows[index] = normalizeProductRow();
-
-    if (key === 'packaging_level') {
-      const nextLevel = normalizePackagingLevel(value);
-      keheProductMasterRows[index][key] = nextLevel;
-      keheProductMasterRows[index].in_packing_list = isCasePackagingLevel(nextLevel);
-      keheProductMasterRows[index].label_required = keheProductMasterRows[index].in_packing_list ? '1' : '0';
-      if (!String(keheProductMasterRows[index].labels_per_unit || '').trim()) {
-        keheProductMasterRows[index].labels_per_unit = defaultLabelsPerUnitForLevel(nextLevel);
-      }
-      if (!String(keheProductMasterRows[index].case_qty || '').trim()) {
-        keheProductMasterRows[index].case_qty = defaultCaseQtyForLevel(nextLevel);
-      }
-    } else if (key === 'labels_per_unit') {
-      keheProductMasterRows[index][key] = normalizeLabelsPerUnit(value, keheProductMasterRows[index].packaging_level);
-    } else if (key === 'case_qty') {
-      keheProductMasterRows[index][key] = normalizeCaseQty(value, keheProductMasterRows[index].packaging_level);
-    } else if (key === 'in_packing_list') {
-      const checked = isCasePackagingLevel(keheProductMasterRows[index].packaging_level) && !!value;
-      keheProductMasterRows[index].in_packing_list = checked;
-      keheProductMasterRows[index].label_required = checked ? '1' : '0';
-    } else {
-      keheProductMasterRows[index][key] = value;
-    }
-
-    saveKeheProductMasterToStorage();
-    saveKeheProductMasterToBackendDebounced();
-
-    if (activeKeheDocumentDraft && activeKeheDocumentType === 'masterPackingList') {
-      applyProductMasterToDraft(activeKeheDocumentDraft, false);
-    }
   }
 
   function normalizeManualCopies(value) {
@@ -858,8 +765,8 @@
     return Number.isFinite(parsed) && parsed > 0 ? Math.max(2, parsed) : 2;
   }
 
-  function openManualProductPackLabel(index) {
-    const row = normalizeProductRow(keheProductMasterRows[index] || {});
+  function openManualProductPackLabelFromRow(rawRow, productRows, closeModal) {
+    const row = normalizeProductRow(rawRow || {});
     if (!canPrintProductMasterLabel(row)) {
       alert('Only Case/MP and Inner Pack/IP rows with a GTIN can be printed from this table.');
       return;
@@ -869,14 +776,14 @@
     const caseQty = normalizeCaseQty(row.case_qty || defaultCaseQtyForLevel(row.packaging_level), row.packaging_level);
     const prefix = packLevelPrefix(row.packaging_level);
 
-    closeKeheProductMasterModal();
+    if (typeof closeModal === 'function') closeModal();
     activeKeheDocumentType = 'packLabels';
     activeKeheDocumentDraft = {
       document_type: 'kehe_pack_labels',
       version: 2,
       summary: { labels: 1, selected_labels: 1, manual_labels: 1 },
       warnings: [],
-      product_master: getKeheProductMasterRows(),
+      product_master: productRows,
       extracted_headers: [],
       extracted_items: [],
       pack_labels: [{
@@ -904,6 +811,22 @@
     renderDocumentEditor('packLabels', activeKeheDocumentDraft);
     openDocumentEditor();
     setStatus('Pack Label preview ready. Minimum 2 copies are printed for two-side case placement.', 'info');
+  }
+
+  function openManualProductPackLabel(index) {
+    openManualProductPackLabelFromRow(
+      keheProductMasterRows[index],
+      getKeheProductMasterRows(),
+      closeKeheProductMasterModal
+    );
+  }
+
+  function openManualMplProductPackLabel(index) {
+    openManualProductPackLabelFromRow(
+      mplProductMasterRows[index],
+      getAllMplProductMasterRows(),
+      closeMplProductMasterModal
+    );
   }
 
   function openKeheDcDirectoryModal() {
@@ -1001,12 +924,12 @@
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.detail || 'Could not load MPL directory.');
       const backendRows = Array.isArray(payload.rows) ? payload.rows.map(normalizeDcDirectoryRow) : [];
-      if (localRows.length) {
-        mplDirectoryRows = localRows;
-        await saveMplDirectoryToBackend();
-      } else if (backendRows.length) {
+      if (backendRows.length) {
         mplDirectoryRows = backendRows;
         saveMplDirectoryToStorage();
+      } else if (localRows.length) {
+        mplDirectoryRows = localRows;
+        await saveMplDirectoryToBackend();
       } else {
         mplDirectoryRows = [];
       }
@@ -1038,13 +961,6 @@
     }
   }
 
-  function seedMplDirectoryFromKeheIfNeeded() {
-    if (localStorage.getItem(MPL_DIRECTORY_STORAGE_KEY) !== null) return;
-    mplDirectoryRows = getKeheDcDirectoryRows().map(row => normalizeDcDirectoryRow({ ...row, storefront: row.storefront || 'KeHE' }));
-    saveMplDirectoryToStorage();
-    saveMplDirectoryToBackendDebounced();
-  }
-
   function openMplDirectoryModal() {
     renderMplDirectoryTable();
     document.getElementById('mpl-directory-modal').classList.add('visible');
@@ -1059,7 +975,7 @@
     if (!body) return;
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="7">No directory rows yet. Add a row manually.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="9">No directory rows yet. Add a row manually.</td></tr>';
       return;
     }
     body.innerHTML = rows.map((row, index) => `
@@ -1070,6 +986,8 @@
         <td><textarea placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></td>
         <td><textarea placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></td>
         <td><textarea placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></td>
+        <td><textarea placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></td>
+        <td class="kehe-dc-print-cell"><button class="btn-table-preview" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview</button></td>
         <td><button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button></td>
       </tr>
     `).join('');
@@ -1093,7 +1011,9 @@
     if (!mplDirectoryRows[index]) {
       mplDirectoryRows[index] = normalizeDcDirectoryRow({ storefront: 'KeHE' });
     }
-    if (key === 'storefront') {
+    if (key === 'match_values') {
+      mplDirectoryRows[index][key] = parseDcMatchValues(value);
+    } else if (key === 'storefront') {
       mplDirectoryRows[index][key] = normalizeStorefront(value);
     } else {
       mplDirectoryRows[index][key] = value;
@@ -1143,27 +1063,6 @@
     }
   }
 
-  function saveKeheDcDirectoryToBackendDebounced() {
-    clearTimeout(keheDcDirectorySaveTimer);
-    keheDcDirectorySaveTimer = setTimeout(saveKeheDcDirectoryToBackend, 500);
-  }
-
-  async function saveKeheDcDirectoryToBackend() {
-    const rows = getKeheDcDirectoryRows();
-
-    saveKeheDcDirectoryToStorage();
-
-    try {
-      await fetch('/api/kehe/dc-directory', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows })
-      });
-    } catch (_err) {
-      // localStorage remains fallback if backend save fails
-    }
-  }
-
   function renderKeheDcDirectoryTable() {
     const body = document.getElementById('kehe-dc-directory-body');
     if (!body) return;
@@ -1173,57 +1072,28 @@
       .filter(entry => isKeheStorefront(entry.row.storefront));
 
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="8">No DC rows yet. Add a DC manually.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="8">No KeHE directory rows yet. Add Storefront = KeHE rows from Packing List & Ti-Hi.</td></tr>';
       return;
     }
 
     body.innerHTML = rows.map(({ row, index }) => `
       <tr>
-        <td><input value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateKeheDcDirectoryRow(${index}, 'dc', this.value)"></td>
-        <td><input value="${escapeHtml(row.name)}" placeholder="DC 45 Ontario" oninput="updateKeheDcDirectoryRow(${index}, 'name', this.value)"></td>
-        <td><textarea placeholder="Ship from address" oninput="updateKeheDcDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></td>
-        <td><textarea placeholder="Delivery address" oninput="updateKeheDcDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></td>
-        <td><textarea placeholder="Billing address" oninput="updateKeheDcDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></td>
-        <td><textarea placeholder="One GLN/address/city/zip per line" oninput="updateKeheDcDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></td>
+        <td>${escapeHtml(row.storefront || '—')}</td>
+        <td>${escapeHtml(row.dc || '—')}</td>
+        <td>${escapeHtml(row.name || '—')}</td>
+        <td>${displayMultiline(row.ship_from)}</td>
+        <td>${displayMultiline(row.delivery_address)}</td>
+        <td>${displayMultiline(row.billing_address)}</td>
+        <td>${displayMultiline(row.match_values)}</td>
         <td class="kehe-dc-print-cell">
           <button class="btn-table-preview" type="button" onclick="openManualDcPalletLabel(${index})">Preview</button>
         </td>
-        <td><button class="btn-mini-danger" type="button" onclick="deleteKeheDcDirectoryRow(${index})">Delete</button></td>
       </tr>
     `).join('');
   }
 
-  function addKeheDcDirectoryRow(seed = {}) {
-    keheDcDirectoryRows.push(normalizeDcDirectoryRow({ ...seed, storefront: 'KeHE' }));
-    saveKeheDcDirectoryToStorage();
-    saveKeheDcDirectoryToBackendDebounced();
-    renderKeheDcDirectoryTable();
-  }
-
-  function deleteKeheDcDirectoryRow(index) {
-    keheDcDirectoryRows.splice(index, 1);
-    saveKeheDcDirectoryToStorage();
-    saveKeheDcDirectoryToBackendDebounced();
-    renderKeheDcDirectoryTable();
-  }
-
-  function updateKeheDcDirectoryRow(index, key, value) {
-    if (!keheDcDirectoryRows[index]) {
-      keheDcDirectoryRows[index] = normalizeDcDirectoryRow();
-    }
-
-    if (key === 'match_values') {
-      keheDcDirectoryRows[index][key] = parseDcMatchValues(value);
-    } else {
-      keheDcDirectoryRows[index][key] = value;
-    }
-
-    saveKeheDcDirectoryToStorage();
-    saveKeheDcDirectoryToBackendDebounced();
-  }
-
-  function openManualDcPalletLabel(index) {
-    const row = normalizeDcDirectoryRow(keheDcDirectoryRows[index] || {});
+  function openManualDcPalletLabelFromRow(rawRow, closeModal) {
+    const row = normalizeDcDirectoryRow(rawRow || {});
     const chosenAddress = row.delivery_address;
     const addressLabel = 'Delivery';
 
@@ -1257,8 +1127,16 @@
 
     renderDocumentEditor('palletLabel', activeKeheDocumentDraft);
     openDocumentEditor();
-    closeKeheDcDirectoryModal();
+    if (typeof closeModal === 'function') closeModal();
     setStatus('Pallet label preview ready. Edit fields and Copies before generating PDF.', 'info');
+  }
+
+  function openManualDcPalletLabel(index) {
+    openManualDcPalletLabelFromRow(keheDcDirectoryRows[index], closeKeheDcDirectoryModal);
+  }
+
+  function openManualMplDcPalletLabel(index) {
+    openManualDcPalletLabelFromRow(mplDirectoryRows[index], closeMplDirectoryModal);
   }
 
   function canonicalId(value) {
@@ -1267,43 +1145,7 @@
   }
 
   function seedKeheProductMasterFromItems(items) {
-    if (!items || !items.length) return;
-
-    const seen = new Set();
-    getKeheProductMasterRows().forEach(row => {
-      const key = canonicalId(row.gtin || row.sku) || String(row.description || '').trim().toLowerCase();
-      if (key) seen.add(key);
-    });
-
-    let added = false;
-
-    items.forEach(item => {
-      const gtin = item.case_upc || item.upc || item.item_number || item.gtin || '';
-      const key = canonicalId(gtin) || String(item.description || '').trim().toLowerCase();
-
-      if (!key || seen.has(key)) return;
-
-      seen.add(key);
-      added = true;
-
-      keheProductMasterRows.push(normalizeProductRow({
-        in_packing_list: true,
-        label_required: '1',
-        gtin,
-        description: item.description || '',
-        packaging_level: 'Case',
-        dimensions_in: '',
-        weight_lbs: '',
-        case_qty: '1',
-        labels_per_unit: '2',
-        sku: item.sku || item.item_number || ''
-      }));
-    });
-
-    if (added) {
-      saveKeheProductMasterToStorage();
-      saveKeheProductMasterToBackendDebounced();
-    }
+    // KeHE is read-only for master data. Add/edit products in Packing List & Ti-Hi.
     renderKeheProductMasterTable();
   }
 
@@ -1528,8 +1370,21 @@
 
   async function ensureKeheReferenceDataLoaded() {
     if (selectedKit === 'mpl') {
-      seedMplProductMasterFromKeheIfNeeded();
-      seedMplDirectoryFromKeheIfNeeded();
+      try {
+        if (mplProductMasterLoadPromise) await mplProductMasterLoadPromise;
+        if (!getMplProductMasterRows().length) {
+          mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
+          await mplProductMasterLoadPromise;
+        }
+      } catch (_err) {}
+
+      try {
+        if (mplDirectoryLoadPromise) await mplDirectoryLoadPromise;
+        if (!getMplDirectoryRows().length) {
+          mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
+          await mplDirectoryLoadPromise;
+        }
+      } catch (_err) {}
       return;
     }
 
@@ -3902,19 +3757,13 @@
     closeMplDirectoryModal();
     setStatus('', '');
 
-    keheProductMasterLoadPromise = loadKeheProductMasterFromBackend();
-    keheDcDirectoryLoadPromise = loadKeheDcDirectoryFromBackend();
     mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
     mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
     try {
       await Promise.allSettled([
-        keheProductMasterLoadPromise,
-        keheDcDirectoryLoadPromise,
         mplProductMasterLoadPromise,
         mplDirectoryLoadPromise
       ]);
-      seedMplProductMasterFromKeheIfNeeded();
-      seedMplDirectoryFromKeheIfNeeded();
     } finally {
       renderMplProductMasterTable();
       renderMplDirectoryTable();

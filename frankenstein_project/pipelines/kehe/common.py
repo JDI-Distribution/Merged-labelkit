@@ -41,12 +41,14 @@ DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
 
 # ===========================================================================
-# KeHE DC Directory (read from data/kehe_dc_directory.json by default)
+# Shared Directory.
+# The editable source table is MPL_DIRECTORY_TABLE / data/mpl_directory.json.
+# KeHE uses only rows marked Storefront = KeHE.
 # ===========================================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DIRECTORY_PATH = Path(
-    os.getenv("KEHE_DC_DIRECTORY_FILE", str(PROJECT_ROOT / "data" / "kehe_dc_directory.json"))
+    os.getenv("MPL_DIRECTORY_FILE", str(PROJECT_ROOT / "data" / "mpl_directory.json"))
 )
 
 
@@ -61,17 +63,32 @@ def _normalize(value: str) -> str:
 
 @lru_cache(maxsize=1)
 def load_kehe_dc_directory() -> dict[str, dict[str, Any]]:
-    """Load and validate KeHE DC directory from JSON file.
+    """Load and validate Storefront=KeHE rows from the shared directory.
 
-    Returns the directory data from kehe_dc_directory.json with validation.
+    Returns the Storefront=KeHE directory data with validation.
     Raises ValueError if data is invalid.
     """
     with DIRECTORY_PATH.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    if not isinstance(data, dict):
-        raise ValueError("KeHE DC directory JSON must be an object keyed by DC number.")
+    if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        rows = data.get("rows", [])
+    elif isinstance(data, dict):
+        rows = [{"dc": dc, **row} for dc, row in data.items() if isinstance(row, dict)]
+    elif isinstance(data, list):
+        rows = data
+    else:
+        raise ValueError("Shared directory JSON must be an object or rows list.")
     required = {"dc", "name", "delivery_address", "billing_address", "match_values"}
-    for dc, row in data.items():
+    filtered: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        dc = str(row.get("dc") or row.get("DC") or "").strip()
+        if not dc:
+            continue
+        storefront = str(row.get("storefront") or "KeHE").strip() or "KeHE"
+        if storefront.lower() != "kehe":
+            continue
         missing = required - set(row)
         if missing:
             raise ValueError(
@@ -81,8 +98,10 @@ def load_kehe_dc_directory() -> dict[str, dict[str, Any]]:
             raise ValueError(
                 f"KeHE DC directory row {dc} match_values must be a list."
             )
+        row["storefront"] = storefront
         row["ship_from"] = str(row.get("ship_from") or DEFAULT_KEHE_SHIP_FROM).strip() or DEFAULT_KEHE_SHIP_FROM
-    return data
+        filtered[dc] = row
+    return filtered
 
 
 def find_kehe_dc(

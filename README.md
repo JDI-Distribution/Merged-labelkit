@@ -3,8 +3,8 @@
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
-- KeHE GS1: upload KeHE ASN XML, manage reference tables, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
-- Packing List & Ti-Hi: standalone MPL/TI-HI workspace with its own Product Master and Directory tables, separate from KeHE after the first seed.
+- KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
+- Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
@@ -44,8 +44,8 @@ Shared backend routes:
 
 KeHE and standalone MPL reference table routes:
 
-- `GET/PUT /api/kehe/product-master`
-- `GET/PUT /api/kehe/dc-directory`
+- `GET /api/kehe/product-master` read-only KeHE storefront view; `PUT` returns `405`
+- `GET /api/kehe/dc-directory` read-only KeHE storefront view; `PUT` returns `405`
 - `GET/PUT /api/mpl/product-master`
 - `GET/PUT /api/mpl/directory`
 - `GET/POST/DELETE /api/kehe/mpl-drafts`
@@ -87,8 +87,10 @@ KeHE functionality:
 - Master Packing List: editable MPL draft with line-item and pallet assignment.
 - Pallet Label: editable pallet placard output.
 - Editable previews for GS1 labels, pack labels, pallet labels, and master packing lists.
-- DC Directory for DC/name, ship-from, delivery, billing, and match values.
-- GTIN / Packaging Master Table for GTIN, description, packaging level, dimensions, weight, case quantity, label count, and SKU.
+- DC Directory read-only view for `Storefront = KeHE` rows.
+- GTIN / Packaging Master Table read-only view for `Storefront = KeHE` rows.
+- KeHE generation only uses rows marked with `Storefront = KeHE`; missing storefront values default to `KeHE`.
+- Product Master and Directory add/edit/delete/import operations are done from `Packing List & Ti-Hi` only.
 - Case rows feed MPL dropdowns and auto palletization automatically.
 - Auto Palletize.
 - Reverse to XML Palletization.
@@ -96,25 +98,24 @@ KeHE functionality:
 - Unassigned and needs-review rows remain visible for user correction.
 - Pallet labels render 2 placards per pallet.
 - Saved MPL drafts can be reopened and deleted.
-- Excel upload supports preview and confirm for KeHE Product Master and DC Directory.
 - Change History shows supported table edits/imports.
 
 ## Packing List & Ti-Hi Workflow
 
-`Packing List & Ti-Hi` is a standalone MPL workspace. It reuses the same editor and TI-HI renderer, but it has separate backend tables:
+`Packing List & Ti-Hi` is a standalone MPL workspace. It reuses the same editor and TI-HI renderer, and its Product Master / Directory tables are the shared source of truth:
 
 - `frankenstein_project/data/mpl_product_master.json`
 - `frankenstein_project/data/mpl_directory.json`
 
-The standalone tables seed from KeHE only when they do not exist yet. After that:
+KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`. This keeps all storefront data in one place while letting KeHE remain isolated to KeHE rows:
 
-- KeHE Product Master changes do not modify the standalone MPL Product Master.
-- KeHE DC Directory changes do not modify the standalone MPL Directory.
-- Standalone MPL table edits do not modify KeHE tables.
+- KeHE Product Master and DC Directory views are read-only.
+- Packing List & Ti-Hi table edits can store rows for any storefront, including `KeHE`.
+- Rows not marked `Storefront = KeHE` do not appear in the KeHE table views or KeHE generation.
+- Mixed storefront SKUs in one standalone MPL are blocked.
 - A storefront can be typed freely.
-- MPL generation blocks mixed storefront SKUs in the same standalone MPL.
 
-The standalone Product Master shows only rows that are usable by MPL. It does not show redundant `In MPL` or `Labels / Unit` columns.
+The standalone Product Master shows the full shared product table, including Case, Inner Pack, Each, Shipper Contents, Labels / Unit, SKU, and print-label preview. Create MPL still uses only Case rows for palletization.
 
 ## Master Packing List And TI-HI
 
@@ -234,6 +235,83 @@ Expected response includes:
 ```json
 {"status":"ok"}
 ```
+
+## Planned Catalyst Cloud Auth And Storage
+
+Production goal:
+
+- Hosted Authentication.
+- Invite-only users controlled from Zoho/Catalyst.
+- Roles: `Admin`, `Editor`, `User`.
+- Catalyst Data Store is the production source of truth.
+- Local JSON files are development fallback only.
+- Saved MPL records can store generated PDFs in Catalyst File Store or Stratus only when the user clicks `Save MPL`; normal previews remain temporary.
+
+Cloud source-of-truth rule:
+
+- Deployed Catalyst must use `MPL_PRODUCT_MASTER_STORE=datastore`.
+- Deployed Catalyst must use `MPL_DIRECTORY_STORE=datastore`.
+- Deployed Catalyst must use `KEHE_MPL_DRAFTS_STORE=datastore`.
+- Deployed Catalyst must use `KEHE_AUDIT_LOG_STORE=datastore`.
+- If Data Store is unavailable in deployed Catalyst, block table edits and show `Cloud data unavailable`.
+- Do not merge browser `localStorage` or local JSON into cloud tables in production.
+- Browser `localStorage` may remember UI state only; it must not become master table data in production.
+
+Planned Catalyst tables:
+
+- `mpl_product_master`
+- `mpl_directory`
+- `kehe_mpl_drafts`
+- `kehe_audit_log`
+
+Planned audit fields:
+
+- `AUDIT_ID`
+- `TIMESTAMP`
+- `USER_ID`
+- `USER_EMAIL`
+- `USER_NAME`
+- `ROLE_NAME`
+- `ACTION`
+- `TABLE_NAME`
+- `RECORD_KEY`
+- `FIELD_NAME`
+- `OLD_VALUE`
+- `NEW_VALUE`
+- `BATCH_ID`
+- `SOURCE`
+- `IP_ADDRESS`
+- `USER_AGENT`
+
+Role behavior:
+
+- `Admin`: product/directory CRUD, saved MPL delete, audit view, and all generation workflows.
+- `Editor`: product/directory CRUD, create/save MPL, and all generation workflows.
+- `User`: preview/generate/open allowed documents only; no product/directory CRUD and no destructive saved MPL actions.
+
+Implementation order:
+
+1. Configure Catalyst Hosted Authentication and invite-only users in the Catalyst console.
+2. Create Catalyst roles: `Admin`, `Editor`, `User`.
+3. Create Data Store tables and migrate `mpl_product_master.json` / `mpl_directory.json`.
+4. Add backend auth middleware that verifies the Catalyst user on every API except `/health` and static assets.
+5. Add role checks around table CRUD, saved draft deletion, and audit access.
+6. Add frontend login/logout handling through Catalyst Hosted Authentication.
+7. Remove cloud-mode table fallback to local JSON and localStorage.
+8. Attach Catalyst user details to every audit log entry.
+9. Store generated PDF/file artifacts only for saved MPLs, using File Store or Stratus.
+10. Validate with one Admin, one Editor, and one User account before deploying broadly.
+
+Cloud edge cases to test:
+
+- Session expires while editing.
+- User is disabled or role-changed while the app is open.
+- Two users edit the same row.
+- Excel/import batch partially fails.
+- Storefront is changed from `KeHE` to another storefront and disappears from KeHE views.
+- Data Store is unavailable.
+- Saved MPL draft exists but its stored PDF/file is missing.
+- Unauthorized direct API calls.
 
 ## Validation Commands
 
@@ -365,8 +443,6 @@ Tracked app source:
     |-- server.py
     |-- start.sh
     |-- data
-    |   |-- kehe_dc_directory.json
-    |   |-- kehe_product_master.json
     |   |-- mpl_directory.json
     |   `-- mpl_product_master.json
     |-- frontend
@@ -401,6 +477,12 @@ Tracked app source:
             `-- renderers.py
 ```
 
+Data table note:
+
+- `mpl_product_master.json` and `mpl_directory.json` are the shared editable Product Master and Directory sources.
+- KeHE uses rows from those shared tables where `Storefront = KeHE`.
+- The old KeHE-only data files were removed so there is one maintained Product Master and one maintained Directory.
+
 Correct KeHE wrapper filename:
 
 ```text
@@ -423,7 +505,6 @@ Do not commit:
 - `merge_script.py`
 - `frankenstein_project/appsail-nodejs/`
 - `frankenstein_project/pipelines/kehe_dc_directory.py`
-- `frankenstein_project/pipelines/kehe_dc_directory.json`
 
 The old `frankenstein_project/pipelines/__init__.py` is not required by the current imports.
 

@@ -301,7 +301,7 @@
       <div class="editor-toolbar">
         <div>
           <div class="editor-title">GTIN / Packaging Master Table</div>
-          <div class="kehe-product-master-subtitle">Saved automatically in this browser. Case rows feed Create MPL dropdowns and Auto Palletize. Case Qty prints on the label; Labels / Unit controls generated copy count.</div>
+          <div class="kehe-product-master-subtitle">KeHE view of the shared Product Master. Only rows with Storefront = KeHE are used here. Case Qty prints on the label; Labels / Unit controls generated copy count.</div>
         </div>
         <button class="btn-secondary" onclick="closeKeheProductMasterModal()">Close</button>
       </div>
@@ -309,40 +309,36 @@
       <div class="editor-body">
         <div class="kehe-product-master-toolbar">
           <div>
-            <div class="kehe-product-master-title">Editable Packaging Data</div>
-            <div class="kehe-product-master-subtitle">Add, remove, or edit rows anytime. XML upload can seed missing products.</div>
+            <div class="kehe-product-master-title">KeHE Packaging Data</div>
+            <div class="kehe-product-master-subtitle">KeHE-only view of shared Product Master rows. Add or edit products in Packing List &amp; Ti-Hi. Change History is available for audit review.</div>
           </div>
-          <input class="hidden" type="file" id="product-master-excel-input" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('product-master', this)">
-          <button class="btn-secondary" type="button" onclick="triggerExcelImport('product-master')">Upload Excel</button>
           <button class="btn-secondary" type="button" onclick="openKeheAuditModal('kehe_product_master')">Change History</button>
-          <button class="btn-secondary" type="button" onclick="addKeheProductRow()">Add Row</button>
         </div>
 
         <div class="kehe-product-master-scroll">
           <table class="kehe-product-master-table">
             <thead>
               <tr>
-                <th style="width:12%">GTIN</th>
-                <th style="width:21%">Description</th>
+                <th style="width:8%">Storefront</th>
+                <th style="width:11%">GTIN</th>
+                <th style="width:19%">Description</th>
                 <th style="width:10%">Packaging Level</th>
                 <th style="width:10%">L × W × H (in)</th>
                 <th style="width:7%">Weight (lbs)</th>
                 <th style="width:7%">Case Qty</th>
                 <th style="width:7%">Labels / Unit</th>
                 <th style="width:10%">SKU</th>
-                <th style="width:6%">Print Label</th>
-                <th style="width:5%">Action</th>
+                <th style="width:11%">Print Label</th>
               </tr>
             </thead>
             <tbody id="kehe-product-master-body">
-              <tr><td class="empty-row" colspan="10">No rows yet. Add manually or upload XML to seed rows.</td></tr>
+              <tr><td class="empty-row" colspan="10">No KeHE rows yet. Add Storefront = KeHE rows from Packing List &amp; Ti-Hi.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="editor-footer">
-        <button class="btn-secondary" type="button" onclick="addKeheProductRow()">Add Row</button>
         <button class="btn-generate" type="button" onclick="closeKeheProductMasterModal()">Done</button>
       </div>
     </div>
@@ -354,7 +350,7 @@
       <div class="editor-toolbar">
         <div>
           <div class="editor-title">KeHE DC Directory</div>
-          <div class="kehe-product-master-subtitle">Saved through backend JSON now. Later this can save to Catalyst Data Store.</div>
+          <div class="kehe-product-master-subtitle">KeHE view of the shared Directory. Only rows with Storefront = KeHE are used for KeHE XML matching, MPL, and pallet labels.</div>
         </div>
         <button class="btn-secondary" onclick="closeKeheDcDirectoryModal()">Close</button>
       </div>
@@ -362,38 +358,34 @@
       <div class="editor-body">
         <div class="kehe-product-master-toolbar">
           <div>
-            <div class="kehe-product-master-title">Editable DC Matching Data</div>
-            <div class="kehe-product-master-subtitle">Used to match XML ship-to GLN/address to the correct KeHE DC on pallet labels and MPL.</div>
+            <div class="kehe-product-master-title">KeHE DC Matching Data</div>
+            <div class="kehe-product-master-subtitle">KeHE-only view of shared Directory rows. Add or edit directory entries in Packing List &amp; Ti-Hi. Change History is available for audit review.</div>
           </div>
-          <input class="hidden" type="file" id="dc-directory-excel-input" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
-          <button class="btn-secondary" type="button" onclick="triggerExcelImport('dc-directory')">Upload Excel</button>
           <button class="btn-secondary" type="button" onclick="openKeheAuditModal('kehe_dc_directory')">Change History</button>
-          <button class="btn-secondary" type="button" onclick="addKeheDcDirectoryRow()">Add DC</button>
         </div>
 
         <div class="kehe-product-master-scroll">
           <table class="kehe-dc-directory-table">
             <thead>
               <tr>
+                <th style="width:8%">Storefront</th>
                 <th style="width:5%">DC</th>
                 <th style="width:8%">Name</th>
-                <th style="width:18%">Ship From</th>
-                <th style="width:19%">Delivery Address</th>
-                <th style="width:19%">Billing Address</th>
-                <th style="width:17%">Match Values</th>
-                <th style="width:9%">Print Pallet Label</th>
-                <th style="width:5%">Action</th>
+                <th style="width:16%">Ship From</th>
+                <th style="width:18%">Delivery Address</th>
+                <th style="width:18%">Billing Address</th>
+                <th style="width:15%">Match Values</th>
+                <th style="width:12%">Print Pallet Label</th>
               </tr>
             </thead>
             <tbody id="kehe-dc-directory-body">
-              <tr><td class="empty-row" colspan="8">No DC rows yet.</td></tr>
+              <tr><td class="empty-row" colspan="8">No KeHE directory rows yet.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="editor-footer">
-        <button class="btn-secondary" type="button" onclick="addKeheDcDirectoryRow()">Add DC</button>
         <button class="btn-generate" type="button" onclick="closeKeheDcDirectoryModal()">Done</button>
       </div>
     </div>
@@ -404,8 +396,8 @@
     <div class="editor-dialog kehe-product-master-dialog">
       <div class="editor-toolbar">
         <div>
-          <div class="editor-title">Packing List &amp; Ti-Hi Product Master Table</div>
-          <div class="kehe-product-master-subtitle">Independent from KeHE after the first copy. Storefront can be typed freely; selected Case rows appear in Create MPL.</div>
+          <div class="editor-title">Product Master Table</div>
+          <div class="kehe-product-master-subtitle">Shared source for Packing List &amp; Ti-Hi and KeHE. All product levels remain visible; Case rows appear in Create MPL.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
       </div>
@@ -423,19 +415,21 @@
           <table class="kehe-product-master-table">
             <thead>
               <tr>
-                <th style="width:10%">Storefront</th>
-                <th style="width:12%">GTIN</th>
-                <th style="width:20%">Description</th>
+                <th style="width:8%">Storefront</th>
+                <th style="width:11%">GTIN</th>
+                <th style="width:19%">Description</th>
                 <th style="width:10%">Packaging Level</th>
                 <th style="width:10%">L × W × H (in)</th>
-                <th style="width:8%">Weight</th>
-                <th style="width:8%">Case Qty</th>
-                <th style="width:12%">SKU</th>
+                <th style="width:7%">Weight</th>
+                <th style="width:7%">Case Qty</th>
+                <th style="width:7%">Labels / Unit</th>
+                <th style="width:10%">SKU</th>
+                <th style="width:6%">Print Label</th>
                 <th style="width:5%">Action</th>
               </tr>
             </thead>
             <tbody id="mpl-product-master-body">
-              <tr><td class="empty-row" colspan="9">No rows yet.</td></tr>
+              <tr><td class="empty-row" colspan="11">No rows yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -453,8 +447,8 @@
     <div class="editor-dialog kehe-dc-directory-dialog">
       <div class="editor-toolbar">
         <div>
-          <div class="editor-title">Packing List &amp; Ti-Hi Directory Table</div>
-          <div class="kehe-product-master-subtitle">Independent Ship From, Ship To, and Bill To directory for generic storefront MPLs.</div>
+          <div class="editor-title">Directory Table</div>
+          <div class="kehe-product-master-subtitle">Shared Ship From, Ship To, and Bill To directory. KeHE uses rows marked Storefront = KeHE.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplDirectoryModal()">Close</button>
       </div>
@@ -463,7 +457,7 @@
         <div class="kehe-product-master-toolbar">
           <div>
             <div class="kehe-product-master-title">Editable Directory Data</div>
-            <div class="kehe-product-master-subtitle">Match Values and Print Pallet Label are intentionally not included here.</div>
+            <div class="kehe-product-master-subtitle">Full shared directory attributes are visible here.</div>
           </div>
           <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
         </div>
@@ -472,17 +466,19 @@
           <table class="kehe-dc-directory-table">
             <thead>
               <tr>
-                <th style="width:10%">Storefront</th>
-                <th style="width:6%">Code</th>
-                <th style="width:12%">Name</th>
-                <th style="width:22%">Ship From</th>
-                <th style="width:22%">Ship To</th>
-                <th style="width:22%">Bill To</th>
-                <th style="width:6%">Action</th>
+                <th style="width:8%">Storefront</th>
+                <th style="width:5%">Code</th>
+                <th style="width:8%">Name</th>
+                <th style="width:16%">Ship From</th>
+                <th style="width:18%">Ship To</th>
+                <th style="width:18%">Bill To</th>
+                <th style="width:15%">Match Values</th>
+                <th style="width:8%">Print Pallet Label</th>
+                <th style="width:4%">Action</th>
               </tr>
             </thead>
             <tbody id="mpl-directory-body">
-              <tr><td class="empty-row" colspan="7">No directory rows yet.</td></tr>
+              <tr><td class="empty-row" colspan="9">No directory rows yet.</td></tr>
             </tbody>
           </table>
         </div>

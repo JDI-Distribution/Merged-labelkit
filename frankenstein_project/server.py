@@ -96,16 +96,11 @@ KIT_CONFIG: Dict[str, Dict[str, str]] = {
     },
 }
 
-# KeHE GTIN / Packaging Master Table persistence.
-# Use Catalyst Data Store when the Python SDK is available in AppSail; otherwise
-# fall back to a JSON file so local Docker/dev remains functional.
-KEHE_PRODUCT_MASTER_TABLE = os.getenv("KEHE_PRODUCT_MASTER_TABLE", "kehe_product_master")
-KEHE_PRODUCT_MASTER_STORE = os.getenv("KEHE_PRODUCT_MASTER_STORE", "auto").strip().lower()
-KEHE_PRODUCT_MASTER_FILE = Path(
-    os.getenv("KEHE_PRODUCT_MASTER_FILE", str(BASE_DIR / "data" / "kehe_product_master.json"))
-)
+# Product Master persistence.
+# MPL_PRODUCT_MASTER_TABLE is the shared source of truth. KeHE reads and writes
+# only rows where Storefront = KeHE, preserving other storefront rows.
 MPL_PRODUCT_MASTER_TABLE = os.getenv("MPL_PRODUCT_MASTER_TABLE", "mpl_product_master")
-MPL_PRODUCT_MASTER_STORE = os.getenv("MPL_PRODUCT_MASTER_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
+MPL_PRODUCT_MASTER_STORE = os.getenv("MPL_PRODUCT_MASTER_STORE", "auto").strip().lower()
 MPL_PRODUCT_MASTER_FILE = Path(
     os.getenv("MPL_PRODUCT_MASTER_FILE", str(BASE_DIR / "data" / "mpl_product_master.json"))
 )
@@ -128,27 +123,21 @@ DEFAULT_LABELS_PER_UNIT_BY_LEVEL = {
 # Default Ship From used only for manual DC Directory rows when no value exists.
 DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
-# KeHE DC Directory persistence.
-# File mode updates data/kehe_dc_directory.json.
-# Data Store mode mirrors Data Store rows into that JSON file before KeHE document preparation,
-# because kehe_pipeline.py reads the DC directory from JSON.
-KEHE_DC_DIRECTORY_TABLE = os.getenv("KEHE_DC_DIRECTORY_TABLE", "kehe_dc_directory")
-KEHE_DC_DIRECTORY_STORE = os.getenv("KEHE_DC_DIRECTORY_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
-KEHE_DC_DIRECTORY_FILE = Path(
-    os.getenv("KEHE_DC_DIRECTORY_FILE", str(BASE_DIR / "data" / "kehe_dc_directory.json"))
-)
+# Directory persistence.
+# MPL_DIRECTORY_TABLE is the shared source of truth. KeHE uses rows where
+# Storefront = KeHE.
 MPL_DIRECTORY_TABLE = os.getenv("MPL_DIRECTORY_TABLE", "mpl_directory")
-MPL_DIRECTORY_STORE = os.getenv("MPL_DIRECTORY_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
+MPL_DIRECTORY_STORE = os.getenv("MPL_DIRECTORY_STORE", MPL_PRODUCT_MASTER_STORE).strip().lower()
 MPL_DIRECTORY_FILE = Path(
     os.getenv("MPL_DIRECTORY_FILE", str(BASE_DIR / "data" / "mpl_directory.json"))
 )
 KEHE_MPL_DRAFTS_TABLE = os.getenv("KEHE_MPL_DRAFTS_TABLE", "kehe_mpl_drafts")
-KEHE_MPL_DRAFTS_STORE = os.getenv("KEHE_MPL_DRAFTS_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
+KEHE_MPL_DRAFTS_STORE = os.getenv("KEHE_MPL_DRAFTS_STORE", MPL_PRODUCT_MASTER_STORE).strip().lower()
 KEHE_MPL_DRAFTS_FILE = Path(
     os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json"))
 )
 KEHE_AUDIT_LOG_TABLE = os.getenv("KEHE_AUDIT_LOG_TABLE", "kehe_audit_log")
-KEHE_AUDIT_LOG_STORE = os.getenv("KEHE_AUDIT_LOG_STORE", KEHE_PRODUCT_MASTER_STORE).strip().lower()
+KEHE_AUDIT_LOG_STORE = os.getenv("KEHE_AUDIT_LOG_STORE", MPL_PRODUCT_MASTER_STORE).strip().lower()
 KEHE_AUDIT_LOG_FILE = Path(
     os.getenv("KEHE_AUDIT_LOG_FILE", str(BASE_DIR / "data" / "kehe_audit_log.json"))
 )
@@ -372,6 +361,10 @@ def _normalize_storefront(value: Any) -> str:
     return clean or "KeHE"
 
 
+def _is_kehe_storefront(value: Any) -> bool:
+    return _normalize_storefront(value).lower() == "kehe"
+
+
 def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
     storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
     gtin = _first_value(row, "gtin", "GTIN", "case_upc", "CASE_UPC", "upc", "UPC")
@@ -447,12 +440,12 @@ def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, st
     return list(deduped.values())
 
 
-def _mpl_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    return [row for row in _dedupe_product_master_rows(rows) if _boolish(row.get("in_packing_list"), False)]
+def _kehe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    return [row for row in _dedupe_product_master_rows(rows) if _is_kehe_storefront(row.get("storefront"))]
 
 
 def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str, str]]:
-    path = file_path or KEHE_PRODUCT_MASTER_FILE
+    path = file_path or MPL_PRODUCT_MASTER_FILE
     try:
         if not path.exists():
             return []
@@ -466,7 +459,7 @@ def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str
 
 
 def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[Path] = None) -> List[Dict[str, str]]:
-    path = file_path or KEHE_PRODUCT_MASTER_FILE
+    path = file_path or MPL_PRODUCT_MASTER_FILE
     normalized = _dedupe_product_master_rows(rows)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -475,6 +468,10 @@ def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[P
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return normalized
+
+
+def _shared_product_master_file_read() -> List[Dict[str, str]]:
+    return _product_master_file_read(MPL_PRODUCT_MASTER_FILE)
 
 
 def _datastore_row_to_product(row: Dict[str, Any]) -> Dict[str, str]:
@@ -529,14 +526,6 @@ def _datastore_table_named(request: Request, table_name: str, store_mode: str) -
         return None
 
 
-def _datastore_table(request: Request) -> Any:
-    return _datastore_table_named(
-        request,
-        KEHE_PRODUCT_MASTER_TABLE,
-        KEHE_PRODUCT_MASTER_STORE,
-    )
-
-
 def _product_datastore_table(request: Request, table_name: str, store_mode: str) -> Any:
     return _datastore_table_named(request, table_name, store_mode)
 
@@ -578,7 +567,7 @@ def _datastore_load_product_rows(request: Request, table_name: str, store_mode: 
 
 
 def _datastore_load_product_master(request: Request) -> Optional[List[Dict[str, str]]]:
-    return _datastore_load_product_rows(request, KEHE_PRODUCT_MASTER_TABLE, KEHE_PRODUCT_MASTER_STORE)
+    return _datastore_load_product_rows(request, MPL_PRODUCT_MASTER_TABLE, MPL_PRODUCT_MASTER_STORE)
 
 
 def _chunked(values: List[Any], size: int) -> List[List[Any]]:
@@ -897,10 +886,10 @@ def _datastore_save_product_rows(
 def _datastore_save_product_master(request: Request, rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:
     return _datastore_save_product_rows(
         request,
-        rows,
-        KEHE_PRODUCT_MASTER_TABLE,
-        KEHE_PRODUCT_MASTER_STORE,
-        include_storefront=False,
+        _dedupe_product_master_rows(rows),
+        MPL_PRODUCT_MASTER_TABLE,
+        MPL_PRODUCT_MASTER_STORE,
+        include_storefront=True,
     )
 
 
@@ -909,60 +898,29 @@ async def get_kehe_product_master(request: Request) -> JSONResponse:
     rows = _datastore_load_product_master(request)
     source = "datastore"
     if rows is None:
-        rows = _product_master_file_read()
+        rows = _shared_product_master_file_read()
         source = "file"
+    rows = _kehe_product_master_rows(rows)
     return JSONResponse(content={"rows": rows, "source": source})
 
 
 @app.put("/api/kehe/product-master")
 async def save_kehe_product_master(request: Request, payload: Dict[str, Any]) -> JSONResponse:
-    rows = payload.get("rows") if isinstance(payload, dict) else []
-    if not isinstance(rows, list):
-        rows = []
-    source = str(payload.get("source") or "manual_edit") if isinstance(payload, dict) else "manual_edit"
-    batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
-    filename = str(payload.get("filename") or "") if isinstance(payload, dict) else ""
-
-    old_rows = _datastore_load_product_master(request)
-    if old_rows is None:
-        old_rows = _product_master_file_read()
-
-    saved_rows = _datastore_save_product_master(request, rows)
-    storage_source = "datastore"
-    if saved_rows is None:
-        saved_rows = _product_master_file_write(rows)
-        storage_source = "file"
-
-    _audit_row_changes(
-        request=request,
-        table="kehe_product_master",
-        old_rows=old_rows,
-        new_rows=saved_rows,
-        key_fn=_product_row_key,
-        source=source,
-        batch_id=batch_id,
-        filename=filename,
+    raise HTTPException(
+        status_code=405,
+        detail="KeHE Product Master is read-only. Edit shared rows from Packing List & Ti-Hi Product Master.",
     )
-
-    return JSONResponse(content={"rows": saved_rows, "saved": True, "source": storage_source})
 
 
 @app.get("/api/mpl/product-master")
 async def get_mpl_product_master(request: Request) -> JSONResponse:
-    rows = _datastore_load_product_rows(request, MPL_PRODUCT_MASTER_TABLE, MPL_PRODUCT_MASTER_STORE)
+    rows = _datastore_load_product_master(request)
     source = "datastore"
     if rows is None:
-        rows = _mpl_product_master_rows(_product_master_file_read(MPL_PRODUCT_MASTER_FILE))
+        rows = _shared_product_master_file_read()
         source = "file"
-        if not rows and not MPL_PRODUCT_MASTER_FILE.exists():
-            seeded_rows = [
-                {**row, "storefront": row.get("storefront") or "KeHE"}
-                for row in _mpl_product_master_rows(_product_master_file_read(KEHE_PRODUCT_MASTER_FILE))
-            ]
-            if seeded_rows:
-                rows = _product_master_file_write(seeded_rows, MPL_PRODUCT_MASTER_FILE)
-    else:
-        rows = _mpl_product_master_rows(rows)
+        if rows and not MPL_PRODUCT_MASTER_FILE.exists():
+            rows = _product_master_file_write(rows, MPL_PRODUCT_MASTER_FILE)
     return JSONResponse(content={"rows": rows, "source": source})
 
 
@@ -971,24 +929,16 @@ async def save_mpl_product_master(request: Request, payload: Dict[str, Any]) -> 
     rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(rows, list):
         rows = []
-    rows = _mpl_product_master_rows(rows)
+    rows = _dedupe_product_master_rows(rows)
     source = str(payload.get("source") or "manual_edit") if isinstance(payload, dict) else "manual_edit"
     batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
     filename = str(payload.get("filename") or "") if isinstance(payload, dict) else ""
 
-    old_rows = _datastore_load_product_rows(request, MPL_PRODUCT_MASTER_TABLE, MPL_PRODUCT_MASTER_STORE)
+    old_rows = _datastore_load_product_master(request)
     if old_rows is None:
-        old_rows = _mpl_product_master_rows(_product_master_file_read(MPL_PRODUCT_MASTER_FILE))
-    else:
-        old_rows = _mpl_product_master_rows(old_rows)
+        old_rows = _shared_product_master_file_read()
 
-    saved_rows = _datastore_save_product_rows(
-        request,
-        rows,
-        MPL_PRODUCT_MASTER_TABLE,
-        MPL_PRODUCT_MASTER_STORE,
-        include_storefront=True,
-    )
+    saved_rows = _datastore_save_product_master(request, rows)
     storage_source = "datastore"
     if saved_rows is None:
         saved_rows = _product_master_file_write(rows, MPL_PRODUCT_MASTER_FILE)
@@ -1072,28 +1022,12 @@ def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return list(deduped.values())
 
 
-def _dc_rows_to_directory_object(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    out: Dict[str, Dict[str, Any]] = {}
-
-    for row in _dedupe_dc_directory_rows(rows):
-        dc = str(row.get("dc") or "").strip()
-        if not dc:
-            continue
-
-        out[dc] = {
-            "dc": dc,
-            "name": row.get("name", ""),
-            "ship_from": row.get("ship_from", DEFAULT_KEHE_SHIP_FROM),
-            "delivery_address": row.get("delivery_address", ""),
-            "billing_address": row.get("billing_address", ""),
-            "match_values": row.get("match_values", []),
-        }
-
-    return out
+def _kehe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [row for row in _dedupe_dc_directory_rows(rows) if _is_kehe_storefront(row.get("storefront"))]
 
 
 def _dc_directory_file_read(file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
-    path = file_path or KEHE_DC_DIRECTORY_FILE
+    path = file_path or MPL_DIRECTORY_FILE
     try:
         if not path.exists():
             return []
@@ -1121,14 +1055,12 @@ def _dc_directory_file_read(file_path: Optional[Path] = None) -> List[Dict[str, 
 def _dc_directory_file_write(
     rows: List[Dict[str, Any]],
     file_path: Optional[Path] = None,
-    *,
-    as_directory_object: bool = True,
 ) -> List[Dict[str, Any]]:
-    path = file_path or KEHE_DC_DIRECTORY_FILE
+    path = file_path or MPL_DIRECTORY_FILE
     normalized = _dedupe_dc_directory_rows(rows)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = _dc_rows_to_directory_object(normalized) if as_directory_object else {
+    payload = {
         "rows": normalized,
         "updated_at": _now_iso(),
     }
@@ -1137,13 +1069,16 @@ def _dc_directory_file_write(
         encoding="utf-8",
     )
 
-    if as_directory_object:
-        try:
-            load_kehe_dc_directory.cache_clear()
-        except Exception:
-            pass
+    try:
+        load_kehe_dc_directory.cache_clear()
+    except Exception:
+        pass
 
     return normalized
+
+
+def _shared_dc_directory_file_read() -> List[Dict[str, Any]]:
+    return _dc_directory_file_read(MPL_DIRECTORY_FILE)
 
 
 def _datastore_row_to_dc(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1168,14 +1103,6 @@ def _dc_to_datastore_row(row: Dict[str, Any], include_storefront: bool = False) 
     return out
 
 
-def _dc_datastore_table(request: Request) -> Any:
-    return _datastore_table_named(
-        request,
-        KEHE_DC_DIRECTORY_TABLE,
-        KEHE_DC_DIRECTORY_STORE,
-    )
-
-
 def _dc_datastore_table_named(request: Request, table_name: str, store_mode: str) -> Any:
     return _datastore_table_named(request, table_name, store_mode)
 
@@ -1197,7 +1124,7 @@ def _datastore_load_dc_rows(request: Request, table_name: str, store_mode: str) 
 
 
 def _datastore_load_dc_directory(request: Request) -> Optional[List[Dict[str, Any]]]:
-    return _datastore_load_dc_rows(request, KEHE_DC_DIRECTORY_TABLE, KEHE_DC_DIRECTORY_STORE)
+    return _datastore_load_dc_rows(request, MPL_DIRECTORY_TABLE, MPL_DIRECTORY_STORE)
 
 
 def _datastore_save_dc_rows(
@@ -1207,7 +1134,6 @@ def _datastore_save_dc_rows(
     store_mode: str,
     *,
     include_storefront: bool = False,
-    mirror_pipeline_file: bool = False,
 ) -> Optional[List[Dict[str, Any]]]:
     table_service = _dc_datastore_table_named(request, table_name, store_mode)
     if table_service is None:
@@ -1228,10 +1154,6 @@ def _datastore_save_dc_rows(
             if batch:
                 table_service.insert_rows(batch)
 
-        if mirror_pipeline_file:
-            # Keep pipeline JSON mirror updated for the current runtime.
-            _dc_directory_file_write(normalized)
-
         return normalized
     except Exception:
         return None
@@ -1240,11 +1162,10 @@ def _datastore_save_dc_rows(
 def _datastore_save_dc_directory(request: Request, rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
     return _datastore_save_dc_rows(
         request,
-        rows,
-        KEHE_DC_DIRECTORY_TABLE,
-        KEHE_DC_DIRECTORY_STORE,
-        include_storefront=False,
-        mirror_pipeline_file=True,
+        _dedupe_dc_directory_rows(rows),
+        MPL_DIRECTORY_TABLE,
+        MPL_DIRECTORY_STORE,
+        include_storefront=True,
     )
 
 
@@ -1252,10 +1173,15 @@ def _sync_kehe_dc_directory_for_pipeline(request: Request) -> List[Dict[str, Any
     rows = _datastore_load_dc_directory(request)
 
     if rows is None:
-        rows = _dc_directory_file_read()
+        rows = _shared_dc_directory_file_read()
+    else:
+        _dc_directory_file_write(rows, MPL_DIRECTORY_FILE)
 
-    # This keeps kehe_pipeline.py using the latest DC directory.
-    _dc_directory_file_write(rows)
+    rows = _kehe_dc_directory_rows(rows)
+    try:
+        load_kehe_dc_directory.cache_clear()
+    except Exception:
+        pass
 
     return rows
 
@@ -1266,66 +1192,34 @@ async def get_kehe_dc_directory(request: Request) -> JSONResponse:
     source = "datastore"
 
     if rows is None:
-        rows = _dc_directory_file_read()
+        rows = _shared_dc_directory_file_read()
         source = "file"
+    rows = _kehe_dc_directory_rows(rows)
 
     return JSONResponse(content={"rows": rows, "source": source})
 
 
 @app.put("/api/kehe/dc-directory")
 async def save_kehe_dc_directory(request: Request, payload: Dict[str, Any]) -> JSONResponse:
-    rows = payload.get("rows") if isinstance(payload, dict) else []
-
-    if not isinstance(rows, list):
-        rows = []
-    source = str(payload.get("source") or "manual_edit") if isinstance(payload, dict) else "manual_edit"
-    batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
-    filename = str(payload.get("filename") or "") if isinstance(payload, dict) else ""
-
-    old_rows = _datastore_load_dc_directory(request)
-    if old_rows is None:
-        old_rows = _dc_directory_file_read()
-
-    saved_rows = _datastore_save_dc_directory(request, rows)
-    storage_source = "datastore"
-
-    if saved_rows is None:
-        saved_rows = _dc_directory_file_write(rows)
-        storage_source = "file"
-
-    _audit_row_changes(
-        request=request,
-        table="kehe_dc_directory",
-        old_rows=old_rows,
-        new_rows=saved_rows,
-        key_fn=_dc_row_key,
-        source=source,
-        batch_id=batch_id,
-        filename=filename,
+    raise HTTPException(
+        status_code=405,
+        detail="KeHE DC Directory is read-only. Edit shared rows from Packing List & Ti-Hi Directory.",
     )
-
-    return JSONResponse(content={"rows": saved_rows, "saved": True, "source": storage_source})
 
 
 @app.get("/api/mpl/directory")
 async def get_mpl_directory(request: Request) -> JSONResponse:
-    rows = _datastore_load_dc_rows(request, MPL_DIRECTORY_TABLE, MPL_DIRECTORY_STORE)
+    rows = _datastore_load_dc_directory(request)
     source = "datastore"
 
     if rows is None:
-        rows = _dc_directory_file_read(MPL_DIRECTORY_FILE)
+        rows = _shared_dc_directory_file_read()
         source = "file"
-        if not rows and not MPL_DIRECTORY_FILE.exists():
-            seeded_rows = [
-                {**row, "storefront": row.get("storefront") or "KeHE", "match_values": []}
-                for row in _dc_directory_file_read(KEHE_DC_DIRECTORY_FILE)
-            ]
-            if seeded_rows:
-                rows = _dc_directory_file_write(
-                    seeded_rows,
-                    MPL_DIRECTORY_FILE,
-                    as_directory_object=False,
-                )
+        if rows and not MPL_DIRECTORY_FILE.exists():
+            rows = _dc_directory_file_write(
+                rows,
+                MPL_DIRECTORY_FILE,
+            )
 
     return JSONResponse(content={"rows": rows, "source": source})
 
@@ -1340,25 +1234,18 @@ async def save_mpl_directory(request: Request, payload: Dict[str, Any]) -> JSONR
     batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
     filename = str(payload.get("filename") or "") if isinstance(payload, dict) else ""
 
-    old_rows = _datastore_load_dc_rows(request, MPL_DIRECTORY_TABLE, MPL_DIRECTORY_STORE)
+    rows = _dedupe_dc_directory_rows(rows)
+    old_rows = _datastore_load_dc_directory(request)
     if old_rows is None:
-        old_rows = _dc_directory_file_read(MPL_DIRECTORY_FILE)
+        old_rows = _shared_dc_directory_file_read()
 
-    saved_rows = _datastore_save_dc_rows(
-        request,
-        rows,
-        MPL_DIRECTORY_TABLE,
-        MPL_DIRECTORY_STORE,
-        include_storefront=True,
-        mirror_pipeline_file=False,
-    )
+    saved_rows = _datastore_save_dc_directory(request, rows)
     storage_source = "datastore"
 
     if saved_rows is None:
         saved_rows = _dc_directory_file_write(
             rows,
             MPL_DIRECTORY_FILE,
-            as_directory_object=False,
         )
         storage_source = "file"
 
@@ -1425,6 +1312,9 @@ def _canonical_import_key(header: str, table: str) -> str:
     key = re.sub(r"[^a-z0-9]+", "_", str(header or "").strip().lower()).strip("_")
     aliases = {
         "kehe_product_master": {
+            "storefront": "storefront",
+            "store_front": "storefront",
+            "store": "storefront",
             "in_packing_list": "in_packing_list",
             "in_packing_list_": "in_packing_list",
             "packing_list": "in_packing_list",
@@ -1457,6 +1347,9 @@ def _canonical_import_key(header: str, table: str) -> str:
             "item_number": "sku",
         },
         "kehe_dc_directory": {
+            "storefront": "storefront",
+            "store_front": "storefront",
+            "store": "storefront",
             "dc": "dc",
             "name": "name",
             "dc_name": "name",
@@ -1484,9 +1377,9 @@ def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Di
             next_row[_canonical_import_key(key, table)] = value
         canonical_rows.append(next_row)
     if table == "kehe_product_master":
-        return _dedupe_product_master_rows(canonical_rows)
+        return _kehe_product_master_rows(canonical_rows)
     if table == "kehe_dc_directory":
-        return _dedupe_dc_directory_rows(canonical_rows)
+        return _kehe_dc_directory_rows(canonical_rows)
     return canonical_rows
 
 
@@ -1574,12 +1467,14 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
     if table == "kehe_product_master":
         current_rows = _datastore_load_product_master(request)
         if current_rows is None:
-            current_rows = _product_master_file_read()
+            current_rows = _shared_product_master_file_read()
+        current_rows = _kehe_product_master_rows(current_rows)
         key_fn = _product_row_key
     else:
         current_rows = _datastore_load_dc_directory(request)
         if current_rows is None:
-            current_rows = _dc_directory_file_read()
+            current_rows = _shared_dc_directory_file_read()
+        current_rows = _kehe_dc_directory_rows(current_rows)
         key_fn = _dc_row_key
 
     preview = _preview_row_changes(
@@ -1616,7 +1511,8 @@ async def confirm_product_master_import(request: Request, payload: Dict[str, Any
     imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_product_master")
     current_rows = _datastore_load_product_master(request)
     if current_rows is None:
-        current_rows = _product_master_file_read()
+        current_rows = _shared_product_master_file_read()
+    current_rows = _kehe_product_master_rows(current_rows)
     merged_rows = _merge_import_rows(current_rows, imported_rows, _product_row_key)
     return await save_kehe_product_master(request, {
         "rows": merged_rows,
@@ -1634,7 +1530,8 @@ async def confirm_dc_directory_import(request: Request, payload: Dict[str, Any])
     imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_dc_directory")
     current_rows = _datastore_load_dc_directory(request)
     if current_rows is None:
-        current_rows = _dc_directory_file_read()
+        current_rows = _shared_dc_directory_file_read()
+    current_rows = _kehe_dc_directory_rows(current_rows)
     merged_rows = _merge_import_rows(current_rows, imported_rows, _dc_row_key)
     return await save_kehe_dc_directory(request, {
         "rows": merged_rows,
@@ -2062,7 +1959,10 @@ async def prepare_kehe_master_packing_list(
             xml_paths.append(str(out_path))
         product_master_rows = parse_product_master_json(product_master_json)
         if not product_master_rows:
-            product_master_rows = _datastore_load_product_master(request) or _product_master_file_read()
+            product_master_rows = _datastore_load_product_master(request) or _shared_product_master_file_read()
+            product_master_rows = _kehe_product_master_rows(product_master_rows)
+        else:
+            product_master_rows = _kehe_product_master_rows(product_master_rows)
         _sync_kehe_dc_directory_for_pipeline(request)
         draft = build_kehe_master_packing_list_draft(xml_paths, product_master_rows=product_master_rows)
         # Attach extracted_headers for the frontend Extracted Data table
@@ -2116,7 +2016,10 @@ async def prepare_kehe_pack_labels(
 
         product_master_rows = parse_product_master_json(product_master_json)
         if not product_master_rows:
-            product_master_rows = _datastore_load_product_master(request) or _product_master_file_read()
+            product_master_rows = _datastore_load_product_master(request) or _shared_product_master_file_read()
+            product_master_rows = _kehe_product_master_rows(product_master_rows)
+        else:
+            product_master_rows = _kehe_product_master_rows(product_master_rows)
         _sync_kehe_dc_directory_for_pipeline(request)
         draft = build_kehe_pack_label_draft(xml_paths, product_master_rows=product_master_rows)
         return JSONResponse(content=draft)
