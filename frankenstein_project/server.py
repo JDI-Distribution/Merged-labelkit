@@ -68,6 +68,92 @@ MAX_CACHED_REPORTS = 25
 RESULT_REPORTS: Dict[str, Dict[str, Any]] = {}
 RESULT_JOBS: Dict[str, Dict[str, Any]] = {}
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+APP_CONFIG_FILE = Path(os.getenv("LABELKIT_CONFIG_FILE", str(BASE_DIR / "labelkit_config.json")))
+
+
+def _load_labelkit_config() -> Dict[str, Any]:
+    try:
+        if not APP_CONFIG_FILE.exists():
+            return {}
+        data = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _is_catalyst_runtime() -> bool:
+    catalyst_markers = {
+        "X_ZOHO_CATALYST_LISTEN_PORT",
+        "X_ZOHO_CATALYST_PROJECT_ID",
+        "X_ZOHO_CATALYST_ORG_ID",
+        "X_ZOHO_CATALYST_APP_NAME",
+        "CATALYST_PROJECT_ID",
+        "CATALYST_APP_NAME",
+        "CATALYST_OPTIONS",
+    }
+    return any(os.getenv(marker) for marker in catalyst_markers)
+
+
+LABELKIT_CONFIG = _load_labelkit_config()
+HAS_LABELKIT_CONFIG = bool(LABELKIT_CONFIG)
+
+
+def _resolve_labelkit_profile() -> tuple[str, Dict[str, Any]]:
+    profiles = LABELKIT_CONFIG.get("profiles")
+    if not isinstance(profiles, dict):
+        profiles = {}
+    requested = str(
+        os.getenv("LABELKIT_PROFILE")
+        or LABELKIT_CONFIG.get("active_profile")
+        or "local"
+    ).strip().lower()
+    if requested == "auto":
+        requested = "catalyst" if _is_catalyst_runtime() else "local"
+    profile = profiles.get(requested, {})
+    return requested, profile if isinstance(profile, dict) else {}
+
+
+LABELKIT_CONFIG_PROFILE, ACTIVE_LABELKIT_CONFIG = _resolve_labelkit_profile()
+ALLOW_CONFIG_ENV_OVERRIDES = bool(
+    LABELKIT_CONFIG.get("allow_environment_overrides", not HAS_LABELKIT_CONFIG)
+)
+
+
+def _config_value(env_name: str, key: str, default: Any = "") -> Any:
+    if ALLOW_CONFIG_ENV_OVERRIDES:
+        raw = os.getenv(env_name)
+        if raw is not None:
+            return raw
+    if key in ACTIVE_LABELKIT_CONFIG:
+        return ACTIVE_LABELKIT_CONFIG.get(key)
+    return default
+
+
+def _config_bool(env_name: str, key: str, default: bool = False) -> bool:
+    if ALLOW_CONFIG_ENV_OVERRIDES and os.getenv(env_name) is not None:
+        return _env_bool(env_name, default)
+    raw = ACTIVE_LABELKIT_CONFIG.get(key, default)
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+APP_ENV = str(_config_value("APP_ENV", "app_env", os.getenv("ENVIRONMENT", "local"))).strip().lower()
+AUTH_REQUIRED = _config_bool("AUTH_REQUIRED", "auth_required", APP_ENV in {"production", "prod"})
+AUTH_LOGIN_URL = str(_config_value("AUTH_LOGIN_URL", "auth_login_url", "") or "").strip()
+AUTH_LOGOUT_URL = str(_config_value("AUTH_LOGOUT_URL", "auth_logout_url", "") or "").strip()
+AUTH_RESET_URL = str(_config_value("AUTH_RESET_URL", "auth_reset_url", "") or "").strip()
+ALLOW_LOCAL_JSON_FALLBACK = _config_bool("ALLOW_LOCAL_JSON_FALLBACK", "allow_local_json_fallback", not AUTH_REQUIRED)
+ALLOW_BROWSER_LOCAL_CACHE = _config_bool("ALLOW_BROWSER_LOCAL_CACHE", "allow_browser_local_cache", not AUTH_REQUIRED)
+
 KIT_CONFIG: Dict[str, Dict[str, str]] = {
     "michaels": {
         "label": "Michaels Label Kit",
@@ -99,8 +185,15 @@ KIT_CONFIG: Dict[str, Dict[str, str]] = {
 # Product Master persistence.
 # MPL_PRODUCT_MASTER_TABLE is the shared source of truth. KeHE reads and writes
 # only rows where Storefront = KeHE, preserving other storefront rows.
-MPL_PRODUCT_MASTER_TABLE = os.getenv("MPL_PRODUCT_MASTER_TABLE", "mpl_product_master")
-MPL_PRODUCT_MASTER_STORE = os.getenv("MPL_PRODUCT_MASTER_STORE", "auto").strip().lower()
+MPL_PRODUCT_MASTER_TABLE = str(
+    _config_value("MPL_PRODUCT_MASTER_TABLE", "mpl_product_master_table", "mpl_product_master")
+    or "mpl_product_master"
+)
+MPL_PRODUCT_MASTER_STORE = str(_config_value(
+    "MPL_PRODUCT_MASTER_STORE",
+    "mpl_product_master_store",
+    "datastore" if AUTH_REQUIRED and not ALLOW_LOCAL_JSON_FALLBACK else "auto",
+)).strip().lower()
 MPL_PRODUCT_MASTER_FILE = Path(
     os.getenv("MPL_PRODUCT_MASTER_FILE", str(BASE_DIR / "data" / "mpl_product_master.json"))
 )
@@ -126,27 +219,40 @@ DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 # Directory persistence.
 # MPL_DIRECTORY_TABLE is the shared source of truth. KeHE uses rows where
 # Storefront = KeHE.
-MPL_DIRECTORY_TABLE = os.getenv("MPL_DIRECTORY_TABLE", "mpl_directory")
-MPL_DIRECTORY_STORE = os.getenv("MPL_DIRECTORY_STORE", MPL_PRODUCT_MASTER_STORE).strip().lower()
+MPL_DIRECTORY_TABLE = str(
+    _config_value("MPL_DIRECTORY_TABLE", "mpl_directory_table", "mpl_directory")
+    or "mpl_directory"
+)
+MPL_DIRECTORY_STORE = str(
+    _config_value("MPL_DIRECTORY_STORE", "mpl_directory_store", MPL_PRODUCT_MASTER_STORE)
+).strip().lower()
 MPL_DIRECTORY_FILE = Path(
     os.getenv("MPL_DIRECTORY_FILE", str(BASE_DIR / "data" / "mpl_directory.json"))
 )
-MPL_DRAFTS_TABLE = os.getenv("MPL_DRAFTS_TABLE", os.getenv("KEHE_MPL_DRAFTS_TABLE", "kehe_mpl_drafts"))
-MPL_DRAFTS_STORE = os.getenv(
+MPL_DRAFTS_TABLE = str(
+    _config_value("MPL_DRAFTS_TABLE", "mpl_drafts_table", "kehe_mpl_drafts")
+    or "kehe_mpl_drafts"
+)
+MPL_DRAFTS_STORE = str(_config_value(
     "MPL_DRAFTS_STORE",
-    os.getenv("KEHE_MPL_DRAFTS_STORE", MPL_PRODUCT_MASTER_STORE),
-).strip().lower()
+    "mpl_drafts_store",
+    os.getenv("KEHE_MPL_DRAFTS_STORE", MPL_PRODUCT_MASTER_STORE) if ALLOW_CONFIG_ENV_OVERRIDES else MPL_PRODUCT_MASTER_STORE,
+)).strip().lower()
 MPL_DRAFTS_FILE = Path(
     os.getenv(
         "MPL_DRAFTS_FILE",
         os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json")),
     )
 )
-AUDIT_LOG_TABLE = os.getenv("AUDIT_LOG_TABLE", os.getenv("KEHE_AUDIT_LOG_TABLE", "kehe_audit_log"))
-AUDIT_LOG_STORE = os.getenv(
+AUDIT_LOG_TABLE = str(
+    _config_value("AUDIT_LOG_TABLE", "audit_log_table", "kehe_audit_log")
+    or "kehe_audit_log"
+)
+AUDIT_LOG_STORE = str(_config_value(
     "AUDIT_LOG_STORE",
-    os.getenv("KEHE_AUDIT_LOG_STORE", MPL_PRODUCT_MASTER_STORE),
-).strip().lower()
+    "audit_log_store",
+    os.getenv("KEHE_AUDIT_LOG_STORE", MPL_PRODUCT_MASTER_STORE) if ALLOW_CONFIG_ENV_OVERRIDES else MPL_PRODUCT_MASTER_STORE,
+)).strip().lower()
 AUDIT_LOG_FILE = Path(
     os.getenv(
         "AUDIT_LOG_FILE",
@@ -524,6 +630,167 @@ def _init_catalyst_app(request: Request) -> Any:
             return None
 
 
+def _init_catalyst_user_app(request: Request) -> Any:
+    try:
+        import zcatalyst_sdk  # type: ignore
+    except Exception:
+        return None
+    try:
+        return zcatalyst_sdk.initialize(req=request)
+    except Exception:
+        return None
+
+
+def _role_from_name(role_name: str) -> str:
+    normalized = str(role_name or "").strip().lower()
+    if "admin" in normalized:
+        return "Admin"
+    if "editor" in normalized or "edit" in normalized:
+        return "Editor"
+    return "User"
+
+
+def _request_user_from_headers(request: Request) -> Dict[str, Any]:
+    headers = request.headers
+    role_name = (
+        headers.get("x-zc-user-role")
+        or headers.get("x-zc-role-name")
+        or headers.get("x-user-role")
+        or headers.get("x-labelkit-role")
+        or ""
+    )
+    user = {
+        "authenticated": False,
+        "name": (
+            headers.get("x-zc-user-name")
+            or headers.get("x-user-name")
+            or headers.get("x-forwarded-user")
+            or headers.get("x-labelkit-user")
+            or ""
+        ),
+        "email": (
+            headers.get("x-zc-user-email")
+            or headers.get("x-user-email")
+            or headers.get("x-forwarded-email")
+            or headers.get("x-labelkit-email")
+            or ""
+        ),
+        "user_id": headers.get("x-zc-user-id") or headers.get("x-user-id") or "",
+        "role": _role_from_name(role_name),
+        "role_name": role_name or "User",
+        "source": "headers",
+    }
+    user["authenticated"] = bool(user["email"] or user["user_id"] or user["name"])
+    if not AUTH_REQUIRED and not user["authenticated"]:
+        user.update({
+            "authenticated": True,
+            "name": "Local user",
+            "email": "",
+            "user_id": "",
+            "role": "Admin",
+            "role_name": "Local Admin",
+            "source": "local",
+        })
+    return user
+
+
+def _current_project_user(request: Request) -> Dict[str, Any]:
+    cached = getattr(request.state, "labelkit_user", None)
+    if isinstance(cached, dict):
+        return cached
+
+    user = _request_user_from_headers(request)
+    catalyst_app = _init_catalyst_user_app(request)
+    if catalyst_app is not None:
+        try:
+            details = catalyst_app.user_management().get_current_user()
+            if isinstance(details, dict):
+                role_details = details.get("role_details") or {}
+                role_name = ""
+                if isinstance(role_details, dict):
+                    role_name = str(role_details.get("role_name") or "")
+                user = {
+                    "authenticated": True,
+                    "name": " ".join([
+                        str(details.get("first_name") or "").strip(),
+                        str(details.get("last_name") or "").strip(),
+                    ]).strip(),
+                    "email": str(details.get("email_id") or details.get("email") or ""),
+                    "user_id": str(details.get("user_id") or details.get("zuid") or ""),
+                    "role": _role_from_name(role_name),
+                    "role_name": role_name or "User",
+                    "source": "catalyst",
+                }
+        except Exception:
+            pass
+
+    request.state.labelkit_user = user
+    return user
+
+
+def _permissions_for_role(role: str) -> Dict[str, bool]:
+    role = _role_from_name(role)
+    is_admin = role == "Admin"
+    is_editor = role in {"Admin", "Editor"}
+    return {
+        "view": role in {"Admin", "Editor", "User"},
+        "generate": role in {"Admin", "Editor", "User"},
+        "table_crud": is_editor,
+        "save_mpl": is_editor,
+        "delete_mpl": is_admin,
+        "audit_view": is_editor,
+        "admin": is_admin,
+    }
+
+
+def _app_runtime_config(request: Optional[Request] = None) -> Dict[str, Any]:
+    user = _current_project_user(request) if request is not None else {
+        "authenticated": not AUTH_REQUIRED,
+        "name": "Local user" if not AUTH_REQUIRED else "",
+        "email": "",
+        "user_id": "",
+        "role": "Admin" if not AUTH_REQUIRED else "User",
+        "role_name": "Local Admin" if not AUTH_REQUIRED else "User",
+        "source": "local",
+    }
+    return {
+        "app_env": APP_ENV,
+        "config_profile": LABELKIT_CONFIG_PROFILE,
+        "config_file": str(APP_CONFIG_FILE),
+        "auth_required": AUTH_REQUIRED,
+        "authenticated": bool(user.get("authenticated")),
+        "login_url": AUTH_LOGIN_URL,
+        "logout_url": AUTH_LOGOUT_URL,
+        "reset_url": AUTH_RESET_URL,
+        "allow_local_json_fallback": ALLOW_LOCAL_JSON_FALLBACK,
+        "allow_browser_local_cache": ALLOW_BROWSER_LOCAL_CACHE,
+        "user": user,
+        "permissions": _permissions_for_role(str(user.get("role") or "User")),
+        "store_modes": {
+            "product_master": MPL_PRODUCT_MASTER_STORE,
+            "directory": MPL_DIRECTORY_STORE,
+            "mpl_drafts": MPL_DRAFTS_STORE,
+            "audit_log": AUDIT_LOG_STORE,
+        },
+    }
+
+
+@app.get("/api/auth/session")
+async def auth_session(request: Request) -> JSONResponse:
+    return JSONResponse(content=_app_runtime_config(request))
+
+
+def _require_permission(request: Request, permission: str = "view") -> Dict[str, Any]:
+    config = _app_runtime_config(request)
+    user = config["user"]
+    if AUTH_REQUIRED and not user.get("authenticated"):
+        raise HTTPException(status_code=401, detail="Sign in with Catalyst Authentication to use LabelKit.")
+    if not config["permissions"].get(permission, False):
+        role_name = user.get("role_name") or user.get("role") or "User"
+        raise HTTPException(status_code=403, detail=f"{role_name} does not have permission for this action.")
+    return config
+
+
 def _store_requires_datastore(store_mode: str) -> bool:
     return str(store_mode or "").strip().lower() == "datastore"
 
@@ -620,26 +887,18 @@ def _now_iso() -> str:
 
 
 def _request_actor(request: Request) -> Dict[str, str]:
-    headers = request.headers
-    name = (
-        headers.get("x-zc-user-name")
-        or headers.get("x-user-name")
-        or headers.get("x-forwarded-user")
-        or ""
-    )
-    email = (
-        headers.get("x-zc-user-email")
-        or headers.get("x-user-email")
-        or headers.get("x-forwarded-email")
-        or ""
-    )
-    user_id = headers.get("x-zc-user-id") or headers.get("x-user-id") or ""
+    user = _current_project_user(request)
+    name = str(user.get("name") or "")
+    email = str(user.get("email") or "")
+    user_id = str(user.get("user_id") or "")
     if not name and not email:
         name = "Local user"
     return {
         "name": name,
         "email": email,
         "user_id": user_id,
+        "role": str(user.get("role") or ""),
+        "role_name": str(user.get("role_name") or ""),
         "client": request.client.host if request.client else "",
     }
 
@@ -944,6 +1203,7 @@ def _datastore_save_product_master(request: Request, rows: List[Dict[str, Any]])
 
 @app.get("/api/kehe/product-master")
 async def get_kehe_product_master(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
     rows = _datastore_load_product_master(request)
     source = "datastore"
     if rows is None:
@@ -963,6 +1223,7 @@ async def save_kehe_product_master(request: Request, payload: Dict[str, Any]) ->
 
 @app.get("/api/mpl/product-master")
 async def get_mpl_product_master(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
     rows = _datastore_load_product_master(request)
     source = "datastore"
     if rows is None:
@@ -975,6 +1236,7 @@ async def get_mpl_product_master(request: Request) -> JSONResponse:
 
 @app.put("/api/mpl/product-master")
 async def save_mpl_product_master(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "table_crud")
     rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(rows, list):
         rows = []
@@ -1241,6 +1503,7 @@ def _sync_kehe_dc_directory_for_pipeline(request: Request) -> List[Dict[str, Any
 
 @app.get("/api/kehe/dc-directory")
 async def get_kehe_dc_directory(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
     rows = _datastore_load_dc_directory(request)
     source = "datastore"
 
@@ -1262,6 +1525,7 @@ async def save_kehe_dc_directory(request: Request, payload: Dict[str, Any]) -> J
 
 @app.get("/api/mpl/directory")
 async def get_mpl_directory(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
     rows = _datastore_load_dc_directory(request)
     source = "datastore"
 
@@ -1279,6 +1543,7 @@ async def get_mpl_directory(request: Request) -> JSONResponse:
 
 @app.put("/api/mpl/directory")
 async def save_mpl_directory(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "table_crud")
     rows = payload.get("rows") if isinstance(payload, dict) else []
 
     if not isinstance(rows, list):
@@ -1318,6 +1583,7 @@ async def save_mpl_directory(request: Request, payload: Dict[str, Any]) -> JSONR
 
 @app.get("/api/kehe/audit-log")
 async def get_kehe_audit_log(request: Request, limit: int = 200, table: str = "") -> JSONResponse:
+    _require_permission(request, "audit_view")
     safe_limit = min(max(int(limit or 200), 1), 1000)
     return JSONResponse(content={"entries": _audit_log_read(limit=safe_limit, table=table, request=request)})
 
@@ -1513,6 +1779,7 @@ def _merge_import_rows(current_rows: List[Dict[str, Any]], imported_rows: List[D
 
 
 async def _preview_excel_import(request: Request, upload: UploadFile, table: str) -> JSONResponse:
+    _require_permission(request, "table_crud")
     data = await upload.read()
     await upload.close()
     raw_rows = _read_spreadsheet_bytes(upload.filename or "upload.xlsx", data)
@@ -1558,17 +1825,19 @@ async def preview_dc_directory_import(request: Request, file: UploadFile = File(
 
 @app.post("/api/kehe/product-master/import-confirm")
 async def confirm_product_master_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "table_crud")
     imported_rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(imported_rows, list):
         imported_rows = []
     imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_product_master")
-    current_rows = _datastore_load_product_master(request)
-    if current_rows is None:
-        current_rows = _shared_product_master_file_read()
-    current_rows = _kehe_product_master_rows(current_rows)
-    merged_rows = _merge_import_rows(current_rows, imported_rows, _product_row_key)
-    return await save_kehe_product_master(request, {
-        "rows": merged_rows,
+    all_rows = _datastore_load_product_master(request)
+    if all_rows is None:
+        all_rows = _shared_product_master_file_read()
+    non_kehe_rows = [row for row in all_rows if not _is_kehe_storefront(row.get("storefront"))]
+    current_kehe_rows = _kehe_product_master_rows(all_rows)
+    merged_kehe_rows = _merge_import_rows(current_kehe_rows, imported_rows, _product_row_key)
+    return await save_mpl_product_master(request, {
+        "rows": non_kehe_rows + merged_kehe_rows,
         "source": "excel_import",
         "batch_id": str(payload.get("batch_id") or uuid.uuid4().hex),
         "filename": str(payload.get("filename") or ""),
@@ -1577,17 +1846,19 @@ async def confirm_product_master_import(request: Request, payload: Dict[str, Any
 
 @app.post("/api/kehe/dc-directory/import-confirm")
 async def confirm_dc_directory_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "table_crud")
     imported_rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(imported_rows, list):
         imported_rows = []
     imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_dc_directory")
-    current_rows = _datastore_load_dc_directory(request)
-    if current_rows is None:
-        current_rows = _shared_dc_directory_file_read()
-    current_rows = _kehe_dc_directory_rows(current_rows)
-    merged_rows = _merge_import_rows(current_rows, imported_rows, _dc_row_key)
-    return await save_kehe_dc_directory(request, {
-        "rows": merged_rows,
+    all_rows = _datastore_load_dc_directory(request)
+    if all_rows is None:
+        all_rows = _shared_dc_directory_file_read()
+    non_kehe_rows = [row for row in all_rows if not _is_kehe_storefront(row.get("storefront"))]
+    current_kehe_rows = _kehe_dc_directory_rows(all_rows)
+    merged_kehe_rows = _merge_import_rows(current_kehe_rows, imported_rows, _dc_row_key)
+    return await save_mpl_directory(request, {
+        "rows": non_kehe_rows + merged_kehe_rows,
         "source": "excel_import",
         "batch_id": str(payload.get("batch_id") or uuid.uuid4().hex),
         "filename": str(payload.get("filename") or ""),
@@ -1722,6 +1993,7 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
 
 @app.get("/api/kehe/mpl-drafts")
 async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
     drafts = _mpl_drafts_read(request)
     summaries = [_mpl_draft_summary(record) for record in drafts]
     summaries.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
@@ -1730,6 +2002,7 @@ async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
 
 @app.get("/api/kehe/mpl-drafts/{draft_id}")
 async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
+    _require_permission(request, "view")
     for record in _mpl_drafts_read(request):
         if str(record.get("id")) == draft_id:
             return JSONResponse(content={"draft": record})
@@ -1738,6 +2011,7 @@ async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
 
 @app.post("/api/kehe/mpl-drafts")
 async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "save_mpl")
     draft = payload.get("draft") if isinstance(payload, dict) else None
     if not isinstance(draft, dict):
         raise HTTPException(status_code=400, detail="MPL draft payload is required.")
@@ -1787,6 +2061,7 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
 @app.post("/api/kehe/mpl-drafts/{draft_id}/delete")
 @app.delete("/api/kehe/mpl-drafts/{draft_id}")
 async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
+    _require_permission(request, "delete_mpl")
     drafts = _mpl_drafts_read(request)
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
     if old_record is None:
@@ -1819,7 +2094,8 @@ async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse
 # BACKEND SECTION 5: shared result endpoints for frontend polling/download.
 # ---------------------------------------------------------------------------
 @app.get("/results/{result_id}/status")
-def get_result_status(result_id: str) -> JSONResponse:
+def get_result_status(request: Request, result_id: str) -> JSONResponse:
+    _require_permission(request, "view")
     job = RESULT_JOBS.get(result_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Generation result not found.")
@@ -1837,7 +2113,8 @@ def get_result_status(result_id: str) -> JSONResponse:
 
 
 @app.get("/results/{result_id}/report")
-def get_result_report(result_id: str) -> JSONResponse:
+def get_result_report(request: Request, result_id: str) -> JSONResponse:
+    _require_permission(request, "view")
     report = RESULT_REPORTS.get(result_id)
     if report is None:
         job = RESULT_JOBS.get(result_id)
@@ -1849,7 +2126,8 @@ def get_result_report(result_id: str) -> JSONResponse:
 
 
 @app.get("/results/{result_id}/file")
-def get_result_file(result_id: str) -> FileResponse:
+def get_result_file(request: Request, result_id: str) -> FileResponse:
+    _require_permission(request, "view")
     job = RESULT_JOBS.get(result_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Generated file not found.")
@@ -1876,10 +2154,12 @@ def get_result_file(result_id: str) -> FileResponse:
 @app.post("/generate/{kit}")
 async def generate_for_kit(
     kit: str,
+    request: Request,
     xml_files: List[UploadFile] = File(...),
     pdf_files: Optional[List[UploadFile]] = File(default=None),
     mode: Optional[str] = Form(default="xml"),
 ) -> JSONResponse:
+    _require_permission(request, "generate")
     kit = normalize_kit(kit)
     if kit not in KIT_CONFIG:
         raise HTTPException(status_code=404, detail="Unknown label kit. Use 'michaels' or 'kehe'.")
@@ -1955,6 +2235,7 @@ async def prepare_kehe_pallet_label(
     request: Request,
     xml_files: List[UploadFile] = File(...),
 ) -> JSONResponse:
+    _require_permission(request, "generate")
     if not xml_files:
         raise HTTPException(status_code=400, detail="At least one XML file is required.")
     temp_dir = Path(tempfile.mkdtemp(prefix="kehe_pallet_prepare_"))
@@ -2005,6 +2286,7 @@ async def prepare_kehe_master_packing_list(
     xml_files: List[UploadFile] = File(...),
     product_master_json: Optional[str] = Form(default="[]"),
 ) -> JSONResponse:
+    _require_permission(request, "generate")
     if not xml_files:
         raise HTTPException(status_code=400, detail="At least one XML file is required.")
     temp_dir = Path(tempfile.mkdtemp(prefix="kehe_mpl_prepare_"))
@@ -2063,6 +2345,7 @@ async def prepare_kehe_pack_labels(
     xml_files: List[UploadFile] = File(...),
     product_master_json: Optional[str] = Form(default="[]"),
 ) -> JSONResponse:
+    _require_permission(request, "generate")
     if not xml_files:
         raise HTTPException(status_code=400, detail="At least one XML file is required.")
     temp_dir = Path(tempfile.mkdtemp(prefix="kehe_pack_labels_prepare_"))
@@ -2188,7 +2471,8 @@ def run_kehe_pack_label_render_job(result_id: str, draft: Dict[str, Any]) -> Non
 # BACKEND SECTION 6D: KeHE document render endpoints.
 # ---------------------------------------------------------------------------
 @app.post("/render/kehe/pallet-label")
-async def render_kehe_pallet_label_endpoint(draft: Dict[str, Any]) -> JSONResponse:
+async def render_kehe_pallet_label_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "generate")
     temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_pallet_label"]["temp_prefix"]))
     result_id = create_result_job(
         temp_dir,
@@ -2216,7 +2500,8 @@ async def render_kehe_pallet_label_endpoint(draft: Dict[str, Any]) -> JSONRespon
 
 
 @app.post("/render/kehe/master-packing-list")
-async def render_kehe_master_packing_list_endpoint(draft: Dict[str, Any]) -> JSONResponse:
+async def render_kehe_master_packing_list_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "generate")
     temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_master_packing_list"]["temp_prefix"]))
     result_id = create_result_job(
         temp_dir,
@@ -2244,7 +2529,8 @@ async def render_kehe_master_packing_list_endpoint(draft: Dict[str, Any]) -> JSO
 
 
 @app.post("/render/kehe/pack-labels")
-async def render_kehe_pack_labels_endpoint(draft: Dict[str, Any]) -> JSONResponse:
+async def render_kehe_pack_labels_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "generate")
     temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_pack_labels"]["temp_prefix"]))
     result_id = create_result_job(
         temp_dir,

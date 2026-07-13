@@ -6,15 +6,7 @@
       "port": 9000,
       "memory": 2048,
       "env_variables": {
-        "PYTHONUNBUFFERED": "1",
-        "MPL_PRODUCT_MASTER_STORE": "datastore",
-        "MPL_PRODUCT_MASTER_TABLE": "mpl_product_master",
-        "MPL_DIRECTORY_STORE": "datastore",
-        "MPL_DIRECTORY_TABLE": "mpl_directory",
-        "MPL_DRAFTS_STORE": "datastore",
-        "MPL_DRAFTS_TABLE": "kehe_mpl_drafts",
-        "AUDIT_LOG_STORE": "datastore",
-        "AUDIT_LOG_TABLE": "kehe_audit_log"
+        "PYTHONUNBUFFERED": "1"
       }
     }
   ]

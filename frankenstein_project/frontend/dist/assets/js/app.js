@@ -287,6 +287,26 @@
   let keheLastPalletLabelDraft = null;
   let keheMplPalletizationSource = 'Not generated';
   let kehePalletLabelSource = 'Not generated';
+  let appRuntimeConfig = {
+    app_env: 'local',
+    auth_required: false,
+    authenticated: true,
+    login_url: '',
+    logout_url: '',
+    reset_url: '',
+    allow_local_json_fallback: true,
+    allow_browser_local_cache: true,
+    user: { authenticated: true, name: 'Local user', role: 'Admin', role_name: 'Local Admin' },
+    permissions: {
+      view: true,
+      generate: true,
+      table_crud: true,
+      save_mpl: true,
+      delete_mpl: true,
+      audit_view: true,
+      admin: true
+    }
+  };
   const KEHE_PRODUCT_MASTER_STORAGE_KEY = 'jdi_kehe_product_master_rows_v2';
   let keheProductMasterRows = loadKeheProductMasterFromStorage();
   let keheProductMasterLoadPromise = null;
@@ -307,6 +327,126 @@
   const pages = ['home', 'michaels', 'kehe', 'mpl'];
 
   fetch('/health').catch(() => {});
+
+  function hasPermission(permission) {
+    return !!appRuntimeConfig?.permissions?.[permission];
+  }
+
+  function allowBrowserLocalCache() {
+    return appRuntimeConfig?.allow_browser_local_cache !== false;
+  }
+
+  function allowLocalFallback() {
+    return appRuntimeConfig?.allow_local_json_fallback !== false;
+  }
+
+  function authUserLabel() {
+    const user = appRuntimeConfig?.user || {};
+    return user.email || user.name || 'Signed in';
+  }
+
+  async function loadAppRuntimeConfig() {
+    try {
+      const res = await fetchWithTimeout('/api/auth/session', { cache: 'no-store' }, 15000);
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || 'Could not load app session.');
+      appRuntimeConfig = { ...appRuntimeConfig, ...payload };
+    } catch (_err) {
+      appRuntimeConfig = {
+        ...appRuntimeConfig,
+        auth_required: true,
+        authenticated: false,
+        user: { authenticated: false, role: 'User', role_name: 'Unknown' },
+        permissions: {}
+      };
+    }
+    if (!allowBrowserLocalCache()) {
+      keheProductMasterRows = [];
+      keheDcDirectoryRows = [];
+      mplProductMasterRows = [];
+      mplDirectoryRows = [];
+    }
+    renderAuthState();
+    return appRuntimeConfig;
+  }
+
+  function renderAuthState() {
+    const gate = document.getElementById('auth-gate');
+    const appShell = document.getElementById('app-shell');
+    const header = document.querySelector('header');
+    const userChip = document.getElementById('auth-user-chip');
+    const userName = document.getElementById('auth-user-name');
+    const userRole = document.getElementById('auth-user-role');
+    const loginButton = document.getElementById('auth-login-btn');
+    const logoutButton = document.getElementById('auth-logout-btn');
+    const resetLink = document.getElementById('auth-reset-link');
+    const loginHint = document.getElementById('auth-login-hint');
+    const needsLogin = !!appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated;
+
+    if (gate) gate.classList.toggle('visible', needsLogin);
+    if (appShell) appShell.classList.toggle('auth-locked', needsLogin);
+    if (header) header.classList.toggle('auth-locked', needsLogin);
+
+    if (userChip) userChip.classList.toggle('hidden', !appRuntimeConfig.authenticated);
+    if (userName) userName.textContent = authUserLabel();
+    if (userRole) userRole.textContent = appRuntimeConfig?.user?.role_name || appRuntimeConfig?.user?.role || 'User';
+    if (logoutButton) logoutButton.classList.toggle('hidden', !appRuntimeConfig.authenticated || !appRuntimeConfig.logout_url);
+    if (resetLink) {
+      resetLink.classList.toggle('hidden', !appRuntimeConfig.reset_url);
+      resetLink.href = appRuntimeConfig.reset_url || '#';
+    }
+    if (loginButton) {
+      loginButton.disabled = !appRuntimeConfig.login_url;
+      loginButton.textContent = appRuntimeConfig.login_url ? 'Sign In' : 'Hosted Login URL Missing';
+    }
+    if (loginHint) {
+      loginHint.textContent = appRuntimeConfig.login_url
+        ? 'Use your invited Catalyst account to continue.'
+        : 'Set AUTH_LOGIN_URL in Catalyst AppSail after configuring Hosted Authentication.';
+    }
+    applyPermissionUi();
+  }
+
+  function handleAuthLogin() {
+    if (appRuntimeConfig.login_url) {
+      window.location.href = appRuntimeConfig.login_url;
+    }
+  }
+
+  function handleAuthLogout() {
+    if (appRuntimeConfig.logout_url) {
+      window.location.href = appRuntimeConfig.logout_url;
+    }
+  }
+
+  function applyPermissionUi() {
+    const tableCrud = hasPermission('table_crud');
+    const auditView = hasPermission('audit_view');
+    const saveMpl = hasPermission('save_mpl');
+    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"]').forEach(btn => {
+      btn.classList.toggle('hidden', !tableCrud);
+      btn.disabled = !tableCrud;
+    });
+    document.querySelectorAll('button[onclick^="openKeheAuditModal"]').forEach(btn => {
+      btn.classList.toggle('hidden', !auditView);
+      btn.disabled = !auditView;
+    });
+    const saveDraft = document.getElementById('btn-save-mpl-draft');
+    if (saveDraft) {
+      saveDraft.disabled = !saveMpl;
+      if (!saveMpl) saveDraft.classList.add('hidden');
+    }
+  }
+
+  async function bootstrapLabelKit() {
+    await loadAppRuntimeConfig();
+    if (appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated) {
+      return;
+    }
+    const initialPage = getPageFromHash();
+    setHistoryPage(initialPage, true);
+    applyPageFromNavigation(initialPage);
+  }
 
   async function fetchWithTimeout(resource, options = {}, timeoutMs = 60000) {
     const controller = new AbortController();
@@ -398,6 +538,7 @@
   }
 
   function loadKeheProductMasterFromStorage() {
+    if (!allowBrowserLocalCache()) return [];
     try {
       const raw = localStorage.getItem(KEHE_PRODUCT_MASTER_STORAGE_KEY);
       if (!raw) return [];
@@ -410,6 +551,7 @@
   }
 
   function saveKeheProductMasterToStorage() {
+    if (!allowBrowserLocalCache()) return;
     try {
       localStorage.setItem(
         KEHE_PRODUCT_MASTER_STORAGE_KEY,
@@ -431,9 +573,9 @@
       }
       return payload;
     } catch (_err) {
-      keheProductMasterRows = loadKeheProductMasterFromStorage();
+      keheProductMasterRows = allowLocalFallback() ? loadKeheProductMasterFromStorage() : [];
       renderKeheProductMasterTable();
-      return { rows: keheProductMasterRows, source: 'localStorage' };
+      return { rows: keheProductMasterRows, source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
     }
   }
 
@@ -582,6 +724,7 @@
   }
 
   function loadMplProductMasterFromStorage() {
+    if (!allowBrowserLocalCache()) return [];
     try {
       const raw = localStorage.getItem(MPL_PRODUCT_MASTER_STORAGE_KEY);
       if (!raw) return [];
@@ -594,13 +737,14 @@
   }
 
   function saveMplProductMasterToStorage() {
+    if (!allowBrowserLocalCache()) return;
     try {
       localStorage.setItem(MPL_PRODUCT_MASTER_STORAGE_KEY, JSON.stringify(getAllMplProductMasterRows()));
     } catch (_err) {}
   }
 
   async function loadMplProductMasterFromBackend() {
-    const localRows = loadMplProductMasterFromStorage();
+    const localRows = allowLocalFallback() ? loadMplProductMasterFromStorage() : [];
     try {
       const res = await fetchWithTimeout('/api/mpl/product-master', { cache: 'no-store' }, 15000);
       const payload = await res.json().catch(() => ({}));
@@ -609,7 +753,7 @@
       if (backendRows.length) {
         mplProductMasterRows = backendRows;
         saveMplProductMasterToStorage();
-      } else if (localRows.length) {
+      } else if (allowLocalFallback() && localRows.length) {
         mplProductMasterRows = localRows;
         await saveMplProductMasterToBackend();
       } else {
@@ -618,9 +762,9 @@
       renderMplProductMasterTable();
       return payload;
     } catch (_err) {
-      mplProductMasterRows = localRows;
+      mplProductMasterRows = allowLocalFallback() ? localRows : [];
       renderMplProductMasterTable();
-      return { rows: mplProductMasterRows, source: 'localStorage' };
+      return { rows: mplProductMasterRows, source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
     }
   }
 
@@ -630,6 +774,7 @@
   }
 
   async function saveMplProductMasterToBackend() {
+    if (!hasPermission('table_crud')) return;
     const rows = getAllMplProductMasterRows();
     saveMplProductMasterToStorage();
     try {
@@ -655,6 +800,7 @@
   function renderMplProductMasterTable() {
     const body = document.getElementById('mpl-product-master-body');
     if (!body) return;
+    const canEdit = hasPermission('table_crud');
     const rows = mplProductMasterRows
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }));
     if (!rows.length) {
@@ -665,26 +811,29 @@
     body.innerHTML = rows.map(({ row, index }) => {
       const printable = canPrintProductMasterLabel(row);
       const disabledReason = !isPackLabelLevel(row) ? 'Only Case/MP and Inner Pack/IP labels can be printed here.' : 'GTIN is required.';
+      const editDisabled = canEdit ? '' : 'disabled';
       return `
       <tr>
-        <td><input value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)"></td>
-        <td><input value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></td>
-        <td><input value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)"></td>
-        <td><select onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
+        <td><input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)"></td>
+        <td><select ${editDisabled} onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
           ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select></td>
-        <td><input value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"></td>
-        <td><input value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"></td>
-        <td><input type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
-        <td><input type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" oninput="updateMplProductRow(${index}, 'labels_per_unit', this.value)"></td>
-        <td><input value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"></td>
+        <td><input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
+        <td><input ${editDisabled} type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" oninput="updateMplProductRow(${index}, 'labels_per_unit', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)"></td>
         <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualMplProductPackLabel(${index})">Preview</button></td>
-        <td><button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button></td>
+        <td>${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button>` : ''}</td>
       </tr>`;
     }).join('');
+    applyPermissionUi();
   }
 
   function addMplProductRow(seed = {}) {
+    if (!hasPermission('table_crud')) return;
     mplProductMasterRows.push(normalizeProductRow({ storefront: 'KeHE', packaging_level: 'Case', in_packing_list: true, ...seed }));
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
@@ -692,6 +841,7 @@
   }
 
   function deleteMplProductRow(index) {
+    if (!hasPermission('table_crud')) return;
     mplProductMasterRows.splice(index, 1);
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
@@ -699,6 +849,7 @@
   }
 
   function updateMplProductRow(index, key, value) {
+    if (!hasPermission('table_crud')) return;
     if (!mplProductMasterRows[index]) mplProductMasterRows[index] = normalizeProductRow({ storefront: 'KeHE' });
     if (key === 'packaging_level') {
       const nextLevel = normalizePackagingLevel(value);
@@ -900,6 +1051,7 @@
   }
 
   function loadMplDirectoryFromStorage() {
+    if (!allowBrowserLocalCache()) return [];
     try {
       const raw = localStorage.getItem(MPL_DIRECTORY_STORAGE_KEY);
       if (!raw) return [];
@@ -912,13 +1064,14 @@
   }
 
   function saveMplDirectoryToStorage() {
+    if (!allowBrowserLocalCache()) return;
     try {
       localStorage.setItem(MPL_DIRECTORY_STORAGE_KEY, JSON.stringify(getMplDirectoryRows()));
     } catch (_err) {}
   }
 
   async function loadMplDirectoryFromBackend() {
-    const localRows = loadMplDirectoryFromStorage();
+    const localRows = allowLocalFallback() ? loadMplDirectoryFromStorage() : [];
     try {
       const res = await fetchWithTimeout('/api/mpl/directory', { cache: 'no-store' }, 15000);
       const payload = await res.json().catch(() => ({}));
@@ -927,7 +1080,7 @@
       if (backendRows.length) {
         mplDirectoryRows = backendRows;
         saveMplDirectoryToStorage();
-      } else if (localRows.length) {
+      } else if (allowLocalFallback() && localRows.length) {
         mplDirectoryRows = localRows;
         await saveMplDirectoryToBackend();
       } else {
@@ -936,9 +1089,9 @@
       renderMplDirectoryTable();
       return payload;
     } catch (_err) {
-      mplDirectoryRows = localRows;
+      mplDirectoryRows = allowLocalFallback() ? localRows : [];
       renderMplDirectoryTable();
-      return { rows: mplDirectoryRows, source: 'localStorage' };
+      return { rows: mplDirectoryRows, source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
     }
   }
 
@@ -948,6 +1101,7 @@
   }
 
   async function saveMplDirectoryToBackend() {
+    if (!hasPermission('table_crud')) return;
     const rows = getMplDirectoryRows();
     saveMplDirectoryToStorage();
     try {
@@ -973,6 +1127,8 @@
   function renderMplDirectoryTable() {
     const body = document.getElementById('mpl-directory-body');
     if (!body) return;
+    const canEdit = hasPermission('table_crud');
+    const editDisabled = canEdit ? '' : 'disabled';
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
     if (!rows.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="9">No directory rows yet. Add a row manually.</td></tr>';
@@ -980,20 +1136,22 @@
     }
     body.innerHTML = rows.map((row, index) => `
       <tr>
-        <td><input value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplDirectoryRow(${index}, 'storefront', this.value)"></td>
-        <td><input value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></td>
-        <td><input value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></td>
-        <td><textarea placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></td>
-        <td><textarea placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></td>
-        <td><textarea placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></td>
-        <td><textarea placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplDirectoryRow(${index}, 'storefront', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></td>
+        <td><textarea ${editDisabled} placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></td>
+        <td><textarea ${editDisabled} placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></td>
+        <td><textarea ${editDisabled} placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></td>
+        <td><textarea ${editDisabled} placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></td>
         <td class="kehe-dc-print-cell"><button class="btn-table-preview" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview</button></td>
-        <td><button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button></td>
+        <td>${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button>` : ''}</td>
       </tr>
     `).join('');
+    applyPermissionUi();
   }
 
   function addMplDirectoryRow(seed = {}) {
+    if (!hasPermission('table_crud')) return;
     mplDirectoryRows.push(normalizeDcDirectoryRow({ storefront: 'KeHE', ...seed }));
     saveMplDirectoryToStorage();
     saveMplDirectoryToBackendDebounced();
@@ -1001,6 +1159,7 @@
   }
 
   function deleteMplDirectoryRow(index) {
+    if (!hasPermission('table_crud')) return;
     mplDirectoryRows.splice(index, 1);
     saveMplDirectoryToStorage();
     saveMplDirectoryToBackendDebounced();
@@ -1008,6 +1167,7 @@
   }
 
   function updateMplDirectoryRow(index, key, value) {
+    if (!hasPermission('table_crud')) return;
     if (!mplDirectoryRows[index]) {
       mplDirectoryRows[index] = normalizeDcDirectoryRow({ storefront: 'KeHE' });
     }
@@ -1023,6 +1183,7 @@
   }
 
   function loadKeheDcDirectoryFromStorage() {
+    if (!allowBrowserLocalCache()) return [];
     try {
       const raw = localStorage.getItem(KEHE_DC_DIRECTORY_STORAGE_KEY);
       if (!raw) return [];
@@ -1035,6 +1196,7 @@
   }
 
   function saveKeheDcDirectoryToStorage() {
+    if (!allowBrowserLocalCache()) return;
     try {
       localStorage.setItem(
         KEHE_DC_DIRECTORY_STORAGE_KEY,
@@ -1057,9 +1219,9 @@
 
       return payload;
     } catch (_err) {
-      keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
+      keheDcDirectoryRows = allowLocalFallback() ? loadKeheDcDirectoryFromStorage() : [];
       renderKeheDcDirectoryTable();
-      return { rows: keheDcDirectoryRows, source: 'localStorage' };
+      return { rows: keheDcDirectoryRows, source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
     }
   }
 
@@ -1434,6 +1596,10 @@
   }
 
   async function saveActiveMplDraft() {
+    if (!hasPermission('save_mpl')) {
+      setStatus('Your role can preview and generate, but cannot save MPL drafts.', 'error');
+      return;
+    }
     if (activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) {
       setStatus('Open or create a Master Packing List before saving.', 'error');
       return;
@@ -1485,6 +1651,7 @@
   function renderSavedMplList() {
     const body = document.getElementById('saved-mpl-body');
     if (!body) return;
+    const canDelete = hasPermission('delete_mpl');
     if (!savedMplDrafts.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="7">No saved MPL drafts yet.</td></tr>';
       return;
@@ -1500,7 +1667,7 @@
         <td>
           <div class="saved-mpl-actions">
             <button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button>
-            <button class="btn-mini-danger" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>
+            ${canDelete ? `<button class="btn-mini-danger" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : ''}
           </div>
         </td>
       </tr>
@@ -1508,6 +1675,10 @@
   }
 
   async function deleteSavedMplDraft(draftId, draftName = '') {
+    if (!hasPermission('delete_mpl')) {
+      setStatus('Only Admin users can delete saved MPL drafts.', 'error');
+      return;
+    }
     const name = String(draftName || 'this saved MPL');
     if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
     try {
@@ -1552,12 +1723,20 @@
   }
 
   function triggerExcelImport(target) {
+    if (!hasPermission('table_crud')) {
+      setStatus('Your role can view this table but cannot import or edit master data.', 'error');
+      return;
+    }
     const id = target === 'dc-directory' ? 'dc-directory-excel-input' : 'product-master-excel-input';
     const input = document.getElementById(id);
     if (input) input.click();
   }
 
   async function handleExcelImportFile(target, input) {
+    if (!hasPermission('table_crud')) {
+      setStatus('Your role can view this table but cannot import or edit master data.', 'error');
+      return;
+    }
     const file = input?.files?.[0];
     if (input) input.value = '';
     if (!file) return;
@@ -1608,6 +1787,10 @@
   }
 
   async function confirmExcelImport() {
+    if (!hasPermission('table_crud')) {
+      setStatus('Your role can view this table but cannot import or edit master data.', 'error');
+      return;
+    }
     if (!activeExcelImportPreview) return;
     const target = activeExcelImportPreview.target;
     const endpoint = target === 'dc-directory'
@@ -1644,6 +1827,10 @@
   }
 
   async function openKeheAuditModal(table = '') {
+    if (!hasPermission('audit_view')) {
+      setStatus('Your role does not have access to change history.', 'error');
+      return;
+    }
     try {
       const url = table ? `/api/kehe/audit-log?table=${encodeURIComponent(table)}&limit=300` : '/api/kehe/audit-log?limit=300';
       const res = await fetch(url, { cache: 'no-store' });

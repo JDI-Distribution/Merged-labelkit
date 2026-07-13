@@ -8,6 +8,40 @@ Merged LabelKit is a FastAPI web app for print-ready label and packing-list work
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
+## Single Environment Config
+
+Use one file to switch between local development and Catalyst hosting:
+
+```text
+frankenstein_project/labelkit_config.json
+```
+
+Recommended setting:
+
+```json
+{
+  "active_profile": "auto",
+  "allow_environment_overrides": false
+}
+```
+
+`active_profile` options:
+
+- `auto`: local runs use the `local` profile; Catalyst AppSail runs use the `catalyst` profile.
+- `local`: force local JSON fallback, no login gate.
+- `catalyst`: force Catalyst Hosted Authentication and Catalyst Data Store.
+
+For Catalyst, edit only the `profiles.catalyst` block in `labelkit_config.json`:
+
+- Keep `auth_required` as `true`.
+- Keep `allow_local_json_fallback` as `false`.
+- Keep all `*_store` values as `datastore`.
+- Paste Hosted Authentication URLs into `auth_login_url`, `auth_logout_url`, and `auth_reset_url` when Catalyst provides them.
+
+Because Docker copies this file into the AppSail image, rebuild and redeploy after changing Catalyst profile values.
+
+For local development, edit only the `profiles.local` block if needed. Do not use `catalyst.json` as the runtime switch; it should only describe the AppSail deployment.
+
 ## Prerequisites
 
 - Windows PowerShell.
@@ -236,9 +270,9 @@ Expected response includes:
 {"status":"ok"}
 ```
 
-## Planned Catalyst Cloud Auth And Storage
+## Catalyst Cloud Auth And Storage
 
-Production goal:
+Current production design:
 
 - Hosted Authentication.
 - Invite-only users controlled from Zoho/Catalyst.
@@ -246,29 +280,41 @@ Production goal:
 - Catalyst Data Store is the production source of truth.
 - Local JSON files are development fallback only.
 - Saved MPL records can store generated PDFs in Catalyst File Store or Stratus only when the user clicks `Save MPL`; normal previews remain temporary.
+- The frontend shows a login gate when `AUTH_REQUIRED=true` and no Catalyst user session is present.
+- Backend endpoints enforce permissions; hiding buttons in the browser is not the security boundary.
 
 Cloud source-of-truth rule:
 
-- Deployed Catalyst must keep these exact AppSail env vars:
-  - `MPL_PRODUCT_MASTER_STORE=datastore`
-  - `MPL_DIRECTORY_STORE=datastore`
-  - `MPL_DRAFTS_STORE=datastore`
-  - `AUDIT_LOG_STORE=datastore`
+- Deployed Catalyst reads `frankenstein_project/labelkit_config.json`.
+- With `active_profile=auto`, AppSail selects the `catalyst` profile automatically.
+- The `catalyst` profile must keep:
+  - `app_env=production`
+  - `auth_required=true`
+  - `allow_local_json_fallback=false`
+  - `allow_browser_local_cache=false`
+  - `mpl_product_master_store=datastore`
+  - `mpl_directory_store=datastore`
+  - `mpl_drafts_store=datastore`
+  - `audit_log_store=datastore`
+- After Hosted Authentication is configured in Catalyst, paste the generated URLs into `profiles.catalyst`:
+  - `auth_login_url`
+  - `auth_logout_url`
+  - `auth_reset_url`
 - `datastore` mode is strict. If Data Store is unavailable in deployed Catalyst, table reads/writes and saved MPL reads/writes fail with `Cloud data unavailable` instead of falling back to bundled JSON.
 - `auto` mode is for local/development only; it can try Data Store first and then fall back to JSON.
 - `file` mode is for local JSON-only testing.
 - Do not merge browser `localStorage` or local JSON into cloud tables in production.
-- Browser `localStorage` may remember UI state only; it must not become master table data in production.
-- Do not remove these AppSail env vars during Catalyst updates, or the deployed app may return to local JSON fallback behavior.
+- In production, master-table browser `localStorage` cache/fallback is disabled.
+- Keep `allow_environment_overrides=false` unless you intentionally want AppSail environment variables to override the single config file.
 
-Planned Catalyst tables:
+Catalyst tables:
 
-- `MPL_PRODUCT_MASTER_TABLE=mpl_product_master`
-- `MPL_DIRECTORY_TABLE=mpl_directory`
-- `MPL_DRAFTS_TABLE=kehe_mpl_drafts`
-- `AUDIT_LOG_TABLE=kehe_audit_log`
+- `mpl_product_master_table=mpl_product_master`
+- `mpl_directory_table=mpl_directory`
+- `mpl_drafts_table=kehe_mpl_drafts`
+- `audit_log_table=kehe_audit_log`
 
-Before enabling/deploying strict cloud mode, create and seed the Catalyst Data Store tables above. After deploy, the table APIs should report `source: "datastore"`; `source: "file"` means the deployment is not using cloud tables.
+Before deploying strict cloud mode, confirm the Catalyst Data Store tables above exist and are seeded. After deploy, the table APIs should report `source: "datastore"`; `source: "file"` means the deployment is not using cloud tables.
 
 Verify the cloud tables exist before a strict deployment:
 
@@ -280,42 +326,40 @@ catalyst ds:export --table kehe_mpl_drafts
 catalyst ds:export --table kehe_audit_log
 ```
 
-Planned audit fields:
+Audit fields:
 
 - `AUDIT_ID`
 - `EVENT_TIMESTAMP`
-- `USER_ID`
-- `USER_EMAIL`
-- `USER_NAME`
-- `ROLE_NAME`
-- `ACTION`
+- `ACTOR_JSON`
 - `TABLE_NAME`
+- `ACTION`
 - `RECORD_KEY`
+- `RECORD_LABEL`
 - `FIELD_NAME`
 - `OLD_VALUE`
 - `NEW_VALUE`
-- `BATCH_ID`
 - `SOURCE`
-- `IP_ADDRESS`
-- `USER_AGENT`
+- `BATCH_ID`
+- `FILENAME`
+- `IS_ACTIVE`
 
 Role behavior:
 
-- `Admin`: product/directory CRUD, saved MPL delete, audit view, and all generation workflows.
-- `Editor`: product/directory CRUD, create/save MPL, and all generation workflows.
+- `Admin`: product/directory CRUD, saved MPL save/delete, audit view, and all generation workflows.
+- `Editor`: product/directory CRUD, create/save MPL, audit view, and all generation workflows.
 - `User`: preview/generate/open allowed documents only; no product/directory CRUD and no destructive saved MPL actions.
 
-Implementation order:
+Operational setup checklist:
 
-1. Configure Catalyst Hosted Authentication and invite-only users in the Catalyst console.
-2. Create Catalyst roles: `Admin`, `Editor`, `User`.
-3. Create Data Store tables and migrate `mpl_product_master.json` / `mpl_directory.json`.
-4. Add backend auth middleware that verifies the Catalyst user on every API except `/health` and static assets.
-5. Add role checks around table CRUD, saved draft deletion, and audit access.
-6. Add frontend login/logout handling through Catalyst Hosted Authentication.
-7. Verify strict cloud mode: AppSail env vars use `*_STORE=datastore`, table APIs return `source: "datastore"`, and missing Data Store access produces `Cloud data unavailable`.
-8. Attach Catalyst user details to every audit log entry.
-9. Store generated PDF/file artifacts only for saved MPLs, using File Store or Stratus.
+1. Configure Catalyst Hosted Authentication in the Catalyst console.
+2. Keep Public Signup disabled for invite-only access.
+3. Create Catalyst roles: `Admin`, `Editor`, `User`.
+4. Add invited users and assign roles from Catalyst Authentication > User Management.
+5. Copy the Catalyst-generated Hosted Auth sign-in/reset/logout URLs into `frankenstein_project/labelkit_config.json`.
+6. Confirm the four Data Store tables exist and are seeded.
+7. Deploy with `active_profile=auto` or `active_profile=catalyst`; keep the `catalyst` profile on Data Store with local fallback disabled.
+8. Verify `/api/auth/session` returns the signed-in user and role.
+9. Verify table APIs return `source: "datastore"`.
 10. Validate with one Admin, one Editor, and one User account before deploying broadly.
 
 Cloud edge cases to test:
@@ -455,6 +499,7 @@ Tracked app source:
 |-- README.md
 `-- frankenstein_project
     |-- catalyst.json
+    |-- labelkit_config.json
     |-- requirements.txt
     |-- server.py
     |-- start.sh
@@ -495,7 +540,8 @@ Tracked app source:
 
 Data table note:
 
-- `mpl_product_master.json` and `mpl_directory.json` are the shared editable Product Master and Directory sources.
+- In local development, `mpl_product_master.json` and `mpl_directory.json` are the shared editable Product Master and Directory fallback sources.
+- In Catalyst, `labelkit_config.json` points the app to Catalyst Data Store and disables local JSON fallback.
 - KeHE uses rows from those shared tables where `Storefront = KeHE`.
 - The old KeHE-only data files were removed so there is one maintained Product Master and one maintained Directory.
 

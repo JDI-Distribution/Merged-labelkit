@@ -24,10 +24,27 @@
     <div class="header-app-sub" id="header-app-sub">Select a workflow</div>
   </div>
   <div class="header-spacer"></div>
+  <div class="auth-user-chip hidden" id="auth-user-chip">
+    <div>
+      <div class="auth-user-name" id="auth-user-name">Signed in</div>
+      <div class="auth-user-role" id="auth-user-role">User</div>
+    </div>
+    <button class="btn-auth-logout hidden" id="auth-logout-btn" type="button" onclick="handleAuthLogout()">Sign Out</button>
+  </div>
   <button class="btn-change-kit" id="btn-change-kit" onclick="resetToSelection()">Change Kit</button>
 </header>
 
-<div class="main">
+<section class="auth-gate" id="auth-gate">
+  <div class="auth-card">
+    <div class="auth-kicker">JDI LabelKit</div>
+    <h1>Sign in to continue</h1>
+    <p id="auth-login-hint">Use your invited Catalyst account to continue.</p>
+    <button class="btn-generate" id="auth-login-btn" type="button" onclick="handleAuthLogin()">Sign In</button>
+    <a class="auth-reset-link hidden" id="auth-reset-link" href="#">Reset password</a>
+  </div>
+</section>
+
+<div class="main" id="app-shell">
   <!-- FRONTEND: Landing page. Explanations removed; only workflow buttons remain. -->
   <section class="selection-page" id="kit-selection">
     <div class="selection-shell">
@@ -601,13 +618,11 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="/assets/js/app.js?v=20260709-in-packing-list"></script>
+<script src="/assets/js/app.js?v=20260713-auth-gate"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
-    var initialPage = getPageFromHash();
-    setHistoryPage(initialPage, true);
-    applyPageFromNavigation(initialPage);
+    bootstrapLabelKit();
   });
 </script>
 

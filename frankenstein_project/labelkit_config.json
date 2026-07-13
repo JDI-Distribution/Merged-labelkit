@@ -1,0 +1,40 @@
+{
+  "active_profile": "auto",
+  "allow_environment_overrides": false,
+  "profiles": {
+    "local": {
+      "app_env": "local",
+      "auth_required": false,
+      "auth_login_url": "",
+      "auth_logout_url": "",
+      "auth_reset_url": "",
+      "allow_local_json_fallback": true,
+      "allow_browser_local_cache": true,
+      "mpl_product_master_store": "auto",
+      "mpl_product_master_table": "mpl_product_master",
+      "mpl_directory_store": "auto",
+      "mpl_directory_table": "mpl_directory",
+      "mpl_drafts_store": "auto",
+      "mpl_drafts_table": "kehe_mpl_drafts",
+      "audit_log_store": "auto",
+      "audit_log_table": "kehe_audit_log"
+    },
+    "catalyst": {
+      "app_env": "production",
+      "auth_required": true,
+      "auth_login_url": "",
+      "auth_logout_url": "",
+      "auth_reset_url": "",
+      "allow_local_json_fallback": false,
+      "allow_browser_local_cache": false,
+      "mpl_product_master_store": "datastore",
+      "mpl_product_master_table": "mpl_product_master",
+      "mpl_directory_store": "datastore",
+      "mpl_directory_table": "mpl_directory",
+      "mpl_drafts_store": "datastore",
+      "mpl_drafts_table": "kehe_mpl_drafts",
+      "audit_log_store": "datastore",
+      "audit_log_table": "kehe_audit_log"
+    }
+  }
+}
