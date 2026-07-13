@@ -36,7 +36,12 @@ For Catalyst, edit only the `profiles.catalyst` block in `labelkit_config.json`:
 - Keep `auth_required` as `true`.
 - Keep `allow_local_json_fallback` as `false`.
 - Keep all `*_store` values as `datastore`.
-- Paste Hosted Authentication URLs into `auth_login_url`, `auth_logout_url`, and `auth_reset_url` when Catalyst provides them.
+- Keep the default same-origin Hosted Authentication URLs unless Catalyst changes the route:
+  - `auth_login_url=/__catalyst/auth/login`
+  - `auth_logout_url=/__catalyst/auth/login`
+  - `auth_reset_url=/__catalyst/auth/login`
+- The relative `/__catalyst/auth/login` route works from the current Catalyst host, so the same config works in Development and Production.
+- The reset link opens the hosted login page, where Catalyst provides the forgot-password flow.
 
 Because Docker copies this file into the AppSail image, rebuild and redeploy after changing Catalyst profile values.
 
@@ -296,10 +301,8 @@ Cloud source-of-truth rule:
   - `mpl_directory_store=datastore`
   - `mpl_drafts_store=datastore`
   - `audit_log_store=datastore`
-- After Hosted Authentication is configured in Catalyst, paste the generated URLs into `profiles.catalyst`:
-  - `auth_login_url`
-  - `auth_logout_url`
-  - `auth_reset_url`
+- Hosted Authentication uses the same-origin Catalyst route `/__catalyst/auth/login`; no Development-vs-Production hostname needs to be committed.
+- Sign out uses the Catalyst Web SDK and redirects back to `/__catalyst/auth/login`.
 - `datastore` mode is strict. If Data Store is unavailable in deployed Catalyst, table reads/writes and saved MPL reads/writes fail with `Cloud data unavailable` instead of falling back to bundled JSON.
 - `auto` mode is for local/development only; it can try Data Store first and then fall back to JSON.
 - `file` mode is for local JSON-only testing.
@@ -355,7 +358,7 @@ Operational setup checklist:
 2. Keep Public Signup disabled for invite-only access.
 3. Create Catalyst roles: `Admin`, `Editor`, `User`.
 4. Add invited users and assign roles from Catalyst Authentication > User Management.
-5. Copy the Catalyst-generated Hosted Auth sign-in/reset/logout URLs into `frankenstein_project/labelkit_config.json`.
+5. Keep the same-origin Hosted Auth route `/__catalyst/auth/login` in `frankenstein_project/labelkit_config.json`.
 6. Confirm the four Data Store tables exist and are seeded.
 7. Deploy with `active_profile=auto` or `active_profile=catalyst`; keep the `catalyst` profile on Data Store with local fallback disabled.
 8. Verify `/api/auth/session` returns the signed-in user and role.

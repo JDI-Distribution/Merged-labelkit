@@ -414,9 +414,16 @@
   }
 
   function handleAuthLogout() {
-    if (appRuntimeConfig.logout_url) {
-      window.location.href = appRuntimeConfig.logout_url;
+    const redirectUrl = appRuntimeConfig.logout_url || appRuntimeConfig.login_url || '/__catalyst/auth/login';
+    try {
+      if (window.catalyst?.auth?.signOut) {
+        window.catalyst.auth.signOut(redirectUrl);
+        return;
+      }
+    } catch (_err) {
+      // Fall back to the hosted login page if the Catalyst SDK is unavailable.
     }
+    window.location.href = redirectUrl;
   }
 
   function applyPermissionUi() {

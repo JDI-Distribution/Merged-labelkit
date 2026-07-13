@@ -22,9 +22,9 @@
     "catalyst": {
       "app_env": "production",
       "auth_required": true,
-      "auth_login_url": "",
-      "auth_logout_url": "",
-      "auth_reset_url": "",
+      "auth_login_url": "/__catalyst/auth/login",
+      "auth_logout_url": "/__catalyst/auth/login",
+      "auth_reset_url": "/__catalyst/auth/login",
       "allow_local_json_fallback": false,
       "allow_browser_local_cache": false,
       "mpl_product_master_store": "datastore",
