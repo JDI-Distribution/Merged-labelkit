@@ -575,7 +575,15 @@ def _datastore_get_raw_rows(table_service: Any) -> List[Dict[str, Any]]:
         except TypeError:
             page = table_service.get_paged_rows(next_token, 100)
 
-        content = page.get("content", []) if isinstance(page, dict) else []
+        content = []
+        if isinstance(page, dict):
+            raw_content = page.get("content")
+            if isinstance(raw_content, list):
+                content = raw_content
+            elif isinstance(page.get("data"), list):
+                content = page.get("data", [])
+        elif isinstance(page, list):
+            content = page
         rows.extend([r for r in content if isinstance(r, dict)])
         more_records = bool(page.get("more_records")) if isinstance(page, dict) else False
         next_token = page.get("next_token") if isinstance(page, dict) else None
