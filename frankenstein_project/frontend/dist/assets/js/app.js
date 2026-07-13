@@ -402,7 +402,7 @@
     if (loginHint) {
       loginHint.textContent = appRuntimeConfig.login_url
         ? 'Use your invited Catalyst account to continue.'
-        : 'Set AUTH_LOGIN_URL in Catalyst AppSail after configuring Hosted Authentication.';
+        : 'Set profiles.catalyst.auth_login_url in frankenstein_project/labelkit_config.json after configuring Hosted Authentication.';
     }
     applyPermissionUi();
   }

@@ -680,7 +680,9 @@ def _request_user_from_headers(request: Request) -> Dict[str, Any]:
         "role_name": role_name or "User",
         "source": "headers",
     }
-    user["authenticated"] = bool(user["email"] or user["user_id"] or user["name"])
+    # Catalyst may inject infrastructure IDs even before a real Hosted Auth
+    # user session exists, so do not treat a bare ID as signed in.
+    user["authenticated"] = bool(user["email"] or user["name"])
     if not AUTH_REQUIRED and not user["authenticated"]:
         user.update({
             "authenticated": True,
@@ -709,14 +711,17 @@ def _current_project_user(request: Request) -> Dict[str, Any]:
                 role_name = ""
                 if isinstance(role_details, dict):
                     role_name = str(role_details.get("role_name") or "")
+                name = " ".join([
+                    str(details.get("first_name") or "").strip(),
+                    str(details.get("last_name") or "").strip(),
+                ]).strip()
+                email = str(details.get("email_id") or details.get("email") or "")
+                user_id = str(details.get("user_id") or details.get("zuid") or "")
                 user = {
-                    "authenticated": True,
-                    "name": " ".join([
-                        str(details.get("first_name") or "").strip(),
-                        str(details.get("last_name") or "").strip(),
-                    ]).strip(),
-                    "email": str(details.get("email_id") or details.get("email") or ""),
-                    "user_id": str(details.get("user_id") or details.get("zuid") or ""),
+                    "authenticated": bool(email or name),
+                    "name": name,
+                    "email": email,
+                    "user_id": user_id,
                     "role": _role_from_name(role_name),
                     "role_name": role_name or "User",
                     "source": "catalyst",
