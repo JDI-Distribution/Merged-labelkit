@@ -131,15 +131,27 @@ MPL_DIRECTORY_STORE = os.getenv("MPL_DIRECTORY_STORE", MPL_PRODUCT_MASTER_STORE)
 MPL_DIRECTORY_FILE = Path(
     os.getenv("MPL_DIRECTORY_FILE", str(BASE_DIR / "data" / "mpl_directory.json"))
 )
-KEHE_MPL_DRAFTS_TABLE = os.getenv("KEHE_MPL_DRAFTS_TABLE", "kehe_mpl_drafts")
-KEHE_MPL_DRAFTS_STORE = os.getenv("KEHE_MPL_DRAFTS_STORE", MPL_PRODUCT_MASTER_STORE).strip().lower()
-KEHE_MPL_DRAFTS_FILE = Path(
-    os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json"))
+MPL_DRAFTS_TABLE = os.getenv("MPL_DRAFTS_TABLE", os.getenv("KEHE_MPL_DRAFTS_TABLE", "kehe_mpl_drafts"))
+MPL_DRAFTS_STORE = os.getenv(
+    "MPL_DRAFTS_STORE",
+    os.getenv("KEHE_MPL_DRAFTS_STORE", MPL_PRODUCT_MASTER_STORE),
+).strip().lower()
+MPL_DRAFTS_FILE = Path(
+    os.getenv(
+        "MPL_DRAFTS_FILE",
+        os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json")),
+    )
 )
-KEHE_AUDIT_LOG_TABLE = os.getenv("KEHE_AUDIT_LOG_TABLE", "kehe_audit_log")
-KEHE_AUDIT_LOG_STORE = os.getenv("KEHE_AUDIT_LOG_STORE", MPL_PRODUCT_MASTER_STORE).strip().lower()
-KEHE_AUDIT_LOG_FILE = Path(
-    os.getenv("KEHE_AUDIT_LOG_FILE", str(BASE_DIR / "data" / "kehe_audit_log.json"))
+AUDIT_LOG_TABLE = os.getenv("AUDIT_LOG_TABLE", os.getenv("KEHE_AUDIT_LOG_TABLE", "kehe_audit_log"))
+AUDIT_LOG_STORE = os.getenv(
+    "AUDIT_LOG_STORE",
+    os.getenv("KEHE_AUDIT_LOG_STORE", MPL_PRODUCT_MASTER_STORE),
+).strip().lower()
+AUDIT_LOG_FILE = Path(
+    os.getenv(
+        "AUDIT_LOG_FILE",
+        os.getenv("KEHE_AUDIT_LOG_FILE", str(BASE_DIR / "data" / "kehe_audit_log.json")),
+    )
 )
 
 
@@ -512,17 +524,36 @@ def _init_catalyst_app(request: Request) -> Any:
             return None
 
 
+def _store_requires_datastore(store_mode: str) -> bool:
+    return str(store_mode or "").strip().lower() == "datastore"
+
+
+def _raise_datastore_unavailable(table_name: str, action: str, exc: Optional[Exception] = None) -> None:
+    detail = (
+        f"Cloud data unavailable for Catalyst Data Store table '{table_name}' while trying to {action}. "
+        "Store mode is 'datastore', so local JSON fallback is disabled."
+    )
+    if exc is not None:
+        detail += f" {exc.__class__.__name__}: {exc}"
+    raise HTTPException(status_code=503, detail=detail)
+
+
 def _datastore_table_named(request: Request, table_name: str, store_mode: str) -> Any:
+    store_mode = str(store_mode or "auto").strip().lower()
     if store_mode == "file":
         return None
 
     catalyst_app = _init_catalyst_app(request)
     if catalyst_app is None:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "connect to it")
         return None
 
     try:
         return catalyst_app.datastore().table(table_name)
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "open it", exc)
         return None
 
 
@@ -562,7 +593,9 @@ def _datastore_load_product_rows(request: Request, table_name: str, store_mode: 
         raw_rows = _datastore_get_raw_rows(table_service)
         active_rows = [r for r in raw_rows if str(r.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}]
         return _dedupe_product_master_rows([_datastore_row_to_product(r) for r in active_rows])
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "read from it", exc)
         return None
 
 
@@ -605,11 +638,13 @@ def _request_actor(request: Request) -> Dict[str, str]:
 
 def _audit_datastore_table(request: Optional[Request]) -> Any:
     if request is None:
+        if _store_requires_datastore(AUDIT_LOG_STORE):
+            _raise_datastore_unavailable(AUDIT_LOG_TABLE, "connect to it")
         return None
     return _datastore_table_named(
         request,
-        KEHE_AUDIT_LOG_TABLE,
-        KEHE_AUDIT_LOG_STORE,
+        AUDIT_LOG_TABLE,
+        AUDIT_LOG_STORE,
     )
 
 
@@ -674,7 +709,9 @@ def _datastore_load_audit_log(request: Optional[Request], limit: Optional[int] =
             rows = [row for row in rows if str(row.get("table", "")) == table]
         rows.sort(key=lambda row: str(row.get("timestamp", "")), reverse=True)
         return rows[:limit] if limit else rows
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(AUDIT_LOG_STORE):
+            _raise_datastore_unavailable(AUDIT_LOG_TABLE, "read from it", exc)
         return None
 
 
@@ -688,7 +725,9 @@ def _datastore_append_audit_log(request: Optional[Request], entries: List[Dict[s
             if batch:
                 table_service.insert_rows(batch)
         return True
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(AUDIT_LOG_STORE):
+            _raise_datastore_unavailable(AUDIT_LOG_TABLE, "write to it", exc)
         return False
 
 
@@ -697,9 +736,9 @@ def _audit_log_read(limit: Optional[int] = None, table: str = "", request: Optio
     if datastore_rows is not None:
         return datastore_rows
     try:
-        if not KEHE_AUDIT_LOG_FILE.exists():
+        if not AUDIT_LOG_FILE.exists():
             return []
-        data = json.loads(KEHE_AUDIT_LOG_FILE.read_text(encoding="utf-8"))
+        data = json.loads(AUDIT_LOG_FILE.read_text(encoding="utf-8"))
         entries = data.get("entries") if isinstance(data, dict) else data
         if not isinstance(entries, list):
             return []
@@ -717,14 +756,14 @@ def _audit_log_append(entries: List[Dict[str, Any]], request: Optional[Request] 
         return
     if _datastore_append_audit_log(request, entries):
         return
-    KEHE_AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    AUDIT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     existing = _audit_log_read()
     combined = entries + existing
     payload = {
         "entries": combined[:1000],
         "updated_at": _now_iso(),
     }
-    KEHE_AUDIT_LOG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    AUDIT_LOG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _audit_value(value: Any) -> str:
@@ -879,7 +918,9 @@ def _datastore_save_product_rows(
             if batch:
                 table_service.insert_rows(batch)
         return normalized
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "write to it", exc)
         return None
 
 
@@ -1119,7 +1160,9 @@ def _datastore_load_dc_rows(request: Request, table_name: str, store_mode: str) 
             if str(r.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
         ]
         return _dedupe_dc_directory_rows([_datastore_row_to_dc(r) for r in active_rows])
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "read from it", exc)
         return None
 
 
@@ -1155,7 +1198,9 @@ def _datastore_save_dc_rows(
                 table_service.insert_rows(batch)
 
         return normalized
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "write to it", exc)
         return None
 
 
@@ -1174,7 +1219,7 @@ def _sync_kehe_dc_directory_for_pipeline(request: Request) -> List[Dict[str, Any
 
     if rows is None:
         rows = _shared_dc_directory_file_read()
-    else:
+    elif not _store_requires_datastore(MPL_DIRECTORY_STORE):
         _dc_directory_file_write(rows, MPL_DIRECTORY_FILE)
 
     rows = _kehe_dc_directory_rows(rows)
@@ -1543,11 +1588,13 @@ async def confirm_dc_directory_import(request: Request, payload: Dict[str, Any])
 
 def _mpl_drafts_datastore_table(request: Optional[Request]) -> Any:
     if request is None:
+        if _store_requires_datastore(MPL_DRAFTS_STORE):
+            _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "connect to it")
         return None
     return _datastore_table_named(
         request,
-        KEHE_MPL_DRAFTS_TABLE,
-        KEHE_MPL_DRAFTS_STORE,
+        MPL_DRAFTS_TABLE,
+        MPL_DRAFTS_STORE,
     )
 
 
@@ -1592,7 +1639,9 @@ def _datastore_load_mpl_drafts(request: Optional[Request]) -> Optional[List[Dict
             if str(row.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
         ]
         return [_datastore_row_to_mpl_draft(row) for row in active_rows]
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(MPL_DRAFTS_STORE):
+            _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "read from it", exc)
         return None
 
 
@@ -1610,7 +1659,9 @@ def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str
             if batch:
                 table_service.insert_rows(batch)
         return True
-    except Exception:
+    except Exception as exc:
+        if _store_requires_datastore(MPL_DRAFTS_STORE):
+            _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "write to it", exc)
         return False
 
 
@@ -1619,9 +1670,9 @@ def _mpl_drafts_read(request: Optional[Request] = None) -> List[Dict[str, Any]]:
     if datastore_rows is not None:
         return datastore_rows
     try:
-        if not KEHE_MPL_DRAFTS_FILE.exists():
+        if not MPL_DRAFTS_FILE.exists():
             return []
-        data = json.loads(KEHE_MPL_DRAFTS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(MPL_DRAFTS_FILE.read_text(encoding="utf-8"))
         drafts = data.get("drafts") if isinstance(data, dict) else data
         if not isinstance(drafts, list):
             return []
@@ -1633,12 +1684,12 @@ def _mpl_drafts_read(request: Optional[Request] = None) -> List[Dict[str, Any]]:
 def _mpl_drafts_write(drafts: List[Dict[str, Any]], request: Optional[Request] = None) -> List[Dict[str, Any]]:
     if _datastore_save_mpl_drafts(request, drafts):
         return drafts
-    KEHE_MPL_DRAFTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MPL_DRAFTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "drafts": drafts,
         "updated_at": _now_iso(),
     }
-    KEHE_MPL_DRAFTS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    MPL_DRAFTS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return drafts
 
 
@@ -1959,7 +2010,9 @@ async def prepare_kehe_master_packing_list(
             xml_paths.append(str(out_path))
         product_master_rows = parse_product_master_json(product_master_json)
         if not product_master_rows:
-            product_master_rows = _datastore_load_product_master(request) or _shared_product_master_file_read()
+            product_master_rows = _datastore_load_product_master(request)
+            if product_master_rows is None:
+                product_master_rows = _shared_product_master_file_read()
             product_master_rows = _kehe_product_master_rows(product_master_rows)
         else:
             product_master_rows = _kehe_product_master_rows(product_master_rows)
@@ -2016,7 +2069,9 @@ async def prepare_kehe_pack_labels(
 
         product_master_rows = parse_product_master_json(product_master_json)
         if not product_master_rows:
-            product_master_rows = _datastore_load_product_master(request) or _shared_product_master_file_read()
+            product_master_rows = _datastore_load_product_master(request)
+            if product_master_rows is None:
+                product_master_rows = _shared_product_master_file_read()
             product_master_rows = _kehe_product_master_rows(product_master_rows)
         else:
             product_master_rows = _kehe_product_master_rows(product_master_rows)

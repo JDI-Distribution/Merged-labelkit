@@ -249,20 +249,36 @@ Production goal:
 
 Cloud source-of-truth rule:
 
-- Deployed Catalyst must use `MPL_PRODUCT_MASTER_STORE=datastore`.
-- Deployed Catalyst must use `MPL_DIRECTORY_STORE=datastore`.
-- Deployed Catalyst must use `KEHE_MPL_DRAFTS_STORE=datastore`.
-- Deployed Catalyst must use `KEHE_AUDIT_LOG_STORE=datastore`.
-- If Data Store is unavailable in deployed Catalyst, block table edits and show `Cloud data unavailable`.
+- Deployed Catalyst must keep these exact AppSail env vars:
+  - `MPL_PRODUCT_MASTER_STORE=datastore`
+  - `MPL_DIRECTORY_STORE=datastore`
+  - `MPL_DRAFTS_STORE=datastore`
+  - `AUDIT_LOG_STORE=datastore`
+- `datastore` mode is strict. If Data Store is unavailable in deployed Catalyst, table reads/writes and saved MPL reads/writes fail with `Cloud data unavailable` instead of falling back to bundled JSON.
+- `auto` mode is for local/development only; it can try Data Store first and then fall back to JSON.
+- `file` mode is for local JSON-only testing.
 - Do not merge browser `localStorage` or local JSON into cloud tables in production.
 - Browser `localStorage` may remember UI state only; it must not become master table data in production.
+- Do not remove these AppSail env vars during Catalyst updates, or the deployed app may return to local JSON fallback behavior.
 
 Planned Catalyst tables:
 
-- `mpl_product_master`
-- `mpl_directory`
-- `kehe_mpl_drafts`
-- `kehe_audit_log`
+- `MPL_PRODUCT_MASTER_TABLE=mpl_product_master`
+- `MPL_DIRECTORY_TABLE=mpl_directory`
+- `MPL_DRAFTS_TABLE=kehe_mpl_drafts`
+- `AUDIT_LOG_TABLE=kehe_audit_log`
+
+Before enabling/deploying strict cloud mode, create and seed the Catalyst Data Store tables above. After deploy, the table APIs should report `source: "datastore"`; `source: "file"` means the deployment is not using cloud tables.
+
+Verify the cloud tables exist before a strict deployment:
+
+```powershell
+catalyst project:use 27327000000040032
+catalyst ds:export --table mpl_product_master
+catalyst ds:export --table mpl_directory
+catalyst ds:export --table kehe_mpl_drafts
+catalyst ds:export --table kehe_audit_log
+```
 
 Planned audit fields:
 
@@ -297,7 +313,7 @@ Implementation order:
 4. Add backend auth middleware that verifies the Catalyst user on every API except `/health` and static assets.
 5. Add role checks around table CRUD, saved draft deletion, and audit access.
 6. Add frontend login/logout handling through Catalyst Hosted Authentication.
-7. Remove cloud-mode table fallback to local JSON and localStorage.
+7. Verify strict cloud mode: AppSail env vars use `*_STORE=datastore`, table APIs return `source: "datastore"`, and missing Data Store access produces `Cloud data unavailable`.
 8. Attach Catalyst user details to every audit log entry.
 9. Store generated PDF/file artifacts only for saved MPLs, using File Store or Stratus.
 10. Validate with one Admin, one Editor, and one User account before deploying broadly.
