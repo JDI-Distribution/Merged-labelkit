@@ -281,7 +281,7 @@
           </svg>
           Download PDF
         </a>
-        <button class="btn-close-preview" onclick="closePreview()">
+        <button class="btn-close-preview" onclick="closePreview(true)">
           <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
           </svg>
@@ -299,7 +299,7 @@
     <div class="editor-dialog">
       <div class="editor-toolbar">
         <div class="editor-title" id="document-editor-title">Review &amp; Edit Document</div>
-        <button class="btn-secondary" onclick="closeDocumentEditor()">Close</button>
+        <button class="btn-secondary" onclick="closeDocumentEditor(true)">Close</button>
       </div>
       <div class="editor-body" id="document-editor-body"></div>
       <div class="editor-footer">
@@ -431,6 +431,7 @@
           <div class="kehe-product-master-actions">
             <button class="btn-secondary" type="button" onclick="downloadImportTemplate('product-master')">Download Product Template</button>
             <button class="btn-secondary" type="button" onclick="triggerExcelImport('product-master')">Upload Excel/CSV</button>
+            <button class="btn-secondary" type="button" onclick="exportMplProductMasterTable()">Export Product CSV</button>
             <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change History</button>
             <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
           </div>
@@ -488,6 +489,7 @@
           <div class="kehe-product-master-actions">
             <button class="btn-secondary" type="button" onclick="downloadImportTemplate('dc-directory')">Download Directory Template</button>
             <button class="btn-secondary" type="button" onclick="triggerExcelImport('dc-directory')">Upload Excel/CSV</button>
+            <button class="btn-secondary" type="button" onclick="exportMplDirectoryTable()">Export Directory CSV</button>
             <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
             <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
           </div>
@@ -638,7 +640,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260716-table-import-templates"></script>
+<script src="/assets/js/app.js?v=20260716-routed-views-export"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

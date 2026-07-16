@@ -474,9 +474,9 @@
     if (appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated) {
       return;
     }
-    const initialPage = getPageFromHash();
-    setHistoryPage(initialPage, true);
-    applyPageFromNavigation(initialPage);
+    const initialRoute = getRouteFromHash();
+    setHistoryRoute(initialRoute, true);
+    await applyRouteFromNavigation(initialRoute);
   }
 
   async function fetchWithTimeout(resource, options = {}, timeoutMs = 60000) {
@@ -498,19 +498,46 @@
     return pages.includes(pageName) ? pageName : 'home';
   }
 
+  function normalizeAppRoute(route = '') {
+    const clean = String(route || '')
+      .replace(/^#/, '')
+      .replace(/^\/+|\/+$/g, '')
+      .trim();
+    if (!clean) return 'home';
+    const [page, ...rest] = clean.split('/').filter(Boolean);
+    const normalizedPage = normalizePageName(page);
+    return [normalizedPage, ...rest].join('/');
+  }
+
+  function getRouteFromHash() {
+    return normalizeAppRoute(window.location.hash || '#home');
+  }
+
+  function routePage(route = '') {
+    return normalizePageName(normalizeAppRoute(route).split('/')[0]);
+  }
+
+  function routeSubpath(route = '') {
+    return normalizeAppRoute(route).split('/').slice(1).join('/');
+  }
+
   function getCurrentPage() {
     return selectedKit || 'home';
   }
 
   function getPageFromHash() {
-    const hashPage = window.location.hash.replace('#', '');
-    return normalizePageName(hashPage);
+    return routePage(getRouteFromHash());
   }
 
-  function setHistoryPage(pageName, replace = false) {
-    const normalized = normalizePageName(pageName);
+  function setHistoryRoute(route, replace = false) {
+    const normalized = normalizeAppRoute(route);
     const nextHash = `#${normalized}`;
-    const state = { page: normalized };
+    const state = {
+      page: routePage(normalized),
+      route: normalized,
+      isOverlayRoute: !!routeSubpath(normalized),
+      pushedOverlayRoute: !replace && !!routeSubpath(normalized)
+    };
     const currentHash = window.location.hash || '#home';
 
     if (replace) {
@@ -523,19 +550,115 @@
       return;
     }
 
-    if (!history.state || history.state.page !== normalized) {
+    if (!history.state || history.state.route !== normalized) {
       history.replaceState(state, '', nextHash);
     }
   }
 
-  function applyPageFromNavigation(pageName) {
+  async function navigateToRoute(route, replace = false) {
+    const normalized = normalizeAppRoute(route);
+    setHistoryRoute(normalized, replace);
+    await applyRouteFromNavigation(normalized);
+  }
+
+  function setHistoryPage(pageName, replace = false) {
+    setHistoryRoute(normalizePageName(pageName), replace);
+  }
+
+  async function applyPageFromNavigation(pageName) {
     const normalized = normalizePageName(pageName);
     if (normalized === 'home') {
       resetToSelection(false);
     } else if (normalized === 'mpl') {
-      selectMplWorkspace(false);
+      await selectMplWorkspace(false);
     } else {
       selectKit(normalized, false);
+    }
+  }
+
+  function hideAllRouteViews(options = {}) {
+    [
+      'kehe-product-master-modal',
+      'kehe-dc-directory-modal',
+      'mpl-product-master-modal',
+      'mpl-directory-modal',
+      'saved-mpl-modal',
+      'excel-import-modal',
+      'audit-history-modal',
+      'document-editor-panel',
+      'preview-panel'
+    ].forEach(id => document.getElementById(id)?.classList.remove('visible'));
+    if (!options.keepTiHi && activeKeheDocumentDraft && Array.isArray(activeKeheDocumentDraft.packing_lists)) {
+      activeKeheDocumentDraft.packing_lists.forEach(mpl => { mpl._show_tihi = false; });
+    }
+  }
+
+  async function closeCurrentRouteView(basePage = getCurrentPage()) {
+    const current = getRouteFromHash();
+    if (routeSubpath(current)) {
+      if (history.state?.pushedOverlayRoute) {
+        history.back();
+      } else {
+        await navigateToRoute(basePage || 'home', true);
+      }
+    } else {
+      hideAllRouteViews();
+    }
+  }
+
+  async function applyRouteFromNavigation(route = getRouteFromHash()) {
+    const normalized = normalizeAppRoute(route);
+    const page = routePage(normalized);
+    if (page !== getCurrentPage()) {
+      await applyPageFromNavigation(page);
+    }
+    hideAllRouteViews({ keepTiHi: routeSubpath(normalized).startsWith('tihi/') });
+    await showRouteView(normalized);
+  }
+
+  async function showRouteView(route = getRouteFromHash()) {
+    const normalized = normalizeAppRoute(route);
+    const subpath = routeSubpath(normalized);
+    if (!subpath) return;
+
+    if (normalized === 'kehe/product-master') {
+      showKeheProductMasterView();
+      return;
+    }
+    if (normalized === 'kehe/dc-directory') {
+      showKeheDcDirectoryView();
+      return;
+    }
+    if (normalized === 'mpl/product-master') {
+      showMplProductMasterView();
+      return;
+    }
+    if (normalized === 'mpl/directory') {
+      showMplDirectoryView();
+      return;
+    }
+    if (normalized === 'mpl/saved') {
+      await showSavedMplView();
+      return;
+    }
+    if (subpath === 'preview') {
+      await showPreviewView();
+      return;
+    }
+    if (subpath === 'document-editor') {
+      showDocumentEditorView();
+      return;
+    }
+    if (subpath.startsWith('audit/')) {
+      await showKeheAuditView(decodeURIComponent(subpath.slice('audit/'.length)));
+      return;
+    }
+    if (subpath.startsWith('import/')) {
+      showExcelImportView();
+      return;
+    }
+    if (subpath.startsWith('tihi/')) {
+      showMplTiHiRoute(subpath);
     }
   }
 
@@ -559,13 +682,25 @@
     actions.classList.toggle('visible', !!isVisible);
   }
 
-  function openKeheProductMasterModal() {
+  function showKeheProductMasterView() {
     renderKeheProductMasterTable();
     document.getElementById('kehe-product-master-modal').classList.add('visible');
   }
 
-  function closeKeheProductMasterModal() {
+  function openKeheProductMasterModal() {
+    navigateToRoute('kehe/product-master');
+  }
+
+  function hideKeheProductMasterView() {
     document.getElementById('kehe-product-master-modal').classList.remove('visible');
+  }
+
+  function closeKeheProductMasterModal(useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView('kehe');
+    } else {
+      hideKeheProductMasterView();
+    }
   }
 
   function loadKeheProductMasterFromStorage() {
@@ -835,13 +970,25 @@
     }
   }
 
-  function openMplProductMasterModal() {
+  function showMplProductMasterView() {
     renderMplProductMasterTable();
     document.getElementById('mpl-product-master-modal').classList.add('visible');
   }
 
-  function closeMplProductMasterModal() {
+  function openMplProductMasterModal() {
+    navigateToRoute('mpl/product-master');
+  }
+
+  function hideMplProductMasterView() {
     document.getElementById('mpl-product-master-modal').classList.remove('visible');
+  }
+
+  function closeMplProductMasterModal(useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView('mpl');
+    } else {
+      hideMplProductMasterView();
+    }
   }
 
   function renderMplProductMasterTable() {
@@ -1015,7 +1162,7 @@
     openManualProductPackLabelFromRow(
       keheProductMasterRows[index],
       getKeheProductMasterRows(),
-      closeKeheProductMasterModal
+      () => closeKeheProductMasterModal(false)
     );
   }
 
@@ -1023,30 +1170,75 @@
     openManualProductPackLabelFromRow(
       mplProductMasterRows[index],
       getAllMplProductMasterRows(),
-      closeMplProductMasterModal
+      () => closeMplProductMasterModal(false)
     );
   }
 
-  function openKeheDcDirectoryModal() {
+  function showKeheDcDirectoryView() {
     renderKeheDcDirectoryTable();
     document.getElementById('kehe-dc-directory-modal').classList.add('visible');
   }
 
-  function closeKeheDcDirectoryModal() {
+  function openKeheDcDirectoryModal() {
+    navigateToRoute('kehe/dc-directory');
+  }
+
+  function hideKeheDcDirectoryView() {
     document.getElementById('kehe-dc-directory-modal').classList.remove('visible');
   }
 
-  function closeSavedMplModal() {
+  function closeKeheDcDirectoryModal(useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView('kehe');
+    } else {
+      hideKeheDcDirectoryView();
+    }
+  }
+
+  function hideSavedMplView() {
     document.getElementById('saved-mpl-modal').classList.remove('visible');
   }
 
-  function closeExcelImportModal() {
-    activeExcelImportPreview = null;
+  function closeSavedMplModal(useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView('mpl');
+    } else {
+      hideSavedMplView();
+    }
+  }
+
+  function showExcelImportView() {
+    if (!activeExcelImportPreview) return;
+    renderExcelImportPreview();
+    document.getElementById('excel-import-modal').classList.add('visible');
+  }
+
+  function hideExcelImportView(options = {}) {
+    if (options.clearPreview !== false) {
+      activeExcelImportPreview = null;
+    }
     document.getElementById('excel-import-modal').classList.remove('visible');
   }
 
-  function closeKeheAuditModal() {
+  function closeExcelImportModal(useHistory = true) {
+    if (useHistory) {
+      activeExcelImportPreview = null;
+      closeCurrentRouteView('mpl');
+      return;
+    }
+    hideExcelImportView();
+  }
+
+  function hideKeheAuditView() {
     document.getElementById('audit-history-modal').classList.remove('visible');
+  }
+
+  function closeKeheAuditModal(useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView(getCurrentPage());
+    } else {
+      hideKeheAuditView();
+    }
   }
 
   function parseDcMatchValues(value) {
@@ -1178,13 +1370,25 @@
     }
   }
 
-  function openMplDirectoryModal() {
+  function showMplDirectoryView() {
     renderMplDirectoryTable();
     document.getElementById('mpl-directory-modal').classList.add('visible');
   }
 
-  function closeMplDirectoryModal() {
+  function openMplDirectoryModal() {
+    navigateToRoute('mpl/directory');
+  }
+
+  function hideMplDirectoryView() {
     document.getElementById('mpl-directory-modal').classList.remove('visible');
+  }
+
+  function closeMplDirectoryModal(useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView('mpl');
+    } else {
+      hideMplDirectoryView();
+    }
   }
 
   function renderMplDirectoryTable() {
@@ -1357,11 +1561,11 @@
   }
 
   function openManualDcPalletLabel(index) {
-    openManualDcPalletLabelFromRow(keheDcDirectoryRows[index], closeKeheDcDirectoryModal);
+    openManualDcPalletLabelFromRow(keheDcDirectoryRows[index], () => closeKeheDcDirectoryModal(false));
   }
 
   function openManualMplDcPalletLabel(index) {
-    openManualDcPalletLabelFromRow(mplDirectoryRows[index], closeMplDirectoryModal);
+    openManualDcPalletLabelFromRow(mplDirectoryRows[index], () => closeMplDirectoryModal(false));
   }
 
   function canonicalId(value) {
@@ -1717,7 +1921,7 @@
     }
   }
 
-  async function openSavedMplModal() {
+  async function showSavedMplView() {
     try {
       const res = await fetch('/api/kehe/mpl-drafts', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
@@ -1728,6 +1932,10 @@
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not load saved MPL drafts.'), 'error');
     }
+  }
+
+  function openSavedMplModal() {
+    navigateToRoute('mpl/saved');
   }
 
   function renderSavedMplList() {
@@ -1794,7 +2002,7 @@
       activeKeheDocumentDraft = draft;
       keheLastMplDraft = draft;
       keheMplPalletizationSource = draft.packing_lists?.[0]?.palletization_source || 'Saved';
-      closeSavedMplModal();
+      closeSavedMplModal(false);
       renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
       openDocumentEditor();
       if (selectedKit === 'kehe') renderKeheUnifiedReport(activeKeheDocumentDraft);
@@ -1819,6 +2027,55 @@
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
+  function downloadCsvRows(filename, rows) {
+    const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportMplProductMasterTable() {
+    const rows = getAllMplProductMasterRows();
+    downloadCsvRows('labelkit_product_master_export.csv', [
+      ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Case Qty', 'Labels / Unit', 'SKU'],
+      ...rows.map(row => [
+        row.storefront,
+        row.gtin,
+        row.description,
+        row.packaging_level,
+        row.dimensions_in,
+        row.weight_lbs,
+        row.case_qty,
+        row.labels_per_unit,
+        row.sku
+      ])
+    ]);
+    setStatus(`Exported ${rows.length} Product Master row${rows.length === 1 ? '' : 's'}.`, 'success');
+  }
+
+  function exportMplDirectoryTable() {
+    const rows = getMplDirectoryRows();
+    downloadCsvRows('labelkit_directory_export.csv', [
+      ['Storefront', 'Code', 'Name', 'Ship From', 'Ship To', 'Bill To', 'Match Values'],
+      ...rows.map(row => [
+        row.storefront,
+        row.dc,
+        row.name,
+        row.ship_from,
+        row.delivery_address,
+        row.billing_address,
+        row.match_values.join('\n')
+      ])
+    ]);
+    setStatus(`Exported ${rows.length} Directory row${rows.length === 1 ? '' : 's'}.`, 'success');
+  }
+
   function downloadImportTemplate(target) {
     const isDirectory = target === 'dc-directory';
     const rows = isDirectory
@@ -1830,16 +2087,7 @@
           ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Case Qty', 'Labels / Unit', 'SKU'],
           ['KeHE', '10850068684998', 'Example Case Product', 'Case', '24 x 12 x 6', '2', '36', '2', 'TW-EXAMPLE']
         ];
-    const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
     setStatus(`${isDirectory ? 'Directory' : 'Product Master'} import template downloaded.`, 'success');
   }
 
@@ -1862,8 +2110,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not preview Excel import.');
       activeExcelImportPreview = { target, ...data };
-      renderExcelImportPreview();
-      document.getElementById('excel-import-modal').classList.add('visible');
+      await navigateToRoute(`mpl/import/${target}`);
       setStatus('Excel import preview ready. Confirm to save changes.', 'info');
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not preview Excel import.'), 'error');
@@ -2012,7 +2259,7 @@
         renderMplProductMasterTable();
         renderKeheProductMasterTable();
       }
-      closeExcelImportModal();
+      closeExcelImportModal(true);
       setStatus('Excel import confirmed and change history saved.', 'success');
     } catch (err) {
       document.getElementById('btn-confirm-excel-import').disabled = false;
@@ -2020,13 +2267,14 @@
     }
   }
 
-  async function openKeheAuditModal(table = '') {
+  async function showKeheAuditView(table = '') {
     if (!hasPermission('audit_view')) {
       setStatus('Your role does not have access to change history.', 'error');
       return;
     }
     try {
-      const url = table ? `/api/kehe/audit-log?table=${encodeURIComponent(table)}&limit=300` : '/api/kehe/audit-log?limit=300';
+      const tableName = table === 'all' ? '' : table;
+      const url = tableName ? `/api/kehe/audit-log?table=${encodeURIComponent(tableName)}&limit=300` : '/api/kehe/audit-log?limit=300';
       const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not load change history.');
@@ -2035,6 +2283,10 @@
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not load change history.'), 'error');
     }
+  }
+
+  function openKeheAuditModal(table = '') {
+    navigateToRoute(`${getCurrentPage()}/audit/${encodeURIComponent(table || 'all')}`);
   }
 
   function renderKeheAuditHistory(entries) {
@@ -3898,6 +4150,16 @@
   function openMplPalletTiHi(mplIndex, palletId) {
     const mpl = getMpl(mplIndex);
     if (!mpl || !activeKeheDocumentDraft) return;
+    const normalizedPallet = normalizePalletId(palletId) || '1';
+    navigateToRoute(`${getCurrentPage()}/tihi/${mplIndex}/${encodeURIComponent(normalizedPallet)}`);
+  }
+
+  function showMplTiHiRoute(subpath) {
+    const parts = subpath.split('/');
+    const mplIndex = parseInt(parts[1], 10);
+    const palletId = decodeURIComponent(parts.slice(2).join('/') || '1');
+    const mpl = getMpl(mplIndex);
+    if (!mpl || !activeKeheDocumentDraft) return;
     applyProductMasterToDraft(activeKeheDocumentDraft, true);
     (activeKeheDocumentDraft.packing_lists || []).forEach((list, index) => {
       list._show_tihi = index === mplIndex;
@@ -3905,10 +4167,15 @@
     mpl._tihi_focus_pallet = normalizePalletId(palletId) || '1';
     mpl._show_tihi = true;
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    showDocumentEditorView();
     setStatus(`TI-Hi preview refreshed for pallet ${palletId}.`, 'info');
   }
 
-  function closeMplTiHiPopup(mplIndex) {
+  function closeMplTiHiPopup(mplIndex, useHistory = true) {
+    if (useHistory) {
+      closeCurrentRouteView(`${getCurrentPage()}/document-editor`);
+      return;
+    }
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
     mpl._show_tihi = false;
@@ -4015,13 +4282,13 @@
   function renderMplTiHiPopup(mpl, mplIndex) {
     if (!mpl?._show_tihi) return '';
     return `
-      <div class="tihi-popup-panel visible tihi-screen-only" onclick="if (event.target === this) closeMplTiHiPopup(${mplIndex})">
+      <div class="tihi-popup-panel visible tihi-screen-only" onclick="if (event.target === this) closeMplTiHiPopup(${mplIndex}, true)">
         <div class="editor-dialog">
           <div class="editor-toolbar">
             <div>
               <div class="editor-title">${escapeHtml((mpl?.id || 'MPL') + ' TI-HI Preview')}</div>
             </div>
-            <button class="btn-secondary" type="button" onclick="closeMplTiHiPopup(${mplIndex})">Close</button>
+            <button class="btn-secondary" type="button" onclick="closeMplTiHiPopup(${mplIndex}, true)">Close</button>
           </div>
           <div class="editor-body">
             <div class="tihi-popup-shell">
@@ -4088,6 +4355,7 @@
     setPreviewReady(false);
     resetPreviewSurface();
     closePreview();
+    hideAllRouteViews();
     renderList(xmlFiles, 'xml-file-list', 'xml');
     renderList(pdfFiles, 'pdf-file-list', 'pdf');
     renderKeheProductMasterTable();
@@ -4133,10 +4401,7 @@
     setPreviewReady(false);
     resetPreviewSurface();
     closePreview();
-    closeKeheProductMasterModal();
-    closeKeheDcDirectoryModal();
-    closeMplProductMasterModal();
-    closeMplDirectoryModal();
+    hideAllRouteViews();
     setStatus('', '');
 
     mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
@@ -4170,10 +4435,7 @@
     document.getElementById('btn-open-preview').classList.remove('hidden');
     toggleKeheExtractedPanel(false);
     toggleKeheProductMasterPanel(false);
-    closeKeheProductMasterModal();
-    closeKeheDcDirectoryModal();
-    closeMplProductMasterModal();
-    closeMplDirectoryModal();
+    hideAllRouteViews();
     resetKeheXmlDerivedState();
     keheCurrentExtractedSource = null;
     setStatus('', '');
@@ -4185,17 +4447,12 @@
   }
 
   window.addEventListener('popstate', function(event) {
-    const targetPage = normalizePageName(event.state?.page || getPageFromHash());
-    if (targetPage !== getCurrentPage()) {
-      applyPageFromNavigation(targetPage);
-    }
+    const targetRoute = normalizeAppRoute(event.state?.route || getRouteFromHash());
+    applyRouteFromNavigation(targetRoute);
   });
 
   window.addEventListener('hashchange', function() {
-    const targetPage = getPageFromHash();
-    if (targetPage !== getCurrentPage()) {
-      applyPageFromNavigation(targetPage);
-    }
+    applyRouteFromNavigation(getRouteFromHash());
   });
 
   function currentConfig() {
@@ -4636,10 +4893,10 @@
   }
 
   function maybeClosePreview(event) {
-    if (event.target.id === 'preview-panel') closePreview();
+    if (event.target.id === 'preview-panel') closePreview(true);
   }
 
-  async function openPreview() {
+  async function showPreviewView() {
     if (!blobUrl) return;
     setActivePreviewFormat(activePreviewFormat);
     const panel = document.getElementById('preview-panel');
@@ -4647,6 +4904,11 @@
     if (!document.getElementById('pdf-preview').childElementCount) {
       await renderPdfPreview(blobUrl);
     }
+  }
+
+  async function openPreview() {
+    if (!blobUrl) return;
+    await navigateToRoute(`${getCurrentPage()}/preview`);
   }
 
   async function openKehePreview(key) {
@@ -4660,7 +4922,11 @@
     await openPreview();
   }
 
-  function closePreview() {
+  function closePreview(useHistory = false) {
+    if (useHistory) {
+      closeCurrentRouteView(getCurrentPage());
+      return;
+    }
     document.getElementById('preview-panel').classList.remove('visible');
   }
 
@@ -4805,11 +5071,20 @@
   // KeHE Document (Pallet Label / Master Packing List) workflow
   // =========================================================================
 
-  function openDocumentEditor() {
+  function showDocumentEditorView() {
+    if (!activeKeheDocumentDraft) return;
     document.getElementById('document-editor-panel').classList.add('visible');
   }
 
-  function closeDocumentEditor() {
+  function openDocumentEditor() {
+    navigateToRoute(`${getCurrentPage()}/document-editor`);
+  }
+
+  function closeDocumentEditor(useHistory = false) {
+    if (useHistory) {
+      closeCurrentRouteView(getCurrentPage());
+      return;
+    }
     if (activeKeheDocumentDraft && Array.isArray(activeKeheDocumentDraft.packing_lists)) {
       activeKeheDocumentDraft.packing_lists.forEach(mpl => {
         mpl._show_tihi = false;

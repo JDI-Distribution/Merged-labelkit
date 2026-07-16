@@ -160,6 +160,17 @@ The standalone Product Master shows the full shared product table, including Cas
 
 The standalone Directory shows the full shared directory table, including Storefront, Code, Name, Ship From, Ship To, Bill To, Match Values, and pallet-label preview. Directory rows are unique by `Storefront + Code`.
 
+Table maintenance tools:
+
+- `Download Product Template` and `Download Directory Template` download import-ready CSV templates.
+- `Upload Excel/CSV` opens an import preview with each row selected by default; unchecked rows are skipped.
+- `Import Selected Rows` saves only the checked rows and records change history.
+- `Export Product CSV` exports the full standalone Product Master table.
+- `Export Directory CSV` exports the full standalone Directory table.
+- `Change History` opens the audit log for the selected table.
+
+The standalone table views and major document views are route-backed browser views. Opening a table, saved MPL list, import preview, change history, document editor, PDF preview, or TI-HI preview updates the browser hash, for example `#mpl/product-master` or `#kehe/preview`. Use the browser Back button to return to the previous app view, or use the visible `Close` / `Done` buttons.
+
 ## Master Packing List And TI-HI
 
 The MPL editor supports:
@@ -174,6 +185,8 @@ The MPL editor supports:
 - Name, save, reopen, and delete drafts.
 - `Save & Generate PDF`.
 - `Generate PDF Only`.
+
+Editor, PDF preview, and TI-HI preview are browser-history aware. If a user opens TI-HI from inside the MPL editor, the route changes to a TI-HI route and browser Back returns to the editor instead of losing the draft state.
 
 TI-HI behavior:
 
@@ -633,6 +646,8 @@ catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit
 - [ ] Build `docker build -t merged-labelkit:latest .`.
 - [ ] Deploy with `catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000`.
 - [ ] Health-check `https://mergedlabelkit.development.catalystappsail.com/health`.
+- [ ] Confirm route-backed views open and close with browser Back for table, preview, editor, import, audit, saved MPL, and TI-HI views.
+- [ ] Confirm `Export Product CSV` and `Export Directory CSV` download the full standalone tables.
 - [ ] Commit on `main`.
 - [ ] Push `origin main`.
 - [ ] Confirm `git status --short` is clean.
