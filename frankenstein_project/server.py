@@ -146,6 +146,12 @@ def _config_bool(env_name: str, key: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _config_path(env_name: str, key: str, default: str) -> Path:
+    raw = _config_value(env_name, key, default)
+    path = Path(str(raw or default))
+    return path if path.is_absolute() else BASE_DIR / path
+
+
 APP_ENV = str(_config_value("APP_ENV", "app_env", os.getenv("ENVIRONMENT", "local"))).strip().lower()
 AUTH_REQUIRED = _config_bool("AUTH_REQUIRED", "auth_required", APP_ENV in {"production", "prod"})
 AUTH_MODE = str(_config_value("AUTH_MODE", "auth_mode", "embedded" if AUTH_REQUIRED else "none") or "none").strip().lower()
@@ -236,11 +242,10 @@ MPL_DRAFTS_STORE = str(_config_value(
     "mpl_drafts_store",
     os.getenv("KEHE_MPL_DRAFTS_STORE", MPL_PRODUCT_MASTER_STORE) if ALLOW_CONFIG_ENV_OVERRIDES else MPL_PRODUCT_MASTER_STORE,
 )).strip().lower()
-MPL_DRAFTS_FILE = Path(
-    os.getenv(
-        "MPL_DRAFTS_FILE",
-        os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json")),
-    )
+MPL_DRAFTS_FILE = _config_path(
+    "MPL_DRAFTS_FILE",
+    "mpl_drafts_file",
+    os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json")),
 )
 AUDIT_LOG_TABLE = str(
     _config_value("AUDIT_LOG_TABLE", "audit_log_table", "kehe_audit_log")
@@ -491,6 +496,7 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
     in_packing_list = _product_in_packing_list(row, packaging_level, label_required)
     case_qty = _first_value(row, "case_qty", "CASE_QTY", "Case Qty")
     labels_per_unit = _first_value(row, "labels_per_unit", "LABELS_PER_UNIT", "Labels / Unit")
+    sku = _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER")
 
     label_required = "1" if in_packing_list else "0"
     if not case_qty:
@@ -510,15 +516,29 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
         "weight_lbs": _first_value(row, "weight_lbs", "WEIGHT_LBS", "Weight (lbs)"),
         "case_qty": case_qty,
         "labels_per_unit": labels_per_unit,
-        "sku": _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER"),
-        "unique_key": _product_master_unique_key(gtin, packaging_level, storefront),
+        "sku": sku,
+        "unique_key": _product_master_unique_key(gtin, packaging_level, storefront, sku),
     }
 
 
-def _product_master_unique_key(gtin: str, packaging_level: str, storefront: str = "") -> str:
+def _product_master_unique_key(gtin: str, packaging_level: str, storefront: str = "", sku: str = "") -> str:
     store = _normalize_storefront(storefront)
-    prefix = "" if store.lower() == "kehe" else f"{store}|"
-    return f"{prefix}{str(gtin or '').strip()}|{normalize_packaging_level(packaging_level)}"
+    return "|".join([
+        store.strip().lower(),
+        normalize_packaging_level(packaging_level).strip().lower(),
+        str(sku or "").strip().lower(),
+    ])
+
+
+def _product_storefront_level_sku_key(row: Dict[str, Any]) -> str:
+    normalized = normalize_product_master_row(row)
+    return _product_master_unique_key(
+        normalized.get("gtin", ""),
+        normalized.get("packaging_level", ""),
+        normalized.get("storefront", ""),
+        normalized.get("sku", ""),
+    )
+
 
 def _default_case_qty_for_product(packaging_level: str) -> str:
     return DEFAULT_CASE_QTY_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
@@ -639,6 +659,18 @@ def _init_catalyst_user_app(request: Request) -> Any:
         return None
 
 
+def _config_role_id_map() -> Dict[str, str]:
+    raw = ACTIVE_LABELKIT_CONFIG.get("role_id_map", {})
+    if not isinstance(raw, dict):
+        return {}
+    return {str(role_id).strip(): str(role).strip() for role_id, role in raw.items() if str(role_id).strip()}
+
+
+def _role_from_role_id(role_id: str) -> str:
+    mapped = _config_role_id_map().get(str(role_id or "").strip())
+    return _role_from_name(mapped) if mapped else ""
+
+
 def _role_from_name(role_name: str) -> str:
     normalized = str(role_name or "").strip().lower()
     if "admin" in normalized:
@@ -648,6 +680,10 @@ def _role_from_name(role_name: str) -> str:
     return "User"
 
 
+def _role_from_catalyst(role_name: str = "", role_id: str = "") -> str:
+    return _role_from_role_id(role_id) or _role_from_name(role_name)
+
+
 def _request_user_from_headers(request: Request) -> Dict[str, Any]:
     headers = request.headers
     role_name = (
@@ -655,6 +691,13 @@ def _request_user_from_headers(request: Request) -> Dict[str, Any]:
         or headers.get("x-zc-role-name")
         or headers.get("x-user-role")
         or headers.get("x-labelkit-role")
+        or ""
+    )
+    role_id = (
+        headers.get("x-zc-role-id")
+        or headers.get("x-zc-user-role-id")
+        or headers.get("x-user-role-id")
+        or headers.get("x-labelkit-role-id")
         or ""
     )
     user = {
@@ -674,8 +717,9 @@ def _request_user_from_headers(request: Request) -> Dict[str, Any]:
             or ""
         ),
         "user_id": headers.get("x-zc-user-id") or headers.get("x-user-id") or "",
-        "role": _role_from_name(role_name),
+        "role": _role_from_catalyst(role_name, role_id),
         "role_name": role_name or "User",
+        "role_id": role_id,
         "source": "headers",
     }
     # Catalyst may inject infrastructure IDs even before a real authenticated
@@ -707,8 +751,15 @@ def _current_project_user(request: Request) -> Dict[str, Any]:
             if isinstance(details, dict):
                 role_details = details.get("role_details") or {}
                 role_name = ""
+                role_id = ""
                 if isinstance(role_details, dict):
                     role_name = str(role_details.get("role_name") or "")
+                    role_id = str(
+                        role_details.get("role_id")
+                        or role_details.get("roleId")
+                        or role_details.get("id")
+                        or ""
+                    )
                 name = " ".join([
                     str(details.get("first_name") or "").strip(),
                     str(details.get("last_name") or "").strip(),
@@ -720,8 +771,9 @@ def _current_project_user(request: Request) -> Dict[str, Any]:
                     "name": name,
                     "email": email,
                     "user_id": user_id,
-                    "role": _role_from_name(role_name),
+                    "role": _role_from_catalyst(role_name, role_id),
                     "role_name": role_name or "User",
+                    "role_id": role_id,
                     "source": "catalyst",
                 }
         except Exception:
@@ -1042,20 +1094,12 @@ def _audit_value(value: Any) -> str:
 
 def _product_row_key(row: Dict[str, Any]) -> str:
     normalized = normalize_product_master_row(row)
-    key = normalized.get("unique_key") or ""
-    if key and key != "|Other":
-        return key
-    return "|".join([
-        normalized.get("gtin", ""),
-        normalized.get("sku", ""),
-        normalized.get("description", ""),
-        normalized.get("packaging_level", ""),
-    ])
+    return _product_storefront_level_sku_key(normalized)
 
 
 def _dc_row_key(row: Dict[str, Any]) -> str:
     normalized = normalize_dc_directory_row(row)
-    return normalized.get("unique_key") or normalized.get("dc") or normalized.get("name") or normalized.get("delivery_address") or uuid.uuid4().hex
+    return _dc_directory_base_key(normalized.get("dc", ""), normalized.get("storefront", ""))
 
 
 def _row_label(table: str, row: Dict[str, Any]) -> str:
@@ -1295,24 +1339,45 @@ def _parse_match_values(value: Any) -> List[str]:
 def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
     dc = _first_value(row, "dc", "DC")
+    name = _first_value(row, "name", "NAME")
     ship_from = _first_value(row, "ship_from", "SHIP_FROM", "ship_from_address", "SHIP_FROM_ADDRESS", "Ship From")
+    delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
+    billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
+    match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "storefront": storefront,
         "dc": dc,
-        "name": _first_value(row, "name", "NAME"),
+        "name": name,
         "ship_from": ship_from or DEFAULT_KEHE_SHIP_FROM,
-        "delivery_address": _first_value(row, "delivery_address", "DELIVERY_ADDRESS"),
-        "billing_address": _first_value(row, "billing_address", "BILLING_ADDRESS"),
-        "match_values": _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", []))),
-        "unique_key": _dc_directory_unique_key(dc, storefront),
+        "delivery_address": delivery_address,
+        "billing_address": billing_address,
+        "match_values": match_values,
+        "unique_key": _dc_directory_unique_key(
+            dc,
+            storefront,
+            name,
+            delivery_address,
+            billing_address,
+            match_values,
+        ),
     }
 
 
-def _dc_directory_unique_key(dc: str, storefront: str = "") -> str:
+def _dc_directory_base_key(dc: str, storefront: str = "") -> str:
     store = _normalize_storefront(storefront)
-    prefix = "" if store.lower() == "kehe" else f"{store}|"
-    return f"{prefix}{str(dc or '').strip()}"
+    return f"{store.strip().lower()}|{str(dc or '').strip().lower()}"
+
+
+def _dc_directory_unique_key(
+    dc: str,
+    storefront: str = "",
+    name: str = "",
+    delivery_address: str = "",
+    billing_address: str = "",
+    match_values: Optional[List[str]] = None,
+) -> str:
+    return _dc_directory_base_key(dc, storefront)
 
 
 def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1630,61 +1695,66 @@ def _read_spreadsheet_bytes(filename: str, data: bytes) -> List[Dict[str, Any]]:
 
 def _canonical_import_key(header: str, table: str) -> str:
     key = re.sub(r"[^a-z0-9]+", "_", str(header or "").strip().lower()).strip("_")
+    product_aliases = {
+        "storefront": "storefront",
+        "store_front": "storefront",
+        "store": "storefront",
+        "in_packing_list": "in_packing_list",
+        "in_packing_list_": "in_packing_list",
+        "packing_list": "in_packing_list",
+        "include_in_packing_list": "in_packing_list",
+        "include_mpl": "in_packing_list",
+        "label_required": "label_required",
+        "label": "label_required",
+        "gtin": "gtin",
+        "case_upc": "gtin",
+        "upc": "gtin",
+        "description": "description",
+        "item_description": "description",
+        "packaging_level": "packaging_level",
+        "packging_level": "packaging_level",
+        "level": "packaging_level",
+        "l_x_w_x_h_in": "dimensions_in",
+        "dimensions": "dimensions_in",
+        "dimensions_in": "dimensions_in",
+        "lwh_in": "dimensions_in",
+        "weight_lbs": "weight_lbs",
+        "weight": "weight_lbs",
+        "weight_lbs_": "weight_lbs",
+        "case_qty": "case_qty",
+        "case_quantity": "case_qty",
+        "units_per_case": "case_qty",
+        "labels_unit": "labels_per_unit",
+        "labels_per_unit": "labels_per_unit",
+        "labels_to_print_per_unit": "labels_per_unit",
+        "sku": "sku",
+        "item_number": "sku",
+    }
+    directory_aliases = {
+        "storefront": "storefront",
+        "store_front": "storefront",
+        "store": "storefront",
+        "dc": "dc",
+        "code": "dc",
+        "name": "name",
+        "dc_name": "name",
+        "ship_from": "ship_from",
+        "ship_from_address": "ship_from",
+        "delivery_address": "delivery_address",
+        "ship_to": "delivery_address",
+        "ship_to_address": "delivery_address",
+        "billing_address": "billing_address",
+        "bill_to": "billing_address",
+        "bill_to_address": "billing_address",
+        "match_values": "match_values",
+        "matching_values": "match_values",
+        "gln": "match_values",
+    }
     aliases = {
-        "kehe_product_master": {
-            "storefront": "storefront",
-            "store_front": "storefront",
-            "store": "storefront",
-            "in_packing_list": "in_packing_list",
-            "in_packing_list_": "in_packing_list",
-            "packing_list": "in_packing_list",
-            "include_in_packing_list": "in_packing_list",
-            "include_mpl": "in_packing_list",
-            "label_required": "label_required",
-            "label": "label_required",
-            "gtin": "gtin",
-            "case_upc": "gtin",
-            "upc": "gtin",
-            "description": "description",
-            "item_description": "description",
-            "packaging_level": "packaging_level",
-            "packging_level": "packaging_level",
-            "level": "packaging_level",
-            "l_x_w_x_h_in": "dimensions_in",
-            "dimensions": "dimensions_in",
-            "dimensions_in": "dimensions_in",
-            "lwh_in": "dimensions_in",
-            "weight_lbs": "weight_lbs",
-            "weight": "weight_lbs",
-            "weight_lbs_": "weight_lbs",
-            "case_qty": "case_qty",
-            "case_quantity": "case_qty",
-            "units_per_case": "case_qty",
-            "labels_unit": "labels_per_unit",
-            "labels_per_unit": "labels_per_unit",
-            "labels_to_print_per_unit": "labels_per_unit",
-            "sku": "sku",
-            "item_number": "sku",
-        },
-        "kehe_dc_directory": {
-            "storefront": "storefront",
-            "store_front": "storefront",
-            "store": "storefront",
-            "dc": "dc",
-            "name": "name",
-            "dc_name": "name",
-            "ship_from": "ship_from",
-            "ship_from_address": "ship_from",
-            "delivery_address": "delivery_address",
-            "ship_to": "delivery_address",
-            "ship_to_address": "delivery_address",
-            "billing_address": "billing_address",
-            "bill_to": "billing_address",
-            "bill_to_address": "billing_address",
-            "match_values": "match_values",
-            "matching_values": "match_values",
-            "gln": "match_values",
-        },
+        "kehe_product_master": product_aliases,
+        "mpl_product_master": product_aliases,
+        "kehe_dc_directory": directory_aliases,
+        "mpl_directory": directory_aliases,
     }
     return aliases.get(table, {}).get(key, key)
 
@@ -1698,8 +1768,12 @@ def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Di
         canonical_rows.append(next_row)
     if table == "kehe_product_master":
         return _kehe_product_master_rows(canonical_rows)
+    if table == "mpl_product_master":
+        return _dedupe_product_master_rows(canonical_rows)
     if table == "kehe_dc_directory":
         return _kehe_dc_directory_rows(canonical_rows)
+    if table == "mpl_directory":
+        return _dedupe_dc_directory_rows(canonical_rows)
     return canonical_rows
 
 
@@ -1785,17 +1859,23 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
     await upload.close()
     raw_rows = _read_spreadsheet_bytes(upload.filename or "upload.xlsx", data)
     imported_rows = _canonicalize_import_rows(raw_rows, table)
-    if table == "kehe_product_master":
+    if table in {"kehe_product_master", "mpl_product_master"}:
         current_rows = _datastore_load_product_master(request)
         if current_rows is None:
             current_rows = _shared_product_master_file_read()
-        current_rows = _kehe_product_master_rows(current_rows)
+        if table == "kehe_product_master":
+            current_rows = _kehe_product_master_rows(current_rows)
+        else:
+            current_rows = _dedupe_product_master_rows(current_rows)
         key_fn = _product_row_key
     else:
         current_rows = _datastore_load_dc_directory(request)
         if current_rows is None:
             current_rows = _shared_dc_directory_file_read()
-        current_rows = _kehe_dc_directory_rows(current_rows)
+        if table == "kehe_dc_directory":
+            current_rows = _kehe_dc_directory_rows(current_rows)
+        else:
+            current_rows = _dedupe_dc_directory_rows(current_rows)
         key_fn = _dc_row_key
 
     preview = _preview_row_changes(
@@ -1814,52 +1894,48 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
     })
 
 
-@app.post("/api/kehe/product-master/import-preview")
-async def preview_product_master_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
-    return await _preview_excel_import(request, file, "kehe_product_master")
+@app.post("/api/mpl/product-master/import-preview")
+async def preview_mpl_product_master_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+    return await _preview_excel_import(request, file, "mpl_product_master")
 
 
-@app.post("/api/kehe/dc-directory/import-preview")
-async def preview_dc_directory_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
-    return await _preview_excel_import(request, file, "kehe_dc_directory")
+@app.post("/api/mpl/directory/import-preview")
+async def preview_mpl_directory_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+    return await _preview_excel_import(request, file, "mpl_directory")
 
 
-@app.post("/api/kehe/product-master/import-confirm")
-async def confirm_product_master_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+@app.post("/api/mpl/product-master/import-confirm")
+async def confirm_mpl_product_master_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "table_crud")
     imported_rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(imported_rows, list):
         imported_rows = []
-    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_product_master")
-    all_rows = _datastore_load_product_master(request)
-    if all_rows is None:
-        all_rows = _shared_product_master_file_read()
-    non_kehe_rows = [row for row in all_rows if not _is_kehe_storefront(row.get("storefront"))]
-    current_kehe_rows = _kehe_product_master_rows(all_rows)
-    merged_kehe_rows = _merge_import_rows(current_kehe_rows, imported_rows, _product_row_key)
+    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "mpl_product_master")
+    current_rows = _datastore_load_product_master(request)
+    if current_rows is None:
+        current_rows = _shared_product_master_file_read()
+    merged_rows = _merge_import_rows(current_rows, imported_rows, _product_row_key)
     return await save_mpl_product_master(request, {
-        "rows": non_kehe_rows + merged_kehe_rows,
+        "rows": merged_rows,
         "source": "excel_import",
         "batch_id": str(payload.get("batch_id") or uuid.uuid4().hex),
         "filename": str(payload.get("filename") or ""),
     })
 
 
-@app.post("/api/kehe/dc-directory/import-confirm")
-async def confirm_dc_directory_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+@app.post("/api/mpl/directory/import-confirm")
+async def confirm_mpl_directory_import(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "table_crud")
     imported_rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(imported_rows, list):
         imported_rows = []
-    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "kehe_dc_directory")
-    all_rows = _datastore_load_dc_directory(request)
-    if all_rows is None:
-        all_rows = _shared_dc_directory_file_read()
-    non_kehe_rows = [row for row in all_rows if not _is_kehe_storefront(row.get("storefront"))]
-    current_kehe_rows = _kehe_dc_directory_rows(all_rows)
-    merged_kehe_rows = _merge_import_rows(current_kehe_rows, imported_rows, _dc_row_key)
+    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "mpl_directory")
+    current_rows = _datastore_load_dc_directory(request)
+    if current_rows is None:
+        current_rows = _shared_dc_directory_file_read()
+    merged_rows = _merge_import_rows(current_rows, imported_rows, _dc_row_key)
     return await save_mpl_directory(request, {
-        "rows": non_kehe_rows + merged_kehe_rows,
+        "rows": merged_rows,
         "source": "excel_import",
         "batch_id": str(payload.get("batch_id") or uuid.uuid4().hex),
         "filename": str(payload.get("filename") or ""),

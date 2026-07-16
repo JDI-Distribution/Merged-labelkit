@@ -14,6 +14,7 @@
       "mpl_directory_table": "mpl_directory",
       "mpl_drafts_store": "auto",
       "mpl_drafts_table": "kehe_mpl_drafts",
+      "mpl_drafts_file": "data/kehe_mpl_drafts.json",
       "audit_log_store": "auto",
       "audit_log_table": "kehe_audit_log"
     },
@@ -30,7 +31,11 @@
       "mpl_drafts_store": "datastore",
       "mpl_drafts_table": "kehe_mpl_drafts",
       "audit_log_store": "datastore",
-      "audit_log_table": "kehe_audit_log"
+      "audit_log_table": "kehe_audit_log",
+      "role_id_map": {
+        "27327000000040037": "Admin",
+        "27327000000040038": "User"
+      }
     }
   }
 }

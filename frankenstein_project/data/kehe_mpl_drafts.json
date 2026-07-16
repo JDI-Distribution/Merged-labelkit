@@ -1,0 +1,276 @@
+{
+  "drafts": [
+    {
+      "id": "6012c84fc8314c2890e291ebf71f27bd",
+      "name": "MANUAL-MPL-1",
+      "created_at": "2026-07-16T17:39:09Z",
+      "updated_at": "2026-07-16T17:39:09Z",
+      "draft": {
+        "document_type": "kehe_master_packing_list",
+        "version": 3,
+        "manual_mpl": true,
+        "standalone_mpl": true,
+        "storefront": "KeHE",
+        "summary": {
+          "packing_lists": 1,
+          "manual_mpl": true
+        },
+        "warnings": [],
+        "product_master": [
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "40850068684654",
+            "description": "SUGAR RIMM GLITTER GOLD BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "18(l) X 12(w) X 8(h)",
+            "weight_lbs": "16",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-CRS109-4OZ"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "40850068684777",
+            "description": "SUGAR RIMM GLITTER SILVR BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "18(l) X 12(w) X 8(h)",
+            "weight_lbs": "16",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-CRS104-4OZ"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "40850068684791",
+            "description": "SALT RIM GLITTER WHITE BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "18(l) X 12(w) X 8(h)",
+            "weight_lbs": "16",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-BRS209-4OZ"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "20850068684780",
+            "description": "SALT RIM GLITTER PINK BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "18(l) X 12(w) X 8(h)",
+            "weight_lbs": "16",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-BRS205-4OZ"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "20850068684933",
+            "description": "GLITTER CKTL HOL CLIP6PC BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "24(l) X 12(w) X 6(h)",
+            "weight_lbs": "2",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-PIABX-HOLIDAY"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "10850068684998",
+            "description": "GLITTER CKTL CLPSTR 6PC BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "24(l) X 12(w) X 6(h)",
+            "weight_lbs": "2",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-PIABX-FAN"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "20850079841035",
+            "description": "SUGAR RIMM GLITTER RWB BREW GLITTER",
+            "packaging_level": "Case",
+            "dimensions_in": "18(l) X 12(w) X 8(h)",
+            "weight_lbs": "16",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-CRS118-4OZ"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "1.08501E+13",
+            "description": "Example Case Product",
+            "packaging_level": "Case",
+            "dimensions_in": "24 x 12 x 6",
+            "weight_lbs": "2",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-EXAMPLE1"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "1.08501E+13",
+            "description": "Example Case Product",
+            "packaging_level": "Case",
+            "dimensions_in": "25 x 12 x 6",
+            "weight_lbs": "3",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-EXAMPLE2"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "1.08501E+13",
+            "description": "Example Case Product",
+            "packaging_level": "Case",
+            "dimensions_in": "26 x 12 x 6",
+            "weight_lbs": "4",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-EXAMPLE3"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "1.08501E+13",
+            "description": "Example Case Product",
+            "packaging_level": "Case",
+            "dimensions_in": "27 x 12 x 6",
+            "weight_lbs": "5",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-EXAMPLE4"
+          },
+          {
+            "storefront": "KeHE",
+            "in_packing_list": true,
+            "label_required": "1",
+            "gtin": "1.08501E+13",
+            "description": "Example Case Product",
+            "packaging_level": "Case",
+            "dimensions_in": "28 x 12 x 6",
+            "weight_lbs": "6",
+            "case_qty": "36",
+            "labels_per_unit": "2",
+            "sku": "TW-EXAMPLE5"
+          }
+        ],
+        "extracted_headers": [],
+        "extracted_items": [],
+        "packing_lists": [
+          {
+            "id": "MANUAL-MPL-1",
+            "title": "MASTER PACKING LIST",
+            "status": "Ready",
+            "manual_mpl": true,
+            "storefront": "KeHE",
+            "dc": "01",
+            "dc_name": "DC 01 Elkton",
+            "customer_po_number": "",
+            "pro_number": "",
+            "order_no": "",
+            "po_date": "",
+            "bol_number": "",
+            "total_weight": "18 lbs",
+            "ship_via": "",
+            "total_pallets": "1",
+            "supplier_info": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+            "bill_to": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+            "ship_to": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+            "customer_no": "",
+            "est_ship_date": "",
+            "shipping_instructions": "",
+            "palletization_source": "Manual",
+            "palletization_note": "Manual MPL created from standalone Product Master Table and Directory.",
+            "source_files": [
+              "Manual Create MPL"
+            ],
+            "items": [
+              {
+                "line": 1,
+                "location_on_pallet": "1",
+                "item_number": "TW-BRS209-4OZ",
+                "upc": "40850068684791",
+                "case_upc": "40850068684791",
+                "gtin": "40850068684791",
+                "sku": "TW-BRS209-4OZ",
+                "storefront": "KeHE",
+                "description": "SALT RIM GLITTER WHITE BREW GLITTER",
+                "packaging_level": "Case",
+                "dimensions_in": "18(l) X 12(w) X 8(h)",
+                "unit_weight_lbs": "16",
+                "calculated_weight_lbs": "16 lbs",
+                "lot": "",
+                "expiration_date": "",
+                "uom": "CASES",
+                "qty_on_pallet": "1",
+                "total_ordered": "1",
+                "total_shipped": "1",
+                "pallet_weight": "18 lbs",
+                "notes": ""
+              },
+              {
+                "line": 2,
+                "location_on_pallet": "1",
+                "item_number": "TW-EXAMPLE3",
+                "upc": "1.08501E+13",
+                "case_upc": "1.08501E+13",
+                "gtin": "1.08501E+13",
+                "sku": "TW-EXAMPLE1",
+                "storefront": "KeHE",
+                "description": "Example Case Product",
+                "packaging_level": "Case",
+                "dimensions_in": "24 x 12 x 6",
+                "unit_weight_lbs": "2",
+                "calculated_weight_lbs": "2 lbs",
+                "lot": "",
+                "expiration_date": "",
+                "uom": "CASES",
+                "qty_on_pallet": "1",
+                "total_ordered": "1",
+                "total_shipped": "1",
+                "pallet_weight": "18 lbs",
+                "notes": ""
+              }
+            ],
+            "_pallet_ids": [
+              "1"
+            ],
+            "_pallet_weights": {
+              "1": "18 lbs"
+            },
+            "_tihi_constraints": {
+              "max_length_in": 48,
+              "max_width_in": 40,
+              "max_height_in": 70,
+              "max_gross_lbs": 2000
+            },
+            "_tihi_pallet_constraints": {},
+            "warnings": []
+          }
+        ],
+        "_saved_draft_name": "MANUAL-MPL-1"
+      }
+    }
+  ],
+  "updated_at": "2026-07-16T17:39:09Z"
+}

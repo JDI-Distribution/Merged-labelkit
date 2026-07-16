@@ -14,7 +14,7 @@
         "elkton",
         "32033"
       ],
-      "unique_key": "01"
+      "unique_key": "01|DC 01 Elkton|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430001,3800 deerpark,elkton,32033"
     },
     {
       "id": "",
@@ -30,7 +30,7 @@
         "goodyear",
         "85395"
       ],
-      "unique_key": "14"
+      "unique_key": "14|DC 14 Goodyear|DC 14 Goodyear\nKEHE DISTRIBUTORS, LLC\n17510 W THOMAS RD\nGOODYEAR AZ 85395\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430014,17510 w thomas,goodyear,85395"
     },
     {
       "id": "",
@@ -46,7 +46,7 @@
         "romeoville",
         "60446"
       ],
-      "unique_key": "18"
+      "unique_key": "18|DC 18 Romeoville|DC 18 Romeoville\nKeHE Distributors, LLC\n900 Schmidt Rd\nRomeoville, IL 60446\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430018,900 schmidt,romeoville,60446"
     },
     {
       "id": "",
@@ -62,7 +62,7 @@
         "dallas",
         "75241"
       ],
-      "unique_key": "19"
+      "unique_key": "19|DC 19 Dallas|DC 19 Dallas\nKeHE Distributors, LLC\n4450 Logistics Drive\nDallas, TX 75241\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430019,4450 logistics,dallas,75241"
     },
     {
       "id": "",
@@ -78,7 +78,7 @@
         "north east",
         "21901"
       ],
-      "unique_key": "27"
+      "unique_key": "27|DC 27 North East|DC 27 North East\nKeHE Distributors, LLC\n585 Principio Pkwy W\nNorth East, MD 21901\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430027,585 principio,north east,21901"
     },
     {
       "id": "",
@@ -94,7 +94,7 @@
         "stockton",
         "95215"
       ],
-      "unique_key": "33"
+      "unique_key": "33|DC 33 Stockton|DC 33 Stockton\nKEHE DISTRIBUTORS, LLC\n4650 NEWCASTLE RD\nSTOCKTON CA 95215\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430033,4650 newcastle,stockton,95215"
     },
     {
       "id": "",
@@ -110,7 +110,7 @@
         "ontario",
         "91761"
       ],
-      "unique_key": "45"
+      "unique_key": "45|DC 45 Ontario|DC 45 Ontario\nKeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\n909-975-1019|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430045,601 s rockefeller,ontario,91761"
     },
     {
       "id": "",
@@ -127,7 +127,7 @@
         "tualatin",
         "97062"
       ],
-      "unique_key": "46"
+      "unique_key": "46|DC 46 Tualatin|DC 46 Tualatin\nKeHE Distributors, LLC\n12360 S.W. Leveton Dr\nTualatin, OR 97062\n503-692-0662|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430046,12360 s.w. leveton,12360 sw leveton,tualatin,97062"
     },
     {
       "id": "",
@@ -143,8 +143,8 @@
         "douglasville",
         "30135"
       ],
-      "unique_key": "55"
+      "unique_key": "55|DC 55 Douglasville|DC 55 Douglasville\nKeHE Distributors, LLC\n1851 Riverside Pkwy\nDouglasville, GA 30135\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430055,1851 riverside,douglasville,30135"
     }
   ],
-  "updated_at": "2026-07-13T20:18:16Z"
+  "updated_at": "2026-07-16T16:41:56Z"
 }

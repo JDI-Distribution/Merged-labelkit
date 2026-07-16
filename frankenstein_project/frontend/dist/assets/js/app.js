@@ -439,8 +439,7 @@
   function applyPermissionUi() {
     const tableCrud = hasPermission('table_crud');
     const auditView = hasPermission('audit_view');
-    const saveMpl = hasPermission('save_mpl');
-    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"]').forEach(btn => {
+    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"], button[onclick^="triggerExcelImport"]').forEach(btn => {
       btn.classList.toggle('hidden', !tableCrud);
       btn.disabled = !tableCrud;
     });
@@ -448,11 +447,26 @@
       btn.classList.toggle('hidden', !auditView);
       btn.disabled = !auditView;
     });
+    updateMplSaveButtonState();
+  }
+
+  function updateMplSaveButtonState(type = activeKeheDocumentType) {
+    const nameWrap = document.getElementById('mpl-draft-name-wrap');
+    const nameInput = document.getElementById('mpl-draft-name-input');
     const saveDraft = document.getElementById('btn-save-mpl-draft');
-    if (saveDraft) {
-      saveDraft.disabled = !saveMpl;
-      if (!saveMpl) saveDraft.classList.add('hidden');
+    const isMplEditor = type === 'masterPackingList';
+    if (nameWrap) nameWrap.classList.toggle('hidden', !isMplEditor);
+    if (isMplEditor && nameInput && activeKeheDocumentDraft && !String(nameInput.value || '').trim()) {
+      nameInput.value = defaultMplDraftName(activeKeheDocumentDraft);
     }
+    if (!saveDraft) return;
+    const canSave = hasPermission('save_mpl');
+    saveDraft.classList.toggle('hidden', !isMplEditor);
+    saveDraft.disabled = !isMplEditor || !canSave;
+    saveDraft.textContent = 'Save & Generate PDF';
+    saveDraft.title = isMplEditor && !canSave
+      ? 'Admin or Editor role required to save MPL drafts.'
+      : '';
   }
 
   async function bootstrapLabelKit() {
@@ -793,15 +807,31 @@
   async function saveMplProductMasterToBackend() {
     if (!hasPermission('table_crud')) return;
     const rows = getAllMplProductMasterRows();
-    saveMplProductMasterToStorage();
     try {
-      await fetch('/api/mpl/product-master', {
+      const res = await fetch('/api/mpl/product-master', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rows })
       });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || 'Could not save Product Master.');
+      if (Array.isArray(payload.rows)) {
+        const savedRows = payload.rows.map(normalizeProductRow);
+        const wasMerged = savedRows.length < rows.length;
+        if (wasMerged) {
+          mplProductMasterRows = savedRows;
+          saveMplProductMasterToStorage();
+          renderMplProductMasterTable();
+          setStatus('Product Master duplicate key merged. Unique key is Storefront + Packaging Level + SKU.', 'info');
+        } else {
+          saveMplProductMasterToStorage();
+        }
+      } else {
+        saveMplProductMasterToStorage();
+      }
     } catch (_err) {
       // Browser cache remains available if backend persistence is temporarily unavailable.
+      saveMplProductMasterToStorage();
     }
   }
 
@@ -1120,15 +1150,31 @@
   async function saveMplDirectoryToBackend() {
     if (!hasPermission('table_crud')) return;
     const rows = getMplDirectoryRows();
-    saveMplDirectoryToStorage();
     try {
-      await fetch('/api/mpl/directory', {
+      const res = await fetch('/api/mpl/directory', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rows })
       });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || 'Could not save Directory.');
+      if (Array.isArray(payload.rows)) {
+        const savedRows = payload.rows.map(normalizeDcDirectoryRow);
+        const wasMerged = savedRows.length < rows.length;
+        if (wasMerged) {
+          mplDirectoryRows = savedRows;
+          saveMplDirectoryToStorage();
+          renderMplDirectoryTable();
+          setStatus('Directory duplicate key merged. Unique key is Storefront + Code.', 'info');
+        } else {
+          saveMplDirectoryToStorage();
+        }
+      } else {
+        saveMplDirectoryToStorage();
+      }
     } catch (_err) {
       // Browser cache remains available if backend persistence is temporarily unavailable.
+      saveMplDirectoryToStorage();
     }
   }
 
@@ -1599,7 +1645,7 @@
     }
     renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
     openDocumentEditor();
-    setStatus('Create MPL draft ready. Use the dropdowns, pallet tools, and Generate PDF when finished.', 'info');
+    setStatus('Create MPL draft ready. Use the dropdowns, pallet tools, and Save & Generate PDF or Generate PDF Only when finished.', 'info');
   }
 
   function defaultMplDraftName(draft) {
@@ -1612,20 +1658,35 @@
     ).trim();
   }
 
-  async function saveActiveMplDraft() {
+  function currentMplDraftName() {
+    const inputValue = document.getElementById('mpl-draft-name-input')?.value;
+    return String(inputValue || '').trim() || defaultMplDraftName(activeKeheDocumentDraft);
+  }
+
+  function updateMplDraftNameFromInput(input) {
+    if (activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) return;
+    const value = String(input?.value || '').trim();
+    if (value) {
+      activeKeheDocumentDraft._saved_draft_name = value;
+    } else {
+      delete activeKeheDocumentDraft._saved_draft_name;
+    }
+  }
+
+  async function saveActiveMplDraft(options = {}) {
+    const showStatus = options.showStatus !== false;
     if (!hasPermission('save_mpl')) {
       setStatus('Your role can preview and generate, but cannot save MPL drafts.', 'error');
-      return;
+      return false;
     }
     if (activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) {
       setStatus('Open or create a Master Packing List before saving.', 'error');
-      return;
+      return false;
     }
 
     finalizeMplPalletDraft();
     const existingName = defaultMplDraftName(activeKeheDocumentDraft);
-    const name = window.prompt('Save MPL as:', existingName);
-    if (name === null) return;
+    const name = options.name || currentMplDraftName() || existingName;
     const trimmedName = String(name || '').trim() || existingName || 'Untitled MPL';
     activeKeheDocumentDraft._saved_draft_name = trimmedName;
 
@@ -1636,7 +1697,7 @@
     };
 
     try {
-      setStatus('Saving MPL draft...', 'info');
+      if (showStatus) setStatus(options.savingMessage || 'Saving MPL draft...', 'info');
       const res = await fetch('/api/kehe/mpl-drafts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1646,9 +1707,13 @@
       if (!res.ok) throw new Error(data.detail || 'Could not save MPL draft.');
       activeKeheDocumentDraft._saved_draft_id = data.draft?.id || activeKeheDocumentDraft._saved_draft_id;
       activeKeheDocumentDraft._saved_draft_name = data.draft?.name || trimmedName;
-      setStatus('MPL draft saved.', 'success');
+      const nameInput = document.getElementById('mpl-draft-name-input');
+      if (nameInput) nameInput.value = activeKeheDocumentDraft._saved_draft_name;
+      if (showStatus) setStatus(options.successMessage || 'MPL draft saved.', 'success');
+      return true;
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not save MPL draft.'), 'error');
+      return false;
     }
   }
 
@@ -1670,7 +1735,7 @@
     if (!body) return;
     const canDelete = hasPermission('delete_mpl');
     if (!savedMplDrafts.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="7">No saved MPL drafts yet.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="7">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
       return;
     }
     body.innerHTML = savedMplDrafts.map(draft => `
@@ -1749,6 +1814,35 @@
     if (input) input.click();
   }
 
+  function csvCell(value) {
+    const text = String(value ?? '');
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function downloadImportTemplate(target) {
+    const isDirectory = target === 'dc-directory';
+    const rows = isDirectory
+      ? [
+          ['Storefront', 'Code', 'Name', 'Ship From', 'Ship To', 'Bill To', 'Match Values'],
+          ['KeHE', '45', 'KeHE Romeoville DC', 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA', 'Ship To address here', 'Bill To address here', 'GLN or matching values here']
+        ]
+      : [
+          ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Case Qty', 'Labels / Unit', 'SKU'],
+          ['KeHE', '10850068684998', 'Example Case Product', 'Case', '24 x 12 x 6', '2', '36', '2', 'TW-EXAMPLE']
+        ];
+    const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus(`${isDirectory ? 'Directory' : 'Product Master'} import template downloaded.`, 'success');
+  }
+
   async function handleExcelImportFile(target, input) {
     if (!hasPermission('table_crud')) {
       setStatus('Your role can view this table but cannot import or edit master data.', 'error');
@@ -1758,8 +1852,8 @@
     if (input) input.value = '';
     if (!file) return;
     const endpoint = target === 'dc-directory'
-      ? '/api/kehe/dc-directory/import-preview'
-      : '/api/kehe/product-master/import-preview';
+      ? '/api/mpl/directory/import-preview'
+      : '/api/mpl/product-master/import-preview';
     const form = new FormData();
     form.append('file', file);
     try {
@@ -1780,27 +1874,99 @@
     const preview = activeExcelImportPreview || {};
     const summary = preview.summary || {};
     document.getElementById('excel-import-title').textContent = preview.target === 'dc-directory'
-      ? 'DC Directory Excel Import Preview'
-      : 'GTIN / Packaging Master Excel Import Preview';
+      ? 'Directory Table Excel Import Preview'
+      : 'Product Master Table Excel Import Preview';
     document.getElementById('excel-import-summary').textContent =
       `${preview.filename || 'Excel file'} • ${summary.added_rows || 0} added • ${summary.updated_rows || 0} updated • ${summary.unchanged_rows || 0} unchanged`;
+    const rowModeLabel = document.getElementById('excel-import-row-mode-label');
+    if (rowModeLabel) {
+      rowModeLabel.textContent = preview.target === 'dc-directory'
+        ? 'Unique key: Storefront + Code. Matching rows update the existing Directory record.'
+        : 'Unique key: Storefront + Packaging Level + SKU. Matching rows update the existing Product Master record.';
+    }
     const body = document.getElementById('excel-import-body');
     const changes = Array.isArray(preview.changes) ? preview.changes : [];
-    if (!changes.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="5">No changes detected. Confirm is not needed.</td></tr>';
+    const rows = Array.isArray(preview.rows) ? preview.rows : [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="5">No rows were found in this upload.</td></tr>';
       document.getElementById('btn-confirm-excel-import').disabled = true;
       return;
     }
     document.getElementById('btn-confirm-excel-import').disabled = false;
-    body.innerHTML = changes.slice(0, 250).map(change => `
+    body.innerHTML = rows.map((row, index) => {
+      const rowKey = importPreviewRowKey(row, index);
+      const rowChanges = changes.filter(change => String(change.record_key || '') === rowKey);
+      const action = importPreviewRowAction(rowChanges);
+      const changeText = importPreviewChangeText(rowChanges);
+      return `
       <tr>
-        <td>${escapeHtml(change.action || '')}</td>
-        <td>${escapeHtml(change.record_label || change.record_key || '')}</td>
-        <td>${escapeHtml(change.field || '')}</td>
-        <td>${escapeHtml(truncateAuditValue(change.old_value))}</td>
-        <td>${escapeHtml(truncateAuditValue(change.new_value))}</td>
-      </tr>
-    `).join('') + (changes.length > 250 ? '<tr><td class="empty-row" colspan="5">Preview limited to first 250 field changes.</td></tr>' : '');
+        <td><input type="checkbox" class="excel-import-row-check" data-row-index="${index}" checked onchange="updateExcelImportSelectionState()"></td>
+        <td>${escapeHtml(action)}</td>
+        <td>${escapeHtml(importPreviewRowLabel(row, index))}</td>
+        <td>${escapeHtml(importPreviewRowDetails(row))}</td>
+        <td>${escapeHtml(changeText)}</td>
+      </tr>`;
+    }).join('');
+    updateExcelImportSelectionState();
+  }
+
+  function importPreviewRowKey(row, index) {
+    return String(row?.unique_key || row?.UNIQUE_KEY || `row-${index + 1}`);
+  }
+
+  function importPreviewRowLabel(row, index) {
+    return String(row?.description || row?.name || row?.gtin || row?.dc || row?.sku || `Row ${index + 1}`);
+  }
+
+  function importPreviewRowDetails(row) {
+    if (activeExcelImportPreview?.target === 'dc-directory') {
+      return [
+        row?.storefront ? `Storefront: ${row.storefront}` : '',
+        row?.dc ? `Code: ${row.dc}` : '',
+        row?.delivery_address ? `Ship To: ${truncateAuditValue(row.delivery_address)}` : '',
+        row?.billing_address ? `Bill To: ${truncateAuditValue(row.billing_address)}` : '',
+      ].filter(Boolean).join(' | ');
+    }
+    return [
+      row?.storefront ? `Storefront: ${row.storefront}` : '',
+      row?.gtin ? `GTIN: ${row.gtin}` : '',
+      row?.packaging_level ? `Level: ${row.packaging_level}` : '',
+      row?.sku ? `SKU: ${row.sku}` : '',
+      row?.dimensions_in ? `Dims: ${row.dimensions_in}` : '',
+    ].filter(Boolean).join(' | ');
+  }
+
+  function importPreviewRowAction(rowChanges) {
+    const actions = rowChanges.map(change => String(change.action || '').toLowerCase());
+    if (actions.includes('add')) return 'add';
+    if (actions.includes('update')) return 'update';
+    if (actions.includes('delete')) return 'delete';
+    return 'unchanged';
+  }
+
+  function importPreviewChangeText(rowChanges) {
+    if (!rowChanges.length) return 'No field changes detected';
+    if (rowChanges.some(change => change.field === '__row__')) return 'New row';
+    const fields = rowChanges.map(change => change.field).filter(Boolean);
+    return `${rowChanges.length} field change${rowChanges.length === 1 ? '' : 's'}${fields.length ? ': ' + fields.join(', ') : ''}`;
+  }
+
+  function selectedExcelImportRows() {
+    const rows = Array.isArray(activeExcelImportPreview?.rows) ? activeExcelImportPreview.rows : [];
+    const selectedIndexes = Array.from(document.querySelectorAll('.excel-import-row-check:checked'))
+      .map(input => Number(input.getAttribute('data-row-index')))
+      .filter(index => Number.isInteger(index) && index >= 0 && index < rows.length);
+    return selectedIndexes.map(index => rows[index]);
+  }
+
+  function updateExcelImportSelectionState() {
+    const selectedCount = selectedExcelImportRows().length;
+    const totalCount = Array.isArray(activeExcelImportPreview?.rows) ? activeExcelImportPreview.rows.length : 0;
+    const btn = document.getElementById('btn-confirm-excel-import');
+    if (btn) {
+      btn.textContent = selectedCount ? `Import Selected Rows (${selectedCount})` : 'Import Selected Rows';
+      btn.disabled = selectedCount === 0 || totalCount === 0;
+    }
   }
 
   async function confirmExcelImport() {
@@ -1811,15 +1977,20 @@
     if (!activeExcelImportPreview) return;
     const target = activeExcelImportPreview.target;
     const endpoint = target === 'dc-directory'
-      ? '/api/kehe/dc-directory/import-confirm'
-      : '/api/kehe/product-master/import-confirm';
+      ? '/api/mpl/directory/import-confirm'
+      : '/api/mpl/product-master/import-confirm';
+    const selectedRows = selectedExcelImportRows();
+    if (!selectedRows.length) {
+      setStatus('Select at least one row to import.', 'error');
+      return;
+    }
     try {
       document.getElementById('btn-confirm-excel-import').disabled = true;
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rows: activeExcelImportPreview.rows || [],
+          rows: selectedRows,
           batch_id: activeExcelImportPreview.batch_id || '',
           filename: activeExcelImportPreview.filename || ''
         })
@@ -1827,12 +1998,18 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not confirm Excel import.');
       if (target === 'dc-directory') {
-        keheDcDirectoryRows = (data.rows || []).map(normalizeDcDirectoryRow);
+        mplDirectoryRows = (data.rows || []).map(normalizeDcDirectoryRow);
+        keheDcDirectoryRows = mplDirectoryRows.filter(row => isKeheStorefront(row.storefront));
+        saveMplDirectoryToStorage();
         saveKeheDcDirectoryToStorage();
+        renderMplDirectoryTable();
         renderKeheDcDirectoryTable();
       } else {
-        keheProductMasterRows = (data.rows || []).map(normalizeProductRow);
+        mplProductMasterRows = (data.rows || []).map(normalizeProductRow);
+        keheProductMasterRows = mplProductMasterRows.filter(row => isKeheStorefront(row.storefront));
+        saveMplProductMasterToStorage();
         saveKeheProductMasterToStorage();
+        renderMplProductMasterTable();
         renderKeheProductMasterTable();
       }
       closeExcelImportModal();
@@ -1864,7 +2041,7 @@
     const body = document.getElementById('audit-history-body');
     if (!body) return;
     if (!entries.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="7">No change history yet.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="8">No change history yet.</td></tr>';
       return;
     }
     body.innerHTML = entries.map(entry => {
@@ -1874,7 +2051,8 @@
         <tr>
           <td>${escapeHtml(formatDateTime(entry.timestamp))}</td>
           <td>${escapeHtml(who)}</td>
-          <td>${escapeHtml(entry.source || entry.action || '')}</td>
+          <td>${escapeHtml(entry.source || '')}</td>
+          <td>${escapeHtml(entry.action || '')}</td>
           <td>${escapeHtml(entry.record_label || entry.record_key || '')}</td>
           <td>${escapeHtml(entry.field || '')}</td>
           <td>${escapeHtml(truncateAuditValue(entry.old_value))}</td>
@@ -5238,7 +5416,20 @@
   function renderDocumentEditor(type, draft) {
     const cfg = KEHE_DOCUMENT_CONFIG[type];
     document.getElementById('document-editor-title').textContent = `Review & Edit ${cfg.label}`;
-    document.getElementById('btn-save-mpl-draft')?.classList.toggle('hidden', type !== 'masterPackingList');
+    if (type === 'masterPackingList') {
+      const nameInput = document.getElementById('mpl-draft-name-input');
+      const nextName = defaultMplDraftName(draft);
+      if (nameInput && String(nameInput.value || '').trim() !== nextName) {
+        nameInput.value = nextName;
+      }
+    }
+    updateMplSaveButtonState(type);
+    const renderBtn = document.getElementById('btn-render-edited-document');
+    if (renderBtn) {
+      renderBtn.textContent = type === 'masterPackingList'
+        ? 'Generate PDF Only'
+        : 'Generate PDF';
+    }
     const body = document.getElementById('document-editor-body');
     const dialog = document.querySelector('#document-editor-panel .editor-dialog');
     if (dialog) dialog.classList.add('pdf-editor-dialog');
@@ -5974,12 +6165,22 @@
     });
   }
 
-  async function renderEditedKeheDocument() {
+  async function renderEditedKeheDocument(options = {}) {
     if (!activeKeheDocumentType || !activeKeheDocumentDraft) return;
     const cfg = KEHE_DOCUMENT_CONFIG[activeKeheDocumentType];
     const btn = document.getElementById('btn-render-edited-document');
-    btn.disabled = true;
+    const saveGenerateBtn = document.getElementById('btn-save-mpl-draft');
+    const saveBeforeGenerate = !!options.saveMplDraft && activeKeheDocumentType === 'masterPackingList';
+    const workingButtons = [btn, saveGenerateBtn].filter(Boolean);
+    workingButtons.forEach(button => { button.disabled = true; });
     try {
+      if (saveBeforeGenerate) {
+        const saved = await saveActiveMplDraft({
+          savingMessage: 'Saving MPL draft before PDF generation...',
+          successMessage: 'MPL draft saved. Generating PDF now...'
+        });
+        if (!saved) return;
+      }
       activeKeheDocumentDraft.product_master = getActiveProductMasterRows();
       applyProductMasterToDraft(activeKeheDocumentDraft, true);
       if (activeKeheDocumentType === 'masterPackingList') {
@@ -6036,10 +6237,11 @@
       renderKeheUnifiedReport(activeKeheDocumentDraft);
       resetPreviewSurface();
       await openPreview();
-      setStatus(`${cfg.label} generated successfully.`, 'success');
+      setStatus(saveBeforeGenerate ? `${cfg.label} saved and generated successfully.` : `${cfg.label} generated successfully.`, 'success');
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Generation failed.'), 'error');
     } finally {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
+      updateMplSaveButtonState(activeKeheDocumentType);
     }
   }

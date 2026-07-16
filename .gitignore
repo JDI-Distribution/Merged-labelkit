@@ -33,4 +33,3 @@ check_frontend.js
 
 # Runtime-generated local state
 frankenstein_project/data/kehe_audit_log.json
-frankenstein_project/data/kehe_mpl_drafts.json

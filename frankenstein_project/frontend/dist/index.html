@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260713-embedded-auth">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260716-table-import-templates">
 </head>
 <body>
 
@@ -303,8 +303,11 @@
       </div>
       <div class="editor-body" id="document-editor-body"></div>
       <div class="editor-footer">
-        <button class="btn-secondary hidden" id="btn-save-mpl-draft" onclick="saveActiveMplDraft()">Save MPL</button>
-        <button class="btn-secondary" onclick="closeDocumentEditor()">Cancel</button>
+        <label class="mpl-draft-name hidden" id="mpl-draft-name-wrap">
+          <span>MPL Name</span>
+          <input id="mpl-draft-name-input" type="text" oninput="updateMplDraftNameFromInput(this)" placeholder="Enter saved MPL name">
+        </label>
+        <button class="btn-secondary hidden" id="btn-save-mpl-draft" onclick="renderEditedKeheDocument({ saveMplDraft: true })">Save &amp; Generate PDF</button>
         <button class="btn-generate" id="btn-render-edited-document" onclick="renderEditedKeheDocument()">
           Generate PDF from Edited Values
         </button>
@@ -329,7 +332,7 @@
             <div class="kehe-product-master-title">KeHE Packaging Data</div>
             <div class="kehe-product-master-subtitle">KeHE-only view of shared Product Master rows. Add or edit products in Packing List &amp; Ti-Hi. Change History is available for audit review.</div>
           </div>
-          <button class="btn-secondary" type="button" onclick="openKeheAuditModal('kehe_product_master')">Change History</button>
+          <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change History</button>
         </div>
 
         <div class="kehe-product-master-scroll">
@@ -378,7 +381,7 @@
             <div class="kehe-product-master-title">KeHE DC Matching Data</div>
             <div class="kehe-product-master-subtitle">KeHE-only view of shared Directory rows. Add or edit directory entries in Packing List &amp; Ti-Hi. Change History is available for audit review.</div>
           </div>
-          <button class="btn-secondary" type="button" onclick="openKeheAuditModal('kehe_dc_directory')">Change History</button>
+          <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
         </div>
 
         <div class="kehe-product-master-scroll">
@@ -425,7 +428,13 @@
             <div class="kehe-product-master-title">Editable Product Data</div>
             <div class="kehe-product-master-subtitle">Use one storefront per MPL. Mixed storefront SKUs block PDF generation.</div>
           </div>
-          <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
+          <div class="kehe-product-master-actions">
+            <button class="btn-secondary" type="button" onclick="downloadImportTemplate('product-master')">Download Product Template</button>
+            <button class="btn-secondary" type="button" onclick="triggerExcelImport('product-master')">Upload Excel/CSV</button>
+            <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change History</button>
+            <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
+          </div>
+          <input class="hidden" id="product-master-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('product-master', this)">
         </div>
 
         <div class="kehe-product-master-scroll">
@@ -476,7 +485,13 @@
             <div class="kehe-product-master-title">Editable Directory Data</div>
             <div class="kehe-product-master-subtitle">Full shared directory attributes are visible here.</div>
           </div>
-          <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
+          <div class="kehe-product-master-actions">
+            <button class="btn-secondary" type="button" onclick="downloadImportTemplate('dc-directory')">Download Directory Template</button>
+            <button class="btn-secondary" type="button" onclick="triggerExcelImport('dc-directory')">Upload Excel/CSV</button>
+            <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
+            <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
+          </div>
+          <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
         </div>
 
         <div class="kehe-product-master-scroll">
@@ -533,7 +548,7 @@
               </tr>
             </thead>
             <tbody id="saved-mpl-body">
-              <tr><td class="empty-row" colspan="7">No saved MPL drafts yet.</td></tr>
+              <tr><td class="empty-row" colspan="7">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
             </tbody>
           </table>
         </div>
@@ -555,26 +570,28 @@
         <button class="btn-secondary" onclick="closeExcelImportModal()">Close</button>
       </div>
       <div class="editor-body">
+        <div class="excel-import-option" id="excel-import-row-mode-option">
+          <span id="excel-import-row-mode-label">Rows with the same table key update the existing record.</span>
+        </div>
         <div class="kehe-product-master-scroll">
           <table class="kehe-product-master-table">
             <thead>
               <tr>
+                <th style="width:6%">Import</th>
                 <th>Action</th>
                 <th>Record</th>
-                <th>Field</th>
-                <th>Old Value</th>
-                <th>New Value</th>
+                <th>Details</th>
+                <th>Changes</th>
               </tr>
             </thead>
             <tbody id="excel-import-body">
-              <tr><td class="empty-row" colspan="5">No changes to preview.</td></tr>
+              <tr><td class="empty-row" colspan="5">No rows to preview.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
       <div class="editor-footer">
-        <button class="btn-secondary" onclick="closeExcelImportModal()">Cancel</button>
-        <button class="btn-generate" id="btn-confirm-excel-import" onclick="confirmExcelImport()">Confirm Import</button>
+        <button class="btn-generate" id="btn-confirm-excel-import" onclick="confirmExcelImport()">Import Selected Rows</button>
       </div>
     </div>
   </div>
@@ -597,6 +614,7 @@
                 <th>When</th>
                 <th>Who</th>
                 <th>Source</th>
+                <th>Action</th>
                 <th>Record</th>
                 <th>Field</th>
                 <th>Old</th>
@@ -604,7 +622,7 @@
               </tr>
             </thead>
             <tbody id="audit-history-body">
-              <tr><td class="empty-row" colspan="7">No change history yet.</td></tr>
+              <tr><td class="empty-row" colspan="8">No change history yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -620,7 +638,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260713-embedded-auth"></script>
+<script src="/assets/js/app.js?v=20260716-table-import-templates"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

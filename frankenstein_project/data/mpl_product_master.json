@@ -13,7 +13,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-CRS109-4OZ",
-      "unique_key": "40850068684654|Case"
+      "unique_key": "40850068684654|Case|TW-CRS109-4OZ"
     },
     {
       "id": "",
@@ -28,7 +28,7 @@
       "case_qty": "6",
       "labels_per_unit": "6",
       "sku": "TW-CRS109-4OZ",
-      "unique_key": "30850068684657|Inner Pack"
+      "unique_key": "30850068684657|Inner Pack|TW-CRS109-4OZ"
     },
     {
       "id": "",
@@ -43,7 +43,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-CRS109-4OZ",
-      "unique_key": "850068684656|Each"
+      "unique_key": "850068684656|Each|TW-CRS109-4OZ"
     },
     {
       "id": "",
@@ -58,7 +58,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-CRS104-4OZ",
-      "unique_key": "40850068684777|Case"
+      "unique_key": "40850068684777|Case|TW-CRS104-4OZ"
     },
     {
       "id": "",
@@ -73,7 +73,7 @@
       "case_qty": "6",
       "labels_per_unit": "6",
       "sku": "TW-CRS104-4OZ",
-      "unique_key": "30850068684770|Inner Pack"
+      "unique_key": "30850068684770|Inner Pack|TW-CRS104-4OZ"
     },
     {
       "id": "",
@@ -88,7 +88,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-CRS104-4OZ",
-      "unique_key": "850068684779|Each"
+      "unique_key": "850068684779|Each|TW-CRS104-4OZ"
     },
     {
       "id": "",
@@ -103,7 +103,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-BRS209-4OZ",
-      "unique_key": "40850068684791|Case"
+      "unique_key": "40850068684791|Case|TW-BRS209-4OZ"
     },
     {
       "id": "",
@@ -118,7 +118,7 @@
       "case_qty": "6",
       "labels_per_unit": "6",
       "sku": "TW-BRS209-4OZ",
-      "unique_key": "30850068684794|Inner Pack"
+      "unique_key": "30850068684794|Inner Pack|TW-BRS209-4OZ"
     },
     {
       "id": "",
@@ -133,7 +133,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-BRS209-4OZ",
-      "unique_key": "850068684793|Each"
+      "unique_key": "850068684793|Each|TW-BRS209-4OZ"
     },
     {
       "id": "",
@@ -148,7 +148,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-BRS205-4OZ",
-      "unique_key": "20850068684780|Case"
+      "unique_key": "20850068684780|Case|TW-BRS205-4OZ"
     },
     {
       "id": "",
@@ -163,7 +163,7 @@
       "case_qty": "6",
       "labels_per_unit": "6",
       "sku": "TW-BRS205-4OZ",
-      "unique_key": "10850068684783|Inner Pack"
+      "unique_key": "10850068684783|Inner Pack|TW-BRS205-4OZ"
     },
     {
       "id": "",
@@ -178,7 +178,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-BRS205-4OZ",
-      "unique_key": "850068684786|Each"
+      "unique_key": "850068684786|Each|TW-BRS205-4OZ"
     },
     {
       "id": "",
@@ -193,7 +193,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-PIABX-HOLIDAY",
-      "unique_key": "198168349502|Shipper Contents"
+      "unique_key": "198168349502|Shipper Contents|TW-PIABX-HOLIDAY"
     },
     {
       "id": "",
@@ -208,7 +208,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-PIABX-HOLIDAY",
-      "unique_key": "850068684939|Each"
+      "unique_key": "850068684939|Each|TW-PIABX-HOLIDAY"
     },
     {
       "id": "",
@@ -223,7 +223,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-PIABX-HOLIDAY",
-      "unique_key": "20850068684933|Case"
+      "unique_key": "20850068684933|Case|TW-PIABX-HOLIDAY"
     },
     {
       "id": "",
@@ -238,7 +238,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-PIABX-FAN",
-      "unique_key": "850068684809|Shipper Contents"
+      "unique_key": "850068684809|Shipper Contents|TW-PIABX-FAN"
     },
     {
       "id": "",
@@ -253,7 +253,7 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-PIABX-FAN",
-      "unique_key": "850068684991|Each"
+      "unique_key": "850068684991|Each|TW-PIABX-FAN"
     },
     {
       "id": "",
@@ -268,7 +268,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-PIABX-FAN",
-      "unique_key": "10850068684998|Case"
+      "unique_key": "10850068684998|Case|TW-PIABX-FAN"
     },
     {
       "id": "",
@@ -283,7 +283,7 @@
       "case_qty": "36",
       "labels_per_unit": "2",
       "sku": "TW-CRS118-4OZ",
-      "unique_key": "20850079841035|Case"
+      "unique_key": "20850079841035|Case|TW-CRS118-4OZ"
     },
     {
       "id": "",
@@ -298,7 +298,7 @@
       "case_qty": "6",
       "labels_per_unit": "6",
       "sku": "TW-CRS118-4OZ",
-      "unique_key": "10850079841038|Inner Pack"
+      "unique_key": "10850079841038|Inner Pack|TW-CRS118-4OZ"
     },
     {
       "id": "",
@@ -313,7 +313,83 @@
       "case_qty": "",
       "labels_per_unit": "",
       "sku": "TW-CRS118-4OZ",
-      "unique_key": "850079841031|Each"
+      "unique_key": "850079841031|Each|TW-CRS118-4OZ"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
+      "gtin": "1.08501E+13",
+      "description": "Example Case Product",
+      "packaging_level": "Case",
+      "dimensions_in": "24 x 12 x 6",
+      "weight_lbs": "2",
+      "case_qty": "36",
+      "labels_per_unit": "2",
+      "sku": "TW-EXAMPLE1",
+      "unique_key": "1.08501E+13|Case|TW-EXAMPLE1"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
+      "gtin": "1.08501E+13",
+      "description": "Example Case Product",
+      "packaging_level": "Case",
+      "dimensions_in": "25 x 12 x 6",
+      "weight_lbs": "3",
+      "case_qty": "36",
+      "labels_per_unit": "2",
+      "sku": "TW-EXAMPLE2",
+      "unique_key": "1.08501E+13|Case|TW-EXAMPLE2"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
+      "gtin": "1.08501E+13",
+      "description": "Example Case Product",
+      "packaging_level": "Case",
+      "dimensions_in": "26 x 12 x 6",
+      "weight_lbs": "4",
+      "case_qty": "36",
+      "labels_per_unit": "2",
+      "sku": "TW-EXAMPLE3",
+      "unique_key": "1.08501E+13|Case|TW-EXAMPLE3"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
+      "gtin": "1.08501E+13",
+      "description": "Example Case Product",
+      "packaging_level": "Case",
+      "dimensions_in": "27 x 12 x 6",
+      "weight_lbs": "5",
+      "case_qty": "36",
+      "labels_per_unit": "2",
+      "sku": "TW-EXAMPLE4",
+      "unique_key": "1.08501E+13|Case|TW-EXAMPLE4"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "in_packing_list": true,
+      "label_required": "1",
+      "gtin": "1.08501E+13",
+      "description": "Example Case Product",
+      "packaging_level": "Case",
+      "dimensions_in": "28 x 12 x 6",
+      "weight_lbs": "6",
+      "case_qty": "36",
+      "labels_per_unit": "2",
+      "sku": "TW-EXAMPLE5",
+      "unique_key": "1.08501E+13|Case|TW-EXAMPLE5"
     }
-  ]
+  ],
+  "updated_at": "2026-07-16T16:43:49Z"
 }
