@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260716-table-import-templates">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260716-table-history-cleanup">
 </head>
 <body>
 
@@ -270,6 +270,7 @@
   <div class="preview-panel" id="preview-panel" onclick="maybeClosePreview(event)">
     <div class="preview-dialog" id="preview-dialog">
       <div class="preview-toolbar">
+        <button class="window-back-btn preview-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
@@ -298,6 +299,7 @@
   <div class="editor-panel" id="document-editor-panel">
     <div class="editor-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div class="editor-title" id="document-editor-title">Review &amp; Edit Document</div>
         <button class="btn-secondary" onclick="closeDocumentEditor(true)">Close</button>
       </div>
@@ -319,6 +321,7 @@
   <div class="editor-panel" id="kehe-product-master-modal">
     <div class="editor-dialog kehe-product-master-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">GTIN / Packaging Master Table</div>
           <div class="kehe-product-master-subtitle">KeHE view of the shared Product Master. Only rows with Storefront = KeHE are used here. Case Qty prints on the label; Labels / Unit controls generated copy count.</div>
@@ -368,6 +371,7 @@
   <div class="editor-panel" id="kehe-dc-directory-modal">
     <div class="editor-dialog kehe-dc-directory-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">KeHE DC Directory</div>
           <div class="kehe-product-master-subtitle">KeHE view of the shared Directory. Only rows with Storefront = KeHE are used for KeHE XML matching, MPL, and pallet labels.</div>
@@ -415,6 +419,7 @@
   <div class="editor-panel" id="mpl-product-master-modal">
     <div class="editor-dialog kehe-product-master-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Product Master Table</div>
           <div class="kehe-product-master-subtitle">Shared source for Packing List &amp; Ti-Hi and KeHE. All product levels remain visible; Case rows appear in Create MPL.</div>
@@ -473,6 +478,7 @@
   <div class="editor-panel" id="mpl-directory-modal">
     <div class="editor-dialog kehe-dc-directory-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Directory Table</div>
           <div class="kehe-product-master-subtitle">Shared Ship From, Ship To, and Bill To directory. KeHE uses rows marked Storefront = KeHE.</div>
@@ -529,6 +535,7 @@
   <div class="editor-panel" id="saved-mpl-modal">
     <div class="editor-dialog kehe-product-master-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Saved Master Packing Lists</div>
           <div class="kehe-product-master-subtitle">Open a saved MPL draft in the existing editor.</div>
@@ -537,7 +544,7 @@
       </div>
       <div class="editor-body">
         <div class="kehe-product-master-scroll">
-          <table class="kehe-product-master-table">
+          <table class="kehe-product-master-table saved-mpl-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -545,12 +552,14 @@
                 <th>Ship To</th>
                 <th>Pallets</th>
                 <th>Items</th>
-                <th>Updated</th>
-                <th>Action</th>
+                <th>Timestamp</th>
+                <th>User</th>
+                <th>Open</th>
+                <th>Delete</th>
               </tr>
             </thead>
             <tbody id="saved-mpl-body">
-              <tr><td class="empty-row" colspan="7">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
+              <tr><td class="empty-row" colspan="9">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
             </tbody>
           </table>
         </div>
@@ -565,6 +574,7 @@
   <div class="editor-panel" id="excel-import-modal">
     <div class="editor-dialog kehe-product-master-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title" id="excel-import-title">Excel Import Preview</div>
           <div class="kehe-product-master-subtitle" id="excel-import-summary">Review changes before confirming.</div>
@@ -602,29 +612,29 @@
   <div class="editor-panel" id="audit-history-modal">
     <div class="editor-dialog kehe-product-master-dialog">
       <div class="editor-toolbar">
+        <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Change History</div>
-          <div class="kehe-product-master-subtitle">Audit entries include who, when, source, field, and old/new values.</div>
+          <div class="kehe-product-master-subtitle">Audit entries show timestamp, user, action, record, field, and before/after values.</div>
         </div>
         <button class="btn-secondary" onclick="closeKeheAuditModal()">Close</button>
       </div>
       <div class="editor-body">
         <div class="kehe-product-master-scroll">
-          <table class="kehe-product-master-table">
+          <table class="kehe-product-master-table audit-history-table">
             <thead>
               <tr>
-                <th>When</th>
-                <th>Who</th>
-                <th>Source</th>
-                <th>Action</th>
+                <th>Timestamp</th>
+                <th>User</th>
+                <th>Change Type</th>
                 <th>Record</th>
-                <th>Field</th>
-                <th>Old</th>
-                <th>New</th>
+                <th>Field Changed</th>
+                <th>Previous Value</th>
+                <th>Updated Value</th>
               </tr>
             </thead>
             <tbody id="audit-history-body">
-              <tr><td class="empty-row" colspan="8">No change history yet.</td></tr>
+              <tr><td class="empty-row" colspan="7">No change history yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -640,7 +650,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260716-routed-views-export"></script>
+<script src="/assets/js/app.js?v=20260716-table-history-cleanup"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

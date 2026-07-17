@@ -606,6 +606,10 @@
     }
   }
 
+  function goBackFromWindow() {
+    closeCurrentRouteView(getCurrentPage());
+  }
+
   async function applyRouteFromNavigation(route = getRouteFromHash()) {
     const normalized = normalizeAppRoute(route);
     const page = routePage(normalized);
@@ -675,6 +679,251 @@
     const text = Array.isArray(value) ? value.join('\n') : value;
     return escapeHtml(text || '—').replace(/\n/g, '<br>');
   }
+
+  function focusAndScrollIntoView(selector, focusSelector = '') {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const target = document.querySelector(selector);
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        if (!focusSelector) return;
+        const focusTarget = target.querySelector(focusSelector);
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+          focusTarget.focus({ preventScroll: true });
+        }
+      });
+    });
+  }
+
+  function scrollTableRowIntoView(bodyId, rowIndex, focusSelector = 'input, select, textarea') {
+    focusAndScrollIntoView(`#${bodyId} tr:nth-child(${Number(rowIndex) + 1})`, focusSelector);
+  }
+
+  function cssEscape(value) {
+    const text = String(value ?? '');
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(text);
+    return text.replace(/["\\]/g, '\\$&');
+  }
+
+  let activeSearchableSelect = null;
+  let searchableSelectMenu = null;
+
+  function searchableOptionLabel(option) {
+    return String(option?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function searchableSelectLabel(select) {
+    return searchableOptionLabel(select?.selectedOptions?.[0]) || '';
+  }
+
+  function scoreSearchableOption(query, label) {
+    const needle = String(query || '').trim().toLowerCase();
+    const haystack = String(label || '').trim().toLowerCase();
+    if (!needle) return 1;
+    if (!haystack) return -1;
+    if (haystack === needle) return 120;
+    if (haystack.startsWith(needle)) return 100;
+    const containsAt = haystack.indexOf(needle);
+    if (containsAt >= 0) return 85 - Math.min(containsAt, 50) / 10;
+    const terms = needle.split(/\s+/).filter(Boolean);
+    if (terms.length && terms.every(term => haystack.includes(term))) return 72;
+    let pos = 0;
+    for (const char of needle) {
+      pos = haystack.indexOf(char, pos);
+      if (pos < 0) return -1;
+      pos += 1;
+    }
+    return 45;
+  }
+
+  function searchableSelectOptions(select, query) {
+    return Array.from(select.options || [])
+      .map((option, index) => ({
+        option,
+        index,
+        label: searchableOptionLabel(option),
+        score: option.disabled ? -1 : scoreSearchableOption(query, searchableOptionLabel(option))
+      }))
+      .filter(item => item.score >= 0)
+      .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+      .slice(0, 80);
+  }
+
+  function ensureSearchableSelectMenu() {
+    if (searchableSelectMenu) return searchableSelectMenu;
+    searchableSelectMenu = document.createElement('div');
+    searchableSelectMenu.className = 'searchable-select-menu';
+    searchableSelectMenu.setAttribute('role', 'listbox');
+    document.body.appendChild(searchableSelectMenu);
+    searchableSelectMenu.addEventListener('mousedown', event => event.preventDefault());
+    searchableSelectMenu.addEventListener('click', event => {
+      const optionEl = event.target.closest('[data-option-index]');
+      if (!optionEl || !activeSearchableSelect) return;
+      selectSearchableOption(Number(optionEl.getAttribute('data-option-index')));
+    });
+    return searchableSelectMenu;
+  }
+
+  function positionSearchableSelectMenu() {
+    if (!activeSearchableSelect || !searchableSelectMenu) return;
+    const { input } = activeSearchableSelect;
+    if (!input || !document.body.contains(input)) {
+      closeSearchableSelect();
+      return;
+    }
+    const rect = input.getBoundingClientRect();
+    const gap = 6;
+    const viewportGap = 10;
+    const below = window.innerHeight - rect.bottom - viewportGap;
+    const above = rect.top - viewportGap;
+    const openUp = below < 170 && above > below;
+    const maxHeight = Math.max(120, Math.min(280, openUp ? above - gap : below - gap));
+    const top = openUp
+      ? Math.max(viewportGap, rect.top - gap - maxHeight)
+      : Math.min(window.innerHeight - viewportGap, rect.bottom + gap);
+    searchableSelectMenu.style.left = `${Math.max(viewportGap, rect.left)}px`;
+    searchableSelectMenu.style.top = `${top}px`;
+    searchableSelectMenu.style.width = `${Math.max(rect.width, 180)}px`;
+    searchableSelectMenu.style.maxHeight = `${maxHeight}px`;
+  }
+
+  function renderSearchableSelectMenu() {
+    if (!activeSearchableSelect) return;
+    const menu = ensureSearchableSelectMenu();
+    const { select, input } = activeSearchableSelect;
+    const options = searchableSelectOptions(select, input.value);
+    activeSearchableSelect.options = options;
+    if (activeSearchableSelect.activeIndex >= options.length) activeSearchableSelect.activeIndex = 0;
+    menu.innerHTML = options.length
+      ? options.map((item, visibleIndex) => `
+          <button type="button" class="searchable-select-option ${visibleIndex === activeSearchableSelect.activeIndex ? 'active' : ''}" data-option-index="${item.index}" role="option" aria-selected="${visibleIndex === activeSearchableSelect.activeIndex ? 'true' : 'false'}">
+            ${escapeHtml(item.label || 'Select option')}
+          </button>
+        `).join('')
+      : '<div class="searchable-select-empty">No matching options</div>';
+    menu.classList.add('visible');
+    positionSearchableSelectMenu();
+  }
+
+  function openSearchableSelect(select, input, resetActive = false) {
+    if (!select || select.disabled) return;
+    if (activeSearchableSelect && activeSearchableSelect.select !== select) {
+      closeSearchableSelect(false);
+    }
+    activeSearchableSelect = {
+      select,
+      input,
+      activeIndex: resetActive ? 0 : (activeSearchableSelect?.activeIndex || 0),
+      options: []
+    };
+    input.setAttribute('aria-expanded', 'true');
+    renderSearchableSelectMenu();
+  }
+
+  function closeSearchableSelect(restoreLabel = true) {
+    if (activeSearchableSelect) {
+      const { select, input } = activeSearchableSelect;
+      if (restoreLabel && input && document.body.contains(input)) {
+        input.value = searchableSelectLabel(select);
+      }
+      if (input) input.setAttribute('aria-expanded', 'false');
+    }
+    activeSearchableSelect = null;
+    if (searchableSelectMenu) {
+      searchableSelectMenu.classList.remove('visible');
+      searchableSelectMenu.innerHTML = '';
+    }
+  }
+
+  function selectSearchableOption(optionIndex) {
+    if (!activeSearchableSelect) return;
+    const { select, input } = activeSearchableSelect;
+    const option = select.options[optionIndex];
+    if (!option || option.disabled) return;
+    select.selectedIndex = optionIndex;
+    input.value = searchableOptionLabel(option);
+    closeSearchableSelect(false);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function moveSearchableActive(delta) {
+    if (!activeSearchableSelect) return;
+    const options = activeSearchableSelect.options || [];
+    if (!options.length) return;
+    activeSearchableSelect.activeIndex = (activeSearchableSelect.activeIndex + delta + options.length) % options.length;
+    renderSearchableSelectMenu();
+    const activeEl = searchableSelectMenu?.querySelector('.searchable-select-option.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  function enhanceSearchableSelects(scope = document) {
+    if (!scope) return;
+    const selects = Array.from(scope.querySelectorAll('select:not([data-search-enhanced])'));
+    selects.forEach(select => {
+      if (select.disabled) return;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'searchable-select';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'searchable-select-input';
+      input.value = searchableSelectLabel(select);
+      input.setAttribute('autocomplete', 'off');
+      input.setAttribute('role', 'combobox');
+      input.setAttribute('aria-autocomplete', 'list');
+      input.setAttribute('aria-expanded', 'false');
+      const label = select.closest('.manual-mpl-field, .mpl-product-picker, .editor-field')?.querySelector('label')?.textContent?.trim();
+      input.setAttribute('aria-label', label ? `Search ${label}` : 'Search options');
+      input.placeholder = searchableSelectLabel(select) || 'Search options';
+
+      select.dataset.searchEnhanced = 'true';
+      select.classList.add('native-search-select');
+      select.setAttribute('aria-hidden', 'true');
+      select.tabIndex = -1;
+      select.parentNode.insertBefore(wrapper, select);
+      wrapper.appendChild(select);
+      wrapper.appendChild(input);
+
+      select.addEventListener('change', () => {
+        input.value = searchableSelectLabel(select);
+        input.placeholder = searchableSelectLabel(select) || 'Search options';
+      });
+      input.addEventListener('focus', () => {
+        input.placeholder = searchableSelectLabel(select) || 'Search options';
+        input.value = '';
+        openSearchableSelect(select, input, true);
+      });
+      input.addEventListener('click', () => openSearchableSelect(select, input, true));
+      input.addEventListener('input', () => openSearchableSelect(select, input, true));
+      input.addEventListener('keydown', event => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          openSearchableSelect(select, input);
+          moveSearchableActive(1);
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          openSearchableSelect(select, input);
+          moveSearchableActive(-1);
+        } else if (event.key === 'Enter') {
+          if (!activeSearchableSelect || activeSearchableSelect.select !== select) return;
+          event.preventDefault();
+          const item = activeSearchableSelect.options?.[activeSearchableSelect.activeIndex];
+          if (item) selectSearchableOption(item.index);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          closeSearchableSelect();
+        }
+      });
+    });
+  }
+
+  document.addEventListener('mousedown', event => {
+    if (!activeSearchableSelect) return;
+    const wrapper = activeSearchableSelect.input?.closest('.searchable-select');
+    if (wrapper?.contains(event.target) || searchableSelectMenu?.contains(event.target)) return;
+    closeSearchableSelect();
+  });
+  window.addEventListener('scroll', positionSearchableSelectMenu, true);
+  window.addEventListener('resize', positionSearchableSelectMenu);
 
   function toggleKeheProductMasterPanel(isVisible) {
     const actions = document.getElementById('kehe-reference-actions');
@@ -1024,14 +1273,17 @@
       </tr>`;
     }).join('');
     applyPermissionUi();
+    enhanceSearchableSelects(body);
   }
 
   function addMplProductRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
     mplProductMasterRows.push(normalizeProductRow({ storefront: 'KeHE', packaging_level: 'Case', in_packing_list: true, ...seed }));
+    const newIndex = mplProductMasterRows.length - 1;
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
     renderMplProductMasterTable();
+    scrollTableRowIntoView('mpl-product-master-body', newIndex);
   }
 
   function deleteMplProductRow(index) {
@@ -1126,6 +1378,7 @@
     activeKeheDocumentDraft = {
       document_type: 'kehe_pack_labels',
       version: 2,
+      table_preview: true,
       summary: { labels: 1, selected_labels: 1, manual_labels: 1 },
       warnings: [],
       product_master: productRows,
@@ -1420,9 +1673,11 @@
   function addMplDirectoryRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
     mplDirectoryRows.push(normalizeDcDirectoryRow({ storefront: 'KeHE', ...seed }));
+    const newIndex = mplDirectoryRows.length - 1;
     saveMplDirectoryToStorage();
     saveMplDirectoryToBackendDebounced();
     renderMplDirectoryTable();
+    scrollTableRowIntoView('mpl-directory-body', newIndex);
   }
 
   function deleteMplDirectoryRow(index) {
@@ -1530,6 +1785,7 @@
     activeKeheDocumentDraft = {
       document_type: 'kehe_pallet_label',
       version: 2,
+      table_preview: true,
       summary: { pallets: 1, manual_labels: 1 },
       warnings: [],
       extracted_headers: [],
@@ -1943,7 +2199,7 @@
     if (!body) return;
     const canDelete = hasPermission('delete_mpl');
     if (!savedMplDrafts.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="7">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="9">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
       return;
     }
     body.innerHTML = savedMplDrafts.map(draft => `
@@ -1954,14 +2210,15 @@
         <td>${escapeHtml(draft.total_pallets || '—')}</td>
         <td>${escapeHtml(draft.item_count || '0')}</td>
         <td>${escapeHtml(formatDateTime(draft.updated_at))}</td>
-        <td>
-          <div class="saved-mpl-actions">
-            <button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button>
-            ${canDelete ? `<button class="btn-mini-danger" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : ''}
-          </div>
-        </td>
+        <td>${escapeHtml(savedMplUserLabel(draft))}</td>
+        <td><button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button></td>
+        <td>${canDelete ? `<button class="btn-mini-danger table-action-btn" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : '—'}</td>
       </tr>
     `).join('');
+  }
+
+  function savedMplUserLabel(draft = {}) {
+    return draft.updated_by || draft.created_by || draft.user || draft.saved_by || '—';
   }
 
   async function deleteSavedMplDraft(draftId, draftName = '') {
@@ -2293,7 +2550,7 @@
     const body = document.getElementById('audit-history-body');
     if (!body) return;
     if (!entries.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="8">No change history yet.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="7">No change history yet.</td></tr>';
       return;
     }
     body.innerHTML = entries.map(entry => {
@@ -2303,14 +2560,44 @@
         <tr>
           <td>${escapeHtml(formatDateTime(entry.timestamp))}</td>
           <td>${escapeHtml(who)}</td>
-          <td>${escapeHtml(entry.source || '')}</td>
-          <td>${escapeHtml(entry.action || '')}</td>
+          <td>${escapeHtml(auditActionLabel(entry.action))}</td>
           <td>${escapeHtml(entry.record_label || entry.record_key || '')}</td>
-          <td>${escapeHtml(entry.field || '')}</td>
+          <td>${escapeHtml(auditFieldLabel(entry.field))}</td>
           <td>${escapeHtml(truncateAuditValue(entry.old_value))}</td>
           <td>${escapeHtml(truncateAuditValue(entry.new_value))}</td>
         </tr>`;
     }).join('');
+  }
+
+  function humanizeIdentifier(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    return text
+      .replace(/^__row__$/i, 'Entire Record')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, char => char.toUpperCase());
+  }
+
+  function auditActionLabel(value) {
+    const key = String(value || '').trim().toLowerCase();
+    const labels = {
+      add: 'Added',
+      create: 'Created',
+      insert: 'Added',
+      update: 'Updated',
+      edit: 'Edited',
+      delete: 'Deleted',
+      remove: 'Removed',
+      import: 'Imported',
+      upsert: 'Imported / Updated'
+    };
+    return labels[key] || humanizeIdentifier(value);
+  }
+
+  function auditFieldLabel(value) {
+    return humanizeIdentifier(value) || 'Record';
   }
 
   function truncateAuditValue(value) {
@@ -3004,9 +3291,20 @@
     return item?.sku || item?.item_number || item?.gtin || item?.case_upc || item?.description || `Line ${index + 1}`;
   }
 
+  const TIHI_SKU_COLOR_PALETTE = [
+    '#d99a4b', '#7db3ff', '#8fd19e', '#f5a3a3',
+    '#b7a0ff', '#7fd8d0', '#f2cf63', '#f0b27a',
+    '#6cc4a1', '#b6d36f', '#f28bb3', '#86a9f4',
+    '#c89ee8', '#70c7e8', '#e2b66f', '#9fc0a0'
+  ];
+
   function tihiColorForIndex(index) {
-    const palette = ['#d99a4b', '#7db3ff', '#8fd19e', '#f5a3a3', '#b7a0ff', '#7fd8d0', '#f2cf63', '#f0b27a'];
-    return palette[index % palette.length];
+    return TIHI_SKU_COLOR_PALETTE[index % TIHI_SKU_COLOR_PALETTE.length];
+  }
+
+  function tihiColorIdentity(group) {
+    return canonicalId(group?.sku || group?.itemNumber || group?.gtin || '')
+      || String(group?.description || group?.label || '').trim().toLowerCase();
   }
 
   function tihiColorToRgb(color) {
@@ -3545,6 +3843,7 @@
     });
 
     const palletGroups = {};
+    const colorBySku = new Map();
     Array.from(grouped.values())
       .sort((a, b) => (Number(a.pallet) || 0) - (Number(b.pallet) || 0) || a.sortIndex - b.sortIndex)
       .forEach((group, index) => {
@@ -3556,7 +3855,11 @@
           return;
         }
         group.label = label;
-        group.color = tihiColorForIndex(index);
+        const colorKey = tihiColorIdentity({ ...group, label }) || `group-${index}`;
+        if (!colorBySku.has(colorKey)) {
+          colorBySku.set(colorKey, tihiColorForIndex(colorBySku.size));
+        }
+        group.color = colorBySku.get(colorKey);
         group.baseOrientation = orientation;
         group.lines = [...new Set(group.lines)].sort((a, b) => Number(a) - Number(b));
         if (!palletGroups[group.pallet]) palletGroups[group.pallet] = [];
@@ -4285,6 +4588,7 @@
       <div class="tihi-popup-panel visible tihi-screen-only" onclick="if (event.target === this) closeMplTiHiPopup(${mplIndex}, true)">
         <div class="editor-dialog">
           <div class="editor-toolbar">
+            <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
             <div>
               <div class="editor-title">${escapeHtml((mpl?.id || 'MPL') + ' TI-HI Preview')}</div>
             </div>
@@ -5105,6 +5409,14 @@
     return String(value ?? '').trim();
   }
 
+  function shouldDefaultXmlMplToPalletOne(mpl) {
+    if (!mpl || mpl.manual_mpl) return false;
+    const source = String(mpl.palletization_source || '').trim().toLowerCase();
+    const note = String(mpl.palletization_note || '').trim().toLowerCase();
+    if (source === 'unassigned') return true;
+    return note.includes('no item-to-pallet assignment found in xml');
+  }
+
   function ensureMplPalletState(mpl) {
     if (!mpl) return;
     mpl.items = Array.isArray(mpl.items) ? mpl.items : [];
@@ -5118,6 +5430,18 @@
       const id = normalizePalletId(item.location_on_pallet);
       if (id && !assignedIds.includes(id)) assignedIds.push(id);
     });
+
+    if (!assignedIds.length && mpl.items.length && shouldDefaultXmlMplToPalletOne(mpl)) {
+      mpl.items.forEach(item => {
+        item.location_on_pallet = '1';
+        if (!String(item.pallet_weight || '').trim() && mpl._pallet_weights && mpl._pallet_weights['1']) {
+          item.pallet_weight = mpl._pallet_weights['1'];
+        }
+      });
+      assignedIds.push('1');
+      mpl.palletization_source = 'XML';
+      mpl.palletization_note = 'XML did not include item-to-pallet assignment, so all line items were placed on Pallet 1 by default.';
+    }
 
     if (!Array.isArray(mpl._pallet_ids)) {
       mpl._pallet_ids = assignedIds.length ? [...assignedIds] : ['1'];
@@ -5172,7 +5496,7 @@
       : '<span class="status-tag success">Ready</span>';
   }
 
-  function renderPalletLabelToolbar(hasPallets) {
+  function renderPalletLabelToolbar() {
     return `
       <div class="pallet-label-editor-tools">
         <div>
@@ -5187,25 +5511,27 @@
 
   function renderPalletLabelEditor(draft) {
     const pallets = draft.pallets || [];
+    const isTablePreview = !!draft.table_preview;
     const sourceNote = draft.source_note || `Using palletization from Master Packing List preview. Source: ${palletSourceLabel(draft.palletization_source || kehePalletLabelSource)}.`;
     if (!pallets.length) {
       return `
         <div class="palletization-source-note warning">${escapeHtml(sourceNote || 'No MPL palletization found. Use Auto Palletize or generate MPL first.')}</div>
-        ${renderPalletLabelToolbar(false)}`;
+        ${isTablePreview ? '' : renderPalletLabelToolbar()}`;
     }
 
     return `
-      <div class="palletization-source-note${String(sourceNote).toLowerCase().includes('no mpl') ? ' warning' : ''}">${escapeHtml(sourceNote)}</div>
-      ${renderPalletLabelToolbar(true)}
+      ${isTablePreview ? '' : `<div class="palletization-source-note${String(sourceNote).toLowerCase().includes('no mpl') ? ' warning' : ''}">${escapeHtml(sourceNote)}</div>`}
+      ${isTablePreview ? '' : renderPalletLabelToolbar()}
       ${pallets.map((pallet, index) => `
-        <div class="pdf-document-shell">
-          <div class="pdf-sheet-toolbar">
-            <span>${escapeHtml(pallet.id || `Pallet ${index + 1}`)}</span>
-            <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              ${pdfStatusBadge(pallet.status)}
-              <button class="btn-mini-danger" type="button" onclick="removePalletLabelPallet(${index})">Remove Pallet</button>
-            </span>
-          </div>
+        <div class="pdf-document-shell" data-pallet-label-index="${index}">
+          ${isTablePreview ? '' : `
+            <div class="pdf-sheet-toolbar">
+              <span>${escapeHtml(pallet.id || `Pallet ${index + 1}`)}</span>
+              <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                ${pdfStatusBadge(pallet.status)}
+                <button class="btn-mini-danger" type="button" onclick="removePalletLabelPallet(${index})">Remove Pallet</button>
+              </span>
+            </div>`}
           ${Array.isArray(pallet.warnings) && pallet.warnings.length
             ? `<div class="editor-warning" style="width:min(100%, 920px)">${pallet.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}
@@ -5274,7 +5600,7 @@
     const base = `packing_lists.${mplIndex}.items.${itemIndex}`;
     const qty = item.qty_on_pallet || item.total_shipped || item.qty || '';
     return `
-      <tr class="mpl-pallet-item-row">
+      <tr class="mpl-pallet-item-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
         <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || item.upc || '')}</td>
         <td style="width:37%">
           <div class="mpl-description-edit">
@@ -5329,7 +5655,7 @@
       .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
     const weight = (mpl._pallet_weights && mpl._pallet_weights[palletId]) || '';
     return `
-      <div class="mpl-pdf-pallet-section">
+      <div class="mpl-pdf-pallet-section" data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
         <div class="mpl-pdf-pallet-heading">
           <div>Pallet: ${escapeHtml(palletId)}</div>
           <div class="mpl-pallet-weight-edit">
@@ -5337,8 +5663,8 @@
             <input value="${escapeHtml(weight)}" placeholder="ex: 820 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)">
           </div>
           <div class="mpl-pallet-heading-actions">
+            <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Line Item</button>
             <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">TI-Hi</button>
-            <button class="btn-mini-danger" type="button" onclick="removeMplPallet(${mplIndex}, '${jsString(palletId)}')">Remove Pallet</button>
           </div>
         </div>
         ${renderMplDropZone(mplIndex, palletId, items, 'Drop line items here')}
@@ -5366,9 +5692,7 @@
           <button class="btn-secondary" type="button" onclick="addMplPallet(${mplIndex})">Add Pallet</button>
           <button class="btn-secondary" type="button" onclick="autoPalletizeMpl(${mplIndex})">Auto Palletize</button>
           ${canReverseMplToXml(mpl) ? `<button class="btn-secondary" type="button" onclick="reverseMplToXmlPalletization(${mplIndex})">Reverse to XML Palletization</button>` : ''}
-          <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex})">Add Line Item</button>
           <button class="btn-secondary" type="button" onclick="recalculateMplWeights(${mplIndex})">Recalculate Weights</button>
-          <button class="btn-secondary" type="button" onclick="moveAllUnassignedToFirstPallet(${mplIndex})">Move Unassigned to Pallet 1</button>
         </div>
       </div>
       ${unassigned.length ? `
@@ -5391,7 +5715,7 @@
 
     return `
             ${lists.map((mpl, index) => `
-        <div class="pdf-document-shell">
+        <div class="pdf-document-shell" data-pack-label-index="${index}">
           <div class="pdf-sheet-toolbar">
             <span>${escapeHtml(mpl.id || `MPL ${index + 1}`)}</span>
             ${pdfStatusBadge(mpl.status)}
@@ -5529,26 +5853,32 @@
     if (!labels.length) {
       return '<div class="pdf-editor-note">No Case or Inner Pack rows were found. Set Packaging Level to Case or Inner Pack in the GTIN table, then generate Pack Labels again.</div>';
     }
+    const showSelectionControls = !draft.table_preview;
     return `
-      <div class="pack-label-editor-grid">
+      <div class="pack-label-editor-grid${showSelectionControls ? '' : ' table-preview'}">
       ${labels.map((label, index) => {
         const base = `pack_labels.${index}`;
         const prefix = label.pack_prefix || packLevelPrefix(label.packaging_level);
         const selected = !!label.print_selected;
+        const cardClass = showSelectionControls
+          ? `pack-label-select-card ${selected ? 'selected' : 'not-selected'}`
+          : 'pack-label-preview-card';
         return `
-        <div class="pdf-document-shell">
-          <div class="pack-label-card-toolbar">
-            <span class="pack-label-card-id">${escapeHtml(label.id || `Pack Label ${index + 1}`)}</span>
-            ${pdfStatusBadge(label.status)}
-          </div>
+        <div class="pdf-document-shell" data-pack-label-index="${index}">
+          ${showSelectionControls ? `
+            <div class="pack-label-card-toolbar">
+              <span class="pack-label-card-id">${escapeHtml(label.id || `Pack Label ${index + 1}`)}</span>
+              ${pdfStatusBadge(label.status)}
+            </div>` : ''}
           ${Array.isArray(label.warnings) && label.warnings.length
             ? `<div class="editor-warning">${label.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}
-          <div class="pack-label-select-card ${selected ? 'selected' : 'not-selected'}" onclick="togglePackLabelSelection(${index}, event)" title="Click the dotted border area to include or exclude this label from the PDF.">
-            <div class="pack-label-selection-chip">
-              <span class="pack-label-selection-box">${selected ? '✓' : ''}</span>
-              <span>${selected ? 'Selected for PDF' : 'Not selected'}</span>
-            </div>
+          <div class="${cardClass}" ${showSelectionControls ? `onclick="togglePackLabelSelection(${index}, event)" title="Click the dotted border area to include or exclude this label from the PDF."` : ''}>
+            ${showSelectionControls ? `
+              <div class="pack-label-selection-chip">
+                <span class="pack-label-selection-box">${selected ? '✓' : ''}</span>
+                <span>${selected ? 'Selected for PDF' : 'Not selected'}</span>
+              </div>` : ''}
             <div class="pack-label-sheet">
               <div class="pack-label-title">${editorPdfTextarea(`${base}.description`, label.description)}</div>
               <div class="pack-label-meta">
@@ -5591,6 +5921,7 @@
   function addPackLabel() {
     if (!activeKeheDocumentDraft) return;
     activeKeheDocumentDraft.pack_labels = activeKeheDocumentDraft.pack_labels || [];
+    const newIndex = activeKeheDocumentDraft.pack_labels.length;
     activeKeheDocumentDraft.pack_labels.push({
       id: `PACK-${activeKeheDocumentDraft.pack_labels.length + 1}`,
       status: 'Needs Review',
@@ -5612,6 +5943,7 @@
       warnings: ['Manually added label. Verify all fields before printing.']
     });
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    focusAndScrollIntoView(`[data-pack-label-index="${newIndex}"]`, 'textarea, input');
   }
 
   function deletePackLabel(index) {
@@ -5650,6 +5982,7 @@
     const pallets = activeKeheDocumentDraft.pallets;
     const base = pallets[pallets.length - 1] || {};
     const next = String(nextPalletLabelNumber(pallets));
+    const newIndex = pallets.length;
     pallets.push({
       id: `PALLET-${pallets.length + 1}`,
       status: 'Needs Review',
@@ -5675,6 +6008,7 @@
     setPalletLabelManualSource();
     renderKeheUnifiedReport(keheLastMplDraft || activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    focusAndScrollIntoView(`[data-pallet-label-index="${newIndex}"]`, 'input, textarea');
     setStatus('Pallet Label pallet group added. Source now shows Manual.', 'info');
   }
 
@@ -5716,6 +6050,7 @@
     } else {
       body.innerHTML = renderMasterPackingListEditor(draft);
     }
+    enhanceSearchableSelects(body);
   }
 
   function updateDraftValue(input) {
@@ -5822,33 +6157,14 @@
     const numericIds = (mpl._pallet_ids || []).map(id => Number(id)).filter(n => Number.isFinite(n));
     let next = numericIds.length ? Math.max(...numericIds) + 1 : 1;
     while ((mpl._pallet_ids || []).includes(String(next))) next += 1;
-    mpl._pallet_ids.push(String(next));
+    const nextPalletId = String(next);
+    mpl._pallet_ids.push(nextPalletId);
     mpl.total_pallets = String(mpl._pallet_ids.length || 1);
     setMplManualSource(mpl);
     keheLastMplDraft = activeKeheDocumentDraft;
     renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-  }
-
-  function removeMplPallet(mplIndex, palletId) {
-    const mpl = getMpl(mplIndex);
-    if (!mpl) return;
-    ensureMplPalletState(mpl);
-    captureXmlPalletSnapshot(mpl);
-    const cleanPalletId = normalizePalletId(palletId);
-    (mpl.items || []).forEach(item => {
-      if (normalizePalletId(item.location_on_pallet) === cleanPalletId) {
-        item.location_on_pallet = '';
-        item.pallet_weight = '';
-      }
-    });
-    mpl._pallet_ids = (mpl._pallet_ids || []).filter(id => id !== cleanPalletId);
-    if (mpl._pallet_weights) delete mpl._pallet_weights[cleanPalletId];
-    mpl.total_pallets = String(mpl._pallet_ids.length || 1);
-    setMplManualSource(mpl);
-    keheLastMplDraft = activeKeheDocumentDraft;
-    renderKeheUnifiedReport(activeKeheDocumentDraft);
-    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    focusAndScrollIntoView(`[data-mpl-index="${mplIndex}"][data-pallet-id="${cssEscape(nextPalletId)}"]`, 'input, button');
   }
 
   function setMplPalletWeight(mplIndex, palletId, value) {
@@ -5864,41 +6180,26 @@
     });
   }
 
-  function moveAllUnassignedToFirstPallet(mplIndex) {
+  function addMplItem(mplIndex, palletId = '') {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
     ensureMplPalletState(mpl);
     captureXmlPalletSnapshot(mpl);
-    if (!mpl._pallet_ids.length) mpl._pallet_ids.push('1');
-    const firstPallet = mpl._pallet_ids[0];
-    (mpl.items || []).forEach(item => {
-      if (!normalizePalletId(item.location_on_pallet)) {
-        item.location_on_pallet = firstPallet;
-        item.pallet_weight = (mpl._pallet_weights && mpl._pallet_weights[firstPallet]) || item.pallet_weight || '';
-      }
+    mpl.items = mpl.items || [];
+    const cleanPalletId = normalizePalletId(palletId);
+    if (cleanPalletId && !mpl._pallet_ids.includes(cleanPalletId)) mpl._pallet_ids.push(cleanPalletId);
+    const defaultPallet = cleanPalletId || (mpl.manual_mpl ? ((mpl._pallet_ids && mpl._pallet_ids[0]) || '1') : '');
+    const newIndex = mpl.items.length;
+    mpl.items.push({
+      ...blankManualMplItem(mpl.items.length + 1, defaultPallet),
+      item_number: '',
     });
     mpl.total_pallets = String(mpl._pallet_ids.length || 1);
     setMplManualSource(mpl);
     keheLastMplDraft = activeKeheDocumentDraft;
     renderKeheUnifiedReport(activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-  }
-
-  function addMplItem(mplIndex) {
-    const mpl = getMpl(mplIndex);
-    if (!mpl) return;
-    ensureMplPalletState(mpl);
-    captureXmlPalletSnapshot(mpl);
-    mpl.items = mpl.items || [];
-    const defaultPallet = mpl.manual_mpl ? ((mpl._pallet_ids && mpl._pallet_ids[0]) || '1') : '';
-    mpl.items.push({
-      ...blankManualMplItem(mpl.items.length + 1, defaultPallet),
-      item_number: '',
-    });
-    setMplManualSource(mpl);
-    keheLastMplDraft = activeKeheDocumentDraft;
-    renderKeheUnifiedReport(activeKeheDocumentDraft);
-    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    focusAndScrollIntoView(`[data-mpl-index="${mplIndex}"][data-item-index="${newIndex}"]`, 'select, input, textarea');
   }
 
   function deleteMplItem(mplIndex, itemIndex) {

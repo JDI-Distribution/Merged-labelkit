@@ -2406,15 +2406,15 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
 
         total_pallets = header.get("total_pallets") or header.get("xml_total_pallets") or "1"
         preserve_pack_pallets = bool(header.get("xml_total_pallets") or header.get("has_tare_pallets"))
-        pallet_ids = _pallet_ids_for_total(total_pallets) if preserve_pack_pallets else []
+        if not preserve_pack_pallets:
+            total_pallets = "1"
+        pallet_ids = _pallet_ids_for_total(total_pallets) if preserve_pack_pallets else ["1"]
 
         mpl_warnings: List[str] = list(header.get("warnings", []))
-        palletization_source = "XML" if preserve_pack_pallets else "Unassigned"
+        palletization_source = "XML"
         palletization_note = "Using palletization from XML." if preserve_pack_pallets else (
-            "No item-to-pallet assignment found in XML. Line items are Unassigned. Click Auto Palletize or drag them to pallets."
+            "XML did not include item-to-pallet assignment, so all line items were placed on Pallet 1 by default."
         )
-        if not preserve_pack_pallets:
-            mpl_warnings.append(palletization_note)
 
         ship_from = _dc_ship_from_str(dc_info, header, packs)
         ship_to = _ship_to_str(dc_info, header.get("xml_ship_to", {}))
@@ -2432,7 +2432,7 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
             mpl_warnings,
             total_pallets=total_pallets,
             preserve_pack_pallets=preserve_pack_pallets,
-            default_pallet="" if not preserve_pack_pallets else "1",
+            default_pallet="1",
         )
         if not items:
             raise ValueError(
@@ -3956,8 +3956,23 @@ def _mpl_tihi_color(index: int) -> Tuple[float, float, float]:
         (0.50, 0.85, 0.82),
         (0.95, 0.81, 0.39),
         (0.94, 0.70, 0.48),
+        (0.42, 0.77, 0.63),
+        (0.71, 0.83, 0.44),
+        (0.95, 0.55, 0.70),
+        (0.53, 0.66, 0.96),
+        (0.78, 0.62, 0.91),
+        (0.44, 0.78, 0.91),
+        (0.89, 0.71, 0.44),
+        (0.62, 0.75, 0.63),
     ]
     return palette[index % len(palette)]
+
+
+def _mpl_tihi_color_key(group: Dict[str, Any]) -> str:
+    return (
+        _canonical_id(group.get("sku") or group.get("item_number") or group.get("gtin"))
+        or _normalize(group.get("description") or group.get("label") or "")
+    )
 
 
 def _mpl_best_tihi_orientation(dimensions: Tuple[float, float, float], constraints: Dict[str, float]) -> Optional[Dict[str, float]]:
@@ -4657,6 +4672,7 @@ def _mpl_build_tihi_entries(
             group["lines"].append(str(item.get("line")))
 
     pallet_groups: Dict[str, List[Dict[str, Any]]] = {}
+    color_by_sku: Dict[str, Tuple[float, float, float]] = {}
     for group_index, group in enumerate(sorted(grouped.values(), key=lambda row: (_mpl_pallet_sort_key(row["pallet"]), row["sort_index"]))):
         label = group["sku"] or group["item_number"] or group["gtin"] or group["description"] or f"Item {group_index + 1}"
         group_constraints = _mpl_tihi_constraints(mpl, group["pallet"])
@@ -4667,7 +4683,10 @@ def _mpl_build_tihi_entries(
             )
             continue
         group["label"] = label
-        group["color"] = _mpl_tihi_color(group_index)
+        color_key = _mpl_tihi_color_key({**group, "label": label}) or f"group-{group_index}"
+        if color_key not in color_by_sku:
+            color_by_sku[color_key] = _mpl_tihi_color(len(color_by_sku))
+        group["color"] = color_by_sku[color_key]
         group["base_orientation"] = orientation
         group["lines"] = sorted(set(group["lines"]), key=lambda value: int(re.search(r"\d+", value).group(0)) if re.search(r"\d+", value) else value)
         pallet_groups.setdefault(group["pallet"], []).append(group)

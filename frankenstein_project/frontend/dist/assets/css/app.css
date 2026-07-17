@@ -1181,12 +1181,29 @@
     }
 
     .kehe-product-master-dialog {
-      width: min(1540px, 99vw);
-      max-height: 96vh;
+      width: 100%;
+      height: 100%;
+      max-height: none;
     }
 
     .kehe-product-master-dialog .editor-body {
       padding: 14px;
+    }
+
+    #kehe-product-master-modal .editor-body,
+    #kehe-dc-directory-modal .editor-body,
+    #mpl-product-master-modal .editor-body,
+    #mpl-directory-modal .editor-body {
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    #saved-mpl-modal .editor-body,
+    #audit-history-modal .editor-body {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    #excel-import-modal .editor-body {
+      grid-template-rows: auto minmax(0, 1fr);
     }
 
     .kehe-product-master-toolbar {
@@ -1232,7 +1249,10 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       overflow: auto;
-      max-height: 64vh;
+      max-height: none;
+      min-height: 0;
+      height: 100%;
+      flex: 1;
       background: #ffffff;
     }
 
@@ -1251,6 +1271,16 @@
       padding: 0;
       vertical-align: top;
       background: #ffffff;
+      min-width: 0;
+      max-width: 100%;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: normal;
+    }
+
+    .kehe-product-master-table td {
+      color: #0f172a;
+      line-height: 1.35;
     }
 
     .kehe-product-master-table th {
@@ -1268,7 +1298,8 @@
     }
 
     .kehe-product-master-table input,
-    .kehe-product-master-table select {
+    .kehe-product-master-table select,
+    .kehe-product-master-table textarea {
       width: 100%;
       min-height: 34px;
       border: 0;
@@ -1278,6 +1309,10 @@
       background: #ffffff;
       color: var(--jdi-charcoal);
       outline: none;
+      resize: vertical;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .kehe-product-master-table input[type="checkbox"] {
@@ -1296,14 +1331,69 @@
     }
 
     .kehe-product-master-table input:focus,
-    .kehe-product-master-table select:focus {
+    .kehe-product-master-table select:focus,
+    .kehe-product-master-table textarea:focus {
       box-shadow: inset 0 0 0 2px rgba(15,94,168,0.32);
       background: #f8fbff;
     }
 
     .kehe-product-master-table tbody tr:nth-child(even) input,
-    .kehe-product-master-table tbody tr:nth-child(even) select {
+    .kehe-product-master-table tbody tr:nth-child(even) select,
+    .kehe-product-master-table tbody tr:nth-child(even) textarea {
       background: #fcfdff;
+    }
+
+    .audit-history-table {
+      min-width: 1180px;
+      table-layout: fixed;
+    }
+
+    .audit-history-table th:nth-child(1) { width: 14%; }
+    .audit-history-table th:nth-child(2) { width: 17%; }
+    .audit-history-table th:nth-child(3) { width: 11%; }
+    .audit-history-table th:nth-child(4) { width: 17%; }
+    .audit-history-table th:nth-child(5) { width: 13%; }
+    .audit-history-table th:nth-child(6) { width: 14%; }
+    .audit-history-table th:nth-child(7) { width: 14%; }
+
+    .audit-history-table td {
+      padding: 9px 10px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      color: #243247;
+      vertical-align: top;
+    }
+
+    .audit-history-table tbody tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    .saved-mpl-table {
+      min-width: 1180px;
+      table-layout: fixed;
+    }
+
+    .saved-mpl-table th:nth-child(1) { width: 18%; }
+    .saved-mpl-table th:nth-child(2) { width: 10%; }
+    .saved-mpl-table th:nth-child(3) { width: 18%; }
+    .saved-mpl-table th:nth-child(4) { width: 7%; }
+    .saved-mpl-table th:nth-child(5) { width: 7%; }
+    .saved-mpl-table th:nth-child(6) { width: 14%; }
+    .saved-mpl-table th:nth-child(7) { width: 16%; }
+    .saved-mpl-table th:nth-child(8) { width: 5%; }
+    .saved-mpl-table th:nth-child(9) { width: 5%; }
+
+    .saved-mpl-table td {
+      padding: 8px 9px;
+      vertical-align: middle;
+    }
+
+    .saved-mpl-table .btn-table-preview,
+    .saved-mpl-table .table-action-btn {
+      min-height: 32px;
+      width: 100%;
+      padding: 6px 8px;
     }
 
     /* ── KeHE reference table buttons: top-right tools ── */
@@ -1347,8 +1437,9 @@
     }
 
     .kehe-dc-directory-dialog {
-      width: min(1540px, 99vw);
-      max-height: 96vh;
+      width: 100%;
+      height: 100%;
+      max-height: none;
     }
 
     .kehe-dc-directory-dialog .editor-body {
@@ -1417,21 +1508,26 @@
     /* ── Pack label editor preview ── */
     .pack-label-editor-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+      gap: 22px;
       align-items: start;
+      width: 100%;
+    }
+    .pack-label-editor-grid.table-preview {
+      grid-template-columns: minmax(0, 620px);
+      justify-content: center;
     }
     .pack-label-sheet {
-      width: 4in;
-      height: 4in;
+      width: 5.15in;
+      height: 5.15in;
       max-width: 100%;
       border: 1.6px solid #000;
       background: #fff;
       margin: 0 auto;
-      padding: 0.10in 0.16in 0.08in;
+      padding: 0.16in 0.23in 0.12in;
       display: grid;
-      grid-template-rows: 0.78in 0.34in 0.36in 0.36in 1.70in 0.28in;
-      gap: 0.03in;
+      grid-template-rows: minmax(0, 1.04in) 0.42in 0.46in 0.46in minmax(1.72in, 1fr) 0.34in;
+      gap: 0.045in;
       color: #000;
       overflow: hidden;
     }
@@ -1444,7 +1540,7 @@
       height: 100%;
       border: 1px dashed #9ca3af;
       border-radius: 4px;
-      padding: 2px 4px;
+      padding: 3px 6px;
       text-align: center;
       color: #000;
       background: #fff;
@@ -1454,8 +1550,8 @@
 
     .pack-label-title textarea {
       min-height: 0;
-      font-size: 24px;
-      line-height: 1.05;
+      font-size: 27px;
+      line-height: 1.04;
       font-weight: 900;
       text-transform: uppercase;
       font-family: Arial, Helvetica, sans-serif;
@@ -1473,41 +1569,51 @@
       grid-template-columns: 1fr 1fr;
       column-gap: 0.24in;
       align-items: stretch;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 900;
+      min-width: 0;
     }
 
     .pack-label-meta label {
       display: grid;
-      grid-template-rows: 0.17in 0.24in;
+      grid-template-rows: 0.17in minmax(0, 1fr);
       gap: 0.025in;
       align-items: center;
+      min-width: 0;
     }
 
     .pack-label-meta span {
       display: block;
       line-height: 1;
       text-align: left;
-      font-size: 13px;
+      font-size: 13.5px;
       font-weight: 900;
+      white-space: nowrap;
     }
 
     .pack-label-meta input {
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
     }
 
     .pack-label-line {
       display: grid;
-      grid-template-columns: 1in minmax(0, 1fr);
-      column-gap: 0.14in;
+      grid-template-columns: minmax(1.55in, auto) minmax(0, 1fr);
+      column-gap: 0.16in;
       align-items: center;
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 900;
+      min-width: 0;
+    }
+
+    .pack-label-line > div:first-child {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: clip;
     }
 
     .pack-label-line input {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 600;
     }
 
@@ -1542,8 +1648,8 @@
       height: 100%;
       border: 0;
       text-align: center;
-      font-size: 22px;
-      letter-spacing: 4px;
+      font-size: 24px;
+      letter-spacing: 3.4px;
       font-family: 'DM Mono', monospace;
       color: #000;
       background: #fff;
@@ -1558,7 +1664,7 @@
       margin-right: auto;
     }
     .label-copy-control {
-      width: min(100%, 384px);
+      width: min(100%, 560px);
       margin: 10px auto 0;
       border: 1px solid #cbd5e1;
       background: linear-gradient(180deg, #ffffff, #f8fafc);
@@ -1606,7 +1712,7 @@
       background: #f8fbff !important;
     }
     .pack-label-card-toolbar {
-      width: min(100%, 430px);
+      width: min(100%, 560px);
       margin: 0 auto -2px;
       display: flex;
       align-items: center;
@@ -1625,7 +1731,7 @@
       white-space: nowrap;
     }
     .pack-label-select-card {
-      width: min(100%, 430px);
+      width: min(100%, 560px);
       margin: 0 auto;
       padding: 11px 9px 13px;
       border: 2px dashed #cbd5e1;
@@ -1633,6 +1739,15 @@
       background: #ffffff;
       cursor: pointer;
       transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
+    }
+    .pack-label-preview-card {
+      width: min(100%, 560px);
+      margin: 0 auto;
+      padding: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 16px;
+      background: #ffffff;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
     }
     .pack-label-select-card.selected {
       border-color: #0f8a74;
@@ -1773,11 +1888,11 @@
       position: fixed;
       inset: 0;
       z-index: 80;
-      background: rgba(15, 23, 42, 0.52);
+      background: #eef1f6;
       display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
     }
     #document-editor-panel { z-index: 220; }
     #preview-panel { z-index: 260; }
@@ -1785,24 +1900,68 @@
     #kehe-dc-directory-modal { z-index: 80; }
     .editor-panel.visible { display: flex; }
     .editor-dialog {
-      width: min(1180px, 96vw);
-      max-height: 92vh;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
       background: white;
-      border-radius: 16px;
-      box-shadow: 0 24px 80px rgba(0,0,0,0.32);
+      border-radius: 0;
+      box-shadow: none;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
     .editor-toolbar {
-      padding: 14px 18px;
+      padding: 12px 18px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 12px;
-      background: #f8fafc;
+      background: #ffffff;
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+      min-height: 58px;
     }
-    .editor-title { font-weight: 800; color: var(--jdi-charcoal); flex: 1; }
+    .editor-toolbar > div:not(.window-toolbar-actions) {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .editor-toolbar > .btn-secondary:last-child {
+      margin-left: auto;
+    }
+    .editor-title {
+      font-weight: 900;
+      color: #0f172a;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .window-back-btn {
+      width: 38px;
+      height: 38px;
+      flex: 0 0 auto;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #ffffff;
+      cursor: pointer;
+      display: inline-grid;
+      place-items: center;
+      transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+    }
+    .window-back-btn::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-left: 2px solid #334155;
+      border-bottom: 2px solid #334155;
+      transform: rotate(45deg) translate(1px, -1px);
+    }
+    .window-back-btn:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+      transform: translateX(-1px);
+    }
     .editor-body {
       padding: 18px;
       overflow-y: auto;
@@ -1810,6 +1969,7 @@
       gap: 18px;
       flex: 1;
       min-height: 0;
+      align-content: start;
     }
     .editor-card {
       border: 1px solid var(--border);
@@ -1885,7 +2045,7 @@
       align-items: flex-end;
       justify-content: flex-end;
       gap: 10px;
-      background: #f8fafc;
+      background: #ffffff;
     }
     .mpl-draft-name {
       margin-right: auto;
@@ -2153,8 +2313,10 @@
 
     /* ── PDF-like KeHE review editors ── */
     .editor-dialog.pdf-editor-dialog {
-      width: min(1240px, 98vw);
-      max-height: 94vh;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
       background: #e5eaf1;
     }
     .pdf-editor-body {
@@ -2474,12 +2636,6 @@
       font-size: 11.5px;
       font-weight: 800;
       line-height: 1.35;
-    }
-    .saved-mpl-actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
     }
     .manual-mpl-field,
     .mpl-product-picker {
@@ -2959,18 +3115,20 @@
       position: fixed;
       inset: 0;
       z-index: 240;
-      background: rgba(15, 23, 42, 0.62);
+      background: #e2e8f0;
       display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 22px;
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
     }
     .tihi-popup-panel.visible {
       display: flex;
     }
     .tihi-popup-panel .editor-dialog {
-      width: min(1040px, 96vw);
-      max-height: 94vh;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
     }
     .tihi-popup-panel .editor-toolbar {
       background: #e2e8f0;
@@ -3028,11 +3186,11 @@
       position: fixed;
       inset: 0;
       display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 22px;
-      background: rgba(15, 23, 42, 0.7);
-      backdrop-filter: blur(4px);
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
+      background: #cbd5e1;
+      backdrop-filter: none;
       z-index: 60;
     }
     .preview-panel.visible {
@@ -3041,26 +3199,41 @@
     }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .preview-dialog {
-      width: min(1100px, 96vw);
-      height: min(90vh, 900px);
+      width: 100vw;
+      height: 100vh;
       display: flex;
       flex-direction: column;
       background: #cbd5e1;
-      border-radius: 16px;
+      border-radius: 0;
       overflow: hidden;
-      box-shadow: 0 28px 80px rgba(15, 23, 42, 0.45);
+      box-shadow: none;
     }
-    .preview-dialog.rollo-preview { width: min(620px, 96vw); }
-    .preview-dialog.a4-preview { width: min(980px, 96vw); height: min(94vh, 1000px); }
+    .preview-dialog.rollo-preview,
+    .preview-dialog.a4-preview {
+      width: 100vw;
+      height: 100vh;
+    }
 
     .preview-toolbar {
       background: var(--jdi-charcoal-mid);
       color: rgba(255,255,255,0.55);
-      padding: 10px 16px;
+      padding: 10px 18px;
       font-size: 11.5px; font-weight: 600;
       display: flex; align-items: center; gap: 8px;
       flex-shrink: 0;
       letter-spacing: 0.5px; text-transform: uppercase;
+      min-height: 58px;
+    }
+    .preview-back-btn {
+      border-color: rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.08);
+    }
+    .preview-back-btn::before {
+      border-color: rgba(255,255,255,0.78);
+    }
+    .preview-back-btn:hover {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.35);
     }
     .btn-dl {
       margin-left: auto;
@@ -3192,4 +3365,121 @@
 
     .match-panel-header .kehe-preview-actions.visible {
       display: contents !important;
+    }
+
+    .native-search-select {
+      display: none !important;
+    }
+
+    .searchable-select {
+      position: relative;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .searchable-select::after {
+      content: "";
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid #64748b;
+      border-bottom: 2px solid #64748b;
+      transform: translateY(-68%) rotate(45deg);
+      pointer-events: none;
+    }
+
+    .searchable-select-input {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #fff;
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 7px 28px 7px 9px;
+      outline: none;
+      text-overflow: ellipsis;
+    }
+
+    .searchable-select-input:focus {
+      border-color: rgba(15, 94, 168, 0.55);
+      box-shadow: 0 0 0 3px rgba(15, 94, 168, 0.13);
+    }
+
+    .kehe-product-master-table .searchable-select-input {
+      min-height: 34px;
+      border: 0;
+      border-radius: 0;
+      padding: 6px 28px 6px 7px;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .kehe-product-master-table .searchable-select-input:focus {
+      box-shadow: inset 0 0 0 2px rgba(15,94,168,0.32);
+      background: #f8fbff;
+    }
+
+    .kehe-product-master-table tbody tr:nth-child(even) .searchable-select-input {
+      background: #fcfdff;
+    }
+
+    .manual-mpl-field .searchable-select-input,
+    .mpl-product-picker .searchable-select-input {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 5px 25px 5px 7px;
+    }
+
+    .searchable-select-menu {
+      position: fixed;
+      z-index: 5000;
+      display: none;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+      padding: 4px;
+    }
+
+    .searchable-select-menu.visible {
+      display: grid;
+      gap: 2px;
+    }
+
+    .searchable-select-option {
+      width: 100%;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #0f172a;
+      cursor: pointer;
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.35;
+      padding: 8px 9px;
+      text-align: left;
+      white-space: normal;
+    }
+
+    .searchable-select-option:hover,
+    .searchable-select-option.active {
+      background: #eaf3ff;
+      color: #0f5ea8;
+    }
+
+    .searchable-select-empty {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 10px;
+      text-align: center;
     }

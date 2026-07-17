@@ -1969,6 +1969,8 @@ def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
         "name": row.get("NAME") or row.get("name") or "",
         "created_at": row.get("CREATED_AT") or row.get("created_at") or "",
         "updated_at": row.get("UPDATED_AT") or row.get("updated_at") or "",
+        "created_by": row.get("CREATED_BY") or row.get("created_by") or "",
+        "updated_by": row.get("UPDATED_BY") or row.get("updated_by") or "",
         "draft": draft,
     }
 
@@ -2056,11 +2058,23 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(packing_lists, list) and packing_lists:
         mpl = packing_lists[0] if isinstance(packing_lists[0], dict) else {}
     items = mpl.get("items") if isinstance(mpl.get("items"), list) else []
+    created_by = (
+        record.get("created_by")
+        or draft.get("_saved_draft_created_by", "")
+        or draft.get("_saved_by", "")
+    )
+    updated_by = (
+        record.get("updated_by")
+        or draft.get("_saved_draft_updated_by", "")
+        or draft.get("_saved_by", "")
+    )
     return {
         "id": record.get("id", ""),
         "name": record.get("name", ""),
         "created_at": record.get("created_at", ""),
         "updated_at": record.get("updated_at", ""),
+        "created_by": created_by,
+        "updated_by": updated_by,
         "customer_po_number": mpl.get("customer_po_number", ""),
         "ship_to": str(mpl.get("ship_to", "")).split("\n")[0] if mpl.get("ship_to") else "",
         "total_pallets": mpl.get("total_pallets", ""),
@@ -2104,11 +2118,21 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
 
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
     created_at = old_record.get("created_at") if old_record else now
+    actor = _request_actor(request)
+    actor_label = str(actor.get("email") or actor.get("name") or "Local user")
+    created_by = (
+        old_record.get("created_by")
+        if old_record else ""
+    ) or str(draft.get("_saved_draft_created_by") or actor_label)
+    draft["_saved_draft_created_by"] = created_by
+    draft["_saved_draft_updated_by"] = actor_label
     record = {
         "id": draft_id,
         "name": name,
         "created_at": created_at,
         "updated_at": now,
+        "created_by": created_by,
+        "updated_by": actor_label,
         "draft": draft,
     }
     next_drafts = [record if str(existing.get("id")) == draft_id else existing for existing in drafts]
@@ -2119,7 +2143,7 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
     _audit_log_append([{
         "id": uuid.uuid4().hex,
         "timestamp": now,
-        "actor": _request_actor(request),
+        "actor": actor,
         "table": "kehe_mpl_drafts",
         "action": "update" if old_record else "create",
         "record_key": draft_id,

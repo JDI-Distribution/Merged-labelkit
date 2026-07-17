@@ -125,6 +125,7 @@ KeHE functionality:
 - Master Packing List: editable MPL draft with line-item and pallet assignment.
 - Pallet Label: editable pallet placard output.
 - Editable previews for GS1 labels, pack labels, pallet labels, and master packing lists.
+- Table-launched Pack Label and Pallet Label previews are clean single-label previews; generated Pack Label batches still keep selection controls, and generated Pallet Labels still keep pallet remove controls.
 - DC Directory read-only view for `Storefront = KeHE` rows.
 - GTIN / Packaging Master Table read-only view for `Storefront = KeHE` rows.
 - KeHE generation only uses rows marked with `Storefront = KeHE`; missing storefront values default to `KeHE`.
@@ -135,10 +136,11 @@ KeHE functionality:
 - Auto Palletize.
 - Reverse to XML Palletization.
 - Palletization source display: `XML`, `Auto Palletize`, `Manual`, or `MPL`.
-- Unassigned and needs-review rows remain visible for user correction.
+- XML files with no explicit item-to-pallet assignment default line items to `Pallet 1` instead of leaving the draft entirely unassigned.
+- Unassigned and needs-review rows remain visible when auto palletization cannot safely place all cases.
 - Pallet labels render 2 placards per pallet.
-- Saved MPL drafts can be reopened and deleted.
-- Change History shows supported table edits/imports.
+- Saved MPL drafts can be reopened and deleted from separate `Open` and `Delete` columns, with timestamp and user columns.
+- Change History shows timestamp, user, change type, record, field changed, previous value, and updated value for supported table edits/imports.
 
 ## Packing List & Ti-Hi Workflow
 
@@ -168,23 +170,25 @@ Table maintenance tools:
 - `Export Product CSV` exports the full standalone Product Master table.
 - `Export Directory CSV` exports the full standalone Directory table.
 - `Change History` opens the audit log for the selected table.
+- Dropdowns used for Product Master packaging level, MPL product selection, DC/name, and Ship From/To/Bill To are searchable and keep the dropdown open while filtering.
+- Table layouts wrap long GTINs, addresses, emails, audit values, and notes inside their columns.
 
-The standalone table views and major document views are route-backed browser views. Opening a table, saved MPL list, import preview, change history, document editor, PDF preview, or TI-HI preview updates the browser hash, for example `#mpl/product-master` or `#kehe/preview`. Use the browser Back button to return to the previous app view, or use the visible `Close` / `Done` buttons.
+The standalone table views and major document views are full-screen, route-backed browser views. Opening a table, saved MPL list, import preview, change history, document editor, PDF preview, or TI-HI preview updates the browser hash, for example `#mpl/product-master` or `#kehe/preview`. Use the browser Back button or the left arrow in the window toolbar to return to the previous app view, or use the visible `Close` / `Done` buttons.
 
 ## Master Packing List And TI-HI
 
 The MPL editor supports:
 
 - Add pallet.
-- Add line item.
+- Add line item directly inside a selected pallet.
 - Drag line items between pallets.
 - Auto palletize.
 - Reverse to XML palletization.
 - Recalculate weights.
-- Move unassigned items to Pallet 1.
 - Name, save, reopen, and delete drafts.
 - `Save & Generate PDF`.
 - `Generate PDF Only`.
+- If XML does not provide pallet assignment, all line items are placed on `Pallet 1` by default so the user always has at least one pallet to review.
 
 Editor, PDF preview, and TI-HI preview are browser-history aware. If a user opens TI-HI from inside the MPL editor, the route changes to a TI-HI route and browser Back returns to the editor instead of losing the draft state.
 
@@ -306,6 +310,7 @@ Current production design:
 - Catalyst Data Store is the production source of truth.
 - Local JSON files are development fallback only.
 - Saved MPL records store the editable draft JSON in `kehe_mpl_drafts`; generated PDF previews remain temporary.
+- Saved MPL summaries expose timestamp and user. User metadata is stored in the saved draft JSON for compatibility with the existing Catalyst table schema.
 - The frontend shows a login gate when `AUTH_REQUIRED=true` and no Catalyst user session is present.
 - Backend endpoints enforce permissions; hiding buttons in the browser is not the security boundary.
 
@@ -414,6 +419,7 @@ Python compile:
 & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\server.py"
 & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe_pipeline.py"
 & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\michaels_label_pipeline.py"
+& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe\common.py"
 ```
 
 Frontend script parse:
@@ -644,10 +650,10 @@ catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit
 - [ ] Run frontend script parse.
 - [ ] Run import and route smoke checks.
 - [ ] Build `docker build -t merged-labelkit:latest .`.
+- [ ] Commit on `main`.
+- [ ] Push `origin main`.
 - [ ] Deploy with `catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000`.
 - [ ] Health-check `https://mergedlabelkit.development.catalystappsail.com/health`.
 - [ ] Confirm route-backed views open and close with browser Back for table, preview, editor, import, audit, saved MPL, and TI-HI views.
 - [ ] Confirm `Export Product CSV` and `Export Directory CSV` download the full standalone tables.
-- [ ] Commit on `main`.
-- [ ] Push `origin main`.
 - [ ] Confirm `git status --short` is clean.
