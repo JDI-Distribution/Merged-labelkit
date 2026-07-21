@@ -432,6 +432,33 @@
       min-width: 122px;
       padding: 10px 16px;
     }
+    .mpl-order-instance-picker {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 9px;
+      margin-top: 8px;
+      padding: 12px;
+      border: 1px solid rgba(15, 118, 110, 0.28);
+      border-radius: 9px;
+      background: #ffffff;
+    }
+    .mpl-order-instance-picker.hidden {
+      display: none;
+    }
+    .mpl-order-instance-picker label {
+      grid-column: 1 / -1;
+    }
+    .mpl-order-instance-picker select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #0f172a;
+      padding: 11px 12px;
+      font: inherit;
+      font-size: 13px;
+    }
     .mpl-workspace-header {
       display: flex;
       justify-content: space-between;
@@ -470,6 +497,7 @@
       .mpl-order-lookup-card { grid-template-columns: 1fr; align-items: stretch; }
       .mpl-order-lookup-controls { grid-template-columns: 1fr; }
       .mpl-order-lookup-controls .btn-generate { width: 100%; }
+      .mpl-order-instance-picker { grid-template-columns: 1fr; }
       .mpl-workspace-header { align-items: stretch; flex-direction: column; }
       .mpl-workspace-header .btn-generate,
       .mpl-workspace-header .btn-secondary { width: 100%; }

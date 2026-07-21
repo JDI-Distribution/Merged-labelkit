@@ -259,6 +259,11 @@
             <input id="mpl-sales-order-number" type="text" maxlength="120" autocomplete="off" placeholder="Enter order number" required />
             <button class="btn-generate" id="btn-load-mpl-order" type="submit">Load Order</button>
           </div>
+          <div class="mpl-order-instance-picker hidden" id="mpl-order-instance-picker">
+            <label for="mpl-order-instance-select">Multiple ECOMDASH IDs found</label>
+            <select id="mpl-order-instance-select"></select>
+            <button class="btn-secondary" type="button" onclick="loadSelectedMplOrderInstance()">Load Selected Order</button>
+          </div>
         </form>
       </div>
 

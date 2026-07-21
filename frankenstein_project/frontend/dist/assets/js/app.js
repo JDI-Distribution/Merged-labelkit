@@ -2072,6 +2072,51 @@
     }
   }
 
+  function hideMplOrderInstancePicker() {
+    const picker = document.getElementById('mpl-order-instance-picker');
+    const select = document.getElementById('mpl-order-instance-select');
+    if (picker) {
+      picker.classList.add('hidden');
+      delete picker.dataset.salesOrderNumber;
+    }
+    if (select) select.innerHTML = '';
+  }
+
+  function showMplOrderInstancePicker(orderNumber, instances) {
+    const picker = document.getElementById('mpl-order-instance-picker');
+    const select = document.getElementById('mpl-order-instance-select');
+    if (!picker || !select) return;
+    select.innerHTML = '';
+    (Array.isArray(instances) ? instances : []).forEach(instance => {
+      const option = document.createElement('option');
+      option.value = String(instance?.ecomdash_id || '').trim();
+      const parts = [
+        `ECOMDASH ID ${option.value || 'missing'}`,
+        String(instance?.storefront || '').trim(),
+        String(instance?.billing_customer_name || '').trim(),
+        String(instance?.invoice_date || '').trim(),
+        `${Number(instance?.sku_count || 0)} SKU${Number(instance?.sku_count || 0) === 1 ? '' : 's'}`
+      ].filter(Boolean);
+      option.textContent = parts.join(' · ');
+      option.disabled = !option.value;
+      select.appendChild(option);
+    });
+    picker.dataset.salesOrderNumber = String(orderNumber || '').trim();
+    picker.classList.remove('hidden');
+  }
+
+  function loadSelectedMplOrderInstance() {
+    const picker = document.getElementById('mpl-order-instance-picker');
+    const select = document.getElementById('mpl-order-instance-select');
+    const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
+    const ecomdashId = String(select?.value || '').trim();
+    if (!orderNumber || !ecomdashId) {
+      setStatus('Select an ECOMDASH ID before loading the order.', 'error');
+      return;
+    }
+    loadMplOrderFromAnalytics(null, ecomdashId, orderNumber);
+  }
+
   function analyticsOrderQuantity(value) {
     const quantity = Number(String(value ?? '').replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) return '';
@@ -2194,11 +2239,12 @@
     return draft;
   }
 
-  async function loadMplOrderFromAnalytics(event) {
+  async function loadMplOrderFromAnalytics(event, selectedEcomdashId = '', selectedOrderNumber = '') {
     if (event) event.preventDefault();
     if (selectedKit !== 'mpl') return;
     const input = document.getElementById('mpl-sales-order-number');
-    const orderNumber = String(input?.value || '').trim();
+    const orderNumber = String(selectedOrderNumber || input?.value || '').trim();
+    const ecomdashId = String(selectedEcomdashId || '').trim();
     if (!orderNumber) {
       setStatus('Enter a Sales Order Number.', 'error');
       if (input) input.focus();
@@ -2206,22 +2252,33 @@
     }
 
     setMplOrderLookupBusy(true);
+    if (!ecomdashId) hideMplOrderInstancePicker();
     setStatus(`Searching Zoho Analytics for Sales Order ${orderNumber}…`, 'info');
     try {
       await ensureKeheReferenceDataLoaded();
       const response = await fetch('/api/mpl/orders/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sales_order_number: orderNumber })
+        body: JSON.stringify({
+          sales_order_number: orderNumber,
+          ecomdash_id: ecomdashId
+        })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload.detail || 'The sales order could not be loaded.');
       }
+      if (payload.requires_order_selection) {
+        showMplOrderInstancePicker(orderNumber, payload.order_instances);
+        setStatus(`Sales Order ${orderNumber} matches multiple ECOMDASH IDs. Select the correct storefront/customer order.`, 'info');
+        return;
+      }
+      hideMplOrderInstancePicker();
 
       activeKeheDocumentType = 'masterPackingList';
       activeKeheDocumentDraft = buildAnalyticsOrderMplDraft(payload);
       keheLastMplDraft = activeKeheDocumentDraft;
+      const palletization = autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
       keheMplPalletizationSource = activeKeheDocumentDraft.packing_lists?.[0]?.palletization_source || 'Order Data + Product Master';
       renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
       openDocumentEditor();
@@ -2230,7 +2287,7 @@
       const matched = Number(summary.matched_products || 0);
       const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
       setStatus(
-        `Sales Order ${orderNumber} loaded: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${needsReview ? `, ${needsReview} need review` : ''}.`,
+        `Sales Order ${orderNumber} loaded: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es), ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}.`,
         needsReview ? 'info' : 'success'
       );
     } catch (err) {
@@ -3173,7 +3230,7 @@
     return { dims, unitWeight, maxCases: Math.min(byDimensions, byWeight), caseVolume: dims.l * dims.w * dims.h };
   }
 
-  function autoPalletizeMpl(mplIndex) {
+  function autoPalletizeMpl(mplIndex, options = {}) {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
     ensureMplPalletState(mpl);
@@ -3397,9 +3454,14 @@
     mpl.warnings = [...new Set([...(mpl.warnings || []), ...warnings, note])];
     syncMplLineNumbers(mpl);
     keheLastMplDraft = activeKeheDocumentDraft;
-    renderKeheUnifiedReport(activeKeheDocumentDraft);
-    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    setStatus(warnings.length ? 'Auto Palletize completed with Needs Review items. Check Unassigned rows and warnings.' : 'Auto Palletize completed.', warnings.length ? 'error' : 'success');
+    if (options.render !== false) {
+      renderKeheUnifiedReport(activeKeheDocumentDraft);
+      renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    }
+    if (options.showStatus !== false) {
+      setStatus(warnings.length ? 'Auto Palletize completed with Needs Review items. Check Unassigned rows and warnings.' : 'Auto Palletize completed.', warnings.length ? 'error' : 'success');
+    }
+    return { palletCount: mpl._pallet_ids.length, warnings: [...warnings] };
   }
 
   const TIHI_PALLET_LENGTH_IN = 48;

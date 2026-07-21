@@ -14,6 +14,7 @@ endpoint selected by the user.
 
 from __future__ import annotations
 
+import base64
 import json
 import csv
 import io
@@ -27,6 +28,7 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -213,6 +215,9 @@ ANALYTICS_QUANTITY_COLUMN = str(
     _config_value("ANALYTICS_QUANTITY_COLUMN", "analytics_quantity_column", "Quantity Ordered")
     or "Quantity Ordered"
 ).strip()
+ANALYTICS_ORDER_INSTANCE_ID_COLUMN = "Ecomdash ID"
+ANALYTICS_ORDER_INSTANCE_DATE_COLUMN = "Invoice Date"
+ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN = "Storefront"
 ANALYTICS_ORDER_DETAIL_COLUMNS: Dict[str, str] = {
     "billing_customer_name": "Billing Customer Name",
     "bill_to_phone": "Bill To Phone",
@@ -1909,11 +1914,12 @@ def _analytics_export_order_rows(request: Request, sales_order_number: str) -> L
                 detail=f"Local order workbook could not be read: {exc}",
             ) from exc
         wanted_order = _canonical_order_number(sales_order_number)
-        return [
+        matching_rows = [
             {str(key): value for key, value in row.items()}
             for row in local_rows
             if _canonical_order_number(_analytics_row_value(row, ANALYTICS_ORDER_COLUMN)) == wanted_order
         ]
+        return matching_rows
 
     headers, connection_parameters = _analytics_connection_details(request)
     header_org_id = _analytics_header_value(headers, "ZANALYTICS-ORGID")
@@ -1931,12 +1937,15 @@ def _analytics_export_order_rows(request: Request, sales_order_number: str) -> L
     export_config = {
         "responseFormat": "csv",
         "criteria": f'"{safe_order_column}"=\'{safe_order}\'',
-        "selectedColumns": [
+        "selectedColumns": list(dict.fromkeys([
             ANALYTICS_ORDER_COLUMN,
             ANALYTICS_SKU_COLUMN,
             ANALYTICS_QUANTITY_COLUMN,
+            ANALYTICS_ORDER_INSTANCE_ID_COLUMN,
+            ANALYTICS_ORDER_INSTANCE_DATE_COLUMN,
+            ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN,
             *ANALYTICS_ORDER_DETAIL_COLUMNS.values(),
-        ],
+        ])),
         "includeHeader": True,
     }
     parameters = dict(connection_parameters)
@@ -1955,7 +1964,13 @@ def _analytics_export_order_rows(request: Request, sales_order_number: str) -> L
             raw = _analytics_http_get(_analytics_url(path, parameters), request_headers)
             ANALYTICS_DISCOVERED_ORG_ID = org_id
             text = raw.decode("utf-8-sig", errors="replace")
-            return [dict(row) for row in csv.DictReader(io.StringIO(text))]
+            wanted_order = _canonical_order_number(sales_order_number)
+            matching_rows = [
+                dict(row)
+                for row in csv.DictReader(io.StringIO(text))
+                if _canonical_order_number(_analytics_row_value(row, ANALYTICS_ORDER_COLUMN)) == wanted_order
+            ]
+            return matching_rows
         except _ZohoAnalyticsRequestError as exc:
             last_error = exc
 
@@ -1991,6 +2006,60 @@ def _canonical_order_number(value: Any) -> str:
     return raw.casefold()
 
 
+def _analytics_order_instance_groups(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    groups: Dict[str, Dict[str, Any]] = {}
+    group_order: List[str] = []
+    for row in rows:
+        raw_ecomdash_id = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_ID_COLUMN)
+        canonical_ecomdash_id = _canonical_order_number(raw_ecomdash_id)
+        invoice_date = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_DATE_COLUMN)
+        storefront = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN)
+        billing_customer_name = _analytics_row_value(row, "Billing Customer Name")
+        if canonical_ecomdash_id:
+            group_key = f"ecomdash:{canonical_ecomdash_id}"
+        else:
+            group_key = "missing:" + "|".join([
+                invoice_date.casefold(),
+                storefront.casefold(),
+                billing_customer_name.casefold(),
+            ])
+        if group_key not in groups:
+            groups[group_key] = {
+                "key": group_key,
+                "ecomdash_id": raw_ecomdash_id,
+                "storefront": storefront,
+                "billing_customer_name": billing_customer_name,
+                "invoice_date": invoice_date,
+                "rows": [],
+            }
+            group_order.append(group_key)
+        groups[group_key]["rows"].append(row)
+
+    instances: List[Dict[str, Any]] = []
+    for group_key in group_order:
+        group = groups[group_key]
+        sku_keys = {
+            _canonical_order_sku(_analytics_row_value(row, ANALYTICS_SKU_COLUMN))
+            for row in group["rows"]
+            if _canonical_order_sku(_analytics_row_value(row, ANALYTICS_SKU_COLUMN))
+        }
+        group["line_count"] = len(group["rows"])
+        group["sku_count"] = len(sku_keys)
+        instances.append(group)
+    return instances
+
+
+def _analytics_order_instance_summary(instance: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "ecomdash_id": instance.get("ecomdash_id", ""),
+        "storefront": instance.get("storefront", ""),
+        "billing_customer_name": instance.get("billing_customer_name", ""),
+        "invoice_date": instance.get("invoice_date", ""),
+        "line_count": instance.get("line_count", 0),
+        "sku_count": instance.get("sku_count", 0),
+    }
+
+
 def _analytics_quantity(value: Any) -> Optional[float | int]:
     raw = str(value or "").strip().replace(",", "")
     if not raw:
@@ -2008,6 +2077,7 @@ def _analytics_quantity(value: Any) -> Optional[float | int]:
 def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
     sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
+    requested_ecomdash_id = str(payload.get("ecomdash_id") or "").strip() if isinstance(payload, dict) else ""
     if not sales_order_number:
         raise HTTPException(status_code=400, detail="Sales Order Number is required.")
     if len(sales_order_number) > 120 or any(ord(char) < 32 for char in sales_order_number):
@@ -2019,6 +2089,50 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             status_code=404,
             detail=f"No rows were found for Sales Order Number '{sales_order_number}'.",
         )
+
+    order_instances = _analytics_order_instance_groups(analytics_rows)
+    selected_ecomdash_id = ""
+    if requested_ecomdash_id:
+        wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
+        selected_instance = next(
+            (
+                instance
+                for instance in order_instances
+                if _canonical_order_number(instance.get("ecomdash_id")) == wanted_ecomdash_id
+            ),
+            None,
+        )
+        if selected_instance is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Ecomdash ID '{requested_ecomdash_id}' was not found for "
+                    f"Sales Order Number '{sales_order_number}'."
+                ),
+            )
+        analytics_rows = selected_instance["rows"]
+        selected_ecomdash_id = str(selected_instance.get("ecomdash_id") or "")
+    elif len(order_instances) > 1:
+        local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
+        return JSONResponse(content={
+            "sales_order_number": sales_order_number,
+            "requires_order_selection": True,
+            "order_instances": [
+                _analytics_order_instance_summary(instance)
+                for instance in order_instances
+            ],
+            "source": {
+                "service": "local_file" if local_file_source else "zoho_analytics",
+                "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,
+                "local_file": ANALYTICS_LOCAL_FILE.name if local_file_source and ANALYTICS_LOCAL_FILE else "",
+                "workspace_id": ANALYTICS_WORKSPACE_ID,
+                "view_id": ANALYTICS_VIEW_ID,
+                "view_name": ANALYTICS_VIEW_NAME,
+            },
+        })
+    elif order_instances:
+        analytics_rows = order_instances[0]["rows"]
+        selected_ecomdash_id = str(order_instances[0].get("ecomdash_id") or "")
 
     aggregated: Dict[str, Dict[str, Any]] = {}
     ignored_rows = 0
@@ -2110,6 +2224,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             "workspace_id": ANALYTICS_WORKSPACE_ID,
             "view_id": ANALYTICS_VIEW_ID,
             "view_name": ANALYTICS_VIEW_NAME,
+            "ecomdash_id": selected_ecomdash_id,
             "product_master": product_source,
         },
         "summary": {
@@ -2429,7 +2544,11 @@ def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
     draft = draft_raw if isinstance(draft_raw, dict) else {}
     if isinstance(draft_raw, str) and draft_raw.strip():
         try:
-            parsed = json.loads(draft_raw)
+            encoded = draft_raw.strip()
+            if encoded.startswith("zlib:"):
+                compressed = base64.urlsafe_b64decode(encoded[5:].encode("ascii"))
+                encoded = zlib.decompress(compressed).decode("utf-8")
+            parsed = json.loads(encoded)
             if isinstance(parsed, dict):
                 draft = parsed
         except Exception:
@@ -2446,14 +2565,40 @@ def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _mpl_draft_to_datastore_row(record: Dict[str, Any]) -> Dict[str, Any]:
+    draft_json = json.dumps(record.get("draft") or {}, sort_keys=True, separators=(",", ":"))
+    compressed_draft = base64.urlsafe_b64encode(
+        zlib.compress(draft_json.encode("utf-8"), level=9)
+    ).decode("ascii")
     return {
         "DRAFT_ID": str(record.get("id") or uuid.uuid4().hex),
         "NAME": str(record.get("name") or ""),
         "CREATED_AT": str(record.get("created_at") or _now_iso()),
         "UPDATED_AT": str(record.get("updated_at") or _now_iso()),
-        "DRAFT_JSON": json.dumps(record.get("draft") or {}, sort_keys=True),
+        "DRAFT_JSON": f"zlib:{compressed_draft}",
         "IS_ACTIVE": True,
     }
+
+
+def _mpl_draft_for_storage(draft: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove regenerable data that can overflow the Data Store JSON text column."""
+    def clean(value: Any, key: str = "") -> Any:
+        normalized_key = str(key or "").strip().lower()
+        if normalized_key == "product_master":
+            return None
+        if normalized_key in {"_tihi_snapshot", "sheet_image_data_url", "image_data_url"}:
+            return None
+        if isinstance(value, dict):
+            return {
+                child_key: cleaned
+                for child_key, child_value in value.items()
+                if (cleaned := clean(child_value, child_key)) is not None
+            }
+        if isinstance(value, list):
+            return [cleaned for item in value if (cleaned := clean(item)) is not None]
+        return value
+
+    cleaned_draft = clean(draft)
+    return cleaned_draft if isinstance(cleaned_draft, dict) else {}
 
 
 def _datastore_load_mpl_drafts(request: Optional[Request]) -> Optional[List[Dict[str, Any]]]:
@@ -2577,6 +2722,7 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
     if not isinstance(draft, dict):
         raise HTTPException(status_code=400, detail="MPL draft payload is required.")
 
+    storage_draft = _mpl_draft_for_storage(draft)
     drafts = _mpl_drafts_read(request)
     draft_id = str(payload.get("id") or draft.get("_saved_draft_id") or uuid.uuid4().hex)
     now = _now_iso()
@@ -2594,8 +2740,8 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         old_record.get("created_by")
         if old_record else ""
     ) or str(draft.get("_saved_draft_created_by") or actor_label)
-    draft["_saved_draft_created_by"] = created_by
-    draft["_saved_draft_updated_by"] = actor_label
+    storage_draft["_saved_draft_created_by"] = created_by
+    storage_draft["_saved_draft_updated_by"] = actor_label
     record = {
         "id": draft_id,
         "name": name,
@@ -2603,7 +2749,7 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         "updated_at": now,
         "created_by": created_by,
         "updated_by": actor_label,
-        "draft": draft,
+        "draft": storage_draft,
     }
     next_drafts = [record if str(existing.get("id")) == draft_id else existing for existing in drafts]
     if old_record is None:
