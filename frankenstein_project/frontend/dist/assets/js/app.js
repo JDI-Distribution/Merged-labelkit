@@ -2074,42 +2074,87 @@
 
   function hideMplOrderInstancePicker() {
     const picker = document.getElementById('mpl-order-instance-picker');
-    const select = document.getElementById('mpl-order-instance-select');
+    const body = document.getElementById('mpl-order-instance-body');
+    const count = document.getElementById('mpl-order-instance-count');
+    const button = document.getElementById('btn-load-selected-mpl-order');
+    const help = document.getElementById('mpl-order-instance-selection-help');
     if (picker) {
       picker.classList.add('hidden');
       delete picker.dataset.salesOrderNumber;
+      delete picker.dataset.ecomdashId;
     }
-    if (select) select.innerHTML = '';
+    if (body) body.innerHTML = '';
+    if (count) count.textContent = '';
+    if (button) button.disabled = true;
+    if (help) help.textContent = 'Check one order to continue.';
   }
 
   function showMplOrderInstancePicker(orderNumber, instances) {
     const picker = document.getElementById('mpl-order-instance-picker');
-    const select = document.getElementById('mpl-order-instance-select');
-    if (!picker || !select) return;
-    select.innerHTML = '';
-    (Array.isArray(instances) ? instances : []).forEach(instance => {
-      const option = document.createElement('option');
-      option.value = String(instance?.ecomdash_id || '').trim();
-      const parts = [
-        `ECOMDASH ID ${option.value || 'missing'}`,
+    const body = document.getElementById('mpl-order-instance-body');
+    const count = document.getElementById('mpl-order-instance-count');
+    const button = document.getElementById('btn-load-selected-mpl-order');
+    if (!picker || !body) return;
+    const orderInstances = Array.isArray(instances) ? instances : [];
+    body.innerHTML = '';
+    orderInstances.forEach(instance => {
+      const ecomdashId = String(instance?.ecomdash_id || '').trim();
+      const row = document.createElement('tr');
+      const values = [
+        ecomdashId,
         String(instance?.storefront || '').trim(),
         String(instance?.billing_customer_name || '').trim(),
         String(instance?.invoice_date || '').trim(),
-        `${Number(instance?.sku_count || 0)} SKU${Number(instance?.sku_count || 0) === 1 ? '' : 's'}`
-      ].filter(Boolean);
-      option.textContent = parts.join(' · ');
-      option.disabled = !option.value;
-      select.appendChild(option);
+        String(Number(instance?.sku_count || 0))
+      ];
+      values.forEach((value, index) => {
+        const cell = document.createElement('td');
+        cell.textContent = value || '—';
+        if (index === 0) cell.className = 'mpl-order-instance-id';
+        row.appendChild(cell);
+      });
+      const selectCell = document.createElement('td');
+      selectCell.className = 'mpl-order-instance-select-column';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'mpl-order-instance-checkbox';
+      checkbox.value = ecomdashId;
+      checkbox.disabled = !ecomdashId;
+      checkbox.setAttribute('aria-label', `Select ECOMDASH ID ${ecomdashId || 'missing'}`);
+      checkbox.addEventListener('change', () => selectMplOrderInstance(checkbox));
+      selectCell.appendChild(checkbox);
+      row.appendChild(selectCell);
+      body.appendChild(row);
     });
     picker.dataset.salesOrderNumber = String(orderNumber || '').trim();
+    delete picker.dataset.ecomdashId;
+    if (count) count.textContent = `${orderInstances.length} unique order${orderInstances.length === 1 ? '' : 's'}`;
+    if (button) button.disabled = true;
     picker.classList.remove('hidden');
+  }
+
+  function selectMplOrderInstance(selectedCheckbox) {
+    const picker = document.getElementById('mpl-order-instance-picker');
+    const button = document.getElementById('btn-load-selected-mpl-order');
+    const help = document.getElementById('mpl-order-instance-selection-help');
+    if (!picker || !selectedCheckbox) return;
+    picker.querySelectorAll('.mpl-order-instance-checkbox').forEach(checkbox => {
+      if (checkbox !== selectedCheckbox) checkbox.checked = false;
+      checkbox.closest('tr')?.classList.toggle('selected', checkbox.checked);
+    });
+    const ecomdashId = selectedCheckbox.checked ? String(selectedCheckbox.value || '').trim() : '';
+    if (ecomdashId) picker.dataset.ecomdashId = ecomdashId;
+    else delete picker.dataset.ecomdashId;
+    if (button) button.disabled = !ecomdashId;
+    if (help) help.textContent = ecomdashId
+      ? `ECOMDASH ID ${ecomdashId} selected.`
+      : 'Check one order to continue.';
   }
 
   function loadSelectedMplOrderInstance() {
     const picker = document.getElementById('mpl-order-instance-picker');
-    const select = document.getElementById('mpl-order-instance-select');
     const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
-    const ecomdashId = String(select?.value || '').trim();
+    const ecomdashId = String(picker?.dataset.ecomdashId || '').trim();
     if (!orderNumber || !ecomdashId) {
       setStatus('Select an ECOMDASH ID before loading the order.', 'error');
       return;

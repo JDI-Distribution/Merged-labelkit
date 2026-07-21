@@ -433,30 +433,114 @@
       padding: 10px 16px;
     }
     .mpl-order-instance-picker {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
       margin-top: 8px;
-      padding: 12px;
+      padding: 16px;
       border: 1px solid rgba(15, 118, 110, 0.28);
-      border-radius: 9px;
-      background: #ffffff;
+      border-radius: 12px;
+      background: #f8fffe;
+      box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
     }
     .mpl-order-instance-picker.hidden {
       display: none;
     }
-    .mpl-order-instance-picker label {
-      grid-column: 1 / -1;
+    .mpl-order-instance-heading,
+    .mpl-order-instance-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
     }
-    .mpl-order-instance-picker select {
-      width: 100%;
-      min-width: 0;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
+    .mpl-order-instance-heading strong {
+      display: block;
+      color: #0f3f3b;
+      font-size: 15px;
+    }
+    .mpl-order-instance-heading div > span,
+    .mpl-order-instance-actions > span {
+      display: block;
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .mpl-order-instance-count {
+      flex: 0 0 auto;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: #dff7f3;
+      color: #0f766e;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .mpl-order-instance-table-wrap {
+      overflow-x: auto;
+      border: 1px solid #d7e5e3;
+      border-radius: 10px;
       background: #ffffff;
+    }
+    .mpl-order-instance-table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
       color: #0f172a;
+      font-size: 13px;
+    }
+    .mpl-order-instance-table th,
+    .mpl-order-instance-table td {
       padding: 11px 12px;
-      font: inherit;
+      border-bottom: 1px solid #e8efee;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .mpl-order-instance-table th {
+      background: #eef8f6;
+      color: #365c58;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.035em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .mpl-order-instance-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .mpl-order-instance-table tbody tr {
+      transition: background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .mpl-order-instance-table tbody tr:hover {
+      background: #f8fafc;
+    }
+    .mpl-order-instance-table tbody tr.selected {
+      background: #e8f7f4;
+      box-shadow: inset 3px 0 0 #0f766e;
+    }
+    .mpl-order-instance-id {
+      color: #0f766e;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .mpl-order-instance-select-column {
+      width: 72px;
+      text-align: center !important;
+    }
+    .mpl-order-instance-checkbox {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      accent-color: #0f766e;
+      cursor: pointer;
+    }
+    .mpl-order-instance-actions {
+      justify-content: flex-end;
+    }
+    .mpl-order-instance-actions > span {
+      margin: 0 auto 0 0;
+    }
+    .mpl-order-instance-actions .btn-secondary {
+      min-width: 175px;
       font-size: 13px;
     }
     .mpl-workspace-header {
@@ -497,7 +581,10 @@
       .mpl-order-lookup-card { grid-template-columns: 1fr; align-items: stretch; }
       .mpl-order-lookup-controls { grid-template-columns: 1fr; }
       .mpl-order-lookup-controls .btn-generate { width: 100%; }
-      .mpl-order-instance-picker { grid-template-columns: 1fr; }
+      .mpl-order-instance-heading,
+      .mpl-order-instance-actions { align-items: stretch; flex-direction: column; }
+      .mpl-order-instance-count { align-self: flex-start; }
+      .mpl-order-instance-actions .btn-secondary { width: 100%; }
       .mpl-workspace-header { align-items: stretch; flex-direction: column; }
       .mpl-workspace-header .btn-generate,
       .mpl-workspace-header .btn-secondary { width: 100%; }

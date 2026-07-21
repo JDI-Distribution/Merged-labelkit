@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260721-ecomdash-orders">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260721-ecomdash-table">
 </head>
 <body>
 
@@ -260,9 +260,32 @@
             <button class="btn-generate" id="btn-load-mpl-order" type="submit">Load Order</button>
           </div>
           <div class="mpl-order-instance-picker hidden" id="mpl-order-instance-picker">
-            <label for="mpl-order-instance-select">Multiple ECOMDASH IDs found</label>
-            <select id="mpl-order-instance-select"></select>
-            <button class="btn-secondary" type="button" onclick="loadSelectedMplOrderInstance()">Load Selected Order</button>
+            <div class="mpl-order-instance-heading">
+              <div>
+                <strong>Multiple ECOMDASH IDs found</strong>
+                <span>Select the storefront and customer order you want to load.</span>
+              </div>
+              <span class="mpl-order-instance-count" id="mpl-order-instance-count"></span>
+            </div>
+            <div class="mpl-order-instance-table-wrap">
+              <table class="mpl-order-instance-table">
+                <thead>
+                  <tr>
+                    <th scope="col">ECOMDASH ID</th>
+                    <th scope="col">Storefront</th>
+                    <th scope="col">Billing Customer Name</th>
+                    <th scope="col">Invoice Date</th>
+                    <th scope="col">SKUs</th>
+                    <th scope="col" class="mpl-order-instance-select-column">Select</th>
+                  </tr>
+                </thead>
+                <tbody id="mpl-order-instance-body"></tbody>
+              </table>
+            </div>
+            <div class="mpl-order-instance-actions">
+              <span id="mpl-order-instance-selection-help">Check one order to continue.</span>
+              <button class="btn-secondary" id="btn-load-selected-mpl-order" type="button" onclick="loadSelectedMplOrderInstance()" disabled>Load Selected Order</button>
+            </div>
           </div>
         </form>
       </div>
@@ -670,7 +693,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260721-ecomdash-orders"></script>
+<script src="/assets/js/app.js?v=20260721-ecomdash-table"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
