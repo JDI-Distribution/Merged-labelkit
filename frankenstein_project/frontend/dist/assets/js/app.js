@@ -9,6 +9,8 @@
       headerSub: 'ASN XML + ShipStation shipping labels',
       titleHtml: 'Michaels DTS · <span>LabelKit</span>',
       description: 'Upload your ASN XML from Infocon and your shipping labels from ShipStation to generate a single print-ready PDF. After each run, a match report appears below the button and the combined UPS Shipping Label, GS1 Label with SSCC-18 barcode, and Packing List preview opens in a popup.',
+      generateTitle: 'Generate Michaels Documents',
+      generateSubtitle: 'Create Michaels labels and packing documents from the uploaded ASN XML and shipping-label PDF.',
       noteHtml: '<strong>Note:</strong> Keep US and CAN orders separate. Print shipping labels separately, and use separate XML files for each group.',
       xmlTitle: 'ASN File — XML',
       xmlHintHtml: 'Upload your <strong>EDI 856 ASN XML</strong> file exported from <strong>Infocon</strong>',
@@ -55,6 +57,8 @@
       headerSub: 'ASN XML-only SSCC-18 / GS1-128 labels',
       titleHtml: 'KeHE GS1 · <span>LabelKit</span>',
       description: 'Upload your KeHE ASN XML from Infocon to generate a print-ready PDF with one 4 × 6 GS1-128 label per pallet/carton. After each run, the generation report appears below the button and the label preview opens in a popup.',
+      generateTitle: 'Generate KeHE Documents',
+      generateSubtitle: 'Create KeHE labels and documents from the uploaded XML.',
       noteHtml: '<strong>Note:</strong> Upload multiple XML files only when multiple POs are being shipped together in the same shipment. Otherwise, upload a single XML file for the individual PO.',
       xmlTitle: 'KeHE ASN File — XML',
       xmlHintHtml: 'Upload your <strong>KeHE EDI 856 ASN XML</strong> file. The backend extracts SSCC-18 carton data and renders GS1 labels.',
@@ -1999,12 +2003,17 @@
     };
   }
 
-  function buildManualMasterPackingListDraft() {
+  function buildManualMasterPackingListDraft(options = {}) {
     const standalone = selectedKit === 'mpl';
     const dcRows = getActiveDcDirectoryRows();
-    const firstDc = dcRows[0] || {};
+    const requestedStorefront = String(options.storefront || '').trim();
+    const firstDc = (
+      requestedStorefront
+        ? dcRows.find(row => normalizeStorefront(row.storefront || '') === normalizeStorefront(requestedStorefront))
+        : null
+    ) || dcRows[0] || {};
     const firstItem = blankManualMplItem(1, '1');
-    const storefront = normalizeStorefront(firstDc.storefront || 'KeHE');
+    const storefront = normalizeStorefront(requestedStorefront || firstDc.storefront || 'KeHE');
     return {
       document_type: 'kehe_master_packing_list',
       version: 3,
@@ -2051,6 +2060,184 @@
         warnings: firstDc.delivery_address ? [] : ['Select a Ship To address from the DC Directory or enter it manually before printing.']
       }]
     };
+  }
+
+  function setMplOrderLookupBusy(busy) {
+    const input = document.getElementById('mpl-sales-order-number');
+    const button = document.getElementById('btn-load-mpl-order');
+    if (input) input.disabled = !!busy;
+    if (button) {
+      button.disabled = !!busy;
+      button.textContent = busy ? 'Loading…' : 'Load Order';
+    }
+  }
+
+  function analyticsOrderQuantity(value) {
+    const quantity = Number(String(value ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) return '';
+    return Number.isInteger(quantity) ? String(quantity) : String(Number(quantity.toFixed(6)));
+  }
+
+  function analyticsMplAddress(details, type) {
+    const source = details && typeof details === 'object' ? details : {};
+    const billing = type === 'billing';
+    const name = source[billing ? 'billing_customer_name' : 'ship_to_name'];
+    const phone = source[billing ? 'bill_to_phone' : 'ship_to_phone'];
+    const streetPrefix = billing ? 'billing_street' : 'shipping_street';
+    const city = String(source[billing ? 'billing_city' : 'shipping_city'] || '').trim();
+    const state = String(source[billing ? 'billing_state' : 'shipping_state'] || '').trim();
+    const zip = String(source[billing ? 'billing_zip_code' : 'shipping_zip_code'] || '').trim();
+    const country = source[billing ? 'billing_country' : 'shipping_country'];
+    const locality = [city, state].filter(Boolean).join(', ') + (zip ? `${city || state ? ' ' : ''}${zip}` : '');
+    return [
+      name,
+      source[`${streetPrefix}1`],
+      source[`${streetPrefix}2`],
+      source[`${streetPrefix}3`],
+      locality,
+      country,
+      phone
+    ].map(value => String(value || '').trim()).filter(Boolean).join('\n');
+  }
+
+  function buildAnalyticsOrderMplDraft(payload) {
+    const orderNumber = String(payload?.sales_order_number || '').trim();
+    const sourceItems = Array.isArray(payload?.items) ? payload.items : [];
+    const matchedStorefronts = [...new Set(sourceItems
+      .map(item => item?.product?.storefront)
+      .filter(Boolean)
+      .map(normalizeStorefront))];
+    const draft = buildManualMasterPackingListDraft({
+      storefront: matchedStorefronts.length === 1 ? matchedStorefronts[0] : ''
+    });
+    const mpl = draft.packing_lists[0];
+    const warnings = [];
+    const orderDetails = payload?.order_details && typeof payload.order_details === 'object'
+      ? payload.order_details
+      : {};
+    const analyticsBillTo = analyticsMplAddress(orderDetails, 'billing');
+    const analyticsShipTo = analyticsMplAddress(orderDetails, 'shipping');
+    const localOrderFile = String(payload?.source?.local_file || '').toLowerCase();
+    const orderSourceLabel = payload?.source?.service === 'local_file'
+      ? (localOrderFile.endsWith('.csv') ? 'Local CSV' : 'Local Excel')
+      : 'Zoho Analytics';
+
+    mpl.id = orderNumber ? `SO-${orderNumber}` : mpl.id;
+    mpl.customer_po_number = orderNumber;
+    mpl.order_no = orderNumber;
+    mpl.customer_no = orderNumber;
+    if (analyticsBillTo) mpl.bill_to = analyticsBillTo;
+    if (analyticsShipTo) mpl.ship_to = analyticsShipTo;
+    mpl.shipping_instructions = String(orderDetails.order_notes || '').trim();
+    mpl.source_files = [`${orderSourceLabel} · ${payload?.source?.view_name || 'Order Data'}`];
+    mpl.palletization_source = `${orderSourceLabel} + Product Master`;
+    mpl.palletization_note = `Order SKUs and quantities loaded from ${orderSourceLabel}; product details and weights matched from the saved Product Master.`;
+    mpl.items = sourceItems.map((sourceItem, index) => {
+      const quantity = analyticsOrderQuantity(sourceItem?.quantity_ordered) || '1';
+      const sku = String(sourceItem?.sku || '').trim();
+      const item = blankManualMplItem(index + 1, '1');
+      item.item_number = sku;
+      item.sku = sku;
+      item.qty_on_pallet = quantity;
+      item.total_ordered = quantity;
+      item.total_shipped = quantity;
+
+      if (sourceItem?.match_status === 'matched' && sourceItem.product) {
+        applyProductRowToMplItem(item, normalizeProductRow(sourceItem.product), { defaultQty: quantity });
+      } else if (sourceItem?.match_status === 'ambiguous') {
+        const storefronts = Array.isArray(sourceItem.candidate_storefronts)
+          ? sourceItem.candidate_storefronts.filter(Boolean).join(', ')
+          : '';
+        item.notes = `SKU ${sku} matches multiple Product Master rows${storefronts ? ` (${storefronts})` : ''}; select the correct product.`;
+        warnings.push(item.notes);
+      } else {
+        item.notes = `SKU ${sku} was not found as an enabled Case row in Product Master.`;
+        warnings.push(item.notes);
+      }
+      return item;
+    });
+
+    if (matchedStorefronts.length > 1) {
+      warnings.push(`Order SKUs matched multiple storefronts: ${matchedStorefronts.join(', ')}. Select one storefront before generating the PDF.`);
+    }
+    if (!mpl.ship_to) {
+      warnings.push('Select a Ship To address from the Directory before generating the PDF.');
+    }
+
+    mpl.warnings = [...new Set(warnings)];
+    mpl.status = mpl.warnings.length ? 'Needs Review' : 'Ready';
+    draft.warnings = [...mpl.warnings];
+    draft.summary = {
+      ...(draft.summary || {}),
+      analytics_order: true,
+      sales_order_number: orderNumber,
+      line_items: sourceItems.length,
+      matched_products: Number(payload?.summary?.matched_products || 0),
+      unmatched_products: Number(payload?.summary?.unmatched_products || 0),
+      ambiguous_products: Number(payload?.summary?.ambiguous_products || 0)
+    };
+    draft.analytics_order_source = payload?.source || {};
+    draft.analytics_order_details = orderDetails;
+    draft.extracted_headers = [{
+      sales_order_number: orderNumber,
+      ...orderDetails
+    }];
+    draft.extracted_items = sourceItems.map(item => ({
+      sales_order_number: orderNumber,
+      sku: item.sku || '',
+      quantity_ordered: item.quantity_ordered ?? '',
+      match_status: item.match_status || ''
+    }));
+    ensureMplPalletState(mpl);
+    syncMplLineNumbers(mpl);
+    applyProductMasterToDraft(draft, false);
+    return draft;
+  }
+
+  async function loadMplOrderFromAnalytics(event) {
+    if (event) event.preventDefault();
+    if (selectedKit !== 'mpl') return;
+    const input = document.getElementById('mpl-sales-order-number');
+    const orderNumber = String(input?.value || '').trim();
+    if (!orderNumber) {
+      setStatus('Enter a Sales Order Number.', 'error');
+      if (input) input.focus();
+      return;
+    }
+
+    setMplOrderLookupBusy(true);
+    setStatus(`Searching Zoho Analytics for Sales Order ${orderNumber}…`, 'info');
+    try {
+      await ensureKeheReferenceDataLoaded();
+      const response = await fetch('/api/mpl/orders/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sales_order_number: orderNumber })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.detail || 'The sales order could not be loaded.');
+      }
+
+      activeKeheDocumentType = 'masterPackingList';
+      activeKeheDocumentDraft = buildAnalyticsOrderMplDraft(payload);
+      keheLastMplDraft = activeKeheDocumentDraft;
+      keheMplPalletizationSource = activeKeheDocumentDraft.packing_lists?.[0]?.palletization_source || 'Order Data + Product Master';
+      renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
+      openDocumentEditor();
+
+      const summary = payload.summary || {};
+      const matched = Number(summary.matched_products || 0);
+      const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
+      setStatus(
+        `Sales Order ${orderNumber} loaded: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${needsReview ? `, ${needsReview} need review` : ''}.`,
+        needsReview ? 'info' : 'success'
+      );
+    } catch (err) {
+      setStatus('Error: ' + (err?.message || 'The sales order could not be loaded.'), 'error');
+    } finally {
+      setMplOrderLookupBusy(false);
+    }
   }
 
   async function ensureKeheReferenceDataLoaded() {
@@ -4633,6 +4820,8 @@
       titleAccent.classList.toggle('kehe-accent', selectedKit === 'kehe');
     }
     document.getElementById('workflow-description').textContent = cfg.description;
+    document.getElementById('kehe-generate-title').textContent = cfg.generateTitle || 'Generate';
+    document.getElementById('generate-subtitle').textContent = cfg.generateSubtitle || '';
     document.getElementById('workflow-note').innerHTML = cfg.noteHtml;
     document.getElementById('xml-step-title').textContent = cfg.xmlTitle;
     document.getElementById('xml-drop-hint').innerHTML = cfg.xmlHintHtml;

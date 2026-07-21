@@ -16,7 +16,18 @@
       "mpl_drafts_table": "kehe_mpl_drafts",
       "mpl_drafts_file": "data/kehe_mpl_drafts.json",
       "audit_log_store": "auto",
-      "audit_log_table": "kehe_audit_log"
+      "audit_log_table": "kehe_audit_log",
+      "analytics_order_source": "file",
+      "analytics_local_file": "data/KeHE_Michaels_Storefront_Test_Data.csv",
+      "analytics_connection_link_name": "orderdata",
+      "analytics_api_base": "https://analyticsapi.zoho.com",
+      "analytics_org_id": "",
+      "analytics_workspace_id": "1436788000013504925",
+      "analytics_view_id": "1436788000018535002",
+      "analytics_view_name": "Data with Product Details Test",
+      "analytics_order_column": "Sales Order Number",
+      "analytics_sku_column": "SKUNumber",
+      "analytics_quantity_column": "Quantity Ordered"
     },
     "catalyst": {
       "app_env": "production",
@@ -32,6 +43,16 @@
       "mpl_drafts_table": "kehe_mpl_drafts",
       "audit_log_store": "datastore",
       "audit_log_table": "kehe_audit_log",
+      "analytics_order_source": "zoho_analytics",
+      "analytics_connection_link_name": "orderdata",
+      "analytics_api_base": "https://analyticsapi.zoho.com",
+      "analytics_org_id": "",
+      "analytics_workspace_id": "1436788000013504925",
+      "analytics_view_id": "1436788000018535002",
+      "analytics_view_name": "Data with Product Details Test",
+      "analytics_order_column": "Sales Order Number",
+      "analytics_sku_column": "SKUNumber",
+      "analytics_quantity_column": "Quantity Ordered",
       "role_id_map": {
         "27327000000040037": "Admin",
         "27327000000040038": "User"

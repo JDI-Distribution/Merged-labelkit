@@ -24,6 +24,9 @@ import tempfile
 import threading
 import time
 import uuid
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -157,6 +160,82 @@ AUTH_REQUIRED = _config_bool("AUTH_REQUIRED", "auth_required", APP_ENV in {"prod
 AUTH_MODE = str(_config_value("AUTH_MODE", "auth_mode", "embedded" if AUTH_REQUIRED else "none") or "none").strip().lower()
 ALLOW_LOCAL_JSON_FALLBACK = _config_bool("ALLOW_LOCAL_JSON_FALLBACK", "allow_local_json_fallback", not AUTH_REQUIRED)
 ALLOW_BROWSER_LOCAL_CACHE = _config_bool("ALLOW_BROWSER_LOCAL_CACHE", "allow_browser_local_cache", not AUTH_REQUIRED)
+
+# Zoho Analytics order lookup used by the standalone Packing List & Ti-Hi
+# workspace. OAuth tokens are resolved at request time through the Catalyst
+# Connection; no Analytics credentials are stored in this repository.
+ANALYTICS_ORDER_SOURCE = str(
+    _config_value("ANALYTICS_ORDER_SOURCE", "analytics_order_source", "zoho_analytics")
+    or "zoho_analytics"
+).strip().lower()
+ANALYTICS_LOCAL_SOURCE_VALUES = {"file", "csv", "excel"}
+_analytics_local_file_value = str(
+    _config_value("ANALYTICS_LOCAL_FILE", "analytics_local_file", "") or ""
+).strip()
+ANALYTICS_LOCAL_FILE: Optional[Path] = None
+if _analytics_local_file_value:
+    _analytics_local_path = Path(_analytics_local_file_value)
+    ANALYTICS_LOCAL_FILE = (
+        _analytics_local_path
+        if _analytics_local_path.is_absolute()
+        else BASE_DIR / _analytics_local_path
+    )
+ANALYTICS_CONNECTION_LINK_NAME = str(
+    _config_value("ANALYTICS_CONNECTION_LINK_NAME", "analytics_connection_link_name", "orderdata")
+    or "orderdata"
+).strip()
+ANALYTICS_API_BASE = str(
+    _config_value("ANALYTICS_API_BASE", "analytics_api_base", "https://analyticsapi.zoho.com")
+    or "https://analyticsapi.zoho.com"
+).strip().rstrip("/")
+ANALYTICS_ORG_ID = str(_config_value("ANALYTICS_ORG_ID", "analytics_org_id", "") or "").strip()
+ANALYTICS_WORKSPACE_ID = str(
+    _config_value("ANALYTICS_WORKSPACE_ID", "analytics_workspace_id", "1436788000013504925")
+    or "1436788000013504925"
+).strip()
+ANALYTICS_VIEW_ID = str(
+    _config_value("ANALYTICS_VIEW_ID", "analytics_view_id", "1436788000018535002")
+    or "1436788000018535002"
+).strip()
+ANALYTICS_VIEW_NAME = str(
+    _config_value("ANALYTICS_VIEW_NAME", "analytics_view_name", "Data with Product Details Test")
+    or "Data with Product Details Test"
+).strip()
+ANALYTICS_ORDER_COLUMN = str(
+    _config_value("ANALYTICS_ORDER_COLUMN", "analytics_order_column", "Sales Order Number")
+    or "Sales Order Number"
+).strip()
+ANALYTICS_SKU_COLUMN = str(
+    _config_value("ANALYTICS_SKU_COLUMN", "analytics_sku_column", "SKUNumber")
+    or "SKUNumber"
+).strip()
+ANALYTICS_QUANTITY_COLUMN = str(
+    _config_value("ANALYTICS_QUANTITY_COLUMN", "analytics_quantity_column", "Quantity Ordered")
+    or "Quantity Ordered"
+).strip()
+ANALYTICS_ORDER_DETAIL_COLUMNS: Dict[str, str] = {
+    "billing_customer_name": "Billing Customer Name",
+    "bill_to_phone": "Bill To Phone",
+    "billing_street1": "Billing Street1",
+    "billing_street2": "Billing Street2",
+    "billing_street3": "Billing Street3",
+    "billing_city": "Billing City",
+    "billing_state": "Billing State",
+    "billing_zip_code": "Billing Zip Code",
+    "billing_country": "Billing Country",
+    "ship_to_name": "Ship To Name",
+    "ship_to_phone": "Ship To Phone",
+    "shipping_street1": "Shipping Street1",
+    "shipping_street2": "Shipping Street2",
+    "shipping_street3": "Shipping Street3",
+    "shipping_city": "Shipping City",
+    "shipping_state": "Shipping State",
+    "shipping_zip_code": "Shipping Zip Code",
+    "shipping_country": "Shipping Country",
+    "order_notes": "Order Notes",
+}
+ANALYTICS_HTTP_TIMEOUT_SECONDS = 30
+ANALYTICS_DISCOVERED_ORG_ID = ""
 
 KIT_CONFIG: Dict[str, Dict[str, str]] = {
     "michaels": {
@@ -1652,6 +1731,397 @@ async def get_kehe_audit_log(request: Request, limit: int = 200, table: str = ""
     _require_permission(request, "audit_view")
     safe_limit = min(max(int(limit or 200), 1), 1000)
     return JSONResponse(content={"entries": _audit_log_read(limit=safe_limit, table=table, request=request)})
+
+
+class _ZohoAnalyticsRequestError(Exception):
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+def _analytics_connection_details(request: Request) -> tuple[Dict[str, str], Dict[str, str]]:
+    catalyst_app = _init_catalyst_app(request)
+    if catalyst_app is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Zoho Analytics order lookup is available from the deployed Catalyst AppSail app. "
+                "The Catalyst SDK or runtime connection is unavailable here."
+            ),
+        )
+
+    connections_factory = getattr(catalyst_app, "connections", None)
+    if not callable(connections_factory):
+        raise HTTPException(
+            status_code=503,
+            detail="The installed Catalyst SDK does not support Connections. Install zcatalyst-sdk 1.1 or newer.",
+        )
+
+    try:
+        response = connections_factory().get_connection_credentials(ANALYTICS_CONNECTION_LINK_NAME)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Catalyst Connection '{ANALYTICS_CONNECTION_LINK_NAME}' could not provide Zoho Analytics credentials. "
+                "Confirm that the connection is active, shared with this environment, and has ZohoAnalytics.data.read. "
+                f"{exc.__class__.__name__}: {exc}"
+            ),
+        ) from exc
+
+    payload = response if isinstance(response, dict) else {}
+    details = payload.get("connections") if isinstance(payload.get("connections"), dict) else payload
+    raw_headers = details.get("headers") if isinstance(details, dict) else {}
+    raw_parameters = details.get("parameters") if isinstance(details, dict) else {}
+    headers = {
+        str(key): str(value)
+        for key, value in (raw_headers.items() if isinstance(raw_headers, dict) else [])
+        if str(key).strip() and value is not None
+    }
+    parameters = {
+        str(key): str(value)
+        for key, value in (raw_parameters.items() if isinstance(raw_parameters, dict) else [])
+        if str(key).strip() and value is not None
+    }
+    if not headers and not parameters:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Catalyst Connection '{ANALYTICS_CONNECTION_LINK_NAME}' returned no authentication details.",
+        )
+    return headers, parameters
+
+
+def _analytics_header_value(headers: Dict[str, str], name: str) -> str:
+    wanted = name.strip().lower()
+    for key, value in headers.items():
+        if str(key).strip().lower() == wanted:
+            return str(value or "").strip()
+    return ""
+
+
+def _analytics_url(path: str, parameters: Optional[Dict[str, str]] = None) -> str:
+    url = f"{ANALYTICS_API_BASE}/{str(path or '').lstrip('/')}"
+    if parameters:
+        url += "?" + urllib.parse.urlencode(parameters)
+    return url
+
+
+def _analytics_error_detail(raw_body: bytes, fallback: str) -> str:
+    body = raw_body.decode("utf-8", errors="replace").strip()
+    if body:
+        try:
+            payload = json.loads(body)
+            data = payload.get("data") if isinstance(payload, dict) else {}
+            if isinstance(data, dict):
+                message = data.get("errorMessage") or data.get("message")
+                if message:
+                    return str(message)[:600]
+            if isinstance(payload, dict) and (payload.get("summary") or payload.get("message")):
+                return str(payload.get("summary") or payload.get("message"))[:600]
+        except Exception:
+            pass
+        return body[:600]
+    return fallback
+
+
+def _analytics_http_get(url: str, headers: Dict[str, str]) -> bytes:
+    request_headers = {"Accept": "application/json, text/csv;q=0.9", **headers}
+    api_request = urllib.request.Request(url, headers=request_headers, method="GET")
+    try:
+        with urllib.request.urlopen(api_request, timeout=ANALYTICS_HTTP_TIMEOUT_SECONDS) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        raw_body = exc.read() if exc.fp is not None else b""
+        raise _ZohoAnalyticsRequestError(
+            int(exc.code or 502),
+            _analytics_error_detail(raw_body, str(exc.reason or "Zoho Analytics request failed.")),
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise _ZohoAnalyticsRequestError(502, f"Zoho Analytics is unavailable: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise _ZohoAnalyticsRequestError(504, "Zoho Analytics did not respond before the request timed out.") from exc
+
+
+def _analytics_discover_org_ids(headers: Dict[str, str], parameters: Dict[str, str]) -> List[str]:
+    try:
+        raw = _analytics_http_get(
+            _analytics_url("/restapi/v2/orgs", parameters),
+            headers,
+        )
+        payload = json.loads(raw.decode("utf-8-sig", errors="replace"))
+        data = payload.get("data") if isinstance(payload, dict) else {}
+        orgs = data.get("orgs") if isinstance(data, dict) else []
+        if not isinstance(orgs, list):
+            return []
+        default_ids = [
+            str(org.get("orgId") or "").strip()
+            for org in orgs
+            if isinstance(org, dict) and org.get("isDefault") and str(org.get("orgId") or "").strip()
+        ]
+        other_ids = [
+            str(org.get("orgId") or "").strip()
+            for org in orgs
+            if isinstance(org, dict) and not org.get("isDefault") and str(org.get("orgId") or "").strip()
+        ]
+        return default_ids + other_ids
+    except _ZohoAnalyticsRequestError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The Zoho Analytics organization ID is not configured and could not be discovered. "
+                "Set analytics_org_id in labelkit_config.json, or add ZohoAnalytics.metadata.read to the "
+                f"'{ANALYTICS_CONNECTION_LINK_NAME}' connection. {exc.message}"
+            ),
+        ) from exc
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Zoho Analytics returned an invalid organization response.",
+        ) from exc
+
+
+def _analytics_export_order_rows(request: Request, sales_order_number: str) -> List[Dict[str, str]]:
+    global ANALYTICS_DISCOVERED_ORG_ID
+
+    if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES:
+        if ANALYTICS_LOCAL_FILE is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Local Analytics testing requires 'analytics_local_file' in the local LabelKit profile.",
+            )
+        if not ANALYTICS_LOCAL_FILE.is_file():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Local order workbook was not found at '{ANALYTICS_LOCAL_FILE}'. "
+                    "Add the configured .csv or .xlsx file before searching for an order."
+                ),
+            )
+        try:
+            local_rows = _read_spreadsheet_bytes(
+                ANALYTICS_LOCAL_FILE.name,
+                ANALYTICS_LOCAL_FILE.read_bytes(),
+            )
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Local order workbook could not be read: {exc}",
+            ) from exc
+        wanted_order = _canonical_order_number(sales_order_number)
+        return [
+            {str(key): value for key, value in row.items()}
+            for row in local_rows
+            if _canonical_order_number(_analytics_row_value(row, ANALYTICS_ORDER_COLUMN)) == wanted_order
+        ]
+
+    headers, connection_parameters = _analytics_connection_details(request)
+    header_org_id = _analytics_header_value(headers, "ZANALYTICS-ORGID")
+    configured_org_id = ANALYTICS_ORG_ID or header_org_id or ANALYTICS_DISCOVERED_ORG_ID
+    org_ids = [configured_org_id] if configured_org_id else _analytics_discover_org_ids(headers, connection_parameters)
+    org_ids = list(dict.fromkeys(org_id for org_id in org_ids if org_id))
+    if not org_ids:
+        raise HTTPException(
+            status_code=503,
+            detail="No accessible Zoho Analytics organization was found for the 'orderdata' connection.",
+        )
+
+    safe_order = sales_order_number.replace("'", "''")
+    safe_order_column = ANALYTICS_ORDER_COLUMN.replace('"', '""')
+    export_config = {
+        "responseFormat": "csv",
+        "criteria": f'"{safe_order_column}"=\'{safe_order}\'',
+        "selectedColumns": [
+            ANALYTICS_ORDER_COLUMN,
+            ANALYTICS_SKU_COLUMN,
+            ANALYTICS_QUANTITY_COLUMN,
+            *ANALYTICS_ORDER_DETAIL_COLUMNS.values(),
+        ],
+        "includeHeader": True,
+    }
+    parameters = dict(connection_parameters)
+    parameters["CONFIG"] = json.dumps(export_config, separators=(",", ":"))
+    path = f"/restapi/v2/workspaces/{ANALYTICS_WORKSPACE_ID}/views/{ANALYTICS_VIEW_ID}/data"
+    last_error: Optional[_ZohoAnalyticsRequestError] = None
+
+    for org_id in org_ids:
+        request_headers = {
+            key: value
+            for key, value in headers.items()
+            if str(key).strip().lower() != "zanalytics-orgid"
+        }
+        request_headers["ZANALYTICS-ORGID"] = org_id
+        try:
+            raw = _analytics_http_get(_analytics_url(path, parameters), request_headers)
+            ANALYTICS_DISCOVERED_ORG_ID = org_id
+            text = raw.decode("utf-8-sig", errors="replace")
+            return [dict(row) for row in csv.DictReader(io.StringIO(text))]
+        except _ZohoAnalyticsRequestError as exc:
+            last_error = exc
+
+    error_detail = last_error.message if last_error else "The Analytics view could not be read."
+    raise HTTPException(
+        status_code=502,
+        detail=(
+            f"Zoho Analytics could not read '{ANALYTICS_VIEW_NAME}' with connection "
+            f"'{ANALYTICS_CONNECTION_LINK_NAME}'. {error_detail}"
+        ),
+    )
+
+
+def _analytics_row_value(row: Dict[str, Any], column_name: str) -> str:
+    wanted = str(column_name or "").strip().lower()
+    for key, value in row.items():
+        if str(key or "").strip().lower() == wanted:
+            return str(value or "").strip()
+    return ""
+
+
+def _canonical_order_sku(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if re.fullmatch(r"\d+(?:\.0+)?", raw):
+        raw = raw.split(".", 1)[0].lstrip("0") or "0"
+    return re.sub(r"[\s_-]+", "", raw)
+
+
+def _canonical_order_number(value: Any) -> str:
+    raw = str(value or "").strip()
+    if re.fullmatch(r"\d+\.0+", raw):
+        raw = raw.split(".", 1)[0]
+    return raw.casefold()
+
+
+def _analytics_quantity(value: Any) -> Optional[float | int]:
+    raw = str(value or "").strip().replace(",", "")
+    if not raw:
+        return None
+    try:
+        quantity = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if quantity <= 0 or quantity != quantity:
+        return None
+    return int(quantity) if quantity.is_integer() else round(quantity, 6)
+
+
+@app.post("/api/mpl/orders/lookup")
+def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "generate")
+    sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
+    if not sales_order_number:
+        raise HTTPException(status_code=400, detail="Sales Order Number is required.")
+    if len(sales_order_number) > 120 or any(ord(char) < 32 for char in sales_order_number):
+        raise HTTPException(status_code=400, detail="Sales Order Number is invalid.")
+
+    analytics_rows = _analytics_export_order_rows(request, sales_order_number)
+    if not analytics_rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No rows were found for Sales Order Number '{sales_order_number}'.",
+        )
+
+    aggregated: Dict[str, Dict[str, Any]] = {}
+    ignored_rows = 0
+    for row in analytics_rows:
+        sku = _analytics_row_value(row, ANALYTICS_SKU_COLUMN)
+        quantity = _analytics_quantity(_analytics_row_value(row, ANALYTICS_QUANTITY_COLUMN))
+        sku_key = _canonical_order_sku(sku)
+        if not sku_key or quantity is None:
+            ignored_rows += 1
+            continue
+        if sku_key not in aggregated:
+            aggregated[sku_key] = {"sku": sku, "quantity_ordered": quantity}
+        else:
+            total = float(aggregated[sku_key]["quantity_ordered"]) + float(quantity)
+            aggregated[sku_key]["quantity_ordered"] = int(total) if total.is_integer() else round(total, 6)
+
+    if not aggregated:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Rows were found for order '{sales_order_number}', but none had both "
+                f"'{ANALYTICS_SKU_COLUMN}' and a positive '{ANALYTICS_QUANTITY_COLUMN}'."
+            ),
+        )
+
+    product_rows = _datastore_load_product_master(request)
+    product_source = "datastore"
+    if product_rows is None:
+        product_rows = _shared_product_master_file_read()
+        product_source = "file"
+    eligible_products = [
+        row
+        for row in _dedupe_product_master_rows(product_rows)
+        if normalize_packaging_level(row.get("packaging_level")) == "Case" and bool(row.get("in_packing_list"))
+    ]
+    products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
+    for product in eligible_products:
+        key = _canonical_order_sku(product.get("sku"))
+        if key:
+            products_by_sku.setdefault(key, []).append(product)
+
+    items: List[Dict[str, Any]] = []
+    matched_count = 0
+    ambiguous_count = 0
+    for sku_key, order_item in aggregated.items():
+        candidates = products_by_sku.get(sku_key, [])
+        if len(candidates) == 1:
+            matched_count += 1
+            match_status = "matched"
+            product = candidates[0]
+        elif len(candidates) > 1:
+            ambiguous_count += 1
+            match_status = "ambiguous"
+            product = None
+        else:
+            match_status = "unmatched"
+            product = None
+        items.append({
+            **order_item,
+            "match_status": match_status,
+            "product": product,
+            "candidate_storefronts": sorted({
+                str(candidate.get("storefront") or "").strip()
+                for candidate in candidates
+                if str(candidate.get("storefront") or "").strip()
+            }),
+        })
+
+    order_details = {
+        field_name: next(
+            (
+                value
+                for row in analytics_rows
+                if (value := _analytics_row_value(row, column_name))
+            ),
+            "",
+        )
+        for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
+    }
+
+    local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
+    return JSONResponse(content={
+        "sales_order_number": sales_order_number,
+        "order_details": order_details,
+        "source": {
+            "service": "local_file" if local_file_source else "zoho_analytics",
+            "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,
+            "local_file": ANALYTICS_LOCAL_FILE.name if local_file_source and ANALYTICS_LOCAL_FILE else "",
+            "workspace_id": ANALYTICS_WORKSPACE_ID,
+            "view_id": ANALYTICS_VIEW_ID,
+            "view_name": ANALYTICS_VIEW_NAME,
+            "product_master": product_source,
+        },
+        "summary": {
+            "analytics_rows": len(analytics_rows),
+            "line_items": len(items),
+            "matched_products": matched_count,
+            "unmatched_products": len(items) - matched_count - ambiguous_count,
+            "ambiguous_products": ambiguous_count,
+            "ignored_rows": ignored_rows,
+        },
+        "items": items,
+    })
 
 
 def _read_spreadsheet_bytes(filename: str, data: bytes) -> List[Dict[str, Any]]:

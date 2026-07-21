@@ -86,6 +86,7 @@ KeHE and standalone MPL reference table routes:
 - `GET /api/kehe/dc-directory` read-only KeHE storefront view; `PUT` returns `405`
 - `GET/PUT /api/mpl/product-master`
 - `GET/PUT /api/mpl/directory`
+- `POST /api/mpl/orders/lookup` search the connected Zoho Analytics order view and match its SKUs to Product Master
 - `GET/POST/DELETE /api/kehe/mpl-drafts`
 - `GET /api/kehe/audit-log`
 
@@ -149,6 +150,12 @@ KeHE functionality:
 - `frankenstein_project/data/mpl_product_master.json`
 - `frankenstein_project/data/mpl_directory.json`
 - `frankenstein_project/data/kehe_mpl_drafts.json`
+
+The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details Test` through the Catalyst Connection `orderdata`, groups duplicate `SKUNumber` rows, and uses `Quantity Ordered` for the MPL quantities. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs are left editable and marked for review.
+
+For local testing, the `local` LabelKit profile reads the file configured by `analytics_local_file` instead of the Catalyst Connection. It points to the local fixture at `data/KeHE_Michaels_Storefront_Test_Data.csv`. The fixture contains customer contact and address columns and is explicitly excluded from Git. A Docker image built on this workstation still includes the local file unless it is also added to `.dockerignore`. The `catalyst` profile continues to use `orderdata` and does not read the local file.
+
+Required workbook headers: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`, `Billing Customer Name`, `Bill To Phone`, `Billing Street1`, `Billing Street2`, `Billing Street3`, `Billing City`, `Billing State`, `Billing Zip Code`, `Billing Country`, `Ship To Name`, `Ship To Phone`, `Shipping Street1`, `Shipping Street2`, `Shipping Street3`, `Shipping City`, `Shipping State`, `Shipping Zip Code`, `Shipping Country`, and `Order Notes`.
 
 KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`. This keeps all storefront data in one place while letting KeHE remain isolated to KeHE rows:
 
@@ -346,6 +353,16 @@ Catalyst tables and role config:
 - `role_id_map.27327000000040037=Admin`
 - `role_id_map.27327000000040038=User`
 
+Zoho Analytics Order Data config:
+
+- Connection link name: `orderdata`
+- Required connection scope: `ZohoAnalytics.data.read`
+- Optional auto-discovery scope: `ZohoAnalytics.metadata.read`
+- Workspace: `1436788000013504925`
+- View: `1436788000018535002` (`Data with Product Details Test`)
+- Lookup columns: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`
+- If the connection does not return a `ZANALYTICS-ORGID` header and does not have the metadata-read scope, set `analytics_org_id` in `frankenstein_project/labelkit_config.json`.
+
 Before deploying strict cloud mode, confirm the Catalyst Data Store tables above exist and are seeded. After deploy, the table APIs should report `source: "datastore"`; `source: "file"` means the deployment is not using cloud tables.
 
 Verify the cloud tables exist before a strict deployment:
@@ -475,6 +492,7 @@ required = {
     "PUT /api/mpl/product-master",
     "GET /api/mpl/directory",
     "PUT /api/mpl/directory",
+    "POST /api/mpl/orders/lookup",
 }
 missing = sorted(required - set(routes))
 assert not missing, missing

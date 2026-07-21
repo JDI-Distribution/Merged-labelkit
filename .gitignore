@@ -33,3 +33,6 @@ check_frontend.js
 
 # Runtime-generated local state
 frankenstein_project/data/kehe_audit_log.json
+
+# Local order fixture contains customer contact/address data
+frankenstein_project/data/KeHE_Michaels_Storefront_Test_Data.csv
