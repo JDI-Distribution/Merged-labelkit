@@ -151,7 +151,7 @@ KeHE functionality:
 - `frankenstein_project/data/mpl_directory.json`
 - `frankenstein_project/data/kehe_mpl_drafts.json`
 
-The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details Test` through the Catalyst Connection `orderdata`, groups duplicate `SKUNumber` rows, and uses `Quantity Ordered` for the MPL quantities. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs are left editable and marked for review.
+The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details` through the Catalyst Connection `orderdata`, groups duplicate `SKUNumber` rows, and uses `Quantity Ordered` for the MPL quantities. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs are left editable and marked for review.
 
 For local testing, the `local` LabelKit profile reads the file configured by `analytics_local_file` instead of the Catalyst Connection. It points to the local fixture at `data/KeHE_Michaels_Storefront_Test_Data.csv`. The fixture contains customer contact and address columns and is explicitly excluded from Git. A Docker image built on this workstation still includes the local file unless it is also added to `.dockerignore`. The `catalyst` profile continues to use `orderdata` and does not read the local file.
 
@@ -359,7 +359,7 @@ Zoho Analytics Order Data config:
 - Required connection scope: `ZohoAnalytics.data.read`
 - Optional auto-discovery scope: `ZohoAnalytics.metadata.read`
 - Workspace: `1436788000013504925`
-- View: `1436788000018535002` (`Data with Product Details Test`)
+- View: `1436788000014668542` (`Data with Product Details`)
 - Lookup columns: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`
 - If the connection does not return a `ZANALYTICS-ORGID` header and does not have the metadata-read scope, set `analytics_org_id` in `frankenstein_project/labelkit_config.json`.
 

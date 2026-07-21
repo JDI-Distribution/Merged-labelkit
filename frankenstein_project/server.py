@@ -194,12 +194,12 @@ ANALYTICS_WORKSPACE_ID = str(
     or "1436788000013504925"
 ).strip()
 ANALYTICS_VIEW_ID = str(
-    _config_value("ANALYTICS_VIEW_ID", "analytics_view_id", "1436788000018535002")
-    or "1436788000018535002"
+    _config_value("ANALYTICS_VIEW_ID", "analytics_view_id", "1436788000014668542")
+    or "1436788000014668542"
 ).strip()
 ANALYTICS_VIEW_NAME = str(
-    _config_value("ANALYTICS_VIEW_NAME", "analytics_view_name", "Data with Product Details Test")
-    or "Data with Product Details Test"
+    _config_value("ANALYTICS_VIEW_NAME", "analytics_view_name", "Data with Product Details")
+    or "Data with Product Details"
 ).strip()
 ANALYTICS_ORDER_COLUMN = str(
     _config_value("ANALYTICS_ORDER_COLUMN", "analytics_order_column", "Sales Order Number")
