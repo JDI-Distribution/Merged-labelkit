@@ -2080,6 +2080,7 @@
     const help = document.getElementById('mpl-order-instance-selection-help');
     if (picker) {
       picker.classList.add('hidden');
+      picker.closest('.mpl-order-lookup-card')?.classList.remove('mpl-order-selection-open');
       delete picker.dataset.salesOrderNumber;
       delete picker.dataset.ecomdashId;
     }
@@ -2131,6 +2132,7 @@
     if (count) count.textContent = `${orderInstances.length} unique order${orderInstances.length === 1 ? '' : 's'}`;
     if (button) button.disabled = true;
     picker.classList.remove('hidden');
+    picker.closest('.mpl-order-lookup-card')?.classList.add('mpl-order-selection-open');
   }
 
   function selectMplOrderInstance(selectedCheckbox) {
