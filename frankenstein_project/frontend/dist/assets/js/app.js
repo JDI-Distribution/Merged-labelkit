@@ -2223,7 +2223,10 @@
     mpl.shipping_instructions = String(orderDetails.order_notes || '').trim();
     mpl.source_files = [`${orderSourceLabel} · ${payload?.source?.view_name || 'Order Data'}`];
     mpl.palletization_source = `${orderSourceLabel} + Product Master`;
-    mpl.palletization_note = `Order SKUs and quantities loaded from ${orderSourceLabel}; product details and weights matched from the saved Product Master.`;
+    const convertedItemCount = Number(payload?.summary?.converted_to_cases || 0);
+    mpl.palletization_note = convertedItemCount
+      ? `Order SKUs and each quantities loaded from ${orderSourceLabel}; ${convertedItemCount} line item(s) converted to cases using the saved Product Master case pack before palletization.`
+      : `Order SKUs and quantities loaded from ${orderSourceLabel}; product details and weights matched from the saved Product Master.`;
     mpl.items = sourceItems.map((sourceItem, index) => {
       const quantity = analyticsOrderQuantity(sourceItem?.quantity_ordered) || '1';
       const sku = String(sourceItem?.sku || '').trim();
@@ -2233,9 +2236,18 @@
       item.qty_on_pallet = quantity;
       item.total_ordered = quantity;
       item.total_shipped = quantity;
+      item.analytics_quantity_eaches = analyticsOrderQuantity(sourceItem?.quantity_ordered_eaches);
+      item.eaches_per_inner_pack = analyticsOrderQuantity(sourceItem?.eaches_per_inner_pack);
+      item.inner_packs_per_case = analyticsOrderQuantity(sourceItem?.inner_packs_per_case);
+      item.eaches_per_case = analyticsOrderQuantity(sourceItem?.eaches_per_case);
+      item.case_conversion_exact = sourceItem?.case_conversion_exact !== false;
 
       if (sourceItem?.match_status === 'matched' && sourceItem.product) {
         applyProductRowToMplItem(item, normalizeProductRow(sourceItem.product), { defaultQty: quantity });
+        if (sourceItem?.quantity_uom === 'CASES' && sourceItem?.case_conversion_exact === false) {
+          item.notes = `Analytics ordered ${item.analytics_quantity_eaches || sourceItem.quantity_ordered_eaches} eaches, which is not a full ${item.eaches_per_case || sourceItem.eaches_per_case}-each case multiple. Rounded up to ${quantity} cases for palletization.`;
+          warnings.push(`SKU ${sku}: ${item.notes}`);
+        }
       } else if (sourceItem?.match_status === 'ambiguous') {
         const storefronts = Array.isArray(sourceItem.candidate_storefronts)
           ? sourceItem.candidate_storefronts.filter(Boolean).join(', ')
@@ -2266,7 +2278,9 @@
       line_items: sourceItems.length,
       matched_products: Number(payload?.summary?.matched_products || 0),
       unmatched_products: Number(payload?.summary?.unmatched_products || 0),
-      ambiguous_products: Number(payload?.summary?.ambiguous_products || 0)
+      ambiguous_products: Number(payload?.summary?.ambiguous_products || 0),
+      converted_to_cases: convertedItemCount,
+      partial_case_items: Number(payload?.summary?.partial_case_items || 0)
     };
     draft.analytics_order_source = payload?.source || {};
     draft.analytics_order_details = orderDetails;
@@ -2278,6 +2292,9 @@
       sales_order_number: orderNumber,
       sku: item.sku || '',
       quantity_ordered: item.quantity_ordered ?? '',
+      quantity_ordered_eaches: item.quantity_ordered_eaches ?? '',
+      quantity_ordered_cases: item.quantity_ordered_cases ?? '',
+      eaches_per_case: item.eaches_per_case ?? '',
       match_status: item.match_status || ''
     }));
     ensureMplPalletState(mpl);
@@ -2332,9 +2349,10 @@
 
       const summary = payload.summary || {};
       const matched = Number(summary.matched_products || 0);
-      const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
+      const converted = Number(summary.converted_to_cases || 0);
+      const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) + Number(summary.partial_case_items || 0);
       setStatus(
-        `Sales Order ${orderNumber} loaded: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es), ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}.`,
+        `Sales Order ${orderNumber} loaded: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${converted ? `, ${converted} converted from eaches to cases` : ''}, ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}.`,
         needsReview ? 'info' : 'success'
       );
     } catch (err) {

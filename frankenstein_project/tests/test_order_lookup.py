@@ -2,6 +2,7 @@ import unittest
 
 from server import (
     _analytics_order_instance_groups,
+    _analytics_kehe_case_conversion,
     _datastore_row_to_mpl_draft,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
@@ -44,6 +45,49 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         self.assertEqual(2, instances[0]["sku_count"])
         self.assertEqual(2, len(instances[0]["rows"]))
         self.assertEqual("84704273", instances[1]["ecomdash_id"])
+
+    def test_kehe_eaches_convert_to_cases_using_product_case_pack(self):
+        conversion = _analytics_kehe_case_conversion(684, {
+            "storefront": "KeHE",
+            "case_qty": "36",
+        })
+
+        self.assertIsNotNone(conversion)
+        self.assertEqual(684, conversion["quantity_ordered_eaches"])
+        self.assertEqual(19, conversion["quantity_ordered_cases"])
+        self.assertEqual(19, conversion["quantity_ordered"])
+        self.assertTrue(conversion["case_conversion_exact"])
+        self.assertEqual(0, conversion["case_conversion_remainder_eaches"])
+
+    def test_partial_kehe_case_rounds_up_and_records_remainder(self):
+        conversion = _analytics_kehe_case_conversion(685, {
+            "storefront": "KeHE",
+            "case_qty": "36",
+        })
+
+        self.assertEqual(20, conversion["quantity_ordered_cases"])
+        self.assertFalse(conversion["case_conversion_exact"])
+        self.assertEqual(1, conversion["case_conversion_remainder_eaches"])
+
+    def test_kehe_uses_six_by_six_default_when_case_pack_is_not_configured(self):
+        conversion = _analytics_kehe_case_conversion(72, {
+            "storefront": "KeHE",
+            "case_qty": "1",
+        })
+
+        self.assertEqual(2, conversion["quantity_ordered_cases"])
+        self.assertEqual(36, conversion["eaches_per_case"])
+        self.assertEqual(6, conversion["eaches_per_inner_pack"])
+        self.assertEqual(6, conversion["inner_packs_per_case"])
+        self.assertEqual("kehe_default", conversion["case_pack_source"])
+
+    def test_non_kehe_quantity_is_not_converted(self):
+        conversion = _analytics_kehe_case_conversion(684, {
+            "storefront": "BAKELL.COM",
+            "case_qty": "36",
+        })
+
+        self.assertIsNone(conversion)
 
 
 class MplDraftStorageTests(unittest.TestCase):

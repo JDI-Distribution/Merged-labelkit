@@ -18,6 +18,7 @@ import base64
 import json
 import csv
 import io
+import math
 import os
 import re
 import shutil
@@ -218,6 +219,9 @@ ANALYTICS_QUANTITY_COLUMN = str(
 ANALYTICS_ORDER_INSTANCE_ID_COLUMN = "Ecomdash ID"
 ANALYTICS_ORDER_INSTANCE_DATE_COLUMN = "Invoice Date"
 ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN = "Storefront"
+KEHE_EACHES_PER_INNER_PACK = 6
+KEHE_INNER_PACKS_PER_CASE = 6
+KEHE_DEFAULT_EACHES_PER_CASE = KEHE_EACHES_PER_INNER_PACK * KEHE_INNER_PACKS_PER_CASE
 ANALYTICS_ORDER_DETAIL_COLUMNS: Dict[str, str] = {
     "billing_customer_name": "Billing Customer Name",
     "bill_to_phone": "Bill To Phone",
@@ -2073,6 +2077,44 @@ def _analytics_quantity(value: Any) -> Optional[float | int]:
     return int(quantity) if quantity.is_integer() else round(quantity, 6)
 
 
+def _analytics_kehe_case_conversion(
+    quantity_ordered: Any,
+    product: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Convert an Analytics each quantity into shippable KeHE cases."""
+    each_quantity = _analytics_quantity(quantity_ordered)
+    if each_quantity is None or not isinstance(product, dict) or not _is_kehe_storefront(product.get("storefront")):
+        return None
+
+    configured_case_qty = _analytics_quantity(product.get("case_qty"))
+    use_product_case_qty = configured_case_qty is not None and float(configured_case_qty) > 1
+    eaches_per_case = configured_case_qty if use_product_case_qty else KEHE_DEFAULT_EACHES_PER_CASE
+    raw_case_quantity = float(each_quantity) / float(eaches_per_case)
+    nearest_whole_case = round(raw_case_quantity)
+    exact_case_multiple = abs(raw_case_quantity - nearest_whole_case) < 1e-9
+    case_quantity = int(nearest_whole_case if exact_case_multiple else math.ceil(raw_case_quantity))
+    full_cases = math.floor(raw_case_quantity)
+    remainder_eaches_value = 0.0 if exact_case_multiple else float(each_quantity) - (full_cases * float(eaches_per_case))
+    remainder_eaches: float | int = (
+        int(round(remainder_eaches_value))
+        if abs(remainder_eaches_value - round(remainder_eaches_value)) < 1e-9
+        else round(remainder_eaches_value, 6)
+    )
+
+    return {
+        "quantity_ordered_eaches": each_quantity,
+        "quantity_ordered_cases": case_quantity,
+        "quantity_ordered": case_quantity,
+        "quantity_uom": "CASES",
+        "eaches_per_inner_pack": KEHE_EACHES_PER_INNER_PACK,
+        "inner_packs_per_case": KEHE_INNER_PACKS_PER_CASE,
+        "eaches_per_case": eaches_per_case,
+        "case_pack_source": "product_master" if use_product_case_qty else "kehe_default",
+        "case_conversion_exact": exact_case_multiple,
+        "case_conversion_remainder_eaches": remainder_eaches,
+    }
+
+
 @app.post("/api/mpl/orders/lookup")
 def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
@@ -2177,6 +2219,8 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     items: List[Dict[str, Any]] = []
     matched_count = 0
     ambiguous_count = 0
+    converted_to_cases = 0
+    partial_case_items = 0
     for sku_key, order_item in aggregated.items():
         candidates = products_by_sku.get(sku_key, [])
         if len(candidates) == 1:
@@ -2190,8 +2234,15 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
         else:
             match_status = "unmatched"
             product = None
+        converted_order_item = dict(order_item)
+        conversion = _analytics_kehe_case_conversion(order_item.get("quantity_ordered"), product)
+        if conversion:
+            converted_order_item.update(conversion)
+            converted_to_cases += 1
+            if not conversion.get("case_conversion_exact"):
+                partial_case_items += 1
         items.append({
-            **order_item,
+            **converted_order_item,
             "match_status": match_status,
             "product": product,
             "candidate_storefronts": sorted({
@@ -2234,6 +2285,8 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             "unmatched_products": len(items) - matched_count - ambiguous_count,
             "ambiguous_products": ambiguous_count,
             "ignored_rows": ignored_rows,
+            "converted_to_cases": converted_to_cases,
+            "partial_case_items": partial_case_items,
         },
         "items": items,
     })
