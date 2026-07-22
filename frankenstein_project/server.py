@@ -3391,7 +3391,15 @@ def serve_frontend_index() -> HTMLResponse:
             status_code=500,
         )
     html = index_path.read_text(encoding="utf-8")
-    return HTMLResponse(html, media_type="text/html")
+    return HTMLResponse(
+        html,
+        media_type="text/html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/{full_path:path}")
@@ -3402,6 +3410,8 @@ async def spa_fallback(full_path: str, request: Request):
 
     requested_path = FRONTEND_DIST / full_path
     if requested_path.is_file():
+        if requested_path.name.lower() == "index.html":
+            return serve_frontend_index()
         return FileResponse(requested_path)
 
     return serve_frontend_index()

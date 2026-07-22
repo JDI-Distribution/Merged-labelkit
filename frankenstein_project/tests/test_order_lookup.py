@@ -6,6 +6,7 @@ from server import (
     _datastore_row_to_mpl_draft,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
+    serve_frontend_index,
 )
 
 
@@ -127,6 +128,14 @@ class MplDraftStorageTests(unittest.TestCase):
 
         self.assertTrue(row["DRAFT_JSON"].startswith("zlib:"))
         self.assertEqual(draft, restored["draft"])
+
+
+class FrontendDeliveryTests(unittest.TestCase):
+    def test_index_html_is_not_cached(self):
+        response = serve_frontend_index()
+
+        self.assertEqual("no-store, no-cache, must-revalidate, max-age=0", response.headers["cache-control"])
+        self.assertEqual("no-cache", response.headers["pragma"])
 
 
 if __name__ == "__main__":
