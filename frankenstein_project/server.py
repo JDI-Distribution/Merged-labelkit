@@ -219,9 +219,6 @@ ANALYTICS_QUANTITY_COLUMN = str(
 ANALYTICS_ORDER_INSTANCE_ID_COLUMN = "Ecomdash ID"
 ANALYTICS_ORDER_INSTANCE_DATE_COLUMN = "Invoice Date"
 ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN = "Storefront"
-KEHE_EACHES_PER_INNER_PACK = 6
-KEHE_INNER_PACKS_PER_CASE = 6
-KEHE_DEFAULT_EACHES_PER_CASE = KEHE_EACHES_PER_INNER_PACK * KEHE_INNER_PACKS_PER_CASE
 ANALYTICS_ORDER_DETAIL_COLUMNS: Dict[str, str] = {
     "billing_customer_name": "Billing Customer Name",
     "bill_to_phone": "Bill To Phone",
@@ -290,10 +287,11 @@ MPL_PRODUCT_MASTER_FILE = Path(
     os.getenv("MPL_PRODUCT_MASTER_FILE", str(BASE_DIR / "data" / "mpl_product_master.json"))
 )
 
-# Defaults used when older Product Master rows do not yet contain the new columns.
+# Package quantities must be explicit in Product Master. Older rows remain
+# readable, but Analytics order conversion will not guess a missing case pack.
 DEFAULT_CASE_QTY_BY_LEVEL = {
-    "Case": "36",
-    "Inner Pack": "6",
+    "Case": "",
+    "Inner Pack": "",
     "Each": "",
     "Shipper Contents": "",
     "Other": "",
@@ -582,7 +580,16 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
     )
     label_required = _first_value(row, "label_required", "LABEL_REQUIRED", "Label Required")
     in_packing_list = _product_in_packing_list(row, packaging_level, label_required)
-    case_qty = _first_value(row, "case_qty", "CASE_QTY", "Case Qty")
+    case_qty = _first_value(
+        row,
+        "case_qty",
+        "CASE_QTY",
+        "Case Qty",
+        "Eaches / Package",
+        "eaches_per_package",
+        "eaches_per_case",
+        "eaches_per_inner_pack",
+    )
     labels_per_unit = _first_value(row, "labels_per_unit", "LABELS_PER_UNIT", "Labels / Unit")
     sku = _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER")
 
@@ -2080,15 +2087,42 @@ def _analytics_quantity(value: Any) -> Optional[float | int]:
 def _analytics_kehe_case_conversion(
     quantity_ordered: Any,
     product: Optional[Dict[str, Any]],
+    packaging_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Convert an Analytics each quantity into shippable KeHE cases."""
+    """Convert Analytics eaches using an explicit KeHE Product Master case pack."""
     each_quantity = _analytics_quantity(quantity_ordered)
     if each_quantity is None or not isinstance(product, dict) or not _is_kehe_storefront(product.get("storefront")):
         return None
 
-    configured_case_qty = _analytics_quantity(product.get("case_qty"))
-    use_product_case_qty = configured_case_qty is not None and float(configured_case_qty) > 1
-    eaches_per_case = configured_case_qty if use_product_case_qty else KEHE_DEFAULT_EACHES_PER_CASE
+    eaches_per_case = _analytics_quantity(product.get("case_qty"))
+    if eaches_per_case is None or float(eaches_per_case) <= 1:
+        return None
+
+    eaches_per_inner_pack: Optional[float | int] = None
+    inner_packs_per_case: Optional[float | int] = None
+    wanted_sku = _canonical_order_sku(product.get("sku"))
+    wanted_storefront = _normalize_storefront(product.get("storefront")).lower()
+    for raw_row in packaging_rows or []:
+        row = normalize_product_master_row(raw_row)
+        if normalize_packaging_level(row.get("packaging_level")) != "Inner Pack":
+            continue
+        if _canonical_order_sku(row.get("sku")) != wanted_sku:
+            continue
+        if _normalize_storefront(row.get("storefront")).lower() != wanted_storefront:
+            continue
+        configured_inner_pack = _analytics_quantity(row.get("case_qty"))
+        if configured_inner_pack is None or float(configured_inner_pack) <= 1:
+            break
+        eaches_per_inner_pack = configured_inner_pack
+        calculated_inner_packs = float(eaches_per_case) / float(configured_inner_pack)
+        nearest_inner_pack = round(calculated_inner_packs)
+        inner_packs_per_case = (
+            int(nearest_inner_pack)
+            if abs(calculated_inner_packs - nearest_inner_pack) < 1e-9
+            else round(calculated_inner_packs, 6)
+        )
+        break
+
     raw_case_quantity = float(each_quantity) / float(eaches_per_case)
     nearest_whole_case = round(raw_case_quantity)
     exact_case_multiple = abs(raw_case_quantity - nearest_whole_case) < 1e-9
@@ -2106,10 +2140,10 @@ def _analytics_kehe_case_conversion(
         "quantity_ordered_cases": case_quantity,
         "quantity_ordered": case_quantity,
         "quantity_uom": "CASES",
-        "eaches_per_inner_pack": KEHE_EACHES_PER_INNER_PACK,
-        "inner_packs_per_case": KEHE_INNER_PACKS_PER_CASE,
+        "eaches_per_inner_pack": eaches_per_inner_pack,
+        "inner_packs_per_case": inner_packs_per_case,
         "eaches_per_case": eaches_per_case,
-        "case_pack_source": "product_master" if use_product_case_qty else "kehe_default",
+        "case_pack_source": "product_master",
         "case_conversion_exact": exact_case_multiple,
         "case_conversion_remainder_eaches": remainder_eaches,
     }
@@ -2205,9 +2239,10 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     if product_rows is None:
         product_rows = _shared_product_master_file_read()
         product_source = "file"
+    normalized_product_rows = _dedupe_product_master_rows(product_rows)
     eligible_products = [
         row
-        for row in _dedupe_product_master_rows(product_rows)
+        for row in normalized_product_rows
         if normalize_packaging_level(row.get("packaging_level")) == "Case" and bool(row.get("in_packing_list"))
     ]
     products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
@@ -2235,7 +2270,22 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             match_status = "unmatched"
             product = None
         converted_order_item = dict(order_item)
-        conversion = _analytics_kehe_case_conversion(order_item.get("quantity_ordered"), product)
+        if product is not None and _is_kehe_storefront(product.get("storefront")):
+            configured_case_pack = _analytics_quantity(product.get("case_qty"))
+            if configured_case_pack is None or float(configured_case_pack) <= 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Product Master Case row for SKU '{order_item.get('sku')}' requires "
+                        "Eaches / Package greater than 1 before Analytics eaches can be "
+                        "converted to cases."
+                    ),
+                )
+        conversion = _analytics_kehe_case_conversion(
+            order_item.get("quantity_ordered"),
+            product,
+            normalized_product_rows,
+        )
         if conversion:
             converted_order_item.update(conversion)
             converted_to_cases += 1
@@ -2362,6 +2412,12 @@ def _canonical_import_key(header: str, table: str) -> str:
         "case_qty": "case_qty",
         "case_quantity": "case_qty",
         "units_per_case": "case_qty",
+        "eaches_package": "case_qty",
+        "eaches_per_package": "case_qty",
+        "eaches_case": "case_qty",
+        "eaches_per_case": "case_qty",
+        "eaches_inner_pack": "case_qty",
+        "eaches_per_inner_pack": "case_qty",
         "labels_unit": "labels_per_unit",
         "labels_per_unit": "labels_per_unit",
         "labels_to_print_per_unit": "labels_per_unit",

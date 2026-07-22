@@ -1534,6 +1534,112 @@
       background: #fcfdff;
     }
 
+    .kehe-product-master-table .mpl-product-group-row td {
+      padding: 0;
+      background: linear-gradient(135deg, #eaf6f4 0%, #edf5ff 100%);
+      border-color: #b9d5dc;
+    }
+
+    .mpl-product-group-toggle {
+      width: 100%;
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: 30px minmax(210px, 1.3fr) minmax(150px, 0.8fr) minmax(240px, 1.5fr);
+      gap: 12px;
+      align-items: center;
+      border: 0;
+      padding: 9px 12px;
+      color: #123047;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mpl-product-group-toggle:hover,
+    .mpl-product-group-toggle:focus-visible {
+      background: rgba(255, 255, 255, 0.52);
+      outline: none;
+    }
+
+    .mpl-product-group-chevron {
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: #0f766e;
+      color: #ffffff;
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .mpl-product-group-identity {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .mpl-product-group-identity strong {
+      color: #0f3f5f;
+      font-family: "DM Mono", monospace;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .mpl-product-group-identity span,
+    .mpl-product-group-meta,
+    .mpl-product-group-summary {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .mpl-product-group-identity span {
+      color: #41576b;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .mpl-product-group-meta {
+      color: #52687c;
+      font-size: 10.5px;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 0.25px;
+    }
+
+    .mpl-product-group-summary {
+      color: #0f5f58;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .kehe-product-master-table .mpl-product-level-row td:first-child {
+      border-left: 3px solid #55a69b;
+    }
+
+    .mpl-product-pack-breakdown {
+      padding: 7px 8px !important;
+      color: #315369 !important;
+      background: #f8fbfd !important;
+      font-size: 10.5px;
+      font-weight: 700;
+      vertical-align: middle !important;
+    }
+
+    @media (max-width: 980px) {
+      .mpl-product-group-toggle {
+        grid-template-columns: 30px minmax(180px, 1fr) minmax(200px, 1fr);
+      }
+
+      .mpl-product-group-meta {
+        display: none;
+      }
+    }
+
     .audit-history-table {
       min-width: 1180px;
       table-layout: fixed;

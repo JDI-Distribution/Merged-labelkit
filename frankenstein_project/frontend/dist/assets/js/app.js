@@ -321,6 +321,7 @@
   let mplProductMasterRows = loadMplProductMasterFromStorage();
   let mplProductMasterLoadPromise = null;
   let mplProductMasterSaveTimer = null;
+  const mplExpandedProductGroups = new Set();
   let mplDirectoryRows = loadMplDirectoryFromStorage();
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
@@ -1067,9 +1068,6 @@
   }
 
   function defaultCaseQtyForLevel(level) {
-    const normalized = normalizePackagingLevel(level);
-    if (normalized === 'Inner Pack') return '6';
-    if (normalized === 'Case') return '1';
     return '';
   }
 
@@ -1100,7 +1098,17 @@
       packaging_level: packagingLevel,
       dimensions_in: String(row.dimensions_in ?? row['L X W X H (in)'] ?? row.lwh_in ?? '').trim(),
       weight_lbs: String(row.weight_lbs ?? row['WEIGHT(lbs)'] ?? row.weight ?? '').trim(),
-      case_qty: normalizeCaseQty(row.case_qty ?? row['Case Qty'] ?? row.case_quantity ?? row.units_per_case, packagingLevel),
+      case_qty: normalizeCaseQty(
+        row.case_qty
+          ?? row['Case Qty']
+          ?? row['Eaches / Package']
+          ?? row.eaches_per_package
+          ?? row.eaches_per_case
+          ?? row.eaches_per_inner_pack
+          ?? row.case_quantity
+          ?? row.units_per_case,
+        packagingLevel
+      ),
       labels_per_unit: normalizeLabelsPerUnit(row.labels_per_unit ?? row['Labels / Unit'] ?? row.labels_to_print_per_unit ?? row.label_copies_per_unit, packagingLevel),
       sku: String(row.sku ?? row.SKU ?? row.item_number ?? '').trim()
     };
@@ -1244,6 +1252,78 @@
     }
   }
 
+  function mplProductGroupKey(row, index = 0) {
+    const normalized = normalizeProductRow(row || {});
+    const storefront = normalizeStorefront(normalized.storefront).toLowerCase() || 'no-storefront';
+    const productIdentity = String(normalized.sku || normalized.gtin || `row-${index}`).trim().toLowerCase();
+    return `${storefront}|${productIdentity}`;
+  }
+
+  function mplPositivePackageQuantity(value) {
+    const quantity = Number(String(value ?? '').trim());
+    return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+  }
+
+  function mplFormatPackageQuantity(value) {
+    const quantity = Number(value);
+    if (!Number.isFinite(quantity)) return '';
+    return Number.isInteger(quantity) ? String(quantity) : String(Number(quantity.toFixed(6)));
+  }
+
+  function mplProductPackageBreakdown(rawRow, groupEntries = []) {
+    const row = normalizeProductRow(rawRow || {});
+    const level = normalizePackagingLevel(row.packaging_level);
+    const packageQuantity = mplPositivePackageQuantity(row.case_qty);
+    const normalizedGroupRows = groupEntries.map(entry => normalizeProductRow(entry?.row || entry || {}));
+
+    if (level === 'Each') return '1 each';
+    if (level === 'Inner Pack') {
+      return packageQuantity
+        ? `${mplFormatPackageQuantity(packageQuantity)} eaches / inner pack`
+        : 'Enter eaches / inner pack';
+    }
+    if (level === 'Case') {
+      if (!packageQuantity || packageQuantity <= 1) return 'Required for Analytics conversion';
+      const wantedSku = String(row.sku || '').trim().toLowerCase();
+      const wantedStorefront = normalizeStorefront(row.storefront).toLowerCase();
+      const innerPackRow = normalizedGroupRows.find(candidate => (
+        normalizePackagingLevel(candidate.packaging_level) === 'Inner Pack'
+        && String(candidate.sku || '').trim().toLowerCase() === wantedSku
+        && normalizeStorefront(candidate.storefront).toLowerCase() === wantedStorefront
+      ));
+      const innerPackQuantity = mplPositivePackageQuantity(innerPackRow?.case_qty);
+      if (innerPackQuantity && innerPackQuantity > 1) {
+        const innerPacksPerCase = packageQuantity / innerPackQuantity;
+        return `${mplFormatPackageQuantity(innerPackQuantity)} eaches / inner × ${mplFormatPackageQuantity(innerPacksPerCase)} inner packs = ${mplFormatPackageQuantity(packageQuantity)} eaches / case`;
+      }
+      return `${mplFormatPackageQuantity(packageQuantity)} eaches / case`;
+    }
+    if (level === 'Shipper Contents') {
+      return packageQuantity
+        ? `${mplFormatPackageQuantity(packageQuantity)} eaches / shipper`
+        : 'Optional shipper quantity';
+    }
+    return packageQuantity ? `${mplFormatPackageQuantity(packageQuantity)} eaches / package` : 'Optional';
+  }
+
+  function toggleMplProductGroup(button) {
+    const groupKey = String(button?.dataset?.groupKey || '');
+    if (!groupKey) return;
+    if (mplExpandedProductGroups.has(groupKey)) {
+      mplExpandedProductGroups.delete(groupKey);
+    } else {
+      mplExpandedProductGroups.add(groupKey);
+    }
+    renderMplProductMasterTable();
+  }
+
+  function refreshMplProductGrouping(index) {
+    const row = mplProductMasterRows[index];
+    if (!row) return;
+    mplExpandedProductGroups.add(mplProductGroupKey(row, index));
+    renderMplProductMasterTable();
+  }
+
   function renderMplProductMasterTable() {
     const body = document.getElementById('mpl-product-master-body');
     if (!body) return;
@@ -1251,30 +1331,79 @@
     const rows = mplProductMasterRows
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }));
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="11">No product rows yet. Add manually or upload data.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="12">No product rows yet. Add manually or upload data.</td></tr>';
       return;
     }
     const levelOptions = ['Case', 'Inner Pack', 'Each', 'Shipper Contents', 'Other'];
-    body.innerHTML = rows.map(({ row, index }) => {
+    const levelOrder = new Map(levelOptions.map((level, index) => [level, index]));
+    const groupsByKey = new Map();
+    rows.forEach(entry => {
+      const key = mplProductGroupKey(entry.row, entry.index);
+      if (!groupsByKey.has(key)) groupsByKey.set(key, { key, entries: [] });
+      groupsByKey.get(key).entries.push(entry);
+    });
+    const groups = [...groupsByKey.values()].sort((left, right) => {
+      const leftRow = left.entries[0]?.row || {};
+      const rightRow = right.entries[0]?.row || {};
+      return `${leftRow.storefront}|${leftRow.sku}|${leftRow.description}`.localeCompare(
+        `${rightRow.storefront}|${rightRow.sku}|${rightRow.description}`,
+        undefined,
+        { sensitivity: 'base', numeric: true }
+      );
+    });
+
+    const renderDetailRow = ({ row, index }, groupEntries) => {
       const printable = canPrintProductMasterLabel(row);
       const disabledReason = !isPackLabelLevel(row) ? 'Only Case/MP and Inner Pack/IP labels can be printed here.' : 'GTIN is required.';
       const editDisabled = canEdit ? '' : 'disabled';
+      const packagePlaceholder = row.packaging_level === 'Case'
+        ? 'e.g. 36'
+        : (row.packaging_level === 'Inner Pack' ? 'e.g. 6' : 'optional');
       return `
-      <tr>
-        <td><input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)"></td>
+      <tr class="mpl-product-level-row" data-product-row-index="${index}">
+        <td><input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)" onchange="refreshMplProductGrouping(${index})"></td>
         <td><input ${editDisabled} value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)" onchange="refreshMplProductGrouping(${index})"></td>
         <td><select ${editDisabled} onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
           ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select></td>
         <td><input ${editDisabled} value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"></td>
         <td><input ${editDisabled} value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"></td>
-        <td><input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="1" oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
+        <td><input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="${escapeHtml(packagePlaceholder)}" title="Number of sellable eaches contained in this packaging level." oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
+        <td class="mpl-product-pack-breakdown">${escapeHtml(mplProductPackageBreakdown(row, groupEntries))}</td>
         <td><input ${editDisabled} type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" oninput="updateMplProductRow(${index}, 'labels_per_unit', this.value)"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)"></td>
+        <td><input ${editDisabled} value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)" onchange="refreshMplProductGrouping(${index})"></td>
         <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualMplProductPackLabel(${index})">Preview</button></td>
         <td>${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button>` : ''}</td>
       </tr>`;
+    };
+
+    body.innerHTML = groups.map(group => {
+      group.entries.sort((left, right) => {
+        const leftOrder = levelOrder.get(left.row.packaging_level) ?? levelOptions.length;
+        const rightOrder = levelOrder.get(right.row.packaging_level) ?? levelOptions.length;
+        return leftOrder - rightOrder || left.index - right.index;
+      });
+      const primaryEntry = group.entries.find(entry => entry.row.packaging_level === 'Case') || group.entries[0];
+      const primaryRow = primaryEntry?.row || {};
+      const expanded = mplExpandedProductGroups.has(group.key);
+      const uniqueLevels = [...new Set(group.entries.map(entry => entry.row.packaging_level).filter(Boolean))];
+      const groupSummary = mplProductPackageBreakdown(primaryRow, group.entries);
+      return `
+        <tr class="mpl-product-group-row ${expanded ? 'is-expanded' : ''}">
+          <td colspan="12">
+            <button class="mpl-product-group-toggle" type="button" data-group-key="${escapeHtml(group.key)}" onclick="toggleMplProductGroup(this)" aria-expanded="${expanded ? 'true' : 'false'}">
+              <span class="mpl-product-group-chevron" aria-hidden="true">${expanded ? '−' : '+'}</span>
+              <span class="mpl-product-group-identity">
+                <strong>${escapeHtml(primaryRow.sku || 'SKU not set')}</strong>
+                <span>${escapeHtml(primaryRow.description || 'Description not set')}</span>
+              </span>
+              <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · ${uniqueLevels.length} packaging level${uniqueLevels.length === 1 ? '' : 's'}</span>
+              <span class="mpl-product-group-summary">${escapeHtml(groupSummary)}</span>
+            </button>
+          </td>
+        </tr>
+        ${expanded ? group.entries.map(entry => renderDetailRow(entry, group.entries)).join('') : ''}`;
     }).join('');
     applyPermissionUi();
     enhanceSearchableSelects(body);
@@ -1282,12 +1411,18 @@
 
   function addMplProductRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
-    mplProductMasterRows.push(normalizeProductRow({ storefront: 'KeHE', packaging_level: 'Case', in_packing_list: true, ...seed }));
+    const newRow = normalizeProductRow({ storefront: 'KeHE', packaging_level: 'Case', in_packing_list: true, ...seed });
+    mplProductMasterRows.push(newRow);
     const newIndex = mplProductMasterRows.length - 1;
+    mplExpandedProductGroups.add(mplProductGroupKey(newRow, newIndex));
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
     renderMplProductMasterTable();
-    scrollTableRowIntoView('mpl-product-master-body', newIndex);
+    const addedRow = document.querySelector(`#mpl-product-master-body [data-product-row-index="${newIndex}"]`);
+    if (addedRow) {
+      addedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      addedRow.querySelector('input')?.focus();
+    }
   }
 
   function deleteMplProductRow(index) {
@@ -1339,7 +1474,7 @@
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
       .filter(entry => isKeheStorefront(entry.row.storefront));
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="10">No KeHE rows yet. Add Storefront = KeHE rows from Packing List & Ti-Hi.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="11">No KeHE rows yet. Add Storefront = KeHE rows from Packing List & Ti-Hi.</td></tr>';
       return;
     }
     body.innerHTML = rows.map(({ row, index }) => {
@@ -1354,6 +1489,7 @@
         <td>${escapeHtml(row.dimensions_in || '—')}</td>
         <td>${escapeHtml(row.weight_lbs || '—')}</td>
         <td>${escapeHtml(row.case_qty || '—')}</td>
+        <td class="mpl-product-pack-breakdown">${escapeHtml(mplProductPackageBreakdown(row, rows))}</td>
         <td>${escapeHtml(row.labels_per_unit || '—')}</td>
         <td>${escapeHtml(row.sku || '—')}</td>
         <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualProductPackLabel(${index})">Preview</button></td>
@@ -2609,7 +2745,7 @@
   function exportMplProductMasterTable() {
     const rows = getAllMplProductMasterRows();
     downloadCsvRows('labelkit_product_master_export.csv', [
-      ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Case Qty', 'Labels / Unit', 'SKU'],
+      ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Eaches / Package', 'Labels / Unit', 'SKU'],
       ...rows.map(row => [
         row.storefront,
         row.gtin,
@@ -2650,7 +2786,7 @@
           ['KeHE', '45', 'KeHE Romeoville DC', 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA', 'Ship To address here', 'Bill To address here', 'GLN or matching values here']
         ]
       : [
-          ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Case Qty', 'Labels / Unit', 'SKU'],
+          ['Storefront', 'GTIN', 'Description', 'Packaging Level', 'L x W x H (in)', 'Weight', 'Eaches / Package', 'Labels / Unit', 'SKU'],
           ['KeHE', '10850068684998', 'Example Case Product', 'Case', '24 x 12 x 6', '2', '36', '2', 'TW-EXAMPLE']
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);

@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260722-eaches-to-cases">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260722-product-packaging-groups">
 </head>
 <body>
 
@@ -367,7 +367,7 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">GTIN / Packaging Master Table</div>
-          <div class="kehe-product-master-subtitle">KeHE view of the shared Product Master. Only rows with Storefront = KeHE are used here. Case Qty prints on the label; Labels / Unit controls generated copy count.</div>
+          <div class="kehe-product-master-subtitle">KeHE view of the shared Product Master. Eaches / Package supplies the label case quantity; Labels / Unit controls generated copy count.</div>
         </div>
         <button class="btn-secondary" onclick="closeKeheProductMasterModal()">Close</button>
       </div>
@@ -386,19 +386,20 @@
             <thead>
               <tr>
                 <th style="width:8%">Storefront</th>
-                <th style="width:11%">GTIN</th>
-                <th style="width:19%">Description</th>
-                <th style="width:10%">Packaging Level</th>
-                <th style="width:10%">L × W × H (in)</th>
-                <th style="width:7%">Weight (lbs)</th>
-                <th style="width:7%">Case Qty</th>
-                <th style="width:7%">Labels / Unit</th>
-                <th style="width:10%">SKU</th>
-                <th style="width:11%">Print Label</th>
+                <th style="width:10%">GTIN</th>
+                <th style="width:16%">Description</th>
+                <th style="width:9%">Packaging Level</th>
+                <th style="width:9%">L × W × H (in)</th>
+                <th style="width:6%">Weight (lbs)</th>
+                <th style="width:8%">Eaches / Package</th>
+                <th style="width:15%">Pack Breakdown</th>
+                <th style="width:6%">Labels / Unit</th>
+                <th style="width:8%">SKU</th>
+                <th style="width:5%">Print Label</th>
               </tr>
             </thead>
             <tbody id="kehe-product-master-body">
-              <tr><td class="empty-row" colspan="10">No KeHE rows yet. Add Storefront = KeHE rows from Packing List &amp; Ti-Hi.</td></tr>
+              <tr><td class="empty-row" colspan="11">No KeHE rows yet. Add Storefront = KeHE rows from Packing List &amp; Ti-Hi.</td></tr>
             </tbody>
           </table>
         </div>
@@ -465,7 +466,7 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Product Master Table</div>
-          <div class="kehe-product-master-subtitle">Shared source for Packing List &amp; Ti-Hi and KeHE. All product levels remain visible; Case rows appear in Create MPL.</div>
+          <div class="kehe-product-master-subtitle">Products are grouped by Storefront + SKU. Expand a product to edit its Case, Inner Pack, Each, and other packaging rows.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
       </div>
@@ -474,7 +475,7 @@
         <div class="kehe-product-master-toolbar">
           <div>
             <div class="kehe-product-master-title">Editable Product Data</div>
-            <div class="kehe-product-master-subtitle">Use one storefront per MPL. Mixed storefront SKUs block PDF generation.</div>
+            <div class="kehe-product-master-subtitle">Enter the number of sellable eaches in each package. Analytics conversion requires Eaches / Package on the Case row.</div>
           </div>
           <div class="kehe-product-master-actions">
             <button class="btn-secondary" type="button" onclick="downloadImportTemplate('product-master')">Download Product Template</button>
@@ -490,21 +491,22 @@
           <table class="kehe-product-master-table">
             <thead>
               <tr>
-                <th style="width:8%">Storefront</th>
-                <th style="width:11%">GTIN</th>
-                <th style="width:19%">Description</th>
-                <th style="width:10%">Packaging Level</th>
-                <th style="width:10%">L × W × H (in)</th>
-                <th style="width:7%">Weight</th>
-                <th style="width:7%">Case Qty</th>
-                <th style="width:7%">Labels / Unit</th>
-                <th style="width:10%">SKU</th>
-                <th style="width:6%">Print Label</th>
-                <th style="width:5%">Action</th>
+                <th style="width:7%">Storefront</th>
+                <th style="width:9%">GTIN</th>
+                <th style="width:15%">Description</th>
+                <th style="width:8%">Packaging Level</th>
+                <th style="width:8%">L × W × H (in)</th>
+                <th style="width:5%">Weight</th>
+                <th style="width:7%">Eaches / Package</th>
+                <th style="width:14%">Pack Breakdown</th>
+                <th style="width:6%">Labels / Unit</th>
+                <th style="width:8%">SKU</th>
+                <th style="width:7%">Print Label</th>
+                <th style="width:6%">Action</th>
               </tr>
             </thead>
             <tbody id="mpl-product-master-body">
-              <tr><td class="empty-row" colspan="11">No rows yet.</td></tr>
+              <tr><td class="empty-row" colspan="12">No rows yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -693,7 +695,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260722-eaches-to-cases"></script>
+<script src="/assets/js/app.js?v=20260722-product-packaging-groups"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
