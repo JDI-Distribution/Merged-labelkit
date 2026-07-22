@@ -15,6 +15,7 @@ endpoint selected by the user.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import csv
 import io
@@ -48,6 +49,7 @@ from pipelines.michaels_label_pipeline import (  # noqa: E402
     run_pipeline as run_michaels_pipeline,
 )
 from pipelines.kehe_pipeline import (  # noqa: E402
+    apply_product_master_to_mpl_draft,
     run_pipeline as run_kehe_pipeline,
     build_kehe_master_packing_list_draft,
     build_kehe_pallet_label_draft,
@@ -2840,6 +2842,19 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _hydrate_saved_mpl_record(
+    record: Dict[str, Any],
+    product_rows: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Refresh regenerable Product Master fields in a saved MPL response."""
+    hydrated = copy.deepcopy(record)
+    draft = hydrated.get("draft") if isinstance(hydrated.get("draft"), dict) else {}
+    draft["product_master"] = _dedupe_product_master_rows(product_rows)
+    apply_product_master_to_mpl_draft(draft, force=False)
+    hydrated["draft"] = draft
+    return hydrated
+
+
 @app.get("/api/kehe/mpl-drafts")
 async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
     _require_permission(request, "view")
@@ -2854,7 +2869,12 @@ async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "view")
     for record in _mpl_drafts_read(request):
         if str(record.get("id")) == draft_id:
-            return JSONResponse(content={"draft": record})
+            product_rows = _datastore_load_product_master(request)
+            if product_rows is None:
+                product_rows = _shared_product_master_file_read()
+            return JSONResponse(content={
+                "draft": _hydrate_saved_mpl_record(record, product_rows),
+            })
     raise HTTPException(status_code=404, detail="Saved MPL draft not found.")
 
 

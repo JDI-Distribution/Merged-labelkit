@@ -3,6 +3,7 @@ import unittest
 from server import (
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
+    _hydrate_saved_mpl_record,
     _product_each_gtin,
     _datastore_row_to_mpl_draft,
     _mpl_draft_for_storage,
@@ -228,6 +229,50 @@ class KeheMplItemNumberTests(unittest.TestCase):
 
 
 class MplDraftStorageTests(unittest.TestCase):
+    def test_saved_draft_rehydrates_legacy_sku_item_number_from_each_gtin(self):
+        record = {
+            "id": "saved-39830",
+            "name": "39830",
+            "draft": {
+                "packing_lists": [{
+                    "status": "Ready",
+                    "warnings": [],
+                    "items": [{
+                        "item_number": "TW-BRS205-4OZ",
+                        "sku": "TW-BRS205-4OZ",
+                        "gtin": "20850068684780",
+                        "qty_on_pallet": "19",
+                    }],
+                }],
+            },
+        }
+        product_rows = [
+            {
+                "storefront": "KeHE",
+                "in_packing_list": True,
+                "packaging_level": "Case",
+                "gtin": "20850068684780",
+                "sku": "TW-BRS205-4OZ",
+            },
+            {
+                "storefront": "KeHE",
+                "packaging_level": "Each",
+                "gtin": "850068684786",
+                "sku": "TW-BRS205-4OZ",
+            },
+        ]
+
+        hydrated = _hydrate_saved_mpl_record(record, product_rows)
+
+        self.assertEqual(
+            "850068684786",
+            hydrated["draft"]["packing_lists"][0]["items"][0]["item_number"],
+        )
+        self.assertEqual(
+            "TW-BRS205-4OZ",
+            record["draft"]["packing_lists"][0]["items"][0]["item_number"],
+        )
+
     def test_storage_copy_keeps_mpl_and_removes_regenerable_bulk_data(self):
         draft = {
             "product_master": [{"sku": "TW-BRS205-4OZ"}],

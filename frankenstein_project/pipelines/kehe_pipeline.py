@@ -8,6 +8,7 @@ if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 
 from pipelines.kehe import (  # noqa: E402
+    apply_product_master_to_mpl_draft,
     build_kehe_master_packing_list_draft,
     build_kehe_pack_label_draft,
     build_kehe_pallet_label_draft,
@@ -22,6 +23,7 @@ from pipelines.kehe import (  # noqa: E402
 )
 
 __all__ = [
+    "apply_product_master_to_mpl_draft",
     "build_kehe_master_packing_list_draft",
     "build_kehe_pack_label_draft",
     "build_kehe_pallet_label_draft",

@@ -2723,6 +2723,7 @@
 
   async function loadSavedMplDraft(draftId) {
     try {
+      await ensureKeheReferenceDataLoaded();
       const res = await fetch(`/api/kehe/mpl-drafts/${encodeURIComponent(draftId)}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not open saved MPL draft.');
@@ -2733,6 +2734,8 @@
       draft._saved_draft_name = record.name;
       activeKeheDocumentType = 'masterPackingList';
       activeKeheDocumentDraft = draft;
+      activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
+      applyProductMasterToDraft(activeKeheDocumentDraft, false);
       keheLastMplDraft = draft;
       keheMplPalletizationSource = draft.packing_lists?.[0]?.palletization_source || 'Saved';
       closeSavedMplModal(false);
