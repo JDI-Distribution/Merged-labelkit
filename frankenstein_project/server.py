@@ -2149,6 +2149,34 @@ def _analytics_kehe_case_conversion(
     }
 
 
+def _product_each_gtin(
+    product: Optional[Dict[str, Any]],
+    packaging_rows: Optional[List[Dict[str, Any]]],
+) -> str:
+    """Return the unique Each GTIN in the Case row's Storefront + SKU group."""
+    if not isinstance(product, dict):
+        return ""
+    normalized_product = normalize_product_master_row(product)
+    wanted_sku = _canonical_order_sku(normalized_product.get("sku"))
+    wanted_storefront = _normalize_storefront(normalized_product.get("storefront")).lower()
+    if not wanted_sku:
+        return ""
+
+    matches: Dict[str, str] = {}
+    for raw_row in packaging_rows or []:
+        row = normalize_product_master_row(raw_row)
+        if normalize_packaging_level(row.get("packaging_level")) != "Each":
+            continue
+        if _canonical_order_sku(row.get("sku")) != wanted_sku:
+            continue
+        if _normalize_storefront(row.get("storefront")).lower() != wanted_storefront:
+            continue
+        gtin = str(row.get("gtin") or "").strip()
+        if gtin:
+            matches.setdefault(re.sub(r"\D", "", gtin).lstrip("0") or gtin.lower(), gtin)
+    return next(iter(matches.values())) if len(matches) == 1 else ""
+
+
 @app.post("/api/mpl/orders/lookup")
 def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
@@ -2256,6 +2284,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     ambiguous_count = 0
     converted_to_cases = 0
     partial_case_items = 0
+    missing_each_gtin = 0
     for sku_key, order_item in aggregated.items():
         candidates = products_by_sku.get(sku_key, [])
         if len(candidates) == 1:
@@ -2291,10 +2320,14 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             converted_to_cases += 1
             if not conversion.get("case_conversion_exact"):
                 partial_case_items += 1
+        each_gtin = _product_each_gtin(product, normalized_product_rows)
+        if product is not None and not each_gtin:
+            missing_each_gtin += 1
         items.append({
             **converted_order_item,
             "match_status": match_status,
             "product": product,
+            "each_gtin": each_gtin,
             "candidate_storefronts": sorted({
                 str(candidate.get("storefront") or "").strip()
                 for candidate in candidates
@@ -2337,6 +2370,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             "ignored_rows": ignored_rows,
             "converted_to_cases": converted_to_cases,
             "partial_case_items": partial_case_items,
+            "missing_each_gtin": missing_each_gtin,
         },
         "items": items,
     })

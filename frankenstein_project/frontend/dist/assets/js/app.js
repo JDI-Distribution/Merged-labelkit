@@ -1150,6 +1150,10 @@
     return isStandaloneMplReferenceMode() ? getMplProductMasterRows() : getKeheProductMasterRows();
   }
 
+  function getActiveAllProductMasterRows() {
+    return isStandaloneMplReferenceMode() ? getAllMplProductMasterRows() : getKeheProductMasterRows();
+  }
+
   function loadMplProductMasterFromStorage() {
     if (!allowBrowserLocalCache()) return [];
     try {
@@ -2024,11 +2028,28 @@
     return parts.join(' - ');
   }
 
+  function findEachProductForCaseProduct(product) {
+    if (!product) return null;
+    const wantedSku = String(product.sku || '').trim().toLowerCase();
+    const wantedStorefront = normalizeStorefront(product.storefront || '').toLowerCase();
+    if (!wantedSku) return null;
+    const matches = getActiveAllProductMasterRows().filter(row => (
+      normalizePackagingLevel(row.packaging_level) === 'Each'
+      && String(row.sku || '').trim().toLowerCase() === wantedSku
+      && normalizeStorefront(row.storefront || '').toLowerCase() === wantedStorefront
+      && !!String(row.gtin || '').trim()
+    ));
+    const uniqueGtins = [...new Set(matches.map(row => canonicalId(row.gtin)).filter(Boolean))];
+    return uniqueGtins.length === 1 ? matches[0] : null;
+  }
+
   function applyProductRowToMplItem(item, product, options = {}) {
     if (!item || !product) return;
     const qtyFallback = options.defaultQty || '1';
-    item.item_number = product.sku || product.gtin || item.item_number || '';
-    item.upc = product.gtin || item.upc || '';
+    const eachProduct = findEachProductForCaseProduct(product);
+    const eachGtin = String(options.eachGtin || eachProduct?.gtin || '').trim();
+    item.item_number = eachGtin;
+    item.each_gtin = eachGtin;
     item.case_upc = product.gtin || item.case_upc || '';
     item.gtin = product.gtin || item.gtin || '';
     item.sku = product.sku || item.sku || '';
@@ -2367,7 +2388,7 @@
       const quantity = analyticsOrderQuantity(sourceItem?.quantity_ordered) || '1';
       const sku = String(sourceItem?.sku || '').trim();
       const item = blankManualMplItem(index + 1, '1');
-      item.item_number = sku;
+      item.item_number = '';
       item.sku = sku;
       item.qty_on_pallet = quantity;
       item.total_ordered = quantity;
@@ -2379,9 +2400,19 @@
       item.case_conversion_exact = sourceItem?.case_conversion_exact !== false;
 
       if (sourceItem?.match_status === 'matched' && sourceItem.product) {
-        applyProductRowToMplItem(item, normalizeProductRow(sourceItem.product), { defaultQty: quantity });
+        applyProductRowToMplItem(item, normalizeProductRow(sourceItem.product), {
+          defaultQty: quantity,
+          eachGtin: sourceItem.each_gtin
+        });
+        const itemWarnings = [];
+        if (!item.item_number) {
+          itemWarnings.push(`Product Master Each row with a GTIN is required for MPL Item Number.`);
+        }
         if (sourceItem?.quantity_uom === 'CASES' && sourceItem?.case_conversion_exact === false) {
-          item.notes = `Analytics ordered ${item.analytics_quantity_eaches || sourceItem.quantity_ordered_eaches} eaches, which is not a full ${item.eaches_per_case || sourceItem.eaches_per_case}-each case multiple. Rounded up to ${quantity} cases for palletization.`;
+          itemWarnings.push(`Analytics ordered ${item.analytics_quantity_eaches || sourceItem.quantity_ordered_eaches} eaches, which is not a full ${item.eaches_per_case || sourceItem.eaches_per_case}-each case multiple. Rounded up to ${quantity} cases for palletization.`);
+        }
+        if (itemWarnings.length) {
+          item.notes = itemWarnings.join(' ');
           warnings.push(`SKU ${sku}: ${item.notes}`);
         }
       } else if (sourceItem?.match_status === 'ambiguous') {
@@ -3249,10 +3280,30 @@
       ensureMplPalletState(mpl);
       const totals = {};
       let listTotal = 0;
+      const itemNumberWarnings = [];
+      mpl.warnings = (mpl.warnings || []).filter(warning => !String(warning).includes('required for MPL Item Number'));
       (mpl.items || []).forEach(item => {
         const product = matchProductMaster(item, { caseOnly: true });
-        if (!product) return;
+        const hasIdentity = [item.item_number, item.sku, item.gtin, item.case_upc, item.upc, item.description]
+          .some(value => !!String(value || '').trim());
+        if (!product) {
+          if (hasIdentity) {
+            const identity = item.sku || item.gtin || item.case_upc || item.upc || item.item_number || 'Unknown item';
+            item.item_number = '';
+            item.each_gtin = '';
+            itemNumberWarnings.push(`Item ${identity}: enabled Product Master Case row and related Each GTIN are required for MPL Item Number.`);
+          }
+          return;
+        }
+        const eachProduct = findEachProductForCaseProduct(product);
+        const eachGtin = String(eachProduct?.gtin || item.each_gtin || '').trim();
+        item.item_number = eachGtin;
+        item.each_gtin = eachGtin;
+        if (!eachGtin) {
+          itemNumberWarnings.push(`SKU ${product.sku || item.sku || 'Unknown SKU'}: Product Master Each row with a GTIN is required for MPL Item Number.`);
+        }
         item.gtin = product.gtin || item.gtin || '';
+        item.case_upc = product.gtin || item.case_upc || '';
         item.sku = product.sku || item.sku || '';
         item.storefront = normalizeStorefront(product.storefront || item.storefront || '');
         if (product.description && !item.description) item.description = product.description;
@@ -3268,6 +3319,10 @@
         if (!pallet) return;
         totals[pallet] = (totals[pallet] || 0) + itemWeight;
       });
+      if (itemNumberWarnings.length) {
+        mpl.warnings = [...new Set([...(mpl.warnings || []), ...itemNumberWarnings])];
+        mpl.status = 'Needs Review';
+      }
       if (listTotal > 0 && (!preserveManualWeights || !String(mpl.total_weight || '').trim())) {
         mpl.total_weight = formatLbs(listTotal);
       }
@@ -6053,7 +6108,7 @@
     const qty = item.qty_on_pallet || item.total_shipped || item.qty || '';
     return `
       <tr class="mpl-pallet-item-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
-        <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || item.upc || '')}</td>
+        <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || '')}</td>
         <td style="width:37%">
           <div class="mpl-description-edit">
             ${renderMplProductSelect(mplIndex, itemIndex, item)}
@@ -7209,9 +7264,22 @@
         });
         if (!saved) return;
       }
-      activeKeheDocumentDraft.product_master = getActiveProductMasterRows();
+      activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
       applyProductMasterToDraft(activeKeheDocumentDraft, true);
       if (activeKeheDocumentType === 'masterPackingList') {
+        const missingEachGtins = [];
+        (activeKeheDocumentDraft.packing_lists || []).forEach(mpl => {
+          (mpl.items || []).forEach(item => {
+            const hasIdentity = [item.sku, item.gtin, item.case_upc, item.upc, item.description]
+              .some(value => !!String(value || '').trim());
+            if (hasIdentity && !String(item.item_number || '').trim()) {
+              missingEachGtins.push(item.sku || item.gtin || item.case_upc || item.upc || `Line ${item.line || '?'}`);
+            }
+          });
+        });
+        if (missingEachGtins.length) {
+          throw new Error(`MPL generation blocked: Item Number must be the Product Master Each GTIN. Add one unique Each row with a GTIN for: ${[...new Set(missingEachGtins)].join(', ')}.`);
+        }
         const storefrontCheck = validateMplStorefrontConsistency(activeKeheDocumentDraft);
         if (!storefrontCheck.ok) {
           throw new Error(`MPL generation blocked: ${storefrontCheck.message}`);

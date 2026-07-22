@@ -3,11 +3,16 @@ import unittest
 from server import (
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
+    _product_each_gtin,
     _datastore_row_to_mpl_draft,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
     normalize_product_master_row,
     serve_frontend_index,
+)
+from pipelines.kehe.common import (
+    _validate_mpl_each_item_numbers,
+    apply_product_master_to_mpl_draft,
 )
 
 
@@ -103,6 +108,123 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         })
 
         self.assertIsNone(conversion)
+
+    def test_mpl_item_number_uses_each_gtin_from_same_product_group(self):
+        case_product = {
+            "storefront": "KeHE",
+            "packaging_level": "Case",
+            "gtin": "20850068684780",
+            "sku": "TW-BRS205-4OZ",
+        }
+        each_gtin = _product_each_gtin(case_product, [
+            case_product,
+            {
+                "storefront": "KeHE",
+                "packaging_level": "Each",
+                "gtin": "850068684786",
+                "sku": "TW-BRS205-4OZ",
+            },
+            {
+                "storefront": "Other Store",
+                "packaging_level": "Each",
+                "gtin": "999999999999",
+                "sku": "TW-BRS205-4OZ",
+            },
+        ])
+
+        self.assertEqual("850068684786", each_gtin)
+
+
+class KeheMplItemNumberTests(unittest.TestCase):
+    def test_xml_mpl_enrichment_uses_each_gtin_for_item_number(self):
+        draft = {
+            "product_master": [
+                {
+                    "storefront": "KeHE",
+                    "in_packing_list": True,
+                    "packaging_level": "Case",
+                    "gtin": "20850068684780",
+                    "sku": "TW-BRS205-4OZ",
+                    "weight_lbs": "16",
+                },
+                {
+                    "storefront": "KeHE",
+                    "packaging_level": "Each",
+                    "gtin": "850068684786",
+                    "sku": "TW-BRS205-4OZ",
+                },
+            ],
+            "packing_lists": [{
+                "status": "Ready",
+                "warnings": [],
+                "items": [{
+                    "item_number": "TW-BRS205-4OZ",
+                    "sku": "TW-BRS205-4OZ",
+                    "gtin": "20850068684780",
+                    "qty_on_pallet": "1",
+                    "location_on_pallet": "1",
+                }],
+            }],
+        }
+
+        apply_product_master_to_mpl_draft(draft, force=True)
+
+        item = draft["packing_lists"][0]["items"][0]
+        self.assertEqual("850068684786", item["item_number"])
+        self.assertEqual("850068684786", item["each_gtin"])
+        self.assertEqual("20850068684780", item["gtin"])
+        self.assertEqual("20850068684780", item["case_upc"])
+
+    def test_missing_each_gtin_is_flagged_instead_of_using_case_or_sku(self):
+        draft = {
+            "product_master": [{
+                "storefront": "KeHE",
+                "in_packing_list": True,
+                "packaging_level": "Case",
+                "gtin": "20850068684780",
+                "sku": "TW-BRS205-4OZ",
+            }],
+            "packing_lists": [{
+                "status": "Ready",
+                "warnings": [],
+                "items": [{
+                    "item_number": "TW-BRS205-4OZ",
+                    "sku": "TW-BRS205-4OZ",
+                    "gtin": "20850068684780",
+                    "qty_on_pallet": "1",
+                }],
+            }],
+        }
+
+        apply_product_master_to_mpl_draft(draft, force=True)
+
+        mpl = draft["packing_lists"][0]
+        self.assertEqual("", mpl["items"][0]["item_number"])
+        self.assertEqual("Needs Review", mpl["status"])
+        self.assertIn("Each row with a GTIN is required", mpl["warnings"][0])
+
+        with self.assertRaisesRegex(ValueError, "Item Number must be the Product Master Each GTIN"):
+            _validate_mpl_each_item_numbers(draft)
+
+    def test_unmatched_xml_item_is_not_allowed_to_keep_unverified_upc(self):
+        draft = {
+            "product_master": [],
+            "packing_lists": [{
+                "status": "Ready",
+                "warnings": [],
+                "items": [{
+                    "item_number": "20850068684780",
+                    "upc": "20850068684780",
+                    "sku": "UNKNOWN-SKU",
+                }],
+            }],
+        }
+
+        apply_product_master_to_mpl_draft(draft)
+
+        mpl = draft["packing_lists"][0]
+        self.assertEqual("", mpl["items"][0]["item_number"])
+        self.assertIn("enabled Product Master Case row", mpl["warnings"][0])
 
 
 class MplDraftStorageTests(unittest.TestCase):

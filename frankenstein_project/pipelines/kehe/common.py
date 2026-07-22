@@ -2173,6 +2173,7 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
     for idx, row in enumerate(rows, start=1):
         if not isinstance(row, dict):
             continue
+        storefront = str(row.get("storefront") or row.get("STOREFRONT") or row.get("Storefront") or "KeHE").strip() or "KeHE"
         gtin = str(row.get("gtin") or row.get("GTIN") or row.get("case_upc") or row.get("upc") or "").strip()
         desc = str(row.get("description") or row.get("DESCRIPTION") or "").strip()
         packaging_level = _normalize_packaging_level(row.get("packaging_level") or row.get("packging_level") or row.get("PACKGING LEVEL") or row.get("PACKAGING LEVEL"))
@@ -2207,6 +2208,7 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
             continue
         out.append({
             "line": row.get("line") or idx,
+            "storefront": storefront,
             "in_packing_list": in_packing_list,
             "label_required": "1" if in_packing_list else "0",
             "gtin": gtin,
@@ -2258,14 +2260,57 @@ def _match_product_master_row(item: Dict[str, Any], rows: List[Dict[str, Any]], 
     return None
 
 
+def _find_product_packaging_sibling(
+    product: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+    packaging_level: str,
+) -> Optional[Dict[str, Any]]:
+    """Find one packaging row in the same Storefront + SKU product group."""
+    wanted_sku = str(product.get("sku") or "").strip().lower()
+    wanted_storefront = str(product.get("storefront") or "KeHE").strip().lower() or "kehe"
+    wanted_level = _normalize_packaging_level(packaging_level)
+    if not wanted_sku:
+        return None
+
+    matches: List[Dict[str, Any]] = []
+    seen_gtins: set[str] = set()
+    for row in _normalize_product_master_rows(rows):
+        if _normalize_packaging_level(row.get("packaging_level")) != wanted_level:
+            continue
+        if str(row.get("sku") or "").strip().lower() != wanted_sku:
+            continue
+        row_storefront = str(row.get("storefront") or "KeHE").strip().lower() or "kehe"
+        if row_storefront != wanted_storefront:
+            continue
+        gtin = str(row.get("gtin") or "").strip()
+        if not gtin:
+            continue
+        canonical_gtin = _canonical_id(gtin)
+        if canonical_gtin in seen_gtins:
+            continue
+        seen_gtins.add(canonical_gtin)
+        matches.append(row)
+    return matches[0] if len(matches) == 1 else None
+
+
 def _qty_value(value: Any) -> float:
     parsed = _parse_float(value)
     return parsed if parsed is not None else 0.0
 
 
-def _apply_product_row_to_item(item: Dict[str, Any], product: Dict[str, Any]) -> None:
+def _apply_product_row_to_item(
+    item: Dict[str, Any],
+    product: Dict[str, Any],
+    each_product: Optional[Dict[str, Any]] = None,
+) -> None:
+    each_gtin = str((each_product or {}).get("gtin") or "").strip()
+    # KeHE's MPL Item Number is the consumer-unit (Each) GTIN. The Case GTIN
+    # remains in gtin/case_upc for case identification and label generation.
+    item["item_number"] = each_gtin
+    item["each_gtin"] = each_gtin
     if product.get("gtin"):
         item["gtin"] = product.get("gtin", "")
+        item["case_upc"] = product.get("gtin", "")
     if product.get("sku"):
         item["sku"] = product.get("sku", "")
     if product.get("description") and not _mpl_clean(item.get("description")):
@@ -2285,18 +2330,51 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
     override the generated values before rendering.
     """
     product_rows = _normalize_product_master_rows(draft.get("product_master") or draft.get("product_master_rows") or [])
-    if not product_rows:
-        return draft
     draft["product_master"] = product_rows
 
     for mpl in draft.get("packing_lists") or []:
         items = mpl.get("items") or []
         pallet_totals: Dict[str, float] = {}
+        existing_warnings = [
+            str(warning)
+            for warning in (mpl.get("warnings") or [])
+            if "required for MPL Item Number" not in str(warning)
+        ]
+        mpl["warnings"] = existing_warnings
         for item in items:
             product = _match_product_master_row(item, product_rows, packing_list_only=True)
             if not product:
+                has_identity = any(
+                    _mpl_clean(item.get(key))
+                    for key in ("item_number", "sku", "gtin", "case_upc", "upc", "description")
+                )
+                if has_identity:
+                    identity = (
+                        _mpl_clean(item.get("sku"))
+                        or _mpl_clean(item.get("gtin"))
+                        or _mpl_clean(item.get("case_upc"))
+                        or _mpl_clean(item.get("upc"))
+                        or _mpl_clean(item.get("item_number"))
+                        or "Unknown item"
+                    )
+                    item["item_number"] = ""
+                    item["each_gtin"] = ""
+                    warning = (
+                        f"Item {identity}: enabled Product Master Case row and related Each GTIN "
+                        "are required for MPL Item Number."
+                    )
+                    if warning not in mpl["warnings"]:
+                        mpl["warnings"].append(warning)
+                    mpl["status"] = "Needs Review"
                 continue
-            _apply_product_row_to_item(item, product)
+            each_product = _find_product_packaging_sibling(product, product_rows, "Each")
+            _apply_product_row_to_item(item, product, each_product)
+            if not each_product:
+                sku = str(product.get("sku") or item.get("sku") or "").strip() or "Unknown SKU"
+                warning = f"SKU {sku}: Product Master Each row with a GTIN is required for MPL Item Number."
+                if warning not in mpl["warnings"]:
+                    mpl["warnings"].append(warning)
+                mpl["status"] = "Needs Review"
             unit_weight = _parse_float(product.get("weight_lbs"))
             if unit_weight is None:
                 continue
@@ -2314,6 +2392,34 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
                     if _mpl_pallet_value(item) == pallet and (force or not _mpl_clean(item.get("pallet_weight"))):
                         item["pallet_weight"] = mpl["_pallet_weights"].get(pallet) or calculated
     return draft
+
+
+def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> None:
+    missing: List[str] = []
+    for mpl in draft.get("packing_lists") or []:
+        for item in mpl.get("items") or []:
+            has_identity = any(
+                _mpl_clean(item.get(key))
+                for key in ("sku", "gtin", "case_upc", "upc", "description")
+            )
+            if not has_identity or _mpl_clean(item.get("item_number")):
+                continue
+            identity = (
+                _mpl_clean(item.get("sku"))
+                or _mpl_clean(item.get("gtin"))
+                or _mpl_clean(item.get("case_upc"))
+                or _mpl_clean(item.get("upc"))
+                or f"Line {_mpl_clean(item.get('line')) or '?'}"
+            )
+            if identity not in missing:
+                missing.append(identity)
+    if missing:
+        shown = ", ".join(missing[:8])
+        suffix = f" and {len(missing) - 8} more" if len(missing) > 8 else ""
+        raise ValueError(
+            "MPL generation blocked: Item Number must be the Product Master Each GTIN. "
+            f"Add one unique Each row with a GTIN for: {shown}{suffix}."
+        )
 
 
 def _extracted_rows_from_shipments(shipments: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -5106,6 +5212,7 @@ def render_kehe_master_packing_list_pdf(
 ) -> Dict[str, Any]:
     """Render Master Packing List pages from an edited draft."""
     apply_product_master_to_mpl_draft(draft, force=False)
+    _validate_mpl_each_item_numbers(draft)
     packing_lists = draft.get("packing_lists") or []
     if not packing_lists:
         raise ValueError("Draft contains no packing lists to render.")
