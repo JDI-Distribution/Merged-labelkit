@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from server import (
     _analytics_order_instance_groups,
@@ -8,6 +9,7 @@ from server import (
     _datastore_row_to_mpl_draft,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
+    _refresh_mpl_render_product_master,
     normalize_product_master_row,
     serve_frontend_index,
 )
@@ -226,6 +228,56 @@ class KeheMplItemNumberTests(unittest.TestCase):
         mpl = draft["packing_lists"][0]
         self.assertEqual("", mpl["items"][0]["item_number"])
         self.assertIn("enabled Product Master Case row", mpl["warnings"][0])
+
+    def test_mpl_render_refreshes_stale_draft_from_authoritative_product_master(self):
+        stale_draft = {
+            "product_master": [{
+                "storefront": "KeHE",
+                "in_packing_list": True,
+                "packaging_level": "Case",
+                "gtin": "20850068684780",
+                "sku": "TW-BRS205-4OZ",
+            }],
+            "packing_lists": [{
+                "status": "Needs Review",
+                "warnings": [
+                    "SKU TW-BRS205-4OZ: Product Master Each row with a GTIN is required for MPL Item Number.",
+                ],
+                "items": [{
+                    "item_number": "",
+                    "sku": "TW-BRS205-4OZ",
+                    "gtin": "20850068684780",
+                    "case_upc": "20850068684780",
+                    "qty_on_pallet": "19",
+                    "location_on_pallet": "1",
+                }],
+            }],
+        }
+        authoritative_rows = [
+            {
+                "storefront": "KeHE",
+                "in_packing_list": True,
+                "packaging_level": "Case",
+                "gtin": "20850068684780",
+                "sku": "TW-BRS205-4OZ",
+                "weight_lbs": "16",
+            },
+            {
+                "storefront": "KeHE",
+                "packaging_level": "Each",
+                "gtin": "850068684786",
+                "sku": "TW-BRS205-4OZ",
+            },
+        ]
+
+        with patch("server._datastore_load_product_master", return_value=authoritative_rows):
+            refreshed = _refresh_mpl_render_product_master(object(), stale_draft)
+
+        item = refreshed["packing_lists"][0]["items"][0]
+        self.assertEqual("850068684786", item["item_number"])
+        self.assertEqual("850068684786", item["each_gtin"])
+        self.assertEqual("", stale_draft["packing_lists"][0]["items"][0]["item_number"])
+        _validate_mpl_each_item_numbers(refreshed)
 
 
 class MplDraftStorageTests(unittest.TestCase):

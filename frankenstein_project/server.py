@@ -3350,6 +3350,25 @@ def run_kehe_pack_label_render_job(result_id: str, draft: Dict[str, Any]) -> Non
 # ---------------------------------------------------------------------------
 # BACKEND SECTION 6D: KeHE document render endpoints.
 # ---------------------------------------------------------------------------
+def _refresh_mpl_render_product_master(
+    request: Request,
+    draft: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Attach authoritative Product Master rows before starting an MPL render.
+
+    Saved and open drafts can contain an older Product Master snapshot. The
+    render worker must use the same current Datastore rows shown in the Product
+    Master editor so a valid Each GTIN is not cleared by stale draft data.
+    """
+    refreshed_draft = copy.deepcopy(draft)
+    product_master_rows = _datastore_load_product_master(request)
+    if product_master_rows is None:
+        product_master_rows = _shared_product_master_file_read()
+    refreshed_draft["product_master"] = _dedupe_product_master_rows(product_master_rows)
+    apply_product_master_to_mpl_draft(refreshed_draft, force=False)
+    return refreshed_draft
+
+
 @app.post("/render/kehe/pallet-label")
 async def render_kehe_pallet_label_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
@@ -3382,6 +3401,7 @@ async def render_kehe_pallet_label_endpoint(request: Request, draft: Dict[str, A
 @app.post("/render/kehe/master-packing-list")
 async def render_kehe_master_packing_list_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
+    render_draft = _refresh_mpl_render_product_master(request, draft)
     temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_master_packing_list"]["temp_prefix"]))
     result_id = create_result_job(
         temp_dir,
@@ -3390,7 +3410,7 @@ async def render_kehe_master_packing_list_endpoint(request: Request, draft: Dict
     )
     worker = threading.Thread(
         target=run_kehe_master_packing_list_render_job,
-        args=(result_id, draft),
+        args=(result_id, render_draft),
         daemon=True,
     )
     worker.start()
