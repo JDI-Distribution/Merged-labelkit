@@ -940,10 +940,20 @@ def _draw_value_lines(
     max_lines: int = 4,
 ) -> float:
     c.setFont("Helvetica", size)
-    for line in lines[:max_lines]:
-        for wrapped in wrap_text(line, "Helvetica", size, width, max_lines=1):
+    rendered_lines = 0
+    for line in lines:
+        if rendered_lines >= max_lines:
+            break
+        for wrapped in wrap_text(
+            line,
+            "Helvetica",
+            size,
+            width,
+            max_lines=max_lines - rendered_lines,
+        ):
             c.drawString(x, y, wrapped)
             y -= leading
+            rendered_lines += 1
     return y
 
 
@@ -1065,8 +1075,8 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
         right_x,
         y,
         right_w,
-        size=10.2,
-        leading=10.8,
+        size=12.0,
+        leading=11.7,
         max_lines=5,
     )
 
@@ -1144,20 +1154,17 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     trace_rows = [
         ("Lot #:", summary["lot"]),
         ("Expiration Date:", _format_label_date_mmddyyyy(summary["expiration"])),
-        ("Manufacture Date:", _format_label_date_mmddyyyy(summary["manufacture"])),
+        ("Manufacturing Date:", _format_label_date_mmddyyyy(summary["manufacture"])),
         ("Manufacturing Plant #:", summary["plant"]),
     ]
 
     for label, value in trace_rows:
-        if not value:
-            continue
-
         _draw_label(c, left_x, y, label, 10.0)
-        c.setFont("Helvetica", 9.6)
-
-        wrapped = wrap_text(value, "Helvetica", 9.6, gx1 - (left_x + trace_label_w) - pad, max_lines=1)
-        if wrapped:
-            c.drawString(left_x + trace_label_w, y, wrapped[0])
+        if value:
+            c.setFont("Helvetica", 9.6)
+            wrapped = wrap_text(value, "Helvetica", 9.6, gx1 - (left_x + trace_label_w) - pad, max_lines=1)
+            if wrapped:
+                c.drawString(left_x + trace_label_w, y, wrapped[0])
 
         y -= 0.17 * inch
 
@@ -2551,6 +2558,7 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
             "status": "Needs Review" if needs_review else "Ready",
             "dc": dc_info["dc"] if dc_info else "Unknown",
             "title": "MASTER PACKING LIST",
+            "template_id": "kehe",
             "customer_po_number": header.get("customer_po_number", ""),
             "customer_no": header.get("customer_po_number", ""),
             "pro_number": header.get("pro_number", ""),
@@ -2583,6 +2591,7 @@ def build_kehe_master_packing_list_draft(xml_paths: List[str], product_master_ro
     draft = {
         "document_type": "kehe_master_packing_list",
         "version": 4,
+        "template_id": "kehe",
         "summary": {
             "xml_files": len(xml_paths),
             "packing_lists": len(packing_lists),
@@ -3499,12 +3508,58 @@ _MPL_GREY = (0.82, 0.82, 0.82)
 _MPL_LIGHT_GREY = (0.90, 0.90, 0.90)
 _MPL_CREAM = (0.98, 0.95, 0.82)
 _MPL_ROW_ALT = (0.97, 0.97, 0.97)
+_MPL_NAVY = (0.09, 0.21, 0.36)
+_MPL_BLUE_LIGHT = (0.86, 0.92, 0.99)
+_MPL_BLUE_PALE = (0.97, 0.985, 1.0)
+_MPL_TEAL = (0.07, 0.37, 0.35)
+_MPL_TEAL_LIGHT = (0.80, 0.98, 0.95)
+_MPL_TEAL_PALE = (0.97, 1.0, 0.99)
 _MPL_PALLET_LENGTH_IN = 48.0
 _MPL_PALLET_WIDTH_IN = 40.0
 _MPL_PALLET_MAX_HEIGHT_IN = 70.0
 _MPL_PALLET_MAX_GROSS_LBS = 2000.0
 _MPL_PALLET_TARE_LBS = 50.0
 _MPL_PALLET_BUFFER_FACTOR = 1.05
+
+
+def _mpl_template_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
+    """Resolve allowed MPL templates while keeping KeHE XML drafts locked."""
+    if not bool(draft.get("standalone_mpl")):
+        mpl["template_id"] = "kehe"
+        return "kehe"
+    requested = _mpl_clean(mpl.get("template_id") or draft.get("template_id") or "standard").lower()
+    template_id = requested if requested in {"kehe", "standard", "compact"} else "standard"
+    mpl["template_id"] = template_id
+    return template_id
+
+
+def _mpl_template_theme(template_id: str) -> Dict[str, Any]:
+    if template_id == "standard":
+        return {
+            "title": "PACKING LIST",
+            "primary": _MPL_NAVY,
+            "label_fill": _MPL_BLUE_LIGHT,
+            "value_fill": _MPL_BLUE_PALE,
+            "row_alt": (0.95, 0.975, 1.0),
+            "compact": False,
+        }
+    if template_id == "compact":
+        return {
+            "title": "COMPACT PACKING LIST",
+            "primary": _MPL_TEAL,
+            "label_fill": _MPL_TEAL_LIGHT,
+            "value_fill": _MPL_TEAL_PALE,
+            "row_alt": (0.94, 0.99, 0.98),
+            "compact": True,
+        }
+    return {
+        "title": "MASTER PACKING LIST",
+        "primary": _MPL_BLACK,
+        "label_fill": _MPL_GREY,
+        "value_fill": _MPL_CREAM,
+        "row_alt": _MPL_ROW_ALT,
+        "compact": False,
+    }
 
 
 def _mpl_tihi_constraints(mpl: Optional[Dict[str, Any]] = None, pallet: str = "") -> Dict[str, float]:
@@ -3746,10 +3801,20 @@ def _draw_centered_wrapped(
         ty -= leading
 
 
-def _draw_info_cell(c: canvas.Canvas, x: float, top_y: float, w: float, h: float, label: str, value: str) -> None:
+def _draw_info_cell(
+    c: canvas.Canvas,
+    x: float,
+    top_y: float,
+    w: float,
+    h: float,
+    label: str,
+    value: str,
+    theme: Optional[Dict[str, Any]] = None,
+) -> None:
+    theme = theme or _mpl_template_theme("kehe")
     label_h = h * 0.42
-    _draw_mpl_cell(c, x, top_y - h, w, h, _MPL_CREAM, _MPL_GRID, 0.4)
-    _draw_mpl_cell(c, x, top_y - label_h, w, label_h, _MPL_GREY, _MPL_GRID, 0.4)
+    _draw_mpl_cell(c, x, top_y - h, w, h, theme["value_fill"], _MPL_GRID, 0.4)
+    _draw_mpl_cell(c, x, top_y - label_h, w, label_h, theme["label_fill"], _MPL_GRID, 0.4)
 
     c.setFillColorRGB(0, 0, 0)
     c.setFont("Helvetica-Bold", 7.4)
@@ -3767,24 +3832,38 @@ def _draw_info_cell(c: canvas.Canvas, x: float, top_y: float, w: float, h: float
         leading=8.5,
     )
 
-def _render_mpl_header(c: canvas.Canvas, mpl: Dict[str, Any], page_num: int, total_pages: int) -> float:
+def _render_mpl_header(
+    c: canvas.Canvas,
+    mpl: Dict[str, Any],
+    page_num: int,
+    total_pages: int,
+    template_id: str = "kehe",
+) -> float:
     """Draw MPL header block; return y position below header."""
+    theme = _mpl_template_theme(template_id)
+    compact = bool(theme["compact"])
     x0 = _MPL_MARGIN
     inner_w = _MPL_INNER_W
     y = _MPL_INNER_TOP
 
     # Title bar.
-    title_h = 0.23 * inch
-    _draw_mpl_cell(c, x0, y - title_h, inner_w, title_h, _MPL_BLACK, _MPL_BLACK, 0.6)
+    title_h = (0.20 if compact else 0.23) * inch
+    _draw_mpl_cell(c, x0, y - title_h, inner_w, title_h, theme["primary"], theme["primary"], 0.6)
     c.setFont("Helvetica-Bold", 10)
     c.setFillColorRGB(1, 1, 1)
-    c.drawCentredString(x0 + inner_w / 2, y - title_h / 2 - 3.0, mpl.get("title") or "MASTER PACKING LIST")
-    y -= title_h + 0.12 * inch
+    title = theme["title"] if template_id != "kehe" else (mpl.get("title") or theme["title"])
+    c.drawCentredString(x0 + inner_w / 2, y - title_h / 2 - 3.0, title)
+    y -= title_h + (0.07 if compact else 0.12) * inch
 
     if mpl.get("status") == "Needs Review":
+        warning = (
+            "NEEDS REVIEW - Unknown KeHE DC. Verify addresses before using."
+            if template_id == "kehe"
+            else "NEEDS REVIEW - Verify order, address, and pallet details before using."
+        )
         y = _draw_warning_box(
             c,
-            "NEEDS REVIEW - Unknown KeHE DC. Verify addresses before using.",
+            warning,
             x0,
             y,
             inner_w,
@@ -3793,12 +3872,15 @@ def _render_mpl_header(c: canvas.Canvas, mpl: Dict[str, Any], page_num: int, tot
         ) - 0.05 * inch
 
     # Top requirement grid.
-    def draw_info_row(cells: List[Tuple[str, str, float]], row_h: float = 0.28 * inch) -> None:
+    def draw_info_row(
+        cells: List[Tuple[str, str, float]],
+        row_h: float = (0.24 if compact else 0.28) * inch,
+    ) -> None:
         nonlocal y
         cx = x0
         for label, value, rel_w in cells:
             cw = inner_w * rel_w
-            _draw_info_cell(c, cx, y, cw, row_h, label, value)
+            _draw_info_cell(c, cx, y, cw, row_h, label, value, theme)
             cx += cw
         y -= row_h
 
@@ -3818,11 +3900,11 @@ def _render_mpl_header(c: canvas.Canvas, mpl: Dict[str, Any], page_num: int, tot
         ("Total Pallets", _mpl_clean(mpl.get("total_pallets")), 0.33),
     ])
 
-    y -= 0.16 * inch
+    y -= (0.09 if compact else 0.16) * inch
 
     # Address blocks.
-    addr_h = 0.93 * inch
-    col_gap = 0.12 * inch
+    addr_h = (0.72 if compact else 0.93) * inch
+    col_gap = (0.07 if compact else 0.12) * inch
     col_w = (inner_w - 2 * col_gap) / 3
     addr_cells = [
         ("SUPPLIER INFO:", mpl.get("supplier_info", "")),
@@ -3831,25 +3913,26 @@ def _render_mpl_header(c: canvas.Canvas, mpl: Dict[str, Any], page_num: int, tot
     ]
     for idx, (label, value) in enumerate(addr_cells):
         cx = x0 + idx * (col_w + col_gap)
-        _draw_mpl_cell(c, cx, y - addr_h, col_w, addr_h, _MPL_CREAM, _MPL_GRID, 0.35)
-        header_h = 0.22 * inch
-        _draw_mpl_cell(c, cx, y - header_h, col_w, header_h, _MPL_GREY, _MPL_GRID, 0.35)
+        _draw_mpl_cell(c, cx, y - addr_h, col_w, addr_h, theme["value_fill"], _MPL_GRID, 0.35)
+        header_h = (0.18 if compact else 0.22) * inch
+        _draw_mpl_cell(c, cx, y - header_h, col_w, header_h, theme["label_fill"], _MPL_GRID, 0.35)
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica-Bold", 7)
         c.drawCentredString(cx + col_w / 2, y - header_h / 2 - 2.7, label)
-        c.setFont("Helvetica", 6.8)
+        address_font = 6.2 if compact else 6.8
+        c.setFont("Helvetica", address_font)
         lines: List[str] = []
         for raw in _mpl_clean(value).split("\n"):
-            lines.extend(wrap_text(raw, "Helvetica", 6.8, col_w - 12, max_lines=2) or [""])
-        ty = y - header_h - 0.12 * inch
-        for line in lines[:5]:
+            lines.extend(wrap_text(raw, "Helvetica", address_font, col_w - 12, max_lines=2) or [""])
+        ty = y - header_h - (0.09 if compact else 0.12) * inch
+        for line in lines[:(4 if compact else 5)]:
             c.drawCentredString(cx + col_w / 2, ty, line)
-            ty -= 8
-    y -= addr_h + 0.16 * inch
+            ty -= 7 if compact else 8
+    y -= addr_h + (0.09 if compact else 0.16) * inch
 
     # Customer / Ship Date / Shipping Instructions bar.
-    header_h = 0.18 * inch
-    value_h = 0.28 * inch
+    header_h = (0.15 if compact else 0.18) * inch
+    value_h = (0.23 if compact else 0.28) * inch
     cells = [
         ("Customer No", _mpl_clean(mpl.get("customer_no") or mpl.get("customer_po_number")), 0.25),
         ("Ship Date", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date"))), 0.25),
@@ -3858,7 +3941,7 @@ def _render_mpl_header(c: canvas.Canvas, mpl: Dict[str, Any], page_num: int, tot
     cx = x0
     for label, _value, rel in cells:
         cw = inner_w * rel
-        _draw_mpl_cell(c, cx, y - header_h, cw, header_h, _MPL_BLACK, _MPL_BLACK, 0.35)
+        _draw_mpl_cell(c, cx, y - header_h, cw, header_h, theme["primary"], theme["primary"], 0.35)
         c.setFillColorRGB(1, 1, 1)
         c.setFont("Helvetica-Bold", 6.4)
         c.drawCentredString(cx + cw / 2, y - header_h / 2 - 2.3, label)
@@ -3867,20 +3950,21 @@ def _render_mpl_header(c: canvas.Canvas, mpl: Dict[str, Any], page_num: int, tot
     cx = x0
     for _label, value, rel in cells:
         cw = inner_w * rel
-        _draw_mpl_cell(c, cx, y - value_h, cw, value_h, _MPL_CREAM, _MPL_GRID, 0.35)
+        _draw_mpl_cell(c, cx, y - value_h, cw, value_h, theme["value_fill"], _MPL_GRID, 0.35)
         c.setFillColorRGB(0, 0, 0)
         _draw_centered_wrapped(c, value, cx, y - value_h / 2, cw, "Helvetica", 7, max_lines=1)
         cx += cw
-    y -= value_h + 0.22 * inch
+    y -= value_h + (0.13 if compact else 0.22) * inch
 
     c.setFillColorRGB(0, 0, 0)
     c.setStrokeColorRGB(0, 0, 0)
     return y
 
 
-def _render_mpl_table_header(c: canvas.Canvas, y: float) -> float:
-    th = 0.36 * inch
-    _draw_mpl_cell(c, _MPL_MARGIN, y - th, _MPL_INNER_W, th, _MPL_BLACK, _MPL_BLACK, 0.45)
+def _render_mpl_table_header(c: canvas.Canvas, y: float, template_id: str = "kehe") -> float:
+    theme = _mpl_template_theme(template_id)
+    th = (0.30 if theme["compact"] else 0.36) * inch
+    _draw_mpl_cell(c, _MPL_MARGIN, y - th, _MPL_INNER_W, th, theme["primary"], theme["primary"], 0.45)
 
     c.setFillColorRGB(1, 1, 1)
     for _key, header_lbl, x, w in _mpl_col_widths():
@@ -3901,22 +3985,31 @@ def _render_mpl_table_header(c: canvas.Canvas, y: float) -> float:
     c.setFillColorRGB(0, 0, 0)
     return y - th
 
-def _mpl_item_height(item: Dict[str, Any]) -> float:
+def _mpl_item_height(item: Dict[str, Any], template_id: str = "kehe") -> float:
+    compact = bool(_mpl_template_theme(template_id)["compact"])
     desc = _mpl_clean(item.get("description"))
     desc_lines = (
-        wrap_text(desc.upper(), "Helvetica-Bold", 7.8, _MPL_INNER_W * 0.39 - 10, max_lines=4)
+        wrap_text(desc.upper(), "Helvetica-Bold", 7.2 if compact else 7.8, _MPL_INNER_W * 0.39 - 10, max_lines=4)
         if desc else []
     )
 
     # A4 has enough height. Use taller rows instead of compressed rows.
-    extra = max(0, len(desc_lines) - 1) * 0.13 * inch
+    extra = max(0, len(desc_lines) - 1) * (0.10 if compact else 0.13) * inch
 
     if _mpl_clean(item.get("expiration_date")):
-        extra += 0.13 * inch
+        extra += (0.10 if compact else 0.13) * inch
 
-    return max(0.46 * inch, 0.42 * inch + extra)
+    return max((0.36 if compact else 0.46) * inch, (0.33 if compact else 0.42) * inch + extra)
 
-def _render_mpl_item_row(c: canvas.Canvas, item: Dict[str, Any], y: float, row_h: float, bg_rgb: Tuple[float, float, float]) -> float:
+def _render_mpl_item_row(
+    c: canvas.Canvas,
+    item: Dict[str, Any],
+    y: float,
+    row_h: float,
+    bg_rgb: Tuple[float, float, float],
+    template_id: str = "kehe",
+) -> float:
+    compact = bool(_mpl_template_theme(template_id)["compact"])
     _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, bg_rgb, _MPL_GRID, 0.30)
 
     for key, _label, x, w in _mpl_col_widths():
@@ -3928,7 +4021,7 @@ def _render_mpl_item_row(c: canvas.Canvas, item: Dict[str, Any], y: float, row_h
             desc = _mpl_clean(item.get("description")).upper()
             exp = _mpl_exp_short(_mpl_clean(item.get("expiration_date")))
 
-            ty = y - 0.14 * inch
+            ty = y - (0.11 if compact else 0.14) * inch
             c.setFillColorRGB(0, 0, 0)
 
             ty = _draw_wrapped_left(
@@ -3938,13 +4031,13 @@ def _render_mpl_item_row(c: canvas.Canvas, item: Dict[str, Any], y: float, row_h
                 ty,
                 w - 10,
                 "Helvetica-Bold",
-                7.8,
+                7.2 if compact else 7.8,
                 max_lines=4,
-                leading=8.9,
+                leading=8.0 if compact else 8.9,
             )
 
             meta_y = max(y - row_h + 0.09 * inch, ty - 0.02 * inch)
-            c.setFont("Helvetica-Oblique", 7.2)
+            c.setFont("Helvetica-Oblique", 6.6 if compact else 7.2)
 
             if exp:
                 c.drawString(x + 5, meta_y, f"EXP: {exp}")
@@ -3962,7 +4055,7 @@ def _render_mpl_item_row(c: canvas.Canvas, item: Dict[str, Any], y: float, row_h
                 y - row_h / 2,
                 w,
                 "Helvetica-Bold",
-                7.8,
+                7.2 if compact else 7.8,
                 max_lines=1,
                 leading=8.5,
             )
@@ -3971,8 +4064,16 @@ def _render_mpl_item_row(c: canvas.Canvas, item: Dict[str, Any], y: float, row_h
     c.line(last_x, y - row_h, last_x, y)
     return y - row_h
 
-def _render_mpl_pallet_group_row(c: canvas.Canvas, y: float, row_h: float, pallet_num: str, pallet_weight: str) -> float:
-    _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, _MPL_LIGHT_GREY, _MPL_GRID, 0.40)
+def _render_mpl_pallet_group_row(
+    c: canvas.Canvas,
+    y: float,
+    row_h: float,
+    pallet_num: str,
+    pallet_weight: str,
+    template_id: str = "kehe",
+) -> float:
+    theme = _mpl_template_theme(template_id)
+    _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, theme["label_fill"], _MPL_GRID, 0.40)
 
     cols = _mpl_col_widths()
     item_x, item_w = cols[0][2], cols[0][3]
@@ -3988,7 +4089,11 @@ def _render_mpl_pallet_group_row(c: canvas.Canvas, y: float, row_h: float, palle
 
     return y - row_h
 
-def _mpl_build_units(items: List[Dict[str, Any]]) -> List[Tuple[str, Dict[str, Any], float]]:
+def _mpl_build_units(
+    items: List[Dict[str, Any]],
+    template_id: str = "kehe",
+) -> List[Tuple[str, Dict[str, Any], float]]:
+    compact = bool(_mpl_template_theme(template_id)["compact"])
     units: List[Tuple[str, Dict[str, Any], float]] = []
     for pallet, rows in _mpl_group_items(items):
         pallet_weight = ""
@@ -3996,9 +4101,9 @@ def _mpl_build_units(items: List[Dict[str, Any]]) -> List[Tuple[str, Dict[str, A
             if _mpl_clean(row.get("pallet_weight")):
                 pallet_weight = _mpl_clean(row.get("pallet_weight"))
                 break
-        units.append(("group", {"pallet": pallet, "pallet_weight": pallet_weight}, 0.32 * inch))
+        units.append(("group", {"pallet": pallet, "pallet_weight": pallet_weight}, (0.26 if compact else 0.32) * inch))
         for row in rows:
-            units.append(("item", row, _mpl_item_height(row)))
+            units.append(("item", row, _mpl_item_height(row, template_id)))
     return units
 
 
@@ -5233,12 +5338,17 @@ def render_kehe_master_packing_list_pdf(
         if status == "Needs Review":
             needs_review_count += 1
 
+        template_id = _mpl_template_id(draft, mpl)
+        theme = _mpl_template_theme(template_id)
         items = _mpl_prepare_items(mpl)
         total_items_all += len(items)
-        units = _mpl_build_units(items)
+        units = _mpl_build_units(items, template_id)
 
         # A4 page with taller MPL rows. Keep pagination conservative so rows do not clip.
-        pages_units = _mpl_paginate_units(units, available_h=6.85 * inch)
+        pages_units = _mpl_paginate_units(
+            units,
+            available_h=(7.45 if theme["compact"] else 6.85) * inch,
+        )
         total_mpl_pages = len(pages_units)
 
         if progress_callback:
@@ -5254,8 +5364,8 @@ def render_kehe_master_packing_list_pdf(
                 )
 
             mpl_page = dict(mpl)
-            y = _render_mpl_header(c, mpl_page, page_idx, total_mpl_pages)
-            y = _render_mpl_table_header(c, y)
+            y = _render_mpl_header(c, mpl_page, page_idx, total_mpl_pages, template_id)
+            y = _render_mpl_table_header(c, y, template_id)
 
             alt = 0
             for kind, payload, height in page_units:
@@ -5268,10 +5378,11 @@ def render_kehe_master_packing_list_pdf(
                         height,
                         payload.get("pallet", "1"),
                         payload.get("pallet_weight", ""),
+                        template_id,
                     )
                 else:
-                    bg = (1, 1, 1) if alt % 2 == 0 else _MPL_ROW_ALT
-                    y = _render_mpl_item_row(c, payload, y, height, bg)
+                    bg = (1, 1, 1) if alt % 2 == 0 else theme["row_alt"]
+                    y = _render_mpl_item_row(c, payload, y, height, bg, template_id)
                     alt += 1
 
             # Outer border.
@@ -5314,7 +5425,7 @@ def render_kehe_master_packing_list_pdf(
             "items": len(items),
             "total_weight": mpl.get("total_weight", ""),
             "ship_to": ship_to_display,
-            "note": "Generated from edited draft",
+            "note": f"Generated with {_mpl_template_theme(template_id)['title']} template",
         })
 
     c.save()

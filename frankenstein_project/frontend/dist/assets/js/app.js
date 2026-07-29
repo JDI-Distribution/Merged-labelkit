@@ -216,6 +216,24 @@
     }
   };
 
+  const MPL_TEMPLATE_CONFIG = {
+    kehe: {
+      label: 'KeHE MPL',
+      title: 'MASTER PACKING LIST',
+      description: 'The required KeHE master packing list layout.'
+    },
+    standard: {
+      label: 'Standard',
+      title: 'PACKING LIST',
+      description: 'A clean general-purpose packing list with prominent order and address details.'
+    },
+    compact: {
+      label: 'Compact',
+      title: 'COMPACT PACKING LIST',
+      description: 'A denser layout that fits more pallet line items on each page.'
+    }
+  };
+
   const KEHE_UNIFIED_COLUMNS = [
     ['status', 'Status'],
     ['source_file', 'Source File'],
@@ -325,6 +343,7 @@
   let mplDirectoryRows = loadMplDirectoryFromStorage();
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
+  const mplLiveTiHiTimers = new Map();
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
   let embeddedAuthMounted = false;
@@ -1144,6 +1163,63 @@
 
   function isStandaloneMplReferenceMode() {
     return selectedKit === 'mpl' || !!activeKeheDocumentDraft?.standalone_mpl;
+  }
+
+  function mplTemplateId(mpl) {
+    if (!isStandaloneMplReferenceMode()) {
+      if (mpl) mpl.template_id = 'kehe';
+      return 'kehe';
+    }
+    const requested = String(mpl?.template_id || activeKeheDocumentDraft?.template_id || 'standard').trim().toLowerCase();
+    const templateId = ['kehe', 'standard', 'compact'].includes(requested) ? requested : 'standard';
+    if (mpl) mpl.template_id = templateId;
+    if (activeKeheDocumentDraft) activeKeheDocumentDraft.template_id = templateId;
+    return templateId;
+  }
+
+  function setMplTemplate(mplIndex, templateId) {
+    if (!isStandaloneMplReferenceMode()) return;
+    const mpl = getMpl(mplIndex);
+    const normalized = String(templateId || '').trim().toLowerCase();
+    if (!mpl || !['kehe', 'standard', 'compact'].includes(normalized)) return;
+    mpl.template_id = normalized;
+    activeKeheDocumentDraft.template_id = normalized;
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    setStatus(`${MPL_TEMPLATE_CONFIG[normalized].label} template selected.`, 'info');
+  }
+
+  function renderMplTemplateSelector(mpl, mplIndex) {
+    const templateId = mplTemplateId(mpl);
+    if (!isStandaloneMplReferenceMode()) {
+      const cfg = MPL_TEMPLATE_CONFIG.kehe;
+      return `
+        <div class="mpl-template-picker locked">
+          <div>
+            <div class="mpl-template-picker-kicker">MPL Template</div>
+            <div class="mpl-template-picker-title">${escapeHtml(cfg.label)}</div>
+          </div>
+          <div class="mpl-template-picker-description">${escapeHtml(cfg.description)}</div>
+          <span class="mpl-template-lock">KeHE only</span>
+        </div>`;
+    }
+    return `
+      <div class="mpl-template-picker">
+        <div>
+          <div class="mpl-template-picker-kicker">MPL Template</div>
+          <div class="mpl-template-picker-title">Choose a layout</div>
+        </div>
+        <div class="mpl-template-options" role="radiogroup" aria-label="MPL template">
+          ${['kehe', 'standard', 'compact'].map(id => {
+            const cfg = MPL_TEMPLATE_CONFIG[id];
+            const selected = id === templateId;
+            return `
+              <button class="mpl-template-option${selected ? ' selected' : ''}" type="button" role="radio" aria-checked="${selected ? 'true' : 'false'}" onclick="setMplTemplate(${mplIndex}, '${id}')">
+                <span>${escapeHtml(cfg.label)}</span>
+                <small>${escapeHtml(cfg.description)}</small>
+              </button>`;
+          }).join('')}
+        </div>
+      </div>`;
   }
 
   function getActiveProductMasterRows() {
@@ -2162,6 +2238,10 @@
 
   function buildManualMasterPackingListDraft(options = {}) {
     const standalone = selectedKit === 'mpl';
+    const requestedTemplate = String(options.templateId || '').trim().toLowerCase();
+    const templateId = standalone && ['kehe', 'standard', 'compact'].includes(requestedTemplate)
+      ? requestedTemplate
+      : (standalone ? 'standard' : 'kehe');
     const dcRows = getActiveDcDirectoryRows();
     const requestedStorefront = String(options.storefront || '').trim();
     const firstDc = (
@@ -2176,6 +2256,7 @@
       version: 3,
       manual_mpl: true,
       standalone_mpl: standalone,
+      template_id: templateId,
       storefront,
       summary: { packing_lists: 1, manual_mpl: true },
       warnings: [],
@@ -2185,6 +2266,7 @@
       packing_lists: [{
         id: 'MANUAL-MPL-1',
         title: 'MASTER PACKING LIST',
+        template_id: templateId,
         status: firstDc.delivery_address ? 'Ready' : 'Needs Review',
         manual_mpl: true,
         storefront,
@@ -2321,6 +2403,29 @@
     loadMplOrderFromAnalytics(null, ecomdashId, orderNumber);
   }
 
+  function completeMplOrderLoad(payload, orderNumber, templateId) {
+    const requestedTemplate = String(templateId || '').trim().toLowerCase();
+    const normalizedTemplate = ['kehe', 'standard', 'compact'].includes(requestedTemplate)
+      ? requestedTemplate
+      : 'standard';
+    activeKeheDocumentType = 'masterPackingList';
+    activeKeheDocumentDraft = buildAnalyticsOrderMplDraft(payload, normalizedTemplate);
+    keheLastMplDraft = activeKeheDocumentDraft;
+    const palletization = autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
+    keheMplPalletizationSource = activeKeheDocumentDraft.packing_lists?.[0]?.palletization_source || 'Order Data + Product Master';
+    renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
+    openDocumentEditor();
+
+    const summary = payload.summary || {};
+    const matched = Number(summary.matched_products || 0);
+    const converted = Number(summary.converted_to_cases || 0);
+    const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) + Number(summary.partial_case_items || 0);
+    setStatus(
+      `Sales Order ${orderNumber} loaded with the ${MPL_TEMPLATE_CONFIG[normalizedTemplate].label} template: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${converted ? `, ${converted} converted from eaches to cases` : ''}, ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}.`,
+      needsReview ? 'info' : 'success'
+    );
+  }
+
   function analyticsOrderQuantity(value) {
     const quantity = Number(String(value ?? '').replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) return '';
@@ -2349,7 +2454,7 @@
     ].map(value => String(value || '').trim()).filter(Boolean).join('\n');
   }
 
-  function buildAnalyticsOrderMplDraft(payload) {
+  function buildAnalyticsOrderMplDraft(payload, templateId = 'standard') {
     const orderNumber = String(payload?.sales_order_number || '').trim();
     const sourceItems = Array.isArray(payload?.items) ? payload.items : [];
     const matchedStorefronts = [...new Set(sourceItems
@@ -2357,7 +2462,8 @@
       .filter(Boolean)
       .map(normalizeStorefront))];
     const draft = buildManualMasterPackingListDraft({
-      storefront: matchedStorefronts.length === 1 ? matchedStorefronts[0] : ''
+      storefront: matchedStorefronts.length === 1 ? matchedStorefronts[0] : '',
+      templateId
     });
     const mpl = draft.packing_lists[0];
     const warnings = [];
@@ -2505,23 +2611,7 @@
         return;
       }
       hideMplOrderInstancePicker();
-
-      activeKeheDocumentType = 'masterPackingList';
-      activeKeheDocumentDraft = buildAnalyticsOrderMplDraft(payload);
-      keheLastMplDraft = activeKeheDocumentDraft;
-      const palletization = autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
-      keheMplPalletizationSource = activeKeheDocumentDraft.packing_lists?.[0]?.palletization_source || 'Order Data + Product Master';
-      renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
-      openDocumentEditor();
-
-      const summary = payload.summary || {};
-      const matched = Number(summary.matched_products || 0);
-      const converted = Number(summary.converted_to_cases || 0);
-      const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) + Number(summary.partial_case_items || 0);
-      setStatus(
-        `Sales Order ${orderNumber} loaded: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${converted ? `, ${converted} converted from eaches to cases` : ''}, ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}.`,
-        needsReview ? 'info' : 'success'
-      );
+      completeMplOrderLoad(payload, orderNumber, 'standard');
     } catch (err) {
       setStatus('Error: ' + (err?.message || 'The sales order could not be loaded.'), 'error');
     } finally {
@@ -4958,6 +5048,86 @@
       </div>`;
   }
 
+  function mplLiveTiHiLoadingMarkup() {
+    return `
+      <div class="mpl-live-tihi-loading" role="status">
+        <span class="mpl-live-tihi-spinner" aria-hidden="true"></span>
+        <span>Creating Ti-Hi…</span>
+      </div>`;
+  }
+
+  function renderMplLiveTiHiContent(entry, constraints, warnings = []) {
+    if (!entry) {
+      return `
+        <div class="mpl-live-tihi-empty">
+          <strong>Ti-Hi unavailable</strong>
+          <span>${escapeHtml(warnings[0] || 'Add Case dimensions, Case weight, and a pallet quantity to create the live layout.')}</span>
+        </div>`;
+    }
+    return `
+      <div class="mpl-live-tihi-summary">
+        <span><strong>${escapeHtml(String(entry.ti))} × ${escapeHtml(String(entry.hi))}</strong> TI × HI</span>
+        <span>${escapeHtml(String(entry.assignedCases))} cases</span>
+        <span>${escapeHtml(String(Math.round(entry.grossWeightLbs)))} lbs</span>
+      </div>
+      ${entry.overflowCases ? `<div class="mpl-live-tihi-warning">${escapeHtml(String(entry.overflowCases))} case(s) exceed the current pallet limits.</div>` : ''}
+      <div class="mpl-live-tihi-views">
+        <div>
+          <span class="mpl-live-tihi-view-label">Top</span>
+          ${renderTiHiTopViewSvg(entry, constraints)}
+        </div>
+        <div>
+          <span class="mpl-live-tihi-view-label">Side</span>
+          ${renderTiHiSideViewSvg(entry, constraints)}
+        </div>
+      </div>`;
+  }
+
+  function refreshMplLiveTiHiNow(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    const panels = [...document.querySelectorAll(`[data-mpl-live-tihi="${mplIndex}"]`)];
+    if (!mpl || !panels.length) return;
+    try {
+      const { entries, warnings, constraints } = buildMplTiHiEntries(mpl);
+      const entriesByPallet = new Map(
+        entries.map(entry => [normalizePalletId(entry.palletLabel), entry])
+      );
+      panels.forEach(panel => {
+        const palletId = normalizePalletId(panel.getAttribute('data-pallet-id'));
+        const entry = entriesByPallet.get(palletId);
+        const body = panel.querySelector('.mpl-live-tihi-body');
+        if (!body) return;
+        body.innerHTML = renderMplLiveTiHiContent(entry, entry?.constraints || getMplTiHiConstraints(mpl, palletId) || constraints, warnings);
+      });
+    } catch (err) {
+      panels.forEach(panel => {
+        const body = panel.querySelector('.mpl-live-tihi-body');
+        if (body) {
+          body.innerHTML = `<div class="mpl-live-tihi-empty"><strong>Ti-Hi could not be created</strong><span>${escapeHtml(err?.message || 'Check the pallet inputs and try again.')}</span></div>`;
+        }
+      });
+    }
+  }
+
+  function scheduleMplLiveTiHiRefresh(mplIndex, delay = 160) {
+    const currentTimer = mplLiveTiHiTimers.get(mplIndex);
+    if (currentTimer) window.clearTimeout(currentTimer);
+    document.querySelectorAll(`[data-mpl-live-tihi="${mplIndex}"] .mpl-live-tihi-body`).forEach(body => {
+      body.innerHTML = mplLiveTiHiLoadingMarkup();
+    });
+    const timer = window.setTimeout(() => {
+      mplLiveTiHiTimers.delete(mplIndex);
+      refreshMplLiveTiHiNow(mplIndex);
+    }, delay);
+    mplLiveTiHiTimers.set(mplIndex, timer);
+  }
+
+  function scheduleAllMplLiveTiHiRefresh() {
+    (activeKeheDocumentDraft?.packing_lists || []).forEach((_mpl, index) => {
+      scheduleMplLiveTiHiRefresh(index);
+    });
+  }
+
   function openMplPalletTiHi(mplIndex, palletId) {
     const mpl = getMpl(mplIndex);
     if (!mpl || !activeKeheDocumentDraft) return;
@@ -6165,19 +6335,31 @@
       .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
     const weight = (mpl._pallet_weights && mpl._pallet_weights[palletId]) || '';
     return `
-      <div class="mpl-pdf-pallet-section" data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
-        <div class="mpl-pdf-pallet-heading">
-          <div>Pallet: ${escapeHtml(palletId)}</div>
-          <div class="mpl-pallet-weight-edit">
-            <span>Weight</span>
-            <input value="${escapeHtml(weight)}" placeholder="ex: 820 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)">
+      <div class="mpl-pallet-live-row">
+        <div class="mpl-pdf-pallet-section" data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+          <div class="mpl-pdf-pallet-heading">
+            <div>Pallet: ${escapeHtml(palletId)}</div>
+            <div class="mpl-pallet-weight-edit">
+              <span>Weight</span>
+              <input value="${escapeHtml(weight)}" placeholder="ex: 820 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)">
+            </div>
+            <div class="mpl-pallet-heading-actions">
+              <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Ti-Hi Settings</button>
+              <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Line Item</button>
+            </div>
           </div>
-          <div class="mpl-pallet-heading-actions">
-            <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Line Item</button>
-            <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">TI-Hi</button>
-          </div>
+          ${renderMplDropZone(mplIndex, palletId, items, 'Drop line items here')}
         </div>
-        ${renderMplDropZone(mplIndex, palletId, items, 'Drop line items here')}
+        <aside class="mpl-live-tihi-panel" data-mpl-live-tihi="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+          <div class="mpl-live-tihi-head">
+            <div>
+              <strong>Live Ti-Hi</strong>
+              <span>Pallet ${escapeHtml(palletId)}</span>
+            </div>
+            <span class="mpl-live-tihi-badge">Auto</span>
+          </div>
+          <div class="mpl-live-tihi-body">${mplLiveTiHiLoadingMarkup()}</div>
+        </aside>
       </div>`;
   }
 
@@ -6224,18 +6406,22 @@
     }
 
     return `
-            ${lists.map((mpl, index) => `
+            ${lists.map((mpl, index) => {
+        const templateId = mplTemplateId(mpl);
+        const template = MPL_TEMPLATE_CONFIG[templateId] || MPL_TEMPLATE_CONFIG.kehe;
+        return `
         <div class="pdf-document-shell" data-pack-label-index="${index}">
           <div class="pdf-sheet-toolbar">
             <span>${escapeHtml(mpl.id || `MPL ${index + 1}`)}</span>
             ${pdfStatusBadge(mpl.status)}
           </div>
+          ${renderMplTemplateSelector(mpl, index)}
           ${renderManualMplTools(mpl, index)}
           ${Array.isArray(mpl.warnings) && mpl.warnings.length
             ? `<div class="editor-warning" style="width:min(100%, 920px)">${mpl.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}
-          <div class="pdf-sheet mpl-sheet">
-            <div class="mpl-pdf-title">MASTER PACKING LIST</div>
+          <div class="pdf-sheet mpl-sheet mpl-template-${escapeHtml(templateId)}">
+            <div class="mpl-pdf-title">${escapeHtml(template.title)}</div>
 
             <div class="mpl-info-grid two">
               ${renderMplInfoCell(`packing_lists.${index}.customer_po_number`, 'Customer PO Number', mpl.customer_po_number)}
@@ -6270,7 +6456,8 @@
 
             ${renderMplItemsEditor(index, mpl.items || [])}
           </div>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
         ${lists.map((mpl, index) => renderMplTiHiPopup(mpl, index)).join('')}`;
   }
 
@@ -6561,6 +6748,9 @@
       body.innerHTML = renderMasterPackingListEditor(draft);
     }
     enhanceSearchableSelects(body);
+    if (type === 'masterPackingList') {
+      scheduleAllMplLiveTiHiRefresh();
+    }
   }
 
   function updateDraftValue(input) {
@@ -6605,6 +6795,9 @@
         }
         keheLastMplDraft = activeKeheDocumentDraft;
         renderKeheUnifiedReport(activeKeheDocumentDraft);
+        if (path.includes('.items.') || path.includes('._tihi_')) {
+          scheduleMplLiveTiHiRefresh(Number(mplMatch[1]));
+        }
       }
     }
   }
