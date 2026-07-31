@@ -132,6 +132,34 @@
         ['note', 'Note']
       ],
       csvName: 'master_packing_list.csv'
+    },
+    b2b: {
+      headerName: 'B2B Case-Pack Labels · LabelKit',
+      headerSub: 'Customer-first case-pack workflow',
+      titleHtml: 'B2B Case-Pack <span>Labels</span>',
+      description: '',
+      noteHtml: '',
+      xmlTitle: '',
+      xmlHintHtml: '',
+      requiresPdf: false,
+      endpoint: '',
+      outputName: 'b2b_case_pack_labels.pdf',
+      generateLabel: 'B2B Case-Pack Labels',
+      reportTitle: 'B2B Label Runs',
+      reportRules: '',
+      waitingText: 'Select customer and product configuration to start.',
+      summaryLabels: [],
+      columns: [
+        ['document', 'Document'],
+        ['status', 'Status'],
+        ['note', 'Note']
+      ],
+      csvColumns: [
+        ['document', 'Document'],
+        ['status', 'Status'],
+        ['note', 'Note']
+      ],
+      csvName: 'b2b_case_pack_labels.csv'
     }
   };
 
@@ -347,7 +375,7 @@
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
   let embeddedAuthMounted = false;
-  const pages = ['home', 'michaels', 'kehe', 'mpl'];
+  const pages = ['home', 'michaels', 'kehe', 'mpl', 'b2b'];
 
   fetch('/health').catch(() => {});
 
@@ -595,6 +623,8 @@
       resetToSelection(false);
     } else if (normalized === 'mpl') {
       await selectMplWorkspace(false);
+    } else if (normalized === 'b2b') {
+      await selectB2BWorkspace(false);
     } else {
       selectKit(normalized, false);
     }
@@ -661,7 +691,15 @@
       showMplProductMasterView();
       return;
     }
+    if (normalized === 'b2b/product-master') {
+      showMplProductMasterView();
+      return;
+    }
     if (normalized === 'mpl/directory') {
+      showMplDirectoryView();
+      return;
+    }
+    if (normalized === 'b2b/directory') {
       showMplDirectoryView();
       return;
     }
@@ -1225,7 +1263,7 @@
   }
 
   function isStandaloneMplReferenceMode() {
-    return selectedKit === 'mpl' || !!activeKeheDocumentDraft?.standalone_mpl;
+    return selectedKit === 'mpl' || selectedKit === 'b2b' || !!activeKeheDocumentDraft?.standalone_mpl;
   }
 
   function mplTemplateId(mpl) {
@@ -1389,7 +1427,7 @@
 
   function closeMplProductMasterModal(useHistory = true) {
     if (useHistory) {
-      closeCurrentRouteView('mpl');
+      closeCurrentRouteView(getCurrentPage());
     } else {
       hideMplProductMasterView();
     }
@@ -1964,7 +2002,7 @@
 
   function closeMplDirectoryModal(useHistory = true) {
     if (useHistory) {
-      closeCurrentRouteView('mpl');
+      closeCurrentRouteView(getCurrentPage());
     } else {
       hideMplDirectoryView();
     }
@@ -5482,6 +5520,7 @@
     document.getElementById('kit-selection').classList.add('hidden');
     document.getElementById('upload-page').classList.remove('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
+    document.getElementById('b2b-workspace-page').classList.add('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
 
     document.getElementById('header-app-name').textContent = cfg.headerName;
@@ -5553,6 +5592,7 @@
     document.title = 'Packing List & Ti-Hi · LabelKit';
     document.getElementById('kit-selection').classList.add('hidden');
     document.getElementById('upload-page').classList.add('hidden');
+    document.getElementById('b2b-workspace-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'Packing List & Ti-Hi';
@@ -5586,11 +5626,83 @@
     }
   }
 
+  async function selectB2BWorkspace(updateHistory = true) {
+    selectedKit = 'b2b';
+    xmlFiles = [];
+    pdfFiles = [];
+    currentResultId = null;
+    currentReport = null;
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = null;
+    activeKeheDocumentType = null;
+    activeKeheDocumentDraft = null;
+    mplProductMasterRows = loadMplProductMasterFromStorage();
+    mplDirectoryRows = loadMplDirectoryFromStorage();
+
+    document.title = 'B2B Case-Pack Labels · LabelKit';
+    document.getElementById('kit-selection').classList.add('hidden');
+    document.getElementById('upload-page').classList.add('hidden');
+    document.getElementById('mpl-workspace-page').classList.add('hidden');
+    document.getElementById('b2b-workspace-page').classList.remove('hidden');
+    document.getElementById('btn-change-kit').classList.add('visible');
+    document.getElementById('header-app-name').textContent = 'B2B Case-Pack Labels';
+    document.getElementById('header-app-sub').textContent = 'Customer-first configuration workflow';
+
+    setDownloadReady(false);
+    setExportReady(false);
+    setPreviewReady(false);
+    resetPreviewSurface();
+    closePreview();
+    hideAllRouteViews();
+    setStatus('', '');
+
+    mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
+    mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
+    await Promise.allSettled([mplProductMasterLoadPromise, mplDirectoryLoadPromise]);
+
+    const activeRows = getAllMplProductMasterRows().filter(row => row.label_enabled && row.label_template_id);
+    const customerCount = new Set(activeRows.map(row => normalizeStorefront(row.storefront))).size;
+    const statusEl = document.getElementById('b2b-workspace-status');
+    if (statusEl) {
+      statusEl.textContent = `${customerCount} customer${customerCount === 1 ? '' : 's'} ready for B2B configurations.`;
+    }
+
+    if (updateHistory) {
+      setHistoryPage('b2b');
+    }
+  }
+
+  async function openB2BProductMaster() {
+    await navigateToRoute('b2b/product-master');
+    showMplProductMasterView();
+  }
+
+  async function openB2BDirectory() {
+    await navigateToRoute('b2b/directory');
+    showMplDirectoryView();
+  }
+
+  async function openB2BTemplateConfig() {
+    try {
+      const res = await fetchWithTimeout('/api/b2b/label-templates', { cache: 'no-store' }, 15000);
+      const payload = await res.json().catch(() => ({}));
+      const templates = Array.isArray(payload.templates) ? payload.templates : [];
+      const statusEl = document.getElementById('b2b-workspace-status');
+      if (statusEl) {
+        statusEl.textContent = `Loaded ${templates.length} template${templates.length === 1 ? '' : 's'} from b2b_label_templates.json.`;
+      }
+      setStatus('B2B template configuration loaded.', 'success');
+    } catch (_err) {
+      setStatus('Could not load B2B template configuration.', 'error');
+    }
+  }
+
   function resetToSelection(updateHistory = true) {
     selectedKit = null;
     document.title = 'JDI Label Kits';
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
+    document.getElementById('b2b-workspace-page').classList.add('hidden');
     document.getElementById('kit-selection').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.remove('visible');
     document.getElementById('header-app-name').textContent = 'LabelKit';
@@ -5754,15 +5866,18 @@
   function setStatus(msg, type) {
     const defaultEl = document.getElementById('status-bar');
     const mplEl = document.getElementById('mpl-status-bar');
-    const el = selectedKit === 'mpl' && mplEl ? mplEl : defaultEl;
+    const b2bEl = document.getElementById('b2b-status-bar');
+    const el = selectedKit === 'b2b' && b2bEl
+      ? b2bEl
+      : (selectedKit === 'mpl' && mplEl ? mplEl : defaultEl);
     if (!msg) {
-      [defaultEl, mplEl].filter(Boolean).forEach(target => {
+      [defaultEl, mplEl, b2bEl].filter(Boolean).forEach(target => {
         target.textContent = '';
         target.className = 'status-bar';
       });
       return;
     }
-    [defaultEl, mplEl].filter(Boolean).forEach(target => {
+    [defaultEl, mplEl, b2bEl].filter(Boolean).forEach(target => {
       if (target !== el) {
         target.textContent = '';
         target.className = 'status-bar';
