@@ -1447,7 +1447,7 @@
           mplProductMasterRows = savedRows;
           saveMplProductMasterToStorage();
           renderMplProductMasterTable();
-          setStatus('Product Master duplicate key merged. Unique key is Storefront + Config ID (or legacy Storefront + Packaging Level + SKU).', 'info');
+          setStatus('Product Master duplicate key merged. Unique key is Storefront + Config ID + Packaging Level (or legacy Storefront + Packaging Level + SKU).', 'info');
         } else {
           saveMplProductMasterToStorage();
         }
@@ -3345,7 +3345,7 @@
     if (rowModeLabel) {
       rowModeLabel.textContent = preview.target === 'dc-directory'
         ? 'Unique key: Storefront + Code. Matching rows update the existing Directory record.'
-        : 'Unique key: Storefront + Packaging Level + SKU. Matching rows update the existing Product Master record.';
+        : 'Unique key: Storefront + Config ID + Packaging Level. Legacy rows without Config ID use Storefront + Packaging Level + SKU.';
     }
     const body = document.getElementById('excel-import-body');
     const changes = Array.isArray(preview.changes) ? preview.changes : [];
