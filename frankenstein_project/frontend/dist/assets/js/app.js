@@ -1512,7 +1512,7 @@
     const rows = mplProductMasterRows
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }));
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="12">No product rows yet. Add manually or upload data.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="2">No product rows yet. Add manually or upload data.</td></tr>';
       return;
     }
     const levelOptions = ['Case', 'Inner Pack', 'Each', 'Shipper Contents', 'Other'];
@@ -1541,43 +1541,43 @@
         ? 'e.g. 36'
         : (row.packaging_level === 'Inner Pack' ? 'e.g. 6' : 'optional');
       return `
-      <tr class="mpl-product-level-row" data-product-row-index="${index}">
-        <td><input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)" onchange="refreshMplProductGrouping(${index})"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)" onchange="refreshMplProductGrouping(${index})"><small>${escapeHtml(row.config_id ? `Config ${row.config_id}` : 'Add Config ID for B2B rows')}</small></td>
-        <td><select ${editDisabled} onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
-          ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
-        </select></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"><small>L ${escapeHtml(row.length_in || '—')} · W ${escapeHtml(row.width_in || '—')} · H ${escapeHtml(row.height_in || '—')}</small></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"><small>Gross lb ${escapeHtml(row.gross_weight_lbs || '—')}</small></td>
-        <td><input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="${escapeHtml(packagePlaceholder)}" title="Number of sellable eaches contained in this packaging level." oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></td>
-        <td class="mpl-product-pack-breakdown">${escapeHtml(mplProductPackageBreakdown(row, groupEntries))}</td>
-        <td><input ${editDisabled} type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" oninput="updateMplProductRow(${index}, 'labels_per_unit', this.value)"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)" onchange="refreshMplProductGrouping(${index})"></td>
-        <td><button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualMplProductPackLabel(${index})">Preview</button></td>
-        <td>${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button>` : ''}</td>
-      </tr>
-      <tr class="mpl-product-b2b-row">
-        <td colspan="12">
-          <div class="mpl-product-b2b-fields">
+      <tr class="mpl-product-unified-row" data-product-row-index="${index}">
+        <td>
+          <div class="mpl-unified-fields-grid">
+            <label>Storefront <input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplProductRow(${index}, 'storefront', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
+            <label>Packaging Level <select ${editDisabled} onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
+              ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
+            </select></label>
+            <label>SKU <input ${editDisabled} value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
             <label>Config ID <input ${editDisabled} value="${escapeHtml(row.config_id || '')}" placeholder="DECOPAC-62924-CASE" oninput="updateMplProductRow(${index}, 'config_id', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
+            <label>GTIN <input ${editDisabled} value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></label>
             <label>Customer Item <input ${editDisabled} value="${escapeHtml(row.customer_item_number || '')}" oninput="updateMplProductRow(${index}, 'customer_item_number', this.value)"></label>
+            <label>Description <input ${editDisabled} value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
             <label>Template <input ${editDisabled} value="${escapeHtml(row.label_template_id || '')}" placeholder="DECOPAC_CASE_4X6" oninput="updateMplProductRow(${index}, 'label_template_id', this.value)"></label>
             <label>Barcode Type <input ${editDisabled} value="${escapeHtml(row.barcode_type || '')}" placeholder="UPC_A" oninput="updateMplProductRow(${index}, 'barcode_type', this.value)"></label>
             <label>Barcode Level <input ${editDisabled} value="${escapeHtml(row.barcode_level || '')}" placeholder="CASE" oninput="updateMplProductRow(${index}, 'barcode_level', this.value)"></label>
+            <label>Dimensions (L x W x H in) <input ${editDisabled} value="${escapeHtml(row.dimensions_in)}" placeholder="ex: 12 x 8 x 6" oninput="updateMplProductRow(${index}, 'dimensions_in', this.value)"></label>
             <label>Length in <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.length_in || '')}" oninput="updateMplProductRow(${index}, 'length_in', this.value)"></label>
             <label>Width/Breadth in <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.width_in || '')}" oninput="updateMplProductRow(${index}, 'width_in', this.value)"></label>
             <label>Height in <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.height_in || '')}" oninput="updateMplProductRow(${index}, 'height_in', this.value)"></label>
+            <label>Weight (lbs) <input ${editDisabled} value="${escapeHtml(row.weight_lbs)}" placeholder="ex: 16" oninput="updateMplProductRow(${index}, 'weight_lbs', this.value)"></label>
+            <label>Gross lb <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.gross_weight_lbs || '')}" oninput="updateMplProductRow(${index}, 'gross_weight_lbs', this.value)"></label>
             <label>Each Net g <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.each_net_weight_g || '')}" oninput="updateMplProductRow(${index}, 'each_net_weight_g', this.value)"></label>
             <label>Package Net g <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.package_net_weight_g || '')}" oninput="updateMplProductRow(${index}, 'package_net_weight_g', this.value)"></label>
-            <label>Gross lb <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.gross_weight_lbs || '')}" oninput="updateMplProductRow(${index}, 'gross_weight_lbs', this.value)"></label>
+            <label>Eaches / Package <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="${escapeHtml(packagePlaceholder)}" title="Number of sellable eaches contained in this packaging level." oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></label>
+            <label>Pack Breakdown <input disabled value="${escapeHtml(mplProductPackageBreakdown(row, groupEntries))}"></label>
+            <label>Labels / Unit <input ${editDisabled} type="number" min="2" step="1" value="${escapeHtml(row.labels_per_unit)}" placeholder="2" oninput="updateMplProductRow(${index}, 'labels_per_unit', this.value)"></label>
             <label>Default Copies <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.default_copies || '')}" oninput="updateMplProductRow(${index}, 'default_copies', this.value)"></label>
             <label>Verification <input ${editDisabled} value="${escapeHtml(row.verification_status || '')}" placeholder="BLOCKED" oninput="updateMplProductRow(${index}, 'verification_status', this.value)"></label>
-            <label>Label Enabled <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
-            <label>Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
             <label>Pack Statement <input ${editDisabled} value="${escapeHtml(row.pack_statement || '')}" oninput="updateMplProductRow(${index}, 'pack_statement', this.value)"></label>
             <label>Source Note <input ${editDisabled} value="${escapeHtml(row.source_note || '')}" oninput="updateMplProductRow(${index}, 'source_note', this.value)"></label>
+            <label class="mpl-toggle-field">Label Enabled <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
+            <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
           </div>
+        </td>
+        <td class="table-inline-actions">
+          <button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualMplProductPackLabel(${index})">Preview</button>
+          ${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button>` : ''}
         </td>
       </tr>`;
     };
@@ -1597,7 +1597,7 @@
       const configLabel = primaryRow.config_id ? `Config ${primaryRow.config_id}` : 'No Config ID';
       return `
         <tr class="mpl-product-group-row ${expanded ? 'is-expanded' : ''}">
-          <td colspan="12">
+          <td colspan="2">
             <button class="mpl-product-group-toggle" type="button" data-group-key="${escapeHtml(group.key)}" onclick="toggleMplProductGroup(this)" aria-expanded="${expanded ? 'true' : 'false'}">
               <span class="mpl-product-group-chevron" aria-hidden="true">${expanded ? '−' : '+'}</span>
               <span class="mpl-product-group-identity">
@@ -2015,32 +2015,32 @@
     const editDisabled = canEdit ? '' : 'disabled';
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
     if (!rows.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="9">No directory rows yet. Add a row manually.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="2">No directory rows yet. Add a row manually.</td></tr>';
       return;
     }
     body.innerHTML = rows.map((row, index) => `
-      <tr>
-        <td><input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplDirectoryRow(${index}, 'storefront', this.value)"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></td>
-        <td><input ${editDisabled} value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></td>
-        <td><textarea ${editDisabled} placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></td>
-        <td><textarea ${editDisabled} placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></td>
-        <td><textarea ${editDisabled} placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></td>
-        <td><textarea ${editDisabled} placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></td>
-        <td class="kehe-dc-print-cell"><button class="btn-table-preview" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview</button></td>
-        <td>${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button>` : ''}</td>
-      </tr>
-      <tr class="mpl-directory-b2b-row">
-        <td colspan="9">
-          <div class="mpl-product-b2b-fields">
+      <tr class="mpl-directory-unified-row">
+        <td>
+          <div class="mpl-unified-fields-grid">
+            <label>Storefront <input ${editDisabled} value="${escapeHtml(row.storefront)}" placeholder="KeHE" oninput="updateMplDirectoryRow(${index}, 'storefront', this.value)"></label>
+            <label>Code <input ${editDisabled} value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></label>
+            <label>Name <input ${editDisabled} value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></label>
             <label>Record Type <input ${editDisabled} value="${escapeHtml(row.record_type || '')}" placeholder="DESTINATION" oninput="updateMplDirectoryRow(${index}, 'record_type', this.value)"></label>
             <label>Default Template <input ${editDisabled} value="${escapeHtml(row.default_label_template_id || '')}" oninput="updateMplDirectoryRow(${index}, 'default_label_template_id', this.value)"></label>
+            <label>Receiving Email <input ${editDisabled} value="${escapeHtml(row.receiving_email || '')}" oninput="updateMplDirectoryRow(${index}, 'receiving_email', this.value)"></label>
             <label>Manufacturer Name <input ${editDisabled} value="${escapeHtml(row.manufacturer_name || '')}" oninput="updateMplDirectoryRow(${index}, 'manufacturer_name', this.value)"></label>
             <label>Manufacturer Address <input ${editDisabled} value="${escapeHtml(row.manufacturer_address || '')}" oninput="updateMplDirectoryRow(${index}, 'manufacturer_address', this.value)"></label>
-            <label>Receiving Email <input ${editDisabled} value="${escapeHtml(row.receiving_email || '')}" oninput="updateMplDirectoryRow(${index}, 'receiving_email', this.value)"></label>
             <label>Docking Instructions <input ${editDisabled} value="${escapeHtml(row.docking_instructions || '')}" oninput="updateMplDirectoryRow(${index}, 'docking_instructions', this.value)"></label>
-            <label>Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
+            <label class="mpl-field-wide">Ship From <textarea ${editDisabled} placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></label>
+            <label class="mpl-field-wide">Ship To <textarea ${editDisabled} placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></label>
+            <label class="mpl-field-wide">Bill To <textarea ${editDisabled} placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></label>
+            <label class="mpl-field-wide">Match Values <textarea ${editDisabled} placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></label>
+            <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
           </div>
+        </td>
+        <td class="table-inline-actions">
+          <button class="btn-table-preview" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview</button>
+          ${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button>` : ''}
         </td>
       </tr>
     `).join('');
@@ -2049,7 +2049,8 @@
 
   function addMplDirectoryRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
-    mplDirectoryRows.push(normalizeDcDirectoryRow({ storefront: 'KeHE', ...seed }));
+    const newRow = normalizeDcDirectoryRow({ storefront: 'KeHE', ...seed });
+    mplDirectoryRows.push(newRow);
     const newIndex = mplDirectoryRows.length - 1;
     saveMplDirectoryToStorage();
     saveMplDirectoryToBackendDebounced();

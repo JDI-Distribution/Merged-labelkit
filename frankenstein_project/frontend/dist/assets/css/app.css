@@ -1630,20 +1630,29 @@
       line-height: 1.25;
     }
 
-    .mpl-product-b2b-row td,
-    .mpl-directory-b2b-row td {
+    .mpl-product-unified-row td,
+    .mpl-directory-unified-row td {
       background: #f8fafc;
       padding: 8px;
+      border-top: 0;
     }
 
-    .mpl-product-b2b-fields {
+    .table-inline-actions {
+      padding: 6px !important;
+      display: grid;
+      gap: 6px;
+      min-width: 122px;
+      align-content: start;
+    }
+
+    .mpl-unified-fields-grid {
       display: grid;
       gap: 8px;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       align-items: end;
     }
 
-    .mpl-product-b2b-fields label {
+    .mpl-unified-fields-grid label {
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -1654,20 +1663,37 @@
       color: #475569;
     }
 
-    .mpl-product-b2b-fields input {
+    .mpl-unified-fields-grid input,
+    .mpl-unified-fields-grid select,
+    .mpl-unified-fields-grid textarea {
       min-height: 30px;
       border: 1px solid #dbe3ee;
       border-radius: 6px;
       padding: 6px 8px;
       font-size: 11px;
       background: #ffffff;
+      color: #0f172a;
+      resize: vertical;
     }
 
-    .mpl-product-b2b-fields input[type="checkbox"] {
+    .mpl-unified-fields-grid input[type="checkbox"] {
       width: 16px;
       height: 16px;
       min-height: 16px;
       margin: 2px 0 0;
+    }
+
+    .mpl-unified-fields-grid .mpl-field-wide {
+      grid-column: 1 / -1;
+    }
+
+    .mpl-unified-fields-grid .mpl-toggle-field {
+      justify-content: flex-start;
+      align-items: flex-start;
+    }
+
+    .mpl-unified-fields-grid .mpl-toggle-field input[type="checkbox"] {
+      margin-top: 4px;
     }
 
     .mpl-product-pack-breakdown {
