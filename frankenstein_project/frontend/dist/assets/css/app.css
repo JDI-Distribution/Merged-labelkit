@@ -4579,6 +4579,7 @@
     }
 
     .mpl-directory-card {
+      min-width: 0;
       border: 1px solid #d8e2e9;
       border-radius: 12px;
       background: #ffffff;
@@ -4681,11 +4682,15 @@
     }
 
     .directory-card-body {
+      min-width: 0;
       padding: 18px;
       background: #fbfcfd;
     }
 
     .directory-card-editor-heading {
+      position: sticky;
+      top: 0;
+      z-index: 5;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -4695,6 +4700,7 @@
       border: 1px solid #d7e5ea;
       border-radius: 9px;
       background: #ffffff;
+      box-shadow: 0 5px 14px rgba(30, 55, 74, 0.08);
     }
 
     .directory-card-editor-heading > div {
@@ -4723,6 +4729,35 @@
       white-space: nowrap;
     }
 
+    .directory-card-editor-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .directory-card-editor-actions .btn-secondary,
+    .directory-card-editor-actions .btn-table-preview,
+    .directory-card-editor-actions .directory-delete-button {
+      min-height: 36px;
+      padding: 8px 12px;
+      font-size: 10.5px;
+      white-space: nowrap;
+    }
+
+    .directory-card-editor-actions .directory-delete-button {
+      border: 1px solid #c52d20;
+      border-radius: 8px;
+      background: #d93629;
+      color: #ffffff;
+      font-weight: 900;
+    }
+
+    .directory-card-editor-actions .directory-delete-button:hover {
+      background: #b92319;
+    }
+
     #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: start;
@@ -4730,10 +4765,11 @@
     }
 
     #mpl-directory-modal .directory-card-body .mpl-field-wide {
-      grid-column: span 2;
+      grid-column: span 1;
     }
 
     #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid label {
+      min-width: 0;
       gap: 6px;
       font-size: 10.5px;
     }
@@ -4750,6 +4786,15 @@
 
     #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid textarea {
       min-height: 78px;
+    }
+
+    #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid input,
+    #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid select,
+    #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid textarea,
+    #mpl-directory-modal .directory-card-body .searchable-select {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .directory-card-actions {
@@ -4799,6 +4844,10 @@
       .directory-card-editor-heading {
         align-items: flex-start;
         flex-direction: column;
+      }
+      .directory-card-editor-actions {
+        justify-content: flex-start;
+        width: 100%;
       }
       #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
         grid-template-columns: 1fr;

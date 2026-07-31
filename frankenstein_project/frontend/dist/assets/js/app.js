@@ -2161,7 +2161,11 @@
         <div class="directory-card-body">
           <div class="directory-card-editor-heading">
             <div><strong>Editing: ${escapeHtml(row.name || row.storefront || 'New directory record')}</strong><span>Complete the fields below. Every change saves automatically.</span></div>
-            <span class="directory-autosave-badge">Auto-save on</span>
+            <div class="directory-card-editor-actions">
+              <span class="directory-autosave-badge">Auto-save on</span>
+              ${selectedKit === 'b2b' ? `<button class="btn-secondary" type="button" onclick="useMplDirectoryForB2B(${index})">Use in Label Creator</button>` : `<button class="btn-table-preview" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview</button>`}
+              ${canEdit ? `<button class="btn-mini-danger directory-delete-button" type="button" onclick="deleteMplDirectoryRow(${index})">Delete record</button>` : ''}
+            </div>
           </div>
           <div class="mpl-unified-fields-grid">
             <div class="mpl-field-group-label">Destination identity</div>
@@ -2191,10 +2195,6 @@
             <label class="mpl-field-wide">Bill To <textarea ${editDisabled} placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></label>
             <label class="mpl-field-wide">Match Values <textarea ${editDisabled} placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></label>
             <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
-          </div>
-          <div class="directory-card-actions">
-            ${selectedKit === 'b2b' ? `<button class="btn-secondary" type="button" onclick="useMplDirectoryForB2B(${index})">Use in Label Creator</button>` : `<button class="btn-table-preview" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview</button>`}
-            ${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplDirectoryRow(${index})">Delete</button>` : ''}
           </div>
         </div>
       </details>
