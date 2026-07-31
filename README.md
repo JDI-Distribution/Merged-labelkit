@@ -173,7 +173,7 @@ The standalone Product Master groups rows by `Storefront + Config ID` when prese
 
 KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B uses `Available in Label Creator` and `Active` to control general-user availability. `Data Status` is limited to `DRAFT`, `NEEDS_REVIEW`, `VERIFIED`, or `BLOCKED`; it never changes printed label content. `BLOCKED` hides a configuration from general users, while Admin/Editor roles can still inspect, correct, preview, and print it. Missing business values appear as review warnings instead of turning the label creator into a dead end.
 
-The standalone Directory uses searchable, collapsible customer/destination cards. Each card groups identity, template defaults, receiving details, manufacturer details, addresses, match values, Data Status, and Active state. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work.
+The standalone Directory uses searchable customer/destination cards with a persistent editor. The first matching record opens automatically, and selecting `Edit details` moves the full entry form to that record. The two-column editor groups identity, template defaults, receiving details, manufacturer details, addresses, match values, Data Status, and Active state; changes save automatically. `Add Customer / Destination` creates a draft and immediately opens its entry fields. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work.
 
 Table maintenance tools:
 

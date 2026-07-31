@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260731-b2b-template-cleanup">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260731-directory-editor-4">
 </head>
 <body>
 
@@ -682,7 +682,7 @@
         <div class="kehe-product-master-toolbar">
           <div>
             <div class="kehe-product-master-title">Directory Records</div>
-            <div class="kehe-product-master-subtitle">Open a record to review or edit it. Changes save automatically.</div>
+            <div class="kehe-product-master-subtitle">Select Edit details on a record, or add a new customer or destination. Changes save automatically.</div>
           </div>
           <div class="kehe-product-master-actions">
             <button class="btn-secondary" type="button" onclick="downloadImportTemplate('dc-directory')">Download Directory Template</button>
@@ -692,6 +692,14 @@
             <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Customer / Destination</button>
           </div>
           <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
+        </div>
+
+        <div class="directory-entry-guide">
+          <div class="directory-entry-guide-icon" aria-hidden="true">&#9998;</div>
+          <div>
+            <strong>Enter customer and destination information here</strong>
+            <span>Use Add Customer / Destination for a new record. The editable fields for the selected record stay expanded below.</span>
+          </div>
         </div>
 
         <div class="directory-filter-bar">
@@ -704,7 +712,6 @@
       </div>
 
       <div class="editor-footer">
-        <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Customer / Destination</button>
         <button class="btn-generate" type="button" onclick="closeMplDirectoryModal()">Done</button>
       </div>
     </div>
@@ -829,7 +836,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260731-b2b-template-cleanup"></script>
+<script src="/assets/js/app.js?v=20260731-directory-editor-4"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

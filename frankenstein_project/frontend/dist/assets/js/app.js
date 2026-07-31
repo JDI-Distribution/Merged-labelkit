@@ -371,6 +371,7 @@
   let mplDirectoryRows = loadMplDirectoryFromStorage();
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
+  let mplDirectoryExpandedIndex = -1;
   let b2bLabelTemplates = [];
   let b2bSelectedCustomer = '';
   let b2bSelectedGroupKey = '';
@@ -2146,14 +2147,22 @@
       body.innerHTML = `<div class="empty-row">${rows.length ? 'No directory records match this search.' : 'No directory rows yet. Add a customer or destination.'}</div>`;
       return;
     }
+    if (!filtered.some(({ index }) => index === mplDirectoryExpandedIndex)) {
+      mplDirectoryExpandedIndex = filtered[0].index;
+    }
     body.innerHTML = filtered.map(({ row, index }) => `
-      <details class="mpl-directory-card" data-directory-row-index="${index}">
-        <summary>
+      <details class="mpl-directory-card" data-directory-row-index="${index}" ${index === mplDirectoryExpandedIndex ? 'open' : ''}>
+        <summary onclick="selectMplDirectoryCard(${index}, event)">
           <span class="directory-card-title">${escapeHtml(row.name || row.storefront || 'Unnamed record')}<small>${escapeHtml(row.storefront || 'No customer')} · ${escapeHtml(row.dc || 'No code')}</small></span>
           <span class="directory-card-meta">${escapeHtml(row.record_type || 'DESTINATION')} · ${escapeHtml(row.default_label_template_id || 'No template')}</span>
           <span class="directory-card-status">${escapeHtml(row.verification_status || (row.is_active ? 'ACTIVE' : 'INACTIVE'))}</span>
+          <span class="directory-card-toggle" aria-hidden="true"><span class="directory-card-toggle-edit">Edit details</span><span class="directory-card-toggle-hide">Editing</span></span>
         </summary>
         <div class="directory-card-body">
+          <div class="directory-card-editor-heading">
+            <div><strong>Editing: ${escapeHtml(row.name || row.storefront || 'New directory record')}</strong><span>Complete the fields below. Every change saves automatically.</span></div>
+            <span class="directory-autosave-badge">Auto-save on</span>
+          </div>
           <div class="mpl-unified-fields-grid">
             <div class="mpl-field-group-label">Destination identity</div>
             <label>Customer / Storefront <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'storefront', this.value)">
@@ -2194,6 +2203,13 @@
     enhanceSearchableSelects(body);
   }
 
+  function selectMplDirectoryCard(index, event) {
+    event?.preventDefault();
+    mplDirectoryExpandedIndex = index;
+    renderMplDirectoryTable();
+    document.querySelector(`#mpl-directory-body [data-directory-row-index="${index}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   function addMplDirectoryRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
     const newRow = normalizeDcDirectoryRow({
@@ -2206,12 +2222,12 @@
     });
     mplDirectoryRows.push(newRow);
     const newIndex = mplDirectoryRows.length - 1;
+    mplDirectoryExpandedIndex = newIndex;
     saveMplDirectoryToStorage();
     saveMplDirectoryToBackendDebounced();
     renderMplDirectoryTable();
     const card = document.querySelector(`#mpl-directory-body [data-directory-row-index="${newIndex}"]`);
     if (card) {
-      card.open = true;
       card.scrollIntoView({ behavior: 'smooth', block: 'center' });
       card.querySelector('input, select, textarea')?.focus();
     }
@@ -2229,6 +2245,11 @@
   function deleteMplDirectoryRow(index) {
     if (!hasPermission('table_crud')) return;
     mplDirectoryRows.splice(index, 1);
+    if (mplDirectoryExpandedIndex === index) {
+      mplDirectoryExpandedIndex = -1;
+    } else if (mplDirectoryExpandedIndex > index) {
+      mplDirectoryExpandedIndex -= 1;
+    }
     saveMplDirectoryToStorage();
     saveMplDirectoryToBackendDebounced();
     renderMplDirectoryTable();
