@@ -144,7 +144,73 @@
         "30135"
       ],
       "unique_key": "55|DC 55 Douglasville|DC 55 Douglasville\nKeHE Distributors, LLC\n1851 Riverside Pkwy\nDouglasville, GA 30135\n855-938-1462|DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462|0569813430055,1851 riverside,douglasville,30135"
+    },
+    {
+      "storefront": "DecoPac",
+      "dc": "DECOPAC-DEFAULT",
+      "name": "DECOPAC, INC",
+      "ship_from": "",
+      "delivery_address": "ANOKA, MN USA",
+      "billing_address": "",
+      "match_values": [
+        "DecoPac",
+        "Anoka"
+      ],
+      "record_type": "CUSTOMER_DEFAULT",
+      "default_label_template_id": "DECOPAC_CASE_4X6",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "is_active": false,
+      "verification_status": "NEEDS_FULL_ADDRESS",
+      "source_note": "Source provides only DECOPAC, INC and ANOKA, MN USA; confirm full address before activation.",
+      "unique_key": "decopac|decopac-default"
+    },
+    {
+      "storefront": "Wynn",
+      "dc": "WYNN-RECEIVING",
+      "name": "Wynn Receiving",
+      "ship_from": "",
+      "delivery_address": "",
+      "billing_address": "",
+      "match_values": [
+        "Wynn",
+        "WLVPO1051875"
+      ],
+      "record_type": "CUSTOMER_DEFAULT",
+      "default_label_template_id": "WYNN_CASE_4X6",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "ReceivingAppointments@wynnlasvegas.com",
+      "docking_instructions": "",
+      "is_active": false,
+      "verification_status": "NEEDS_DOCKING_REQUIREMENTS",
+      "source_note": "Email is present in the source; docking fields and SKU mappings remain missing.",
+      "unique_key": "wynn|wynn-receiving"
+    },
+    {
+      "storefront": "Generic B2B",
+      "dc": "GENERIC-BULK-DEFAULT",
+      "name": "Bakell Bulk Manufacturer",
+      "ship_from": "BAKELL LLC\\n1967 ESSEX CT\\nREDLANDS, CA 92373\\nUSA",
+      "delivery_address": "",
+      "billing_address": "",
+      "match_values": [
+        "Bulk",
+        "Further Processing"
+      ],
+      "record_type": "CUSTOMER_DEFAULT",
+      "default_label_template_id": "BULK_FURTHER_PROCESSING_4X6",
+      "manufacturer_name": "BAKELL LLC",
+      "manufacturer_address": "1967 ESSEX CT\\nREDLANDS, CA 92373\\nUSA",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "is_active": false,
+      "verification_status": "NEEDS_BUSINESS_CONFIRMATION",
+      "source_note": "Manufacturer identity/address comes from the current LabelKit directory data; confirm it is authoritative for the bulk label.",
+      "unique_key": "generic b2b|generic-bulk-default"
     }
   ],
-  "updated_at": "2026-07-16T16:41:56Z"
+  "updated_at": "2026-07-31T19:58:03Z"
 }

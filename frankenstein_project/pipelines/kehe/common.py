@@ -2040,6 +2040,9 @@ def _aggregate_mpl_items_for_editor(
                     "gtin": case_upc or upc,
                     "sku": item.vendor_item or item.retailer_item,
                     "packaging_level": "",
+                    "length_in": "",
+                    "width_in": "",
+                    "height_in": "",
                     "dimensions_in": "",
                     "unit_weight_lbs": "",
                     "calculated_weight_lbs": "",
@@ -2132,15 +2135,8 @@ def _boolish(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _product_in_packing_list(row: Dict[str, Any], packaging_level: str, label_required: str = "") -> bool:
-    if _normalize_packaging_level(packaging_level) != "Case":
-        return False
-    for key in ("in_packing_list", "IN_PACKING_LIST", "In Packing List"):
-        if key in row and row.get(key) is not None:
-            return _boolish(row.get(key), True)
-    if label_required:
-        return _boolish(label_required, True)
-    return True
+def _product_in_packing_list(row: Dict[str, Any], packaging_level: str) -> bool:
+    return _boolish(row.get("is_active", row.get("IS_ACTIVE", True)), True) and _normalize_packaging_level(packaging_level) == "Case"
 
 
 def _truthy(value: Any) -> bool:
@@ -2173,6 +2169,47 @@ def _format_lbs(value: Optional[float]) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".") + " lbs"
 
 
+def _format_number(value: Optional[float]) -> str:
+    if value is None:
+        return ""
+    if abs(value - round(value)) < 0.000001:
+        return str(int(round(value)))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _product_dimensions_display(product: Dict[str, Any]) -> str:
+    values = [
+        _format_number(_parse_float(product.get("length_in"))),
+        _format_number(_parse_float(product.get("width_in"))),
+        _format_number(_parse_float(product.get("height_in"))),
+    ]
+    return " x ".join(values) if all(values) else ""
+
+
+def _legacy_product_master_adapter(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert one historical Product Master snapshot to the current fields."""
+    adapted = dict(row)
+    dimensions = str(
+        row.get("dimensions_in")
+        or row.get("DIMENSIONS_IN")
+        or row.get("lwh_in")
+        or row.get("L X W X H (in)")
+        or row.get("dimensions")
+        or ""
+    ).strip()
+    if dimensions and not all(adapted.get(key) not in (None, "") for key in ("length_in", "width_in", "height_in")):
+        values = re.findall(r"-?\d+(?:\.\d+)?", dimensions.replace(",", ""))
+        if len(values) >= 3:
+            adapted.setdefault("length_in", values[0])
+            adapted.setdefault("width_in", values[1])
+            adapted.setdefault("height_in", values[2])
+    if adapted.get("gross_weight_lbs") in (None, ""):
+        adapted["gross_weight_lbs"] = row.get("weight_lbs") or row.get("WEIGHT_LBS") or row.get("WEIGHT(lbs)") or row.get("weight") or ""
+    if adapted.get("default_copies") in (None, ""):
+        adapted["default_copies"] = row.get("labels_per_unit") or row.get("LABELS_PER_UNIT") or row.get("Labels / Unit") or row.get("labels_to_print_per_unit") or row.get("label_copies_per_unit") or ""
+    return adapted
+
+
 def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     if not rows:
@@ -2180,23 +2217,18 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
     for idx, row in enumerate(rows, start=1):
         if not isinstance(row, dict):
             continue
+        row = _legacy_product_master_adapter(row)
         storefront = str(row.get("storefront") or row.get("STOREFRONT") or row.get("Storefront") or "KeHE").strip() or "KeHE"
         gtin = str(row.get("gtin") or row.get("GTIN") or row.get("case_upc") or row.get("upc") or "").strip()
         desc = str(row.get("description") or row.get("DESCRIPTION") or "").strip()
         packaging_level = _normalize_packaging_level(row.get("packaging_level") or row.get("packging_level") or row.get("PACKGING LEVEL") or row.get("PACKAGING LEVEL"))
-        dims = str(row.get("dimensions_in") or row.get("lwh_in") or row.get("L X W X H (in)") or row.get("dimensions") or "").strip()
-        weight = str(row.get("weight_lbs") or row.get("WEIGHT(lbs)") or row.get("weight") or "").strip()
+        length_in = _format_number(_parse_float(row.get("length_in") or row.get("LENGTH_IN")))
+        width_in = _format_number(_parse_float(row.get("width_in") or row.get("WIDTH_IN") or row.get("breadth_in") or row.get("BREADTH_IN")))
+        height_in = _format_number(_parse_float(row.get("height_in") or row.get("HEIGHT_IN")))
+        gross_weight_lbs = _format_number(_parse_float(row.get("gross_weight_lbs") or row.get("GROSS_WEIGHT_LBS")))
         sku = str(row.get("sku") or row.get("SKU") or "").strip()
-        label_required = str(
-            row.get("label_required")
-            or row.get("Label Required")
-            or row.get("LABEL REQUIRED")
-            or row.get("label")
-            or "✅"
-        ).strip()
-        in_packing_list = _product_in_packing_list(row, packaging_level, label_required)
+        in_packing_list = _product_in_packing_list(row, packaging_level)
         default_case_qty = "6" if packaging_level == "Inner Pack" else ("1" if packaging_level == "Case" else "")
-        default_labels_per_unit = "6" if packaging_level == "Inner Pack" else ("2" if packaging_level == "Case" else "")
         case_qty = str(
             row.get("case_qty")
             or row.get("Case Qty")
@@ -2204,28 +2236,29 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
             or row.get("units_per_case")
             or default_case_qty
         ).strip()
-        labels_per_unit = str(
-            row.get("labels_per_unit")
-            or row.get("Labels / Unit")
-            or row.get("labels_to_print_per_unit")
-            or row.get("label_copies_per_unit")
-            or default_labels_per_unit
+        default_copies = str(
+            row.get("default_copies")
+            or row.get("DEFAULT_COPIES")
+            or ""
         ).strip()
-        if not any([gtin, desc, dims, weight, sku, case_qty, labels_per_unit]) and packaging_level == "Other":
+        is_active = _boolish(row.get("is_active", row.get("IS_ACTIVE", True)), True)
+        if not any([gtin, desc, length_in, width_in, height_in, gross_weight_lbs, sku, case_qty, default_copies]) and packaging_level == "Other":
             continue
         out.append({
             "line": row.get("line") or idx,
             "storefront": storefront,
             "in_packing_list": in_packing_list,
-            "label_required": "1" if in_packing_list else "0",
             "gtin": gtin,
             "description": desc,
             "packaging_level": packaging_level,
-            "dimensions_in": dims,
-            "weight_lbs": weight,
+            "length_in": length_in,
+            "width_in": width_in,
+            "height_in": height_in,
+            "gross_weight_lbs": gross_weight_lbs,
             "case_qty": case_qty,
-            "labels_per_unit": labels_per_unit,
+            "default_copies": default_copies,
             "sku": sku,
+            "is_active": is_active,
         })
     return out
 
@@ -2323,9 +2356,12 @@ def _apply_product_row_to_item(
     if product.get("description") and not _mpl_clean(item.get("description")):
         item["description"] = product.get("description", "")
     item["packaging_level"] = product.get("packaging_level", "")
-    item["dimensions_in"] = product.get("dimensions_in", "")
-    item["unit_weight_lbs"] = product.get("weight_lbs", "")
-    unit_weight = _parse_float(product.get("weight_lbs"))
+    item["length_in"] = product.get("length_in", "")
+    item["width_in"] = product.get("width_in", "")
+    item["height_in"] = product.get("height_in", "")
+    item["dimensions_in"] = _product_dimensions_display(product)
+    item["unit_weight_lbs"] = product.get("gross_weight_lbs", "")
+    unit_weight = _parse_float(product.get("gross_weight_lbs"))
     if unit_weight is not None:
         item["calculated_weight_lbs"] = _format_lbs(unit_weight * _qty_value(item.get("qty_on_pallet") or item.get("total_shipped") or item.get("qty")))
 
@@ -2382,7 +2418,7 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
                 if warning not in mpl["warnings"]:
                     mpl["warnings"].append(warning)
                 mpl["status"] = "Needs Review"
-            unit_weight = _parse_float(product.get("weight_lbs"))
+            unit_weight = _parse_float(product.get("gross_weight_lbs"))
             if unit_weight is None:
                 continue
             pallet = _mpl_pallet_value(item)
@@ -3030,12 +3066,13 @@ def _pack_label_kind(packaging_level: str) -> str:
     return "OTHER"
 
 
-def _is_product_label_required(product: Dict[str, Any]) -> bool:
-    """Return False only for legacy rows explicitly marked Barcode on Product."""
-    raw = str(product.get("label_required") or "").strip().lower()
-    if "barcode" in raw and "product" in raw:
-        return False
-    return True
+def _is_kehe_pack_label_eligible(product: Dict[str, Any]) -> bool:
+    level = _normalize_packaging_level(product.get("packaging_level"))
+    return (
+        _boolish(product.get("is_active", True), True)
+        and level in {"Case", "Inner Pack"}
+        and bool(str(product.get("gtin") or "").strip())
+    )
 
 
 def _xml_case_qty(item: Dict[str, Any]) -> int:
@@ -3057,8 +3094,8 @@ def _product_case_qty(product: Dict[str, Any]) -> int:
     return 1
 
 
-def _labels_per_unit(product: Dict[str, Any]) -> int:
-    parsed = _parse_float(product.get("labels_per_unit"))
+def _default_copies(product: Dict[str, Any]) -> int:
+    parsed = _parse_float(product.get("default_copies"))
     level = _normalize_packaging_level(product.get("packaging_level"))
     if parsed is not None and parsed > 0:
         count = max(1, int(round(parsed)))
@@ -3080,7 +3117,7 @@ def _find_product_rows_for_xml_item(item: Dict[str, Any], product_rows: List[Dic
     Matching stays aligned with the existing lookup order: XML GTIN/case UPC/UPC/item/SKU,
     then description fallback. Inner Pack rows are derived by SKU from the matched Case row.
     """
-    printable = [row for row in product_rows if _is_product_label_required(row)]
+    printable = [row for row in product_rows if _is_kehe_pack_label_eligible(row)]
     case_rows = [row for row in printable if _normalize_packaging_level(row.get("packaging_level")) == "Case"]
     inner_rows = [row for row in printable if _normalize_packaging_level(row.get("packaging_level")) == "Inner Pack"]
 
@@ -3108,8 +3145,7 @@ def build_kehe_pack_label_draft(
 
     Only XML-present Case/MP products are output. If the same SKU has an Inner Pack/IP
     row in the master table, related IP labels are also output. Copies are controlled by
-    the product master Labels / Unit value. Case Qty prints from the product master.
-    Rows marked "Barcode on Product" are never printed.
+    the Product Master Default Copies value. Case Qty prints from Product Master.
     """
     if not xml_paths:
         raise ValueError("At least one XML file is required.")
@@ -3131,14 +3167,16 @@ def build_kehe_pack_label_draft(
             seen.add(key)
             product_rows.append({
                 "line": len(product_rows) + 1,
-                "label_required": "✅",
+                "is_active": True,
                 "gtin": gtin,
                 "description": item.get("description", ""),
                 "packaging_level": "Case",
-                "dimensions_in": "",
-                "weight_lbs": "",
+                "length_in": "",
+                "width_in": "",
+                "height_in": "",
+                "gross_weight_lbs": "",
                 "case_qty": "1",
-                "labels_per_unit": "2",
+                "default_copies": "2",
                 "sku": item.get("item_number", ""),
             })
 
@@ -3171,11 +3209,11 @@ def build_kehe_pack_label_draft(
                 label_warnings.append("GTIN must be 14 digits for ITF-14.")
             if not product.get("description"):
                 label_warnings.append("Description is blank.")
-            if not product.get("weight_lbs"):
+            if not product.get("gross_weight_lbs"):
                 label_warnings.append("Weight is blank.")
 
-            labels_per_unit = _labels_per_unit(product)
-            copies = max(1, xml_cases * labels_per_unit)
+            default_copies = _default_copies(product)
+            copies = max(1, xml_cases * default_copies)
             case_qty = str(_product_case_qty(product))
 
             key = (
@@ -3201,13 +3239,16 @@ def build_kehe_pack_label_draft(
                 "brand": "",
                 "packaging_level": level,
                 "pack_prefix": kind,
-                "dimensions_in": product.get("dimensions_in", ""),
-                "weight_lbs": product.get("weight_lbs", ""),
+                "length_in": product.get("length_in", ""),
+                "width_in": product.get("width_in", ""),
+                "height_in": product.get("height_in", ""),
+                "dimensions_in": _product_dimensions_display(product),
+                "gross_weight_lbs": product.get("gross_weight_lbs", ""),
                 "sku": product.get("sku", ""),
                 "lot": lot,
                 "best_before": best_before,
                 "case_qty": case_qty,
-                "labels_per_unit": str(labels_per_unit),
+                "default_copies": str(default_copies),
                 "copies": copies,
                 "source_file": source_file,
                 "warnings": label_warnings,
@@ -3216,7 +3257,7 @@ def build_kehe_pack_label_draft(
             labels.append(label)
 
     if not labels:
-        warnings.append("No printable Case/MP rows were matched from the uploaded XML. Rows marked Barcode on Product were skipped.")
+        warnings.append("No active Case/MP rows with a GTIN were matched from the uploaded XML.")
 
     return {
         "document_type": "kehe_pack_labels",
@@ -3352,7 +3393,8 @@ def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
     c.setFont("Helvetica", 14)
     c.drawString(3.00 * inch, row_y, best_before)
 
-    weight = str(label.get("weight_lbs") or "").strip()
+    # `weight_lbs` is retained only as a historical pack-label draft adapter.
+    weight = str(label.get("gross_weight_lbs") or label.get("weight_lbs") or "").strip()
     weight_display = _format_lbs(_parse_float(weight)) if weight else ""
     weight_y = 2.58 * inch
     c.setFont("Helvetica-Bold", 23)
@@ -3458,7 +3500,7 @@ def render_kehe_pack_label_pdf(
             "gtin": label.get("gtin", ""),
             "description": label.get("description", ""),
             "packaging_level": label.get("packaging_level", ""),
-            "weight_lbs": label.get("weight_lbs", ""),
+            "gross_weight_lbs": label.get("gross_weight_lbs", label.get("weight_lbs", "")),
             "case_qty": label.get("case_qty", ""),
             "copies": copies,
             "note": "; ".join(warnings) if warnings else _PACK_LABEL_PLACEMENT_NOTE,
@@ -4829,7 +4871,7 @@ def _mpl_build_tihi_entries(
     mpl: Dict[str, Any],
     items: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
-    grouped: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+    grouped: Dict[Tuple[str, str, str, str, str, str], Dict[str, Any]] = {}
     warnings: List[str] = []
     constraints = _mpl_tihi_constraints(mpl)
 
@@ -4840,9 +4882,11 @@ def _mpl_build_tihi_entries(
             continue
 
         label = _mpl_tihi_item_label(item)
-        dimensions_raw = _mpl_clean(item.get("dimensions_in"))
+        length = _parse_float(item.get("length_in"))
+        width = _parse_float(item.get("width_in"))
+        height = _parse_float(item.get("height_in"))
         weight_raw = _mpl_clean(item.get("unit_weight_lbs"))
-        dimensions = _mpl_parse_dimensions_in(dimensions_raw)
+        dimensions = (length, width, height) if all(value is not None and value > 0 for value in (length, width, height)) else None
         unit_weight = _parse_float(weight_raw)
 
         if dimensions is None:
@@ -4861,7 +4905,9 @@ def _mpl_build_tihi_entries(
             _canonical_id(item.get("sku") or item.get("item_number") or item.get("gtin") or item.get("case_upc") or item.get("upc"))
             or _normalize(item.get("description") or "")
             or f"line-{_mpl_clean(item.get('line')) or '0'}",
-            dimensions_raw,
+            _format_number(length),
+            _format_number(width),
+            _format_number(height),
             weight_raw,
         )
         group = grouped.setdefault(group_key, {
@@ -4870,7 +4916,10 @@ def _mpl_build_tihi_entries(
             "item_number": _mpl_clean(item.get("item_number")),
             "gtin": _mpl_clean(item.get("gtin") or item.get("case_upc") or item.get("upc")),
             "description": _mpl_clean(item.get("description")),
-            "dimensions_in": dimensions_raw,
+            "length_in": _format_number(length),
+            "width_in": _format_number(width),
+            "height_in": _format_number(height),
+            "dimensions_in": " x ".join((_format_number(length), _format_number(width), _format_number(height))),
             "unit_weight_lbs": weight_raw,
             "dimensions": dimensions,
             "unit_weight": unit_weight,

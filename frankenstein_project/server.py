@@ -298,13 +298,6 @@ DEFAULT_CASE_QTY_BY_LEVEL = {
     "Shipper Contents": "",
     "Other": "",
 }
-DEFAULT_LABELS_PER_UNIT_BY_LEVEL = {
-    "Case": "2",
-    "Inner Pack": "6",
-    "Each": "",
-    "Shipper Contents": "",
-    "Other": "",
-}
 # Default Ship From used only for manual DC Directory rows when no value exists.
 DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
@@ -538,7 +531,7 @@ def normalize_packaging_level(value: Any) -> str:
 def _first_value(row: Dict[str, Any], *keys: str) -> str:
     for key in keys:
         if key in row and row.get(key) is not None:
-            return str(row.get(key) or "").strip()
+            return str(row.get(key)).strip()
     return ""
 
 
@@ -559,15 +552,10 @@ def _boolish(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _product_in_packing_list(row: Dict[str, Any], packaging_level: str, label_required: str = "") -> bool:
-    if normalize_packaging_level(packaging_level) != "Case":
-        return False
-    for key in ("in_packing_list", "IN_PACKING_LIST", "In Packing List"):
-        if key in row and row.get(key) is not None:
-            return _boolish(row.get(key), True)
-    if label_required:
-        return _boolish(label_required, True)
-    return True
+def _product_in_packing_list(row: Dict[str, Any], packaging_level: str) -> bool:
+    """Derive MPL inclusion; it is intentionally not stored in Product Master."""
+    is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
+    return is_active and normalize_packaging_level(packaging_level) == "Case"
 
 
 def _normalize_storefront(value: Any) -> str:
@@ -685,8 +673,7 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     packaging_level = normalize_packaging_level(
         _first_value(row, "packaging_level", "packging_level", "PACKAGING_LEVEL", "PACKGING LEVEL", "Packaging Level")
     )
-    label_required = _first_value(row, "label_required", "LABEL_REQUIRED", "Label Required")
-    in_packing_list = _product_in_packing_list(row, packaging_level, label_required)
+    in_packing_list = _product_in_packing_list(row, packaging_level)
     case_qty = _first_value(
         row,
         "case_qty",
@@ -697,7 +684,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "eaches_per_case",
         "eaches_per_inner_pack",
     )
-    labels_per_unit = _first_value(row, "labels_per_unit", "LABELS_PER_UNIT", "Labels / Unit")
     sku = _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER")
     customer_item_number = _first_value(row, "customer_item_number", "CUSTOMER_ITEM_NUMBER", "customer_item", "item_number_customer")
     label_template_id = _first_value(row, "label_template_id", "LABEL_TEMPLATE_ID", "template_id")
@@ -705,29 +691,36 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     barcode_level = _first_value(row, "barcode_level", "BARCODE_LEVEL")
     each_net_weight_g = _first_value(row, "each_net_weight_g", "EACH_NET_WEIGHT_G")
     package_net_weight_g = _first_value(row, "package_net_weight_g", "PACKAGE_NET_WEIGHT_G")
-    gross_weight_lbs = _first_value(row, "gross_weight_lbs", "GROSS_WEIGHT_LBS")
-    default_copies = _first_value(row, "default_copies", "DEFAULT_COPIES")
+    gross_weight_lbs = _first_value(
+        row,
+        "gross_weight_lbs",
+        "GROSS_WEIGHT_LBS",
+        # One-transition import/read adapter. This value is never written back.
+        "weight_lbs",
+        "WEIGHT_LBS",
+        "Weight (lbs)",
+    )
+    default_copies = _first_value(
+        row,
+        "default_copies",
+        "DEFAULT_COPIES",
+        # One-transition import/read adapter. This value is never written back.
+        "labels_per_unit",
+        "LABELS_PER_UNIT",
+        "Labels / Unit",
+    )
     pack_statement = _first_value(row, "pack_statement", "PACK_STATEMENT")
     verification_status = _first_value(row, "verification_status", "VERIFICATION_STATUS")
     source_note = _first_value(row, "source_note", "SOURCE_NOTE")
 
-    length_in, width_in, height_in, dimensions_in, parsed_legacy_dimensions = _resolve_dimensions(row)
-    weight_lbs = _first_value(row, "weight_lbs", "WEIGHT_LBS", "Weight (lbs)")
-    if not weight_lbs:
-        weight_lbs = gross_weight_lbs
-
-    label_required = "1" if in_packing_list else "0"
+    length_in, width_in, height_in, legacy_dimension_display, parsed_legacy_dimensions = _resolve_dimensions(row)
     if not case_qty:
         case_qty = _default_case_qty_for_product(packaging_level)
-    if not labels_per_unit:
-        labels_per_unit = _default_labels_per_unit_for_product(packaging_level)
-
     label_enabled_raw = _first_value(row, "label_enabled", "LABEL_ENABLED")
-    label_enabled_default = not bool(config_id)
-    label_enabled = _boolish(label_enabled_raw, label_enabled_default)
+    label_enabled = _boolish(label_enabled_raw, False)
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
 
-    if not verification_status and dimensions_in and not (length_in and width_in and height_in):
+    if not verification_status and legacy_dimension_display and not (length_in and width_in and height_in):
         verification_status = "NEEDS_DIMENSION_REVIEW"
     if parsed_legacy_dimensions and not verification_status:
         verification_status = "VISUAL_ONLY"
@@ -736,20 +729,16 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "storefront": storefront,
         "in_packing_list": in_packing_list,
-        "label_required": label_required,
         "gtin": gtin,
         "description": _first_value(row, "description", "DESCRIPTION", "Description"),
         "packaging_level": packaging_level,
-        "dimensions_in": dimensions_in,
         "length_in": length_in,
         "width_in": width_in,
         "height_in": height_in,
-        "weight_lbs": weight_lbs,
         "each_net_weight_g": each_net_weight_g,
         "package_net_weight_g": package_net_weight_g,
         "gross_weight_lbs": gross_weight_lbs,
         "case_qty": case_qty,
-        "labels_per_unit": labels_per_unit,
         "sku": sku,
         "config_id": config_id,
         "customer_item_number": customer_item_number,
@@ -801,10 +790,6 @@ def _default_case_qty_for_product(packaging_level: str) -> str:
     return DEFAULT_CASE_QTY_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
 
 
-def _default_labels_per_unit_for_product(packaging_level: str) -> str:
-    return DEFAULT_LABELS_PER_UNIT_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
-
-
 def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, Any]]:
     if not raw:
         return []
@@ -827,10 +812,12 @@ def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, An
             for k in (
                 "gtin",
                 "description",
-                "dimensions_in",
-                "weight_lbs",
+                "length_in",
+                "width_in",
+                "height_in",
+                "gross_weight_lbs",
                 "case_qty",
-                "labels_per_unit",
+                "default_copies",
                 "sku",
                 "config_id",
                 "customer_item_number",
@@ -873,7 +860,7 @@ def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[P
         "rows": normalized,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_json_atomic(path, payload)
     return normalized
 
 
@@ -899,14 +886,10 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
     default_copies = int(default_copies_value) if default_copies_value.isdigit() else None
 
     out = {
-        "LABEL_REQUIRED": "1" if normalized["in_packing_list"] else "0",
         "GTIN": normalized["gtin"],
         "DESCRIPTION": normalized["description"],
         "PACKAGING_LEVEL": normalized["packaging_level"],
-        "DIMENSIONS_IN": normalized["dimensions_in"],
-        "WEIGHT_LBS": normalized["weight_lbs"],
         "CASE_QTY": normalized["case_qty"],
-        "LABELS_PER_UNIT": normalized["labels_per_unit"],
         "SKU": normalized["sku"],
         "CONFIG_ID": normalized.get("config_id", ""),
         "CUSTOMER_ITEM_NUMBER": normalized.get("customer_item_number", ""),
@@ -1217,8 +1200,7 @@ def _datastore_load_product_rows(request: Request, table_name: str, store_mode: 
         return None
     try:
         raw_rows = _datastore_get_raw_rows(table_service)
-        active_rows = [r for r in raw_rows if str(r.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}]
-        return _dedupe_product_master_rows([_datastore_row_to_product(r) for r in active_rows])
+        return _dedupe_product_master_rows([_datastore_row_to_product(r) for r in raw_rows])
     except Exception as exc:
         if _store_requires_datastore(store_mode):
             _raise_datastore_unavailable(table_name, "read from it", exc)
@@ -1235,6 +1217,26 @@ def _chunked(values: List[Any], size: int) -> List[List[Any]]:
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
+    """Write JSON without exposing readers to a partially written file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 def _request_actor(request: Request) -> Dict[str, str]:
@@ -1520,13 +1522,36 @@ def _datastore_save_product_rows(
     normalized = _dedupe_product_master_rows(rows)
     try:
         existing_rows = _datastore_get_raw_rows(table_service)
-        row_ids = [r.get("ROWID") for r in existing_rows if r.get("ROWID")]
-        for batch in _chunked(row_ids, 200):
-            table_service.delete_rows(batch)
-        insert_rows = [_product_to_datastore_row(r, include_storefront=include_storefront) for r in normalized]
+        existing_by_key = {
+            _product_row_key(_datastore_row_to_product(raw)): raw
+            for raw in existing_rows
+            if raw.get("ROWID")
+        }
+        wanted_by_key = {_product_row_key(row): row for row in normalized}
+        update_rows: List[Dict[str, Any]] = []
+        insert_rows: List[Dict[str, Any]] = []
+        for key, row in wanted_by_key.items():
+            datastore_row = _product_to_datastore_row(row, include_storefront=include_storefront)
+            existing = existing_by_key.get(key)
+            if existing:
+                datastore_row["ROWID"] = existing["ROWID"]
+                update_rows.append(datastore_row)
+            else:
+                insert_rows.append(datastore_row)
+        delete_ids = [
+            raw.get("ROWID")
+            for key, raw in existing_by_key.items()
+            if key not in wanted_by_key and raw.get("ROWID")
+        ]
+        for batch in _chunked(update_rows, 100):
+            if batch:
+                table_service.update_rows(batch)
         for batch in _chunked(insert_rows, 100):
             if batch:
                 table_service.insert_rows(batch)
+        for batch in _chunked(delete_ids, 200):
+            if batch:
+                table_service.delete_rows(batch)
         return normalized
     except Exception as exc:
         if _store_requires_datastore(store_mode):
@@ -1666,13 +1691,15 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     manufacturer_address = _first_value(row, "manufacturer_address", "MANUFACTURER_ADDRESS")
     receiving_email = _first_value(row, "receiving_email", "RECEIVING_EMAIL")
     docking_instructions = _first_value(row, "docking_instructions", "DOCKING_INSTRUCTIONS")
+    verification_status = _first_value(row, "verification_status", "VERIFICATION_STATUS")
+    source_note = _first_value(row, "source_note", "SOURCE_NOTE")
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "storefront": storefront,
         "dc": dc,
         "name": name,
-        "ship_from": ship_from or DEFAULT_KEHE_SHIP_FROM,
+        "ship_from": ship_from,
         "delivery_address": delivery_address,
         "billing_address": billing_address,
         "match_values": match_values,
@@ -1682,6 +1709,8 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "manufacturer_address": manufacturer_address,
         "receiving_email": receiving_email,
         "docking_instructions": docking_instructions,
+        "verification_status": verification_status,
+        "source_note": source_note,
         "is_active": is_active,
         "unique_key": _dc_directory_unique_key(
             dc,
@@ -1780,10 +1809,7 @@ def _dc_directory_file_write(
         "rows": normalized,
         "updated_at": _now_iso(),
     }
-    path.write_text(
-        json.dumps(payload, indent=2),
-        encoding="utf-8",
-    )
+    _write_json_atomic(path, payload)
 
     try:
         load_kehe_dc_directory.cache_clear()
@@ -1817,6 +1843,8 @@ def _dc_to_datastore_row(row: Dict[str, Any], include_storefront: bool = False) 
         "MANUFACTURER_ADDRESS": normalized.get("manufacturer_address", ""),
         "RECEIVING_EMAIL": normalized.get("receiving_email", ""),
         "DOCKING_INSTRUCTIONS": normalized.get("docking_instructions", ""),
+        "VERIFICATION_STATUS": normalized.get("verification_status", ""),
+        "SOURCE_NOTE": normalized.get("source_note", ""),
         "UNIQUE_KEY": normalized["unique_key"],
         "IS_ACTIVE": bool(normalized.get("is_active", True)),
     }
@@ -1836,11 +1864,7 @@ def _datastore_load_dc_rows(request: Request, table_name: str, store_mode: str) 
 
     try:
         raw_rows = _datastore_get_raw_rows(table_service)
-        active_rows = [
-            r for r in raw_rows
-            if str(r.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
-        ]
-        return _dedupe_dc_directory_rows([_datastore_row_to_dc(r) for r in active_rows])
+        return _dedupe_dc_directory_rows([_datastore_row_to_dc(r) for r in raw_rows])
     except Exception as exc:
         if _store_requires_datastore(store_mode):
             _raise_datastore_unavailable(table_name, "read from it", exc)
@@ -1867,16 +1891,36 @@ def _datastore_save_dc_rows(
 
     try:
         existing_rows = _datastore_get_raw_rows(table_service)
-        row_ids = [r.get("ROWID") for r in existing_rows if r.get("ROWID")]
-
-        for batch in _chunked(row_ids, 200):
-            table_service.delete_rows(batch)
-
-        insert_rows = [_dc_to_datastore_row(r, include_storefront=include_storefront) for r in normalized]
-
+        existing_by_key = {
+            _dc_row_key(_datastore_row_to_dc(raw)): raw
+            for raw in existing_rows
+            if raw.get("ROWID")
+        }
+        wanted_by_key = {_dc_row_key(row): row for row in normalized}
+        update_rows: List[Dict[str, Any]] = []
+        insert_rows: List[Dict[str, Any]] = []
+        for key, row in wanted_by_key.items():
+            datastore_row = _dc_to_datastore_row(row, include_storefront=include_storefront)
+            existing = existing_by_key.get(key)
+            if existing:
+                datastore_row["ROWID"] = existing["ROWID"]
+                update_rows.append(datastore_row)
+            else:
+                insert_rows.append(datastore_row)
+        delete_ids = [
+            raw.get("ROWID")
+            for key, raw in existing_by_key.items()
+            if key not in wanted_by_key and raw.get("ROWID")
+        ]
+        for batch in _chunked(update_rows, 100):
+            if batch:
+                table_service.update_rows(batch)
         for batch in _chunked(insert_rows, 100):
             if batch:
                 table_service.insert_rows(batch)
+        for batch in _chunked(delete_ids, 200):
+            if batch:
+                table_service.delete_rows(batch)
 
         return normalized
     except Exception as exc:
@@ -2671,13 +2715,15 @@ def _canonical_import_key(header: str, table: str) -> str:
         "storefront": "storefront",
         "store_front": "storefront",
         "store": "storefront",
-        "in_packing_list": "in_packing_list",
-        "in_packing_list_": "in_packing_list",
-        "packing_list": "in_packing_list",
-        "include_in_packing_list": "in_packing_list",
-        "include_mpl": "in_packing_list",
-        "label_required": "label_required",
-        "label": "label_required",
+        # Transitional legacy headings are converted during normalization and
+        # are never persisted or exported.
+        "in_packing_list": "legacy_in_packing_list",
+        "in_packing_list_": "legacy_in_packing_list",
+        "packing_list": "legacy_in_packing_list",
+        "include_in_packing_list": "legacy_in_packing_list",
+        "include_mpl": "legacy_in_packing_list",
+        "label_required": "legacy_label_required",
+        "label": "legacy_label_required",
         "gtin": "gtin",
         "case_upc": "gtin",
         "upc": "gtin",
@@ -2690,9 +2736,9 @@ def _canonical_import_key(header: str, table: str) -> str:
         "dimensions": "dimensions_in",
         "dimensions_in": "dimensions_in",
         "lwh_in": "dimensions_in",
-        "weight_lbs": "weight_lbs",
-        "weight": "weight_lbs",
-        "weight_lbs_": "weight_lbs",
+        "weight_lbs": "gross_weight_lbs",
+        "weight": "gross_weight_lbs",
+        "weight_lbs_": "gross_weight_lbs",
         "case_qty": "case_qty",
         "case_quantity": "case_qty",
         "units_per_case": "case_qty",
@@ -2702,9 +2748,9 @@ def _canonical_import_key(header: str, table: str) -> str:
         "eaches_per_case": "case_qty",
         "eaches_inner_pack": "case_qty",
         "eaches_per_inner_pack": "case_qty",
-        "labels_unit": "labels_per_unit",
-        "labels_per_unit": "labels_per_unit",
-        "labels_to_print_per_unit": "labels_per_unit",
+        "labels_unit": "default_copies",
+        "labels_per_unit": "default_copies",
+        "labels_to_print_per_unit": "default_copies",
         "sku": "sku",
         "item_number": "sku",
         "config_id": "config_id",
@@ -2755,6 +2801,8 @@ def _canonical_import_key(header: str, table: str) -> str:
         "manufacturer_address": "manufacturer_address",
         "receiving_email": "receiving_email",
         "docking_instructions": "docking_instructions",
+        "verification_status": "verification_status",
+        "source_note": "source_note",
         "is_active": "is_active",
     }
     aliases = {

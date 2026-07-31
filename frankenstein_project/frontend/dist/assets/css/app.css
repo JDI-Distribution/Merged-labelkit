@@ -1663,6 +1663,24 @@
       color: #475569;
     }
 
+    .mpl-field-group-label {
+      grid-column: 1 / -1;
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-left: 3px solid #0f766e;
+      border-radius: 4px;
+      color: #0f4f4a;
+      background: #e8f5f2;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .mpl-unified-fields-grid .mpl-field-group-label:first-child {
+      margin-top: 0;
+    }
+
     .mpl-unified-fields-grid input,
     .mpl-unified-fields-grid select,
     .mpl-unified-fields-grid textarea {

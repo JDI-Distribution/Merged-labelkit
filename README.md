@@ -5,6 +5,7 @@ Merged LabelKit is a FastAPI web app for print-ready label and packing-list work
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
 - Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
+- B2B Case-Pack Labels: customer-first Product Master, Directory, and template-readiness workspace. Unverified or disabled configurations remain visible but cannot become print-ready.
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
@@ -71,6 +72,7 @@ Landing page options:
 - `Michaels DTS`
 - `KeHE GS1`
 - `Packing List & Ti-Hi`
+- `B2B Case-Pack Labels`
 
 Shared backend routes:
 
@@ -86,6 +88,7 @@ KeHE and standalone MPL reference table routes:
 - `GET /api/kehe/dc-directory` read-only KeHE storefront view; `PUT` returns `405`
 - `GET/PUT /api/mpl/product-master`
 - `GET/PUT /api/mpl/directory`
+- `GET /api/b2b/label-templates`
 - `POST /api/mpl/orders/lookup` search the connected Zoho Analytics order view and match its SKUs to Product Master
 - `GET/POST/DELETE /api/kehe/mpl-drafts`
 - `GET /api/kehe/audit-log`
@@ -131,7 +134,7 @@ KeHE functionality:
 - GTIN / Packaging Master Table read-only view for `Storefront = KeHE` rows.
 - KeHE generation only uses rows marked with `Storefront = KeHE`; missing storefront values default to `KeHE`.
 - Product Master and Directory add/edit/delete/import operations are done from `Packing List & Ti-Hi` only.
-- Product Master uniqueness is `Storefront + Packaging Level + SKU`; matching rows merge/update.
+- Product Master uniqueness is `Storefront + Config ID` when a Config ID exists; older rows fall back to `Storefront + Packaging Level + SKU`.
 - Directory uniqueness is `Storefront + Code`; matching rows merge/update.
 - Case rows feed MPL dropdowns and auto palletization automatically.
 - Auto Palletize.
@@ -165,9 +168,11 @@ KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`
 - Mixed storefront SKUs in one standalone MPL are blocked.
 - A storefront can be typed freely.
 
-The standalone Product Master groups rows by `Storefront + SKU` so one product is shown as a compact expandable group. Expanding it preserves the separate Case, Inner Pack, Each, and Shipper Contents rows required for level-specific GTINs, dimensions, weights, labels, and package quantities. `Eaches / Package` stores the number of sellable eaches in that packaging level; the UI derives the readable pack breakdown from those rows. Create MPL still uses only enabled Case rows for palletization. Product rows remain unique by `Storefront + Packaging Level + SKU`.
+The standalone Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Expanding a product shows labeled sections for identity, label setup, and package measurements. Dimensions are stored only as separate `Length`, `Width/Breadth`, and `Height` values; gross shipping weight is stored in `Gross Weight`; and generated copy count is stored in `Default Copies`. `Eaches / Package` stores the number of sellable eaches in that packaging level, and the UI derives the readable pack breakdown. Packing-list inclusion is derived from an active Case row instead of a stored flag.
 
-The standalone Directory shows the full shared directory table, including Storefront, Code, Name, Ship From, Ship To, Bill To, Match Values, and pallet-label preview. Directory rows are unique by `Storefront + Code`.
+KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B requires an active row, `Label Enabled`, a template, and a verification state of `VERIFIED`, `APPROVED`, or `READY`. A B2B row with `BLOCKED`, `VISUAL_ONLY`, or any `NEEDS_*` status is not print-ready.
+
+The standalone Directory shows the full shared directory table, including Storefront, Code, Name, Ship From, Ship To, Bill To, Match Values, receiving/template fields, verification status, source note, and pallet-label preview. Directory rows are unique by `Storefront + Code`; inactive rows remain visible to administrators for verification work.
 
 Table maintenance tools:
 
@@ -211,6 +216,39 @@ TI-HI behavior:
 - The TI-HI preview snapshot is used by the generated MPL PDF.
 
 `Save & Generate PDF` saves the MPL draft name and edited values, then generates the PDF. `Generate PDF Only` uses the current editable draft, current reference tables, current pallet assignments, current pallet constraints, and current TI-HI preview state without saving the draft.
+
+## Product Master Schema And B2B Seeds
+
+Current Product Master package fields are:
+
+- `LENGTH_IN`, `WIDTH_IN`, `HEIGHT_IN`
+- `GROSS_WEIGHT_LBS`
+- `DEFAULT_COPIES`
+
+The former `DIMENSIONS_IN`, `WEIGHT_LBS`, `LABELS_PER_UNIT`, and `LABEL_REQUIRED` columns are obsolete. Legacy headings are accepted for one transition import and converted immediately, but they are never written to JSON or Catalyst and are not included in new templates or exports. TI-HI reads the three numeric dimension fields directly. Product Master writes reconcile rows by key and Catalyst `ROWID`; they do not clear and recreate the table.
+
+Reviewed seed sources are versioned at:
+
+```text
+frankenstein_project/data/seeds/b2b_product_master_seed.csv
+frankenstein_project/data/seeds/b2b_directory_seed.csv
+```
+
+Validate the local migration and seed merge without writing:
+
+```powershell
+Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
+python scripts\migrate_product_master_and_seed_b2b.py
+```
+
+Apply after the dry run reports no conflicts:
+
+```powershell
+python scripts\migrate_product_master_and_seed_b2b.py --apply
+python scripts\migrate_product_master_and_seed_b2b.py
+```
+
+The second command should classify all reviewed seeds as `IDENTICAL`. The reviewed set contains 28 disabled Product Master configurations and 3 inactive Directory entries; blank weights, copies, addresses, SKUs, and barcodes intentionally remain blank until verified.
 
 ## Local Run
 
@@ -346,10 +384,10 @@ Cloud source-of-truth rule:
 
 Catalyst tables and role config:
 
-- `mpl_product_master_table=mpl_product_master`
-- `mpl_directory_table=mpl_directory`
-- `mpl_drafts_table=kehe_mpl_drafts`
-- `audit_log_table=kehe_audit_log`
+- `mpl_product_master` / table ID `27327000000097737`
+- `mpl_directory` / table ID `27327000000099096`
+- `kehe_mpl_drafts` / table ID `27327000000099455`
+- `kehe_audit_log` / table ID `27327000000099814`
 - `role_id_map.27327000000040037=Admin`
 - `role_id_map.27327000000040038=User`
 
@@ -428,6 +466,14 @@ Run from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
+```
+
+Regression suite:
+
+```powershell
+Set-Location ".\frankenstein_project"
+python -m unittest discover -s tests -v
+Set-Location ".."
 ```
 
 Python compile:
@@ -557,7 +603,10 @@ Tracked app source:
     |-- data
     |   |-- kehe_mpl_drafts.json
     |   |-- mpl_directory.json
-    |   `-- mpl_product_master.json
+    |   |-- mpl_product_master.json
+    |   `-- seeds
+    |       |-- b2b_directory_seed.csv
+    |       `-- b2b_product_master_seed.csv
     |-- frontend
     |   `-- dist
     |       |-- index.html
@@ -566,6 +615,10 @@ Tracked app source:
     |           |   `-- app.css
     |           `-- js
     |               `-- app.js
+    |-- scripts
+    |   `-- migrate_product_master_and_seed_b2b.py
+    |-- tests
+    |   `-- test_product_master_migration.py
     `-- pipelines
         |-- kehe_pipeline.py
         |-- michaels_label_pipeline.py
