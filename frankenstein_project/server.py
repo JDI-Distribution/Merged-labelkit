@@ -335,6 +335,11 @@ MPL_DRAFTS_FILE = _config_path(
     "mpl_drafts_file",
     os.getenv("KEHE_MPL_DRAFTS_FILE", str(BASE_DIR / "data" / "kehe_mpl_drafts.json")),
 )
+B2B_LABEL_TEMPLATES_FILE = _config_path(
+    "B2B_LABEL_TEMPLATES_FILE",
+    "b2b_label_templates_file",
+    str(BASE_DIR / "data" / "b2b_label_templates.json"),
+)
 AUDIT_LOG_TABLE = str(
     _config_value("AUDIT_LOG_TABLE", "audit_log_table", "kehe_audit_log")
     or "kehe_audit_log"
@@ -574,9 +579,109 @@ def _is_kehe_storefront(value: Any) -> bool:
     return _normalize_storefront(value).lower() == "kehe"
 
 
-def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
+def _parse_decimal_value(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if parsed > 0 else None
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    raw = raw.replace(",", "")
+    mixed_fraction = re.match(r"^(-?\d+)\s+(\d+)/(\d+)$", raw)
+    if mixed_fraction:
+        whole = float(mixed_fraction.group(1))
+        numerator = float(mixed_fraction.group(2))
+        denominator = float(mixed_fraction.group(3))
+        if denominator == 0:
+            return None
+        parsed = whole + (numerator / denominator)
+        return parsed if parsed > 0 else None
+    simple_fraction = re.match(r"^(\d+)/(\d+)$", raw)
+    if simple_fraction:
+        numerator = float(simple_fraction.group(1))
+        denominator = float(simple_fraction.group(2))
+        if denominator == 0:
+            return None
+        parsed = numerator / denominator
+        return parsed if parsed > 0 else None
+    match = re.search(r"-?\d+(?:\.\d+)?", raw)
+    if not match:
+        return None
+    parsed = float(match.group(0))
+    return parsed if parsed > 0 else None
+
+
+def _format_decimal_string(value: Optional[float]) -> str:
+    if value is None:
+        return ""
+    if abs(value - round(value)) < 0.000001:
+        return str(int(round(value)))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _parse_legacy_dimensions(value: Any) -> Optional[tuple[float, float, float]]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    fraction_map = {
+        "¼": ".25",
+        "½": ".5",
+        "¾": ".75",
+        "⅛": ".125",
+        "⅜": ".375",
+        "⅝": ".625",
+        "⅞": ".875",
+    }
+    for symbol, replacement in fraction_map.items():
+        raw = raw.replace(symbol, replacement)
+    raw = re.sub(r"(\d+)\s+(\d+)/(\d+)", lambda m: str(float(m.group(1)) + (float(m.group(2)) / float(m.group(3)))), raw)
+    raw = re.sub(r"\((?:l|w|b|h)\)", "", raw)
+    raw = raw.replace("×", "x")
+    numbers = re.findall(r"-?\d+(?:\.\d+)?", raw)
+    if len(numbers) < 3:
+        return None
+    length = _parse_decimal_value(numbers[0])
+    width = _parse_decimal_value(numbers[1])
+    height = _parse_decimal_value(numbers[2])
+    if length is None or width is None or height is None:
+        return None
+    return (length, width, height)
+
+
+def _resolve_dimensions(row: Dict[str, Any]) -> tuple[str, str, str, str, bool]:
+    dimensions_in_raw = _first_value(row, "dimensions_in", "DIMENSIONS_IN", "L_X_W_X_H_IN", "L × W × H (in)")
+    length = _parse_decimal_value(_first_value(row, "length_in", "LENGTH_IN", "length", "Length"))
+    width = _parse_decimal_value(_first_value(row, "width_in", "WIDTH_IN", "breadth_in", "BREADTH_IN", "width", "breadth", "Width / Breadth"))
+    height = _parse_decimal_value(_first_value(row, "height_in", "HEIGHT_IN", "height", "Height"))
+
+    parsed_from_legacy = False
+    if (length is None or width is None or height is None) and dimensions_in_raw:
+        parsed = _parse_legacy_dimensions(dimensions_in_raw)
+        if parsed is not None:
+            parsed_from_legacy = True
+            if length is None:
+                length = parsed[0]
+            if width is None:
+                width = parsed[1]
+            if height is None:
+                height = parsed[2]
+
+    length_s = _format_decimal_string(length)
+    width_s = _format_decimal_string(width)
+    height_s = _format_decimal_string(height)
+    if length_s and width_s and height_s:
+        dimensions_in = f"{length_s} x {width_s} x {height_s}"
+    else:
+        dimensions_in = dimensions_in_raw
+    return length_s, width_s, height_s, dimensions_in, parsed_from_legacy
+
+
+def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
     gtin = _first_value(row, "gtin", "GTIN", "case_upc", "CASE_UPC", "upc", "UPC")
+    config_id = _first_value(row, "config_id", "CONFIG_ID", "config", "configuration_id")
     packaging_level = normalize_packaging_level(
         _first_value(row, "packaging_level", "packging_level", "PACKAGING_LEVEL", "PACKGING LEVEL", "Packaging Level")
     )
@@ -594,12 +699,38 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
     )
     labels_per_unit = _first_value(row, "labels_per_unit", "LABELS_PER_UNIT", "Labels / Unit")
     sku = _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER")
+    customer_item_number = _first_value(row, "customer_item_number", "CUSTOMER_ITEM_NUMBER", "customer_item", "item_number_customer")
+    label_template_id = _first_value(row, "label_template_id", "LABEL_TEMPLATE_ID", "template_id")
+    barcode_type = _first_value(row, "barcode_type", "BARCODE_TYPE")
+    barcode_level = _first_value(row, "barcode_level", "BARCODE_LEVEL")
+    each_net_weight_g = _first_value(row, "each_net_weight_g", "EACH_NET_WEIGHT_G")
+    package_net_weight_g = _first_value(row, "package_net_weight_g", "PACKAGE_NET_WEIGHT_G")
+    gross_weight_lbs = _first_value(row, "gross_weight_lbs", "GROSS_WEIGHT_LBS")
+    default_copies = _first_value(row, "default_copies", "DEFAULT_COPIES")
+    pack_statement = _first_value(row, "pack_statement", "PACK_STATEMENT")
+    verification_status = _first_value(row, "verification_status", "VERIFICATION_STATUS")
+    source_note = _first_value(row, "source_note", "SOURCE_NOTE")
+
+    length_in, width_in, height_in, dimensions_in, parsed_legacy_dimensions = _resolve_dimensions(row)
+    weight_lbs = _first_value(row, "weight_lbs", "WEIGHT_LBS", "Weight (lbs)")
+    if not weight_lbs:
+        weight_lbs = gross_weight_lbs
 
     label_required = "1" if in_packing_list else "0"
     if not case_qty:
         case_qty = _default_case_qty_for_product(packaging_level)
     if not labels_per_unit:
         labels_per_unit = _default_labels_per_unit_for_product(packaging_level)
+
+    label_enabled_raw = _first_value(row, "label_enabled", "LABEL_ENABLED")
+    label_enabled_default = not bool(config_id)
+    label_enabled = _boolish(label_enabled_raw, label_enabled_default)
+    is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
+
+    if not verification_status and dimensions_in and not (length_in and width_in and height_in):
+        verification_status = "NEEDS_DIMENSION_REVIEW"
+    if parsed_legacy_dimensions and not verification_status:
+        verification_status = "VISUAL_ONLY"
 
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
@@ -609,17 +740,45 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, str]:
         "gtin": gtin,
         "description": _first_value(row, "description", "DESCRIPTION", "Description"),
         "packaging_level": packaging_level,
-        "dimensions_in": _first_value(row, "dimensions_in", "DIMENSIONS_IN", "L_X_W_X_H_IN", "L × W × H (in)"),
-        "weight_lbs": _first_value(row, "weight_lbs", "WEIGHT_LBS", "Weight (lbs)"),
+        "dimensions_in": dimensions_in,
+        "length_in": length_in,
+        "width_in": width_in,
+        "height_in": height_in,
+        "weight_lbs": weight_lbs,
+        "each_net_weight_g": each_net_weight_g,
+        "package_net_weight_g": package_net_weight_g,
+        "gross_weight_lbs": gross_weight_lbs,
         "case_qty": case_qty,
         "labels_per_unit": labels_per_unit,
         "sku": sku,
-        "unique_key": _product_master_unique_key(gtin, packaging_level, storefront, sku),
+        "config_id": config_id,
+        "customer_item_number": customer_item_number,
+        "label_template_id": label_template_id,
+        "barcode_type": barcode_type,
+        "barcode_level": barcode_level,
+        "default_copies": default_copies,
+        "pack_statement": pack_statement,
+        "verification_status": verification_status,
+        "label_enabled": label_enabled,
+        "source_note": source_note,
+        "is_active": is_active,
+        "unique_key": _product_master_unique_key(gtin, packaging_level, storefront, sku, config_id=config_id),
     }
 
 
-def _product_master_unique_key(gtin: str, packaging_level: str, storefront: str = "", sku: str = "") -> str:
+def _product_master_unique_key(
+    gtin: str,
+    packaging_level: str,
+    storefront: str = "",
+    sku: str = "",
+    config_id: str = "",
+) -> str:
     store = _normalize_storefront(storefront)
+    if str(config_id or "").strip():
+        return "|".join([
+            store.strip().lower(),
+            str(config_id or "").strip().lower(),
+        ])
     return "|".join([
         store.strip().lower(),
         normalize_packaging_level(packaging_level).strip().lower(),
@@ -634,6 +793,7 @@ def _product_storefront_level_sku_key(row: Dict[str, Any]) -> str:
         normalized.get("packaging_level", ""),
         normalized.get("storefront", ""),
         normalized.get("sku", ""),
+        normalized.get("config_id", ""),
     )
 
 
@@ -645,7 +805,7 @@ def _default_labels_per_unit_for_product(packaging_level: str) -> str:
     return DEFAULT_LABELS_PER_UNIT_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
 
 
-def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, str]]:
+def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, Any]]:
     if not raw:
         return []
     try:
@@ -657,16 +817,30 @@ def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, str]]:
     return [normalize_product_master_row(r) for r in data if isinstance(r, dict)]
 
 
-def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    deduped: Dict[str, Dict[str, str]] = {}
+def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: Dict[str, Dict[str, Any]] = {}
     fallback_index = 0
     for raw in rows:
         row = normalize_product_master_row(raw)
-        has_data = any(row.get(k) for k in ("gtin", "description", "dimensions_in", "weight_lbs", "case_qty", "labels_per_unit", "sku"))
+        has_data = any(
+            row.get(k)
+            for k in (
+                "gtin",
+                "description",
+                "dimensions_in",
+                "weight_lbs",
+                "case_qty",
+                "labels_per_unit",
+                "sku",
+                "config_id",
+                "customer_item_number",
+                "label_template_id",
+            )
+        )
         if not has_data:
             continue
         key = row.get("unique_key") or ""
-        if key == "|Other":
+        if not str(key).strip() or str(key).strip("|") in {"other", "kehe|other"}:
             fallback_index += 1
             key = f"row-{fallback_index}"
         deduped[key] = row
@@ -677,7 +851,7 @@ def _kehe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]
     return [row for row in _dedupe_product_master_rows(rows) if _is_kehe_storefront(row.get("storefront"))]
 
 
-def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str, str]]:
+def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     path = file_path or MPL_PRODUCT_MASTER_FILE
     try:
         if not path.exists():
@@ -691,7 +865,7 @@ def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str
         return []
 
 
-def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[Path] = None) -> List[Dict[str, str]]:
+def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     path = file_path or MPL_PRODUCT_MASTER_FILE
     normalized = _dedupe_product_master_rows(rows)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -703,16 +877,27 @@ def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[P
     return normalized
 
 
-def _shared_product_master_file_read() -> List[Dict[str, str]]:
+def _shared_product_master_file_read() -> List[Dict[str, Any]]:
     return _product_master_file_read(MPL_PRODUCT_MASTER_FILE)
 
 
-def _datastore_row_to_product(row: Dict[str, Any]) -> Dict[str, str]:
+def _datastore_row_to_product(row: Dict[str, Any]) -> Dict[str, Any]:
     return normalize_product_master_row(row)
 
 
 def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = False) -> Dict[str, Any]:
     normalized = normalize_product_master_row(row)
+
+    length_in = _parse_decimal_value(normalized.get("length_in"))
+    width_in = _parse_decimal_value(normalized.get("width_in"))
+    height_in = _parse_decimal_value(normalized.get("height_in"))
+    each_net_weight_g = _parse_decimal_value(normalized.get("each_net_weight_g"))
+    package_net_weight_g = _parse_decimal_value(normalized.get("package_net_weight_g"))
+    gross_weight_lbs = _parse_decimal_value(normalized.get("gross_weight_lbs"))
+
+    default_copies_value = str(normalized.get("default_copies") or "").strip()
+    default_copies = int(default_copies_value) if default_copies_value.isdigit() else None
+
     out = {
         "LABEL_REQUIRED": "1" if normalized["in_packing_list"] else "0",
         "GTIN": normalized["gtin"],
@@ -723,8 +908,24 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
         "CASE_QTY": normalized["case_qty"],
         "LABELS_PER_UNIT": normalized["labels_per_unit"],
         "SKU": normalized["sku"],
+        "CONFIG_ID": normalized.get("config_id", ""),
+        "CUSTOMER_ITEM_NUMBER": normalized.get("customer_item_number", ""),
+        "LABEL_TEMPLATE_ID": normalized.get("label_template_id", ""),
+        "BARCODE_TYPE": normalized.get("barcode_type", ""),
+        "BARCODE_LEVEL": normalized.get("barcode_level", ""),
+        "LENGTH_IN": length_in,
+        "WIDTH_IN": width_in,
+        "HEIGHT_IN": height_in,
+        "EACH_NET_WEIGHT_G": each_net_weight_g,
+        "PACKAGE_NET_WEIGHT_G": package_net_weight_g,
+        "GROSS_WEIGHT_LBS": gross_weight_lbs,
+        "DEFAULT_COPIES": default_copies,
+        "PACK_STATEMENT": normalized.get("pack_statement", ""),
+        "VERIFICATION_STATUS": normalized.get("verification_status", ""),
+        "LABEL_ENABLED": bool(normalized.get("label_enabled")),
+        "SOURCE_NOTE": normalized.get("source_note", ""),
         "UNIQUE_KEY": normalized["unique_key"],
-        "IS_ACTIVE": True,
+        "IS_ACTIVE": bool(normalized.get("is_active", True)),
     }
     if include_storefront:
         out["STOREFRONT"] = normalized["storefront"]
@@ -1343,6 +1544,18 @@ def _datastore_save_product_master(request: Request, rows: List[Dict[str, Any]])
     )
 
 
+def _load_b2b_label_templates() -> Dict[str, Any]:
+    try:
+        if not B2B_LABEL_TEMPLATES_FILE.exists():
+            return {"templates": []}
+        data = json.loads(B2B_LABEL_TEMPLATES_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("templates"), list):
+            return data
+    except Exception:
+        pass
+    return {"templates": []}
+
+
 @app.get("/api/kehe/product-master")
 async def get_kehe_product_master(request: Request) -> JSONResponse:
     _require_permission(request, "view")
@@ -1374,6 +1587,12 @@ async def get_mpl_product_master(request: Request) -> JSONResponse:
         if rows and not MPL_PRODUCT_MASTER_FILE.exists():
             rows = _product_master_file_write(rows, MPL_PRODUCT_MASTER_FILE)
     return JSONResponse(content={"rows": rows, "source": source})
+
+
+@app.get("/api/b2b/label-templates")
+async def get_b2b_label_templates(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
+    return JSONResponse(content=_load_b2b_label_templates())
 
 
 @app.put("/api/mpl/product-master")
@@ -1441,6 +1660,13 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
     billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
     match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
+    record_type = _first_value(row, "record_type", "RECORD_TYPE") or "DESTINATION"
+    default_label_template_id = _first_value(row, "default_label_template_id", "DEFAULT_LABEL_TEMPLATE_ID")
+    manufacturer_name = _first_value(row, "manufacturer_name", "MANUFACTURER_NAME")
+    manufacturer_address = _first_value(row, "manufacturer_address", "MANUFACTURER_ADDRESS")
+    receiving_email = _first_value(row, "receiving_email", "RECEIVING_EMAIL")
+    docking_instructions = _first_value(row, "docking_instructions", "DOCKING_INSTRUCTIONS")
+    is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "storefront": storefront,
@@ -1450,6 +1676,13 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "delivery_address": delivery_address,
         "billing_address": billing_address,
         "match_values": match_values,
+        "record_type": record_type,
+        "default_label_template_id": default_label_template_id,
+        "manufacturer_name": manufacturer_name,
+        "manufacturer_address": manufacturer_address,
+        "receiving_email": receiving_email,
+        "docking_instructions": docking_instructions,
+        "is_active": is_active,
         "unique_key": _dc_directory_unique_key(
             dc,
             storefront,
@@ -1483,7 +1716,16 @@ def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
     for raw in rows:
         row = normalize_dc_directory_row(raw)
-        if not any([row.get("dc"), row.get("name"), row.get("ship_from"), row.get("delivery_address"), row.get("billing_address"), row.get("match_values")]):
+        if not any([
+            row.get("dc"),
+            row.get("name"),
+            row.get("ship_from"),
+            row.get("delivery_address"),
+            row.get("billing_address"),
+            row.get("match_values"),
+            row.get("default_label_template_id"),
+            row.get("manufacturer_name"),
+        ]):
             continue
 
         key = str(row.get("unique_key") or row.get("dc") or "").strip()
@@ -1569,8 +1811,14 @@ def _dc_to_datastore_row(row: Dict[str, Any], include_storefront: bool = False) 
         "DELIVERY_ADDRESS": normalized["delivery_address"],
         "BILLING_ADDRESS": normalized["billing_address"],
         "MATCH_VALUES": json.dumps(normalized["match_values"]),
+        "RECORD_TYPE": normalized.get("record_type", "DESTINATION"),
+        "DEFAULT_LABEL_TEMPLATE_ID": normalized.get("default_label_template_id", ""),
+        "MANUFACTURER_NAME": normalized.get("manufacturer_name", ""),
+        "MANUFACTURER_ADDRESS": normalized.get("manufacturer_address", ""),
+        "RECEIVING_EMAIL": normalized.get("receiving_email", ""),
+        "DOCKING_INSTRUCTIONS": normalized.get("docking_instructions", ""),
         "UNIQUE_KEY": normalized["unique_key"],
-        "IS_ACTIVE": True,
+        "IS_ACTIVE": bool(normalized.get("is_active", True)),
     }
     if include_storefront:
         out["STOREFRONT"] = normalized["storefront"]
@@ -2459,6 +2707,28 @@ def _canonical_import_key(header: str, table: str) -> str:
         "labels_to_print_per_unit": "labels_per_unit",
         "sku": "sku",
         "item_number": "sku",
+        "config_id": "config_id",
+        "configuration_id": "config_id",
+        "customer_item_number": "customer_item_number",
+        "customer_item": "customer_item_number",
+        "label_template_id": "label_template_id",
+        "template_id": "label_template_id",
+        "barcode_type": "barcode_type",
+        "barcode_level": "barcode_level",
+        "length_in": "length_in",
+        "width_in": "width_in",
+        "breadth_in": "width_in",
+        "breadth": "width_in",
+        "height_in": "height_in",
+        "each_net_weight_g": "each_net_weight_g",
+        "package_net_weight_g": "package_net_weight_g",
+        "gross_weight_lbs": "gross_weight_lbs",
+        "default_copies": "default_copies",
+        "pack_statement": "pack_statement",
+        "verification_status": "verification_status",
+        "label_enabled": "label_enabled",
+        "source_note": "source_note",
+        "is_active": "is_active",
     }
     directory_aliases = {
         "storefront": "storefront",
@@ -2479,6 +2749,13 @@ def _canonical_import_key(header: str, table: str) -> str:
         "match_values": "match_values",
         "matching_values": "match_values",
         "gln": "match_values",
+        "record_type": "record_type",
+        "default_label_template_id": "default_label_template_id",
+        "manufacturer_name": "manufacturer_name",
+        "manufacturer_address": "manufacturer_address",
+        "receiving_email": "receiving_email",
+        "docking_instructions": "docking_instructions",
+        "is_active": "is_active",
     }
     aliases = {
         "kehe_product_master": product_aliases,
@@ -2684,6 +2961,11 @@ def _mpl_drafts_datastore_table(request: Optional[Request]) -> Any:
     )
 
 
+def _normalize_document_type(value: Any, default: str = "MPL") -> str:
+    raw = str(value or "").strip().upper()
+    return raw or default
+
+
 def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
     draft_raw = row.get("DRAFT_JSON") or row.get("draft") or {}
     draft = draft_raw if isinstance(draft_raw, dict) else {}
@@ -2703,6 +2985,10 @@ def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
         "name": row.get("NAME") or row.get("name") or "",
         "created_at": row.get("CREATED_AT") or row.get("created_at") or "",
         "updated_at": row.get("UPDATED_AT") or row.get("updated_at") or "",
+        "document_type": _normalize_document_type(row.get("DOCUMENT_TYPE") or row.get("document_type") or "MPL"),
+        "status": str(row.get("STATUS") or row.get("status") or "DRAFT"),
+        "customer_code": str(row.get("CUSTOMER_CODE") or row.get("customer_code") or ""),
+        "po_number": str(row.get("PO_NUMBER") or row.get("po_number") or ""),
         "created_by": row.get("CREATED_BY") or row.get("created_by") or "",
         "updated_by": row.get("UPDATED_BY") or row.get("updated_by") or "",
         "draft": draft,
@@ -2719,6 +3005,12 @@ def _mpl_draft_to_datastore_row(record: Dict[str, Any]) -> Dict[str, Any]:
         "NAME": str(record.get("name") or ""),
         "CREATED_AT": str(record.get("created_at") or _now_iso()),
         "UPDATED_AT": str(record.get("updated_at") or _now_iso()),
+        "DOCUMENT_TYPE": _normalize_document_type(record.get("document_type") or "MPL"),
+        "STATUS": str(record.get("status") or "DRAFT"),
+        "CUSTOMER_CODE": str(record.get("customer_code") or ""),
+        "PO_NUMBER": str(record.get("po_number") or ""),
+        "CREATED_BY": str(record.get("created_by") or ""),
+        "UPDATED_BY": str(record.get("updated_by") or ""),
         "DRAFT_JSON": f"zlib:{compressed_draft}",
         "IS_ACTIVE": True,
     }
@@ -2746,33 +3038,92 @@ def _mpl_draft_for_storage(draft: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned_draft if isinstance(cleaned_draft, dict) else {}
 
 
-def _datastore_load_mpl_drafts(request: Optional[Request]) -> Optional[List[Dict[str, Any]]]:
+def _datastore_load_mpl_drafts(request: Optional[Request], document_type: str = "") -> Optional[List[Dict[str, Any]]]:
     table_service = _mpl_drafts_datastore_table(request)
     if table_service is None:
         return None
     try:
         raw_rows = _datastore_get_raw_rows(table_service)
+        wanted_document_type = _normalize_document_type(document_type, "") if document_type else ""
         active_rows = [
             row for row in raw_rows
             if str(row.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
         ]
-        return [_datastore_row_to_mpl_draft(row) for row in active_rows]
+        mapped = [_datastore_row_to_mpl_draft(row) for row in active_rows]
+        if wanted_document_type:
+            mapped = [
+                row for row in mapped
+                if _normalize_document_type(row.get("document_type"), "") == wanted_document_type
+            ]
+        return mapped
     except Exception as exc:
         if _store_requires_datastore(MPL_DRAFTS_STORE):
             _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "read from it", exc)
         return None
 
 
-def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str, Any]]) -> bool:
+def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str, Any]], document_type: str = "") -> bool:
     table_service = _mpl_drafts_datastore_table(request)
     if table_service is None:
         return False
     try:
         existing_rows = _datastore_get_raw_rows(table_service)
-        row_ids = [row.get("ROWID") for row in existing_rows if row.get("ROWID")]
-        for batch in _chunked(row_ids, 200):
-            table_service.delete_rows(batch)
-        insert_rows = [_mpl_draft_to_datastore_row(record) for record in drafts]
+        wanted_document_type = _normalize_document_type(document_type, "") if document_type else ""
+
+        filtered_existing: List[Dict[str, Any]] = []
+        for row in existing_rows:
+            if str(row.get("IS_ACTIVE", True)).lower() in {"false", "0", "no"}:
+                continue
+            mapped = _datastore_row_to_mpl_draft(row)
+            if wanted_document_type and _normalize_document_type(mapped.get("document_type"), "") != wanted_document_type:
+                continue
+            filtered_existing.append(row)
+
+        existing_by_id: Dict[str, Dict[str, Any]] = {}
+        existing_rowid_by_id: Dict[str, Any] = {}
+        for row in filtered_existing:
+            draft_id = str(row.get("DRAFT_ID") or row.get("id") or "").strip()
+            if not draft_id:
+                continue
+            existing_by_id[draft_id] = row
+            existing_rowid_by_id[draft_id] = row.get("ROWID")
+
+        incoming_by_id = {
+            str(record.get("id") or "").strip(): record
+            for record in drafts
+            if str(record.get("id") or "").strip()
+        }
+
+        delete_rowids: List[Any] = []
+        insert_rows: List[Dict[str, Any]] = []
+
+        for draft_id, row in existing_by_id.items():
+            if draft_id not in incoming_by_id:
+                rowid = existing_rowid_by_id.get(draft_id)
+                if rowid:
+                    delete_rowids.append(rowid)
+
+        for draft_id, record in incoming_by_id.items():
+            prepared_record = dict(record)
+            if wanted_document_type:
+                prepared_record["document_type"] = wanted_document_type
+            next_row = _mpl_draft_to_datastore_row(prepared_record)
+            existing_row = existing_by_id.get(draft_id)
+            if existing_row is None:
+                insert_rows.append(next_row)
+                continue
+            current_compare = dict(existing_row)
+            current_compare.pop("ROWID", None)
+            if current_compare == next_row:
+                continue
+            rowid = existing_rowid_by_id.get(draft_id)
+            if rowid:
+                delete_rowids.append(rowid)
+            insert_rows.append(next_row)
+
+        for batch in _chunked(delete_rowids, 200):
+            if batch:
+                table_service.delete_rows(batch)
         for batch in _chunked(insert_rows, 100):
             if batch:
                 table_service.insert_rows(batch)
@@ -2783,8 +3134,9 @@ def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str
         return False
 
 
-def _mpl_drafts_read(request: Optional[Request] = None) -> List[Dict[str, Any]]:
-    datastore_rows = _datastore_load_mpl_drafts(request)
+def _mpl_drafts_read(request: Optional[Request] = None, document_type: str = "") -> List[Dict[str, Any]]:
+    wanted_document_type = _normalize_document_type(document_type, "") if document_type else ""
+    datastore_rows = _datastore_load_mpl_drafts(request, wanted_document_type)
     if datastore_rows is not None:
         return datastore_rows
     try:
@@ -2794,17 +3146,41 @@ def _mpl_drafts_read(request: Optional[Request] = None) -> List[Dict[str, Any]]:
         drafts = data.get("drafts") if isinstance(data, dict) else data
         if not isinstance(drafts, list):
             return []
-        return [draft for draft in drafts if isinstance(draft, dict)]
+        rows = [draft for draft in drafts if isinstance(draft, dict)]
+        if wanted_document_type:
+            rows = [
+                row for row in rows
+                if _normalize_document_type(row.get("document_type"), "") == wanted_document_type
+            ]
+        return rows
     except Exception:
         return []
 
 
-def _mpl_drafts_write(drafts: List[Dict[str, Any]], request: Optional[Request] = None) -> List[Dict[str, Any]]:
-    if _datastore_save_mpl_drafts(request, drafts):
+def _mpl_drafts_write(
+    drafts: List[Dict[str, Any]],
+    request: Optional[Request] = None,
+    document_type: str = "",
+) -> List[Dict[str, Any]]:
+    wanted_document_type = _normalize_document_type(document_type, "") if document_type else ""
+    if _datastore_save_mpl_drafts(request, drafts, wanted_document_type):
         return drafts
+
+    existing_rows = _mpl_drafts_read(request=None)
+    if wanted_document_type:
+        existing_rows = [
+            row for row in existing_rows
+            if _normalize_document_type(row.get("document_type"), "") != wanted_document_type
+        ] + [
+            {**row, "document_type": wanted_document_type}
+            for row in drafts
+        ]
+    else:
+        existing_rows = drafts
+
     MPL_DRAFTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "drafts": drafts,
+        "drafts": existing_rows,
         "updated_at": _now_iso(),
     }
     MPL_DRAFTS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -2858,7 +3234,7 @@ def _hydrate_saved_mpl_record(
 @app.get("/api/kehe/mpl-drafts")
 async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
     _require_permission(request, "view")
-    drafts = _mpl_drafts_read(request)
+    drafts = _mpl_drafts_read(request, "MPL")
     summaries = [_mpl_draft_summary(record) for record in drafts]
     summaries.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
     return JSONResponse(content={"drafts": summaries})
@@ -2867,7 +3243,7 @@ async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
 @app.get("/api/kehe/mpl-drafts/{draft_id}")
 async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "view")
-    for record in _mpl_drafts_read(request):
+    for record in _mpl_drafts_read(request, "MPL"):
         if str(record.get("id")) == draft_id:
             product_rows = _datastore_load_product_master(request)
             if product_rows is None:
@@ -2886,13 +3262,13 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         raise HTTPException(status_code=400, detail="MPL draft payload is required.")
 
     storage_draft = _mpl_draft_for_storage(draft)
-    drafts = _mpl_drafts_read(request)
+    drafts = _mpl_drafts_read(request, "MPL")
     draft_id = str(payload.get("id") or draft.get("_saved_draft_id") or uuid.uuid4().hex)
     now = _now_iso()
+    packing_lists = draft.get("packing_lists") if isinstance(draft.get("packing_lists"), list) else []
+    first = packing_lists[0] if packing_lists and isinstance(packing_lists[0], dict) else {}
     name = str(payload.get("name") or draft.get("_saved_draft_name") or "").strip()
     if not name:
-        packing_lists = draft.get("packing_lists") if isinstance(draft.get("packing_lists"), list) else []
-        first = packing_lists[0] if packing_lists and isinstance(packing_lists[0], dict) else {}
         name = str(first.get("customer_po_number") or first.get("id") or "Untitled MPL").strip()
 
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
@@ -2910,6 +3286,10 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         "name": name,
         "created_at": created_at,
         "updated_at": now,
+        "document_type": "MPL",
+        "status": str(payload.get("status") or "DRAFT"),
+        "customer_code": str(payload.get("customer_code") or draft.get("storefront") or ""),
+        "po_number": str(payload.get("po_number") or first.get("customer_po_number") or ""),
         "created_by": created_by,
         "updated_by": actor_label,
         "draft": storage_draft,
@@ -2917,7 +3297,7 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
     next_drafts = [record if str(existing.get("id")) == draft_id else existing for existing in drafts]
     if old_record is None:
         next_drafts.append(record)
-    _mpl_drafts_write(next_drafts, request)
+    _mpl_drafts_write(next_drafts, request, "MPL")
 
     _audit_log_append([{
         "id": uuid.uuid4().hex,
@@ -2942,13 +3322,13 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
 @app.delete("/api/kehe/mpl-drafts/{draft_id}")
 async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "delete_mpl")
-    drafts = _mpl_drafts_read(request)
+    drafts = _mpl_drafts_read(request, "MPL")
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
     if old_record is None:
         raise HTTPException(status_code=404, detail="Saved MPL draft not found.")
 
     next_drafts = [record for record in drafts if str(record.get("id")) != draft_id]
-    _mpl_drafts_write(next_drafts, request)
+    _mpl_drafts_write(next_drafts, request, "MPL")
 
     now = _now_iso()
     _audit_log_append([{
@@ -2967,6 +3347,94 @@ async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse
         "filename": "",
     }], request=request)
 
+    return JSONResponse(content={"deleted": True, "id": draft_id})
+
+
+def _document_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+    summary = {
+        "id": record.get("id", ""),
+        "name": record.get("name", ""),
+        "document_type": _normalize_document_type(record.get("document_type") or "MPL"),
+        "status": str(record.get("status") or ""),
+        "customer_code": str(record.get("customer_code") or ""),
+        "po_number": str(record.get("po_number") or ""),
+        "created_at": record.get("created_at", ""),
+        "updated_at": record.get("updated_at", ""),
+        "created_by": record.get("created_by", ""),
+        "updated_by": record.get("updated_by", ""),
+    }
+    if summary["document_type"] == "MPL":
+        summary.update(_mpl_draft_summary(record))
+    return summary
+
+
+@app.get("/api/documents/drafts")
+async def list_document_drafts(request: Request, document_type: str = "") -> JSONResponse:
+    _require_permission(request, "view")
+    normalized_document_type = _normalize_document_type(document_type, "") if document_type else ""
+    drafts = _mpl_drafts_read(request, normalized_document_type)
+    summaries = [_document_draft_summary(record) for record in drafts]
+    summaries.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
+    return JSONResponse(content={"drafts": summaries})
+
+
+@app.get("/api/documents/drafts/{draft_id}")
+async def get_document_draft(request: Request, draft_id: str, document_type: str = "") -> JSONResponse:
+    _require_permission(request, "view")
+    normalized_document_type = _normalize_document_type(document_type, "") if document_type else ""
+    for record in _mpl_drafts_read(request, normalized_document_type):
+        if str(record.get("id")) == draft_id:
+            return JSONResponse(content={"draft": record})
+    raise HTTPException(status_code=404, detail="Saved draft not found.")
+
+
+@app.post("/api/documents/drafts")
+async def save_document_draft(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "save_mpl")
+    draft = payload.get("draft") if isinstance(payload, dict) else None
+    if not isinstance(draft, dict):
+        raise HTTPException(status_code=400, detail="Document draft payload is required.")
+
+    document_type = _normalize_document_type(payload.get("document_type") or draft.get("document_type") or "MPL")
+    drafts = _mpl_drafts_read(request, document_type)
+    draft_id = str(payload.get("id") or draft.get("_saved_draft_id") or uuid.uuid4().hex)
+    now = _now_iso()
+    old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    actor = _request_actor(request)
+    actor_label = str(actor.get("email") or actor.get("name") or "Local user")
+    created_by = ((old_record or {}).get("created_by") or str(payload.get("created_by") or actor_label))
+
+    record = {
+        "id": draft_id,
+        "name": str(payload.get("name") or draft.get("name") or "Untitled").strip() or "Untitled",
+        "created_at": (old_record or {}).get("created_at") or now,
+        "updated_at": now,
+        "document_type": document_type,
+        "status": str(payload.get("status") or "DRAFT"),
+        "customer_code": str(payload.get("customer_code") or draft.get("storefront") or ""),
+        "po_number": str(payload.get("po_number") or ""),
+        "created_by": created_by,
+        "updated_by": actor_label,
+        "draft": _mpl_draft_for_storage(draft),
+    }
+    next_drafts = [record if str(existing.get("id")) == draft_id else existing for existing in drafts]
+    if old_record is None:
+        next_drafts.append(record)
+    _mpl_drafts_write(next_drafts, request, document_type)
+
+    return JSONResponse(content={"draft": record, "saved": True})
+
+
+@app.delete("/api/documents/drafts/{draft_id}")
+async def delete_document_draft(request: Request, draft_id: str, document_type: str = "") -> JSONResponse:
+    _require_permission(request, "delete_mpl")
+    normalized_document_type = _normalize_document_type(document_type, "") if document_type else ""
+    drafts = _mpl_drafts_read(request, normalized_document_type)
+    old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    if old_record is None:
+        raise HTTPException(status_code=404, detail="Saved draft not found.")
+    next_drafts = [record for record in drafts if str(record.get("id")) != draft_id]
+    _mpl_drafts_write(next_drafts, request, normalized_document_type)
     return JSONResponse(content={"deleted": True, "id": draft_id})
 
 

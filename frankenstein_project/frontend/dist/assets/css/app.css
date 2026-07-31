@@ -1621,6 +1621,55 @@
       border-left: 3px solid #55a69b;
     }
 
+    .kehe-product-master-table .mpl-product-level-row small {
+      display: block;
+      padding: 0 7px 7px;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+
+    .mpl-product-b2b-row td,
+    .mpl-directory-b2b-row td {
+      background: #f8fafc;
+      padding: 8px;
+    }
+
+    .mpl-product-b2b-fields {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      align-items: end;
+    }
+
+    .mpl-product-b2b-fields label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: #475569;
+    }
+
+    .mpl-product-b2b-fields input {
+      min-height: 30px;
+      border: 1px solid #dbe3ee;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 11px;
+      background: #ffffff;
+    }
+
+    .mpl-product-b2b-fields input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      min-height: 16px;
+      margin: 2px 0 0;
+    }
+
     .mpl-product-pack-breakdown {
       padding: 7px 8px !important;
       color: #315369 !important;

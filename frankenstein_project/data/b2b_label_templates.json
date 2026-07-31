@@ -1,0 +1,42 @@
+{
+  "templates": [
+    {
+      "template_id": "DECOPAC_CASE_4X6",
+      "version": 1,
+      "status": "DRAFT",
+      "renderer_key": "decopac_case_4x6",
+      "physical_width_in": 4,
+      "physical_height_in": 6,
+      "pdf_width_in": 6,
+      "pdf_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "layout_mode": "SINGLE",
+      "default_copies": null,
+      "barcode_policy": "REQUIRED",
+      "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "lot_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "customer_item_number",
+        "description",
+        "case_qty",
+        "gtin",
+        "barcode_type",
+        "each_net_weight_g",
+        "package_net_weight_g",
+        "length_in",
+        "width_in",
+        "height_in"
+      ]
+    }
+  ]
+}

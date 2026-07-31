@@ -104,6 +104,26 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
 
         self.assertEqual("", row["case_qty"])
 
+    def test_b2b_unique_key_prefers_storefront_and_config_id(self):
+        row = normalize_product_master_row({
+            "storefront": "DecoPac",
+            "packaging_level": "Case",
+            "sku": "SHARED-SKU",
+            "config_id": "DECOPAC-62924-CASE",
+        })
+
+        self.assertEqual("decopac|decopac-62924-case", row["unique_key"])
+
+    def test_legacy_unique_key_falls_back_to_storefront_packaging_and_sku(self):
+        row = normalize_product_master_row({
+            "storefront": "DecoPac",
+            "packaging_level": "Case",
+            "sku": "SHARED-SKU",
+            "config_id": "",
+        })
+
+        self.assertEqual("decopac|case|shared-sku", row["unique_key"])
+
     def test_non_kehe_quantity_is_not_converted(self):
         conversion = _analytics_kehe_case_conversion(684, {
             "storefront": "BAKELL.COM",
@@ -361,6 +381,27 @@ class MplDraftStorageTests(unittest.TestCase):
 
         self.assertTrue(row["DRAFT_JSON"].startswith("zlib:"))
         self.assertEqual(draft, restored["draft"])
+
+    def test_draft_document_type_and_status_round_trip(self):
+        record = {
+            "id": "run-1",
+            "name": "B2B Run",
+            "document_type": "B2B_LABEL_RUN",
+            "status": "GENERATED",
+            "customer_code": "DECOPAC",
+            "po_number": "PO-123",
+            "created_by": "qa@example.com",
+            "updated_by": "qa@example.com",
+            "draft": {"result_id": "abc"},
+        }
+
+        row = _mpl_draft_to_datastore_row(record)
+        restored = _datastore_row_to_mpl_draft(row)
+
+        self.assertEqual("B2B_LABEL_RUN", restored["document_type"])
+        self.assertEqual("GENERATED", restored["status"])
+        self.assertEqual("DECOPAC", restored["customer_code"])
+        self.assertEqual("PO-123", restored["po_number"])
 
 
 class FrontendDeliveryTests(unittest.TestCase):
