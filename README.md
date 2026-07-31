@@ -203,11 +203,11 @@ Supported workbook-derived label types:
 - DecoPac case 4x6.
 - Dutch Bros PFG 3x3 and Dutch Bros Other 3x3.
 - Disney case 3x3.
-- Wynn receiving 4x6.
 - Standard case-pack 4x6.
 - Mixed-case strip 3x1.5.
-- Rita's paired case 3x3.
 - Bulk further-processing 4x6.
+
+All nine supported label types have at least one enabled Product Master configuration. The five non-production examples use `SAMPLE-*` configuration/SKU values and `DRAFT` status so they are easy to identify and replace after testing. Fancy SRD, Fancy Master-Pack, Dutch PFG, and Dutch Other share one configurable compact renderer; their titles, copy counts, invoice visibility, and required fields remain template-driven.
 
 Customer-specific fields come from Product Master and Directory; PO/lot/carton/job values remain print-run data and are not written back. The bundled template registry is `frankenstein_project/data/b2b_label_templates.json`, and renderers live under `frankenstein_project/pipelines/b2b_labels/`.
 
@@ -274,7 +274,7 @@ python scripts\migrate_product_master_and_seed_b2b.py --apply
 python scripts\migrate_product_master_and_seed_b2b.py
 ```
 
-The second command should classify all reviewed seeds as `IDENTICAL`. The reviewed set contains 28 available Product Master configurations and 3 active Directory entries. Rows remain `NEEDS_REVIEW` where source values require business confirmation; missing values stay editable and produce print warnings instead of being replaced with guesses.
+The second command should classify all reviewed seeds as `IDENTICAL`. The reviewed set contains 32 available Product Master configurations and 2 active Directory entries. Five configurations are explicitly marked `SAMPLE-*` / `DRAFT`; source-backed rows remain `NEEDS_REVIEW` where business confirmation is still required. Missing values stay editable and produce print warnings instead of being replaced with guesses.
 
 ## Local Run
 

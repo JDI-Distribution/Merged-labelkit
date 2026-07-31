@@ -789,13 +789,8 @@
     ]);
   }
 
-  function b2bTemplateIdOptions(currentValue = '') {
-    return uniqueTextValues([
-      currentValue,
-      ...b2bLabelTemplates.map(template => template?.template_id),
-      ...mplProductMasterRows.map(row => normalizeProductRow(row).label_template_id),
-      ...mplDirectoryRows.map(row => normalizeDcDirectoryRow(row).default_label_template_id),
-    ]);
+  function b2bTemplateIdOptions() {
+    return uniqueTextValues(b2bLabelTemplates.map(template => template?.template_id));
   }
 
   function displayMultiline(value) {
@@ -5956,12 +5951,8 @@
     const visible = new Set([
       'carton_total', 'carton_start', 'carton_end', 'copies',
       ...((template?.required_run_fields || []).map(String)),
+      ...((template?.optional_run_fields || []).map(String)),
     ]);
-    const renderer = String(template?.renderer_key || '');
-    if (renderer === 'dutch_pfg_3x3') visible.add('invoice_number');
-    if (renderer === 'bulk_further_processing_4x6') {
-      ['project_name', 'allergens', 'required_statement'].forEach(field => visible.add(field));
-    }
     document.querySelectorAll('[data-b2b-run-wrap]').forEach(wrapper => {
       wrapper.classList.toggle('hidden', !visible.has(wrapper.dataset.b2bRunWrap));
     });

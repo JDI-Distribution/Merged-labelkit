@@ -1,4 +1,4 @@
-"""Migrate local reference data to the current schema and merge reviewed B2B seeds.
+"""Migrate local reference data to the current schema and merge B2B seeds.
 
 The command is a dry run unless --apply is supplied. It never replaces an
 existing nonblank value with a different seed value and writes JSON atomically.
@@ -23,6 +23,8 @@ PRODUCT_FILE = APP_DIR / "data" / "mpl_product_master.json"
 DIRECTORY_FILE = APP_DIR / "data" / "mpl_directory.json"
 PRODUCT_SEED = APP_DIR / "data" / "seeds" / "b2b_product_master_seed.csv"
 DIRECTORY_SEED = APP_DIR / "data" / "seeds" / "b2b_directory_seed.csv"
+EXPECTED_PRODUCT_SEED_ROWS = 32
+EXPECTED_DIRECTORY_SEED_ROWS = 2
 
 PRODUCT_FIELDS = (
     "storefront", "config_id", "sku", "customer_item_number", "description",
@@ -276,8 +278,14 @@ def _write_atomic(path: Path, rows: List[Dict[str, Any]], metadata: Dict[str, An
 def run(apply: bool) -> Dict[str, Any]:
     product_rows, product_metadata = _read_document(PRODUCT_FILE)
     directory_rows, directory_metadata = _read_document(DIRECTORY_FILE)
-    product_seed = [_normalize_seed_product(row) for row in _read_seed(PRODUCT_SEED, 28)]
-    directory_seed = [_normalize_seed_directory(row) for row in _read_seed(DIRECTORY_SEED, 3)]
+    product_seed = [
+        _normalize_seed_product(row)
+        for row in _read_seed(PRODUCT_SEED, EXPECTED_PRODUCT_SEED_ROWS)
+    ]
+    directory_seed = [
+        _normalize_seed_directory(row)
+        for row in _read_seed(DIRECTORY_SEED, EXPECTED_DIRECTORY_SEED_ROWS)
+    ]
 
     migration_counts: Counter = Counter()
     migration_conflicts: List[Dict[str, str]] = []

@@ -62,7 +62,7 @@ class B2BLabelRendererTests(unittest.TestCase):
         }
 
     def test_registry_has_a_working_renderer_for_every_supported_label(self):
-        self.assertEqual(11, len(self.templates))
+        self.assertEqual(9, len(self.templates))
         for template in self.templates:
             with self.subTest(template=template["template_id"]):
                 job = self._job(template)
@@ -78,6 +78,44 @@ class B2BLabelRendererTests(unittest.TestCase):
                 self.assertAlmostEqual(float(template["physical_height_in"]) * 72, page.rect.height, delta=0.5)
                 text = "\n".join(item.get_text() for item in document)
                 self.assertIn("Box 2 of 3", text)
+
+    def test_registry_contains_only_current_templates_and_compact_layout_is_shared(self):
+        template_ids = {template["template_id"] for template in self.templates}
+        self.assertEqual(
+            {
+                "DECOPAC_CASE_4X6",
+                "DISNEY_CASE_3X3",
+                "FANCY_SRD_3X3",
+                "FANCY_MASTER_PACK_3X3",
+                "DUTCH_PFG_3X3",
+                "DUTCH_OTHER_3X3",
+                "MIXED_CASE_3X1_5",
+                "STANDARD_CASE_PACK_4X6",
+                "BULK_FURTHER_PROCESSING_4X6",
+            },
+            template_ids,
+        )
+        compact_ids = {
+            template["template_id"]
+            for template in self.templates
+            if template.get("renderer_key") == "compact_case_3x3"
+        }
+        self.assertEqual(
+            {"FANCY_SRD_3X3", "FANCY_MASTER_PACK_3X3", "DUTCH_PFG_3X3", "DUTCH_OTHER_3X3"},
+            compact_ids,
+        )
+
+    def test_every_template_has_at_least_one_enabled_configuration(self):
+        product_document = json.loads(
+            (APP_DIR / "data" / "mpl_product_master.json").read_text(encoding="utf-8")
+        )
+        enabled_templates = {
+            str(row.get("label_template_id") or "")
+            for row in product_document.get("rows", [])
+            if row.get("label_enabled") and row.get("is_active")
+        }
+        for template in self.templates:
+            self.assertIn(template["template_id"], enabled_templates)
 
     def test_missing_business_values_are_warnings_not_renderer_blocks(self):
         template = self.templates[0]

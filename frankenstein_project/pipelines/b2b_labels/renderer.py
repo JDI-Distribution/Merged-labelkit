@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import re
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Tuple
 
@@ -21,17 +22,12 @@ from reportlab.pdfgen import canvas
 
 
 SUPPORTED_RENDERERS = {
+    "bulk_further_processing_4x6",
+    "compact_case_3x3",
     "decopac_case_4x6",
     "disney_case_3x3",
-    "dutch_other_3x3",
-    "dutch_pfg_3x3",
-    "fancy_master_pack_3x3",
-    "fancy_srd_3x3",
     "mixed_case_3x1_5",
-    "rita_case_3x3",
     "standard_case_4x6",
-    "wynn_case_4x6",
-    "bulk_further_processing_4x6",
 }
 
 
@@ -307,24 +303,6 @@ def _draw_mixed(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, 
     c.drawString(margin, 0.10 * inch, f"PO: {_job_value(job, 'po_number')}")
 
 
-def _draw_wynn(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, width: float, height: float) -> None:
-    _draw_border(c, width, height)
-    margin = 0.22 * inch
-    c.setFont("Helvetica-Bold", 19)
-    c.drawCentredString(width / 2, height - 0.42 * inch, "WYNN RECEIVING")
-    c.setFont("Helvetica-Bold", 14)
-    c.drawCentredString(width / 2, height - 0.75 * inch, f"PO #: {_job_value(job, 'po_number')}")
-    c.setFont("Helvetica-Bold", 18)
-    c.drawCentredString(width / 2, height - 1.10 * inch, _carton_text(carton, total))
-    c.line(margin, height - 1.25 * inch, width - margin, height - 1.25 * inch)
-    instructions = _job_value(job, "docking_instructions", "source_note")
-    _draw_wrapped(c, instructions, margin, height - 1.52 * inch, width - 2 * margin, font="Helvetica-Bold", size=10, leading=0.19 * inch, max_lines=10)
-    email = _job_value(job, "receiving_email")
-    if email:
-        c.setFont("Helvetica-Bold", 10)
-        c.drawCentredString(width / 2, 0.32 * inch, email)
-
-
 def _draw_standard_case(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, width: float, height: float) -> None:
     """Standard 4x6 Rollo case label from the horizontal/vertical source sheets."""
     _draw_border(c, width, height)
@@ -403,25 +381,22 @@ def _page_size(template: Dict[str, Any]) -> Tuple[float, float]:
     return width * inch, height * inch
 
 
-def _renderer_for(key: str) -> Callable[[canvas.Canvas, Dict[str, Any], int, int, float, float], None]:
+def _renderer_for(template: Dict[str, Any]) -> Callable[[canvas.Canvas, Dict[str, Any], int, int, float, float], None]:
+    key = _text(template.get("renderer_key"))
     if key == "decopac_case_4x6":
         return _draw_decopac
     if key == "disney_case_3x3":
         return _draw_disney
-    if key == "fancy_srd_3x3":
-        return lambda c, j, n, t, w, h: _draw_compact_case(c, j, n, t, w, h, customer_default="FANCY SPRINKLES SRD")
-    if key == "fancy_master_pack_3x3":
-        return lambda c, j, n, t, w, h: _draw_compact_case(c, j, n, t, w, h, customer_default="FANCY SPRINKLES MASTER PACK")
-    if key == "dutch_pfg_3x3":
-        return lambda c, j, n, t, w, h: _draw_compact_case(c, j, n, t, w, h, customer_default="DUTCH BROS", show_invoice=True)
-    if key == "dutch_other_3x3":
-        return lambda c, j, n, t, w, h: _draw_compact_case(c, j, n, t, w, h, customer_default="DUTCH BROS")
-    if key == "rita_case_3x3":
-        return lambda c, j, n, t, w, h: _draw_compact_case(c, j, n, t, w, h, customer_default="RITA'S ITALIAN ICE")
+    if key == "compact_case_3x3":
+        options = template.get("renderer_options") if isinstance(template.get("renderer_options"), dict) else {}
+        return partial(
+            _draw_compact_case,
+            customer_default=_text(options.get("customer_default")) or _text(template.get("name")) or "CASE PACK",
+            show_invoice=bool(options.get("show_invoice")),
+            show_barcode=bool(options.get("show_barcode")),
+        )
     if key == "mixed_case_3x1_5":
         return _draw_mixed
-    if key == "wynn_case_4x6":
-        return _draw_wynn
     if key == "standard_case_4x6":
         return _draw_standard_case
     if key == "bulk_further_processing_4x6":
@@ -453,8 +428,7 @@ def render_b2b_label_pdf(
     template: Dict[str, Any],
     out_pdf: str | Path | None = None,
 ) -> Dict[str, Any]:
-    renderer_key = _text(template.get("renderer_key"))
-    renderer = _renderer_for(renderer_key)
+    renderer = _renderer_for(template)
     width, height = _page_size(template)
     start = _positive_int(_job_value(job, "carton_start"), 1)
     end = _positive_int(_job_value(job, "carton_end"), start)

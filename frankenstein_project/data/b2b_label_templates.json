@@ -66,7 +66,10 @@
       "customer": "Fancy Sprinkles",
       "version": 1,
       "status": "ACTIVE",
-      "renderer_key": "fancy_srd_3x3",
+      "renderer_key": "compact_case_3x3",
+      "renderer_options": {
+        "customer_default": "FANCY SPRINKLES SRD"
+      },
       "physical_width_in": 3,
       "physical_height_in": 3,
       "orientation": "PORTRAIT",
@@ -93,7 +96,10 @@
       "customer": "Fancy Sprinkles",
       "version": 1,
       "status": "ACTIVE",
-      "renderer_key": "fancy_master_pack_3x3",
+      "renderer_key": "compact_case_3x3",
+      "renderer_options": {
+        "customer_default": "FANCY SPRINKLES MASTER PACK"
+      },
       "physical_width_in": 3,
       "physical_height_in": 3,
       "orientation": "PORTRAIT",
@@ -120,7 +126,11 @@
       "customer": "Dutch Bros",
       "version": 1,
       "status": "ACTIVE",
-      "renderer_key": "dutch_pfg_3x3",
+      "renderer_key": "compact_case_3x3",
+      "renderer_options": {
+        "customer_default": "DUTCH BROS",
+        "show_invoice": true
+      },
       "physical_width_in": 3,
       "physical_height_in": 3,
       "orientation": "PORTRAIT",
@@ -135,6 +145,9 @@
         "carton_start",
         "carton_end"
       ],
+      "optional_run_fields": [
+        "invoice_number"
+      ],
       "required_product_fields": [
         "sku",
         "description",
@@ -148,7 +161,10 @@
       "customer": "Dutch Bros",
       "version": 1,
       "status": "ACTIVE",
-      "renderer_key": "dutch_other_3x3",
+      "renderer_key": "compact_case_3x3",
+      "renderer_options": {
+        "customer_default": "DUTCH BROS"
+      },
       "physical_width_in": 3,
       "physical_height_in": 3,
       "orientation": "PORTRAIT",
@@ -196,60 +212,6 @@
         "case_qty"
       ],
       "source": "2x3 CP workbook sheet; 3 x 1.5 case sticker"
-    },
-    {
-      "template_id": "RITA_CASE_PAIRED",
-      "name": "Rita's Paired Case Label",
-      "customer": "Ritas",
-      "version": 1,
-      "status": "ACTIVE",
-      "renderer_key": "rita_case_3x3",
-      "physical_width_in": 3,
-      "physical_height_in": 3,
-      "orientation": "PORTRAIT",
-      "default_copies": 2,
-      "barcode_policy": "NONE",
-      "allowed_barcode_types": [
-        "NONE"
-      ],
-      "required_run_fields": [
-        "po_number",
-        "carton_total",
-        "carton_start",
-        "carton_end"
-      ],
-      "required_product_fields": [
-        "sku",
-        "description",
-        "case_qty"
-      ],
-      "source": "RITA workbook sheet; paired carton labels"
-    },
-    {
-      "template_id": "WYNN_CASE_4X6",
-      "name": "Wynn Receiving Label",
-      "customer": "Wynn",
-      "version": 1,
-      "status": "ACTIVE",
-      "renderer_key": "wynn_case_4x6",
-      "physical_width_in": 6,
-      "physical_height_in": 4,
-      "orientation": "LANDSCAPE",
-      "default_copies": 1,
-      "barcode_policy": "NONE",
-      "allowed_barcode_types": [
-        "NONE"
-      ],
-      "required_run_fields": [
-        "po_number",
-        "carton_total",
-        "carton_start",
-        "carton_end"
-      ],
-      "required_product_fields": [
-        "description"
-      ],
-      "source": "Wynn workbook sheet; receiving hours and reservation details come from Directory"
     },
     {
       "template_id": "STANDARD_CASE_PACK_4X6",
@@ -300,6 +262,11 @@
         "carton_total",
         "carton_start",
         "carton_end"
+      ],
+      "optional_run_fields": [
+        "project_name",
+        "allergens",
+        "required_statement"
       ],
       "required_product_fields": [
         "description"

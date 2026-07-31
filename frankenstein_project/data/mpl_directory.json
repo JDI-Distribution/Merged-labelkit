@@ -168,28 +168,6 @@
       "unique_key": "decopac|decopac-default"
     },
     {
-      "storefront": "Wynn",
-      "dc": "WYNN-RECEIVING",
-      "name": "Wynn Receiving",
-      "ship_from": "",
-      "delivery_address": "",
-      "billing_address": "",
-      "match_values": [
-        "Wynn",
-        "WLVPO1051875"
-      ],
-      "record_type": "CUSTOMER_DEFAULT",
-      "default_label_template_id": "WYNN_CASE_4X6",
-      "manufacturer_name": "",
-      "manufacturer_address": "",
-      "receiving_email": "ReceivingAppointments@wynnlasvegas.com",
-      "docking_instructions": "",
-      "is_active": true,
-      "verification_status": "NEEDS_REVIEW",
-      "source_note": "Email is present in the source; docking fields and SKU mappings remain missing.",
-      "unique_key": "wynn|wynn-receiving"
-    },
-    {
       "storefront": "Generic B2B",
       "dc": "GENERIC-BULK-DEFAULT",
       "name": "Bakell Bulk Manufacturer",
@@ -212,5 +190,5 @@
       "unique_key": "generic b2b|generic-bulk-default"
     }
   ],
-  "updated_at": "2026-07-31T19:58:03Z"
+  "updated_at": "2026-07-31T21:38:58Z"
 }
