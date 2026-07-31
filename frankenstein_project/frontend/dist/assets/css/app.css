@@ -1648,7 +1648,7 @@
     .mpl-unified-fields-grid {
       display: grid;
       gap: 8px;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       align-items: end;
     }
 
@@ -1694,6 +1694,14 @@
       resize: vertical;
     }
 
+    .mpl-unified-fields-grid textarea {
+      min-height: 64px;
+      max-height: 112px;
+      line-height: 1.25;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+
     .mpl-unified-fields-grid input[type="checkbox"] {
       width: 16px;
       height: 16px;
@@ -1702,7 +1710,7 @@
     }
 
     .mpl-unified-fields-grid .mpl-field-wide {
-      grid-column: 1 / -1;
+      grid-column: span 2;
     }
 
     .mpl-unified-fields-grid .mpl-toggle-field {
@@ -1712,6 +1720,12 @@
 
     .mpl-unified-fields-grid .mpl-toggle-field input[type="checkbox"] {
       margin-top: 4px;
+    }
+
+    @media (max-width: 1080px) {
+      .mpl-unified-fields-grid .mpl-field-wide {
+        grid-column: 1 / -1;
+      }
     }
 
     .mpl-product-pack-breakdown {

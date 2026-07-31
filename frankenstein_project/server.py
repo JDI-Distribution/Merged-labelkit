@@ -929,7 +929,6 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
         "PACK_STATEMENT": normalized.get("pack_statement", ""),
         "VERIFICATION_STATUS": normalized.get("verification_status", ""),
         "LABEL_ENABLED": bool(normalized.get("label_enabled")),
-        "SOURCE_NOTE": normalized.get("source_note", ""),
         "UNIQUE_KEY": normalized["unique_key"],
         "IS_ACTIVE": bool(normalized.get("is_active", True)),
     }
@@ -1912,7 +1911,6 @@ def _dc_to_datastore_row(row: Dict[str, Any], include_storefront: bool = False) 
         "RECEIVING_EMAIL": normalized.get("receiving_email", ""),
         "DOCKING_INSTRUCTIONS": normalized.get("docking_instructions", ""),
         "VERIFICATION_STATUS": normalized.get("verification_status", ""),
-        "SOURCE_NOTE": normalized.get("source_note", ""),
         "UNIQUE_KEY": normalized["unique_key"],
         "IS_ACTIVE": bool(normalized.get("is_active", True)),
     }
