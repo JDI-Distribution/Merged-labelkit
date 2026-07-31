@@ -2,21 +2,21 @@
   "templates": [
     {
       "template_id": "DECOPAC_CASE_4X6",
+      "name": "DecoPac Case Label",
+      "customer": "DecoPac",
       "version": 1,
-      "status": "DRAFT",
+      "status": "ACTIVE",
       "renderer_key": "decopac_case_4x6",
-      "physical_width_in": 4,
-      "physical_height_in": 6,
-      "pdf_width_in": 6,
-      "pdf_height_in": 4,
+      "physical_width_in": 6,
+      "physical_height_in": 4,
       "orientation": "LANDSCAPE",
-      "layout_mode": "SINGLE",
-      "default_copies": null,
-      "barcode_policy": "REQUIRED",
+      "default_copies": 1,
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
         "UPC_A",
         "EAN_13",
-        "GTIN_14"
+        "GTIN_14",
+        "NONE"
       ],
       "required_run_fields": [
         "po_number",
@@ -28,15 +28,283 @@
       "required_product_fields": [
         "customer_item_number",
         "description",
-        "case_qty",
-        "gtin",
-        "barcode_type",
-        "each_net_weight_g",
-        "package_net_weight_g",
-        "length_in",
-        "width_in",
-        "height_in"
-      ]
+        "case_qty"
+      ],
+      "source": "DecoPac-EZ and DecoPac-EZ_1 workbook sheets"
+    },
+    {
+      "template_id": "DISNEY_CASE_3X3",
+      "name": "Disney Case Label",
+      "customer": "Disney",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "disney_case_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 1,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "expected_delivery_date",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "customer_item_number",
+        "description"
+      ],
+      "source": "Disney workbook sheet"
+    },
+    {
+      "template_id": "FANCY_SRD_3X3",
+      "name": "Fancy Sprinkles SRD Label",
+      "customer": "Fancy Sprinkles",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "fancy_srd_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "sku",
+        "description",
+        "case_qty"
+      ],
+      "source": "INFO and Fancy workbook sheets; two direct-thermal labels per SRD"
+    },
+    {
+      "template_id": "FANCY_MASTER_PACK_3X3",
+      "name": "Fancy Sprinkles Master-Pack Label",
+      "customer": "Fancy Sprinkles",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "fancy_master_pack_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "sku",
+        "description",
+        "case_qty"
+      ],
+      "source": "INFO and Fancy workbook sheets; two direct-thermal labels per master pack"
+    },
+    {
+      "template_id": "DUTCH_PFG_3X3",
+      "name": "Dutch Bros PFG Case Label",
+      "customer": "Dutch Bros",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "dutch_pfg_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "sku",
+        "description",
+        "case_qty"
+      ],
+      "source": "Dutch Bros workbook sheet; two carton labels are shown per carton"
+    },
+    {
+      "template_id": "DUTCH_OTHER_3X3",
+      "name": "Dutch Bros Other Case Label",
+      "customer": "Dutch Bros",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "dutch_other_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 1,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "sku",
+        "description",
+        "case_qty"
+      ],
+      "source": "INFO workbook row for Dutch Brothers - Others"
+    },
+    {
+      "template_id": "MIXED_CASE_3X1_5",
+      "name": "Mixed Case Strip Label",
+      "customer": "Generic Wholesale",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "mixed_case_3x1_5",
+      "physical_width_in": 3,
+      "physical_height_in": 1.5,
+      "orientation": "LANDSCAPE",
+      "default_copies": 2,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "sku",
+        "description",
+        "case_qty"
+      ],
+      "source": "2x3 CP workbook sheet; 3 x 1.5 case sticker"
+    },
+    {
+      "template_id": "RITA_CASE_PAIRED",
+      "name": "Rita's Paired Case Label",
+      "customer": "Ritas",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "rita_case_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "sku",
+        "description",
+        "case_qty"
+      ],
+      "source": "RITA workbook sheet; paired carton labels"
+    },
+    {
+      "template_id": "WYNN_CASE_4X6",
+      "name": "Wynn Receiving Label",
+      "customer": "Wynn",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "wynn_case_4x6",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "description"
+      ],
+      "source": "Wynn workbook sheet; receiving hours and reservation details come from Directory"
+    },
+    {
+      "template_id": "STANDARD_CASE_PACK_4X6",
+      "name": "Standard Case-Pack Label",
+      "customer": "Standard B2B",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "standard_case_4x6",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "description",
+        "case_qty"
+      ],
+      "source": "INFO, St. CP - Horiz., Single CP, and S CP - Vert. workbook sheets"
+    },
+    {
+      "template_id": "BULK_FURTHER_PROCESSING_4X6",
+      "name": "Bulk Further-Processing Label",
+      "customer": "Generic B2B",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "bulk_further_processing_4x6",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "order_number",
+        "po_number",
+        "lot_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": [
+        "description"
+      ],
+      "source": "WS CP - No Label Needed workbook sheet; further-processing statement retained"
     }
   ]
 }

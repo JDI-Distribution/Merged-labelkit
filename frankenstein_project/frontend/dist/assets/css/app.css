@@ -4179,3 +4179,486 @@
       padding: 10px;
       text-align: center;
     }
+
+    /* B2B label creator */
+    .b2b-page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 22px 24px;
+      border: 1px solid #dbe7e5;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #ffffff 0%, #edf8f6 100%);
+      box-shadow: 0 12px 34px rgba(15, 52, 71, 0.08);
+    }
+
+    .b2b-page-header h2 {
+      margin: 3px 0 5px;
+      color: #123047;
+      font-size: 27px;
+    }
+
+    .b2b-page-header p {
+      margin: 0;
+      color: #5b6f7f;
+      font-size: 13px;
+    }
+
+    .b2b-page-actions,
+    .b2b-print-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 9px;
+      flex-wrap: wrap;
+    }
+
+    .b2b-creator-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.72fr);
+      gap: 16px;
+      align-items: start;
+      margin-top: 16px;
+    }
+
+    .b2b-creator-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .b2b-card,
+    .b2b-preview-card {
+      border: 1px solid #dce5ec;
+      border-radius: 15px;
+      background: #ffffff;
+      box-shadow: 0 8px 24px rgba(30, 55, 74, 0.07);
+      padding: 17px;
+    }
+
+    .b2b-preview-card {
+      position: sticky;
+      top: 78px;
+      display: grid;
+      gap: 13px;
+    }
+
+    .b2b-card-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 13px;
+    }
+
+    .b2b-card-heading h3 {
+      margin: 2px 0 0;
+      color: #18364d;
+      font-size: 16px;
+    }
+
+    .b2b-card-kicker {
+      color: #0f766e;
+      font-size: 9.5px;
+      font-weight: 900;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    .b2b-state-badge,
+    .b2b-save-state {
+      border-radius: 999px;
+      background: #eef4f7;
+      color: #52687a;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 5px 9px;
+      white-space: nowrap;
+    }
+
+    .b2b-state-badge.ready {
+      background: #dff6ed;
+      color: #0c6a57;
+    }
+
+    .b2b-state-badge.review {
+      background: #fff2d7;
+      color: #8a5b00;
+    }
+
+    .b2b-selector-grid,
+    .b2b-field-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      gap: 11px;
+    }
+
+    .b2b-selector-grid label,
+    .b2b-field-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+      color: #4b6070;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.35px;
+      text-transform: uppercase;
+    }
+
+    .b2b-field-help {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 550;
+      letter-spacing: 0;
+      line-height: 1.35;
+      text-transform: none;
+    }
+
+    .b2b-selector-grid select,
+    .b2b-field-grid input,
+    .b2b-field-grid select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid #cdd9e2;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #142f43;
+      font-size: 12px;
+      font-weight: 650;
+      padding: 8px 10px;
+      text-transform: none;
+      outline: none;
+    }
+
+    .b2b-selector-grid select:focus,
+    .b2b-field-grid input:focus,
+    .b2b-field-grid select:focus {
+      border-color: #2a8f82;
+      box-shadow: 0 0 0 3px rgba(42, 143, 130, 0.13);
+    }
+
+    .b2b-field-grid .b2b-field-wide {
+      grid-column: 1 / -1;
+    }
+
+    .b2b-field-grid .mpl-toggle-field {
+      justify-content: flex-start;
+    }
+
+    .b2b-field-grid .mpl-toggle-field input {
+      width: 19px;
+      min-height: 19px;
+      accent-color: #0f766e;
+    }
+
+    .b2b-template-summary {
+      margin-top: 12px;
+      border-left: 3px solid #2a8f82;
+      border-radius: 6px;
+      background: #f2f9f8;
+      color: #436271;
+      font-size: 11px;
+      line-height: 1.45;
+      padding: 9px 11px;
+    }
+
+    .b2b-coverage-card {
+      margin-bottom: 18px;
+    }
+
+    .b2b-coverage-scroll {
+      overflow-x: auto;
+      border: 1px solid #d9e3e9;
+      border-radius: 9px;
+    }
+
+    .b2b-coverage-table {
+      width: 100%;
+      min-width: 720px;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .b2b-coverage-table th,
+    .b2b-coverage-table td {
+      padding: 9px 11px;
+      border-bottom: 1px solid #e5ecef;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .b2b-coverage-table th {
+      background: #f4f8fa;
+      color: #486071;
+      font-size: 10px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .b2b-coverage-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .b2b-coverage-count {
+      display: inline-flex;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #e8f4f1;
+      color: #17665a;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .b2b-inline-preview {
+      position: relative;
+      min-height: 470px;
+      overflow: hidden;
+      border: 1px solid #d6e0e8;
+      border-radius: 11px;
+      background: #edf1f4;
+    }
+
+    .b2b-inline-preview iframe {
+      display: none;
+      width: 100%;
+      min-height: 470px;
+      border: 0;
+      background: #ffffff;
+    }
+
+    .b2b-inline-preview.has-preview iframe {
+      display: block;
+    }
+
+    .b2b-inline-preview.has-preview .b2b-preview-placeholder {
+      display: none;
+    }
+
+    .b2b-preview-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #718291;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 35px;
+      text-align: center;
+    }
+
+    .b2b-validation {
+      display: grid;
+      gap: 6px;
+      color: #516676;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .b2b-validation .warning {
+      border-radius: 7px;
+      background: #fff4dc;
+      color: #7a5208;
+      padding: 7px 9px;
+    }
+
+    .b2b-validation .ready {
+      border-radius: 7px;
+      background: #e4f6ef;
+      color: #16624f;
+      padding: 7px 9px;
+    }
+
+    /* Group-level package controls */
+    .mpl-product-group-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding-right: 9px;
+    }
+
+    .mpl-product-level-add {
+      min-width: 128px;
+      min-height: 34px;
+      border: 1px solid rgba(15, 118, 110, 0.30);
+      border-radius: 8px;
+      background: #ffffff;
+      color: #0f5f58;
+      font-size: 11px;
+      font-weight: 850;
+      padding: 7px 9px;
+    }
+
+    /* Directory cards */
+    #mpl-directory-modal .editor-body {
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .directory-filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid #dbe4ea;
+      border-radius: 10px;
+      background: #ffffff;
+    }
+
+    .directory-filter-bar input {
+      flex: 1;
+      min-height: 38px;
+      border: 1px solid #ccd9e2;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .directory-filter-bar span {
+      color: #657988;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .mpl-directory-card-list {
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      align-content: start;
+      gap: 9px;
+      padding: 2px;
+    }
+
+    .mpl-directory-card {
+      border: 1px solid #d8e2e9;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 5px 15px rgba(30, 55, 74, 0.05);
+      overflow: hidden;
+    }
+
+    .mpl-directory-card summary {
+      list-style: none;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 28px minmax(170px, 1fr) minmax(150px, 0.8fr) auto;
+      align-items: center;
+      gap: 11px;
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #f7fbfb 0%, #f2f7fc 100%);
+    }
+
+    .mpl-directory-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .mpl-directory-card summary::before {
+      content: "+";
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 25px;
+      height: 25px;
+      border-radius: 7px;
+      background: #0f766e;
+      color: #ffffff;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .mpl-directory-card[open] summary::before {
+      content: "−";
+    }
+
+    .directory-card-title {
+      display: grid;
+      gap: 2px;
+      color: #183c53;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .directory-card-title small,
+    .directory-card-meta {
+      color: #617685;
+      font-size: 10.5px;
+      font-weight: 700;
+    }
+
+    .directory-card-status {
+      border-radius: 999px;
+      background: #edf2f5;
+      color: #5c6f7e;
+      font-size: 9.5px;
+      font-weight: 900;
+      padding: 5px 8px;
+      text-transform: uppercase;
+    }
+
+    .directory-card-body {
+      padding: 13px;
+      background: #fbfcfd;
+    }
+
+    #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      align-items: start;
+    }
+
+    #mpl-directory-modal .directory-card-body .mpl-field-wide {
+      grid-column: span 2;
+    }
+
+    .directory-card-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding-top: 11px;
+    }
+
+    @media (max-width: 1120px) {
+      .b2b-creator-layout {
+        grid-template-columns: 1fr;
+      }
+      .b2b-preview-card {
+        position: static;
+      }
+      #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .b2b-page-header,
+      .b2b-card-heading {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .b2b-selector-grid,
+      .b2b-field-grid {
+        grid-template-columns: 1fr;
+      }
+      .b2b-field-grid .b2b-field-wide {
+        grid-column: auto;
+      }
+      .mpl-product-group-shell {
+        grid-template-columns: 1fr;
+        padding: 0 9px 9px;
+      }
+      .mpl-directory-card summary {
+        grid-template-columns: 28px 1fr;
+      }
+      .directory-card-meta,
+      .directory-card-status {
+        grid-column: 2;
+      }
+      #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
+        grid-template-columns: 1fr;
+      }
+      #mpl-directory-modal .directory-card-body .mpl-field-wide {
+        grid-column: auto;
+      }
+    }

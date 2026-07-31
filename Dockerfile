@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="Label Kits" \
-    org.opencontainers.image.description="Michaels and KeHE label workflows" \
+    org.opencontainers.image.description="Michaels, KeHE, MPL, Ti-Hi, and B2B case-pack label workflows" \
     org.opencontainers.image.source="https://github.com/JDI-Distribution/Merged-labelkit"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

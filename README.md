@@ -5,7 +5,7 @@ Merged LabelKit is a FastAPI web app for print-ready label and packing-list work
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
 - Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
-- B2B Case-Pack Labels: customer-first Product Master, Directory, and template-readiness workspace. Unverified or disabled configurations remain visible but cannot become print-ready.
+- B2B Case-Pack Labels: select a customer, SKU configuration, packaging level, label template, and destination; edit saved or run-specific values; preview the actual PDF; then download or print it.
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
@@ -89,6 +89,7 @@ KeHE and standalone MPL reference table routes:
 - `GET/PUT /api/mpl/product-master`
 - `GET/PUT /api/mpl/directory`
 - `GET /api/b2b/label-templates`
+- `POST /api/b2b/render` render an editable B2B print run as a print-size PDF
 - `POST /api/mpl/orders/lookup` search the connected Zoho Analytics order view and match its SKUs to Product Master
 - `GET/POST/DELETE /api/kehe/mpl-drafts`
 - `GET /api/kehe/audit-log`
@@ -134,7 +135,7 @@ KeHE functionality:
 - GTIN / Packaging Master Table read-only view for `Storefront = KeHE` rows.
 - KeHE generation only uses rows marked with `Storefront = KeHE`; missing storefront values default to `KeHE`.
 - Product Master and Directory add/edit/delete/import operations are done from `Packing List & Ti-Hi` only.
-- Product Master uniqueness is `Storefront + Config ID` when a Config ID exists; older rows fall back to `Storefront + Packaging Level + SKU`.
+- Product Master uniqueness is `Storefront + Config ID + Packaging Level` when a Config ID exists; older rows fall back to `Storefront + Packaging Level + SKU`.
 - Directory uniqueness is `Storefront + Code`; matching rows merge/update.
 - Case rows feed MPL dropdowns and auto palletization automatically.
 - Auto Palletize.
@@ -168,11 +169,11 @@ KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`
 - Mixed storefront SKUs in one standalone MPL are blocked.
 - A storefront can be typed freely.
 
-The standalone Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Expanding a product shows labeled sections for identity, label setup, and package measurements. Dimensions are stored only as separate `Length`, `Width/Breadth`, and `Height` values; gross shipping weight is stored in `Gross Weight`; and generated copy count is stored in `Default Copies`. `Eaches / Package` stores the number of sellable eaches in that packaging level, and the UI derives the readable pack breakdown. Packing-list inclusion is derived from an active Case row instead of a stored flag.
+The standalone Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Each saved row is unique by packaging level, so one configuration can safely contain Each, Inner Pack, Case, Master Case, Pallet, and Shipper Contents rows. Expand a product to edit its labeled identity, template, barcode, dimensions, weights, and pack values; the `Add Level` control appears on that expanded SKU. Dimensions are stored only as separate `Length`, `Width/Breadth`, and `Height` values; gross shipping weight is stored in `Gross Weight`; and generated copy count is stored in `Default Copies`. `Eaches / Package` stores the number of sellable eaches in that packaging level, and the UI derives the readable pack breakdown. Packing-list inclusion is derived from an active Case row instead of a stored flag.
 
-KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B requires an active row, `Label Enabled`, a template, and a verification state of `VERIFIED`, `APPROVED`, or `READY`. A B2B row with `BLOCKED`, `VISUAL_ONLY`, or any `NEEDS_*` status is not print-ready.
+KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B uses `Available in Label Creator` and `Active` to control general-user availability. `Data Status` is limited to `DRAFT`, `NEEDS_REVIEW`, `VERIFIED`, or `BLOCKED`; it never changes printed label content. `BLOCKED` hides a configuration from general users, while Admin/Editor roles can still inspect, correct, preview, and print it. Missing business values appear as review warnings instead of turning the label creator into a dead end.
 
-The standalone Directory shows the full shared directory table, including Storefront, Code, Name, Ship From, Ship To, Bill To, Match Values, receiving/template fields, verification status, source note, and pallet-label preview. Directory rows are unique by `Storefront + Code`; inactive rows remain visible to administrators for verification work.
+The standalone Directory uses searchable, collapsible customer/destination cards. Each card groups identity, template defaults, receiving details, manufacturer details, addresses, match values, Data Status, and Active state. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work.
 
 Table maintenance tools:
 
@@ -186,6 +187,29 @@ Table maintenance tools:
 - Table layouts wrap long GTINs, addresses, emails, audit values, and notes inside their columns.
 
 The standalone table views and major document views are full-screen, route-backed browser views. Opening a table, saved MPL list, import preview, change history, document editor, PDF preview, or TI-HI preview updates the browser hash, for example `#mpl/product-master` or `#kehe/preview`. Use the browser Back button or the left arrow in the window toolbar to return to the previous app view, or use the visible `Close` / `Done` buttons.
+
+## B2B Case-Pack Label Workflow
+
+The B2B page is a working label creator, not a staged checklist. It shows the supported label catalog and current SKU counts, then provides one print form:
+
+1. Select Customer, Product/Configuration, Packaging Level, Label Template, and Destination/Customer Record.
+2. Review or edit the Product Master values. Authorized changes save automatically.
+3. Enter print-run values such as PO, order, invoice, lot, delivery date, carton range, and copies. Only fields used by the selected template are shown.
+4. Use `Full Preview`, `Download PDF`, or `Generate & Print`.
+
+Supported workbook-derived label types:
+
+- Fancy Sprinkles SRD 3x3 and Master-Pack 3x3, two copies per pack.
+- DecoPac case 4x6.
+- Dutch Bros PFG 3x3 and Dutch Bros Other 3x3.
+- Disney case 3x3.
+- Wynn receiving 4x6.
+- Standard case-pack 4x6.
+- Mixed-case strip 3x1.5.
+- Rita's paired case 3x3.
+- Bulk further-processing 4x6.
+
+Customer-specific fields come from Product Master and Directory; PO/lot/carton/job values remain print-run data and are not written back. The bundled template registry is `frankenstein_project/data/b2b_label_templates.json`, and renderers live under `frankenstein_project/pipelines/b2b_labels/`.
 
 ## Master Packing List And TI-HI
 
@@ -221,9 +245,11 @@ TI-HI behavior:
 
 Current Product Master package fields are:
 
+- `STOREFRONT`, `CONFIG_ID`, `SKU`, `CUSTOMER_ITEM_NUMBER`, `DESCRIPTION`, `PACKAGING_LEVEL`
+- `GTIN`, `BARCODE_TYPE`, `BARCODE_LEVEL`, `LABEL_TEMPLATE_ID`
 - `LENGTH_IN`, `WIDTH_IN`, `HEIGHT_IN`
-- `GROSS_WEIGHT_LBS`
-- `DEFAULT_COPIES`
+- `CASE_QTY`, `EACH_NET_WEIGHT_G`, `PACKAGE_NET_WEIGHT_G`, `GROSS_WEIGHT_LBS`
+- `DEFAULT_COPIES`, `PACK_STATEMENT`, `VERIFICATION_STATUS`, `LABEL_ENABLED`, `IS_ACTIVE`, `SOURCE_NOTE`
 
 The former `DIMENSIONS_IN`, `WEIGHT_LBS`, `LABELS_PER_UNIT`, and `LABEL_REQUIRED` columns are obsolete. Legacy headings are accepted for one transition import and converted immediately, but they are never written to JSON or Catalyst and are not included in new templates or exports. TI-HI reads the three numeric dimension fields directly. Product Master writes reconcile rows by key and Catalyst `ROWID`; they do not clear and recreate the table.
 
@@ -248,7 +274,7 @@ python scripts\migrate_product_master_and_seed_b2b.py --apply
 python scripts\migrate_product_master_and_seed_b2b.py
 ```
 
-The second command should classify all reviewed seeds as `IDENTICAL`. The reviewed set contains 28 disabled Product Master configurations and 3 inactive Directory entries; blank weights, copies, addresses, SKUs, and barcodes intentionally remain blank until verified.
+The second command should classify all reviewed seeds as `IDENTICAL`. The reviewed set contains 28 available Product Master configurations and 3 active Directory entries. Rows remain `NEEDS_REVIEW` where source values require business confirmation; missing values stay editable and produce print warnings instead of being replaced with guesses.
 
 ## Local Run
 

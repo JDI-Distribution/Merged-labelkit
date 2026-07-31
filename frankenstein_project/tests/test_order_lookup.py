@@ -104,7 +104,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
 
         self.assertEqual("", row["case_qty"])
 
-    def test_b2b_unique_key_prefers_storefront_and_config_id(self):
+    def test_b2b_unique_key_includes_packaging_level(self):
         row = normalize_product_master_row({
             "storefront": "DecoPac",
             "packaging_level": "Case",
@@ -112,7 +112,16 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
             "config_id": "DECOPAC-62924-CASE",
         })
 
-        self.assertEqual("decopac|decopac-62924-case", row["unique_key"])
+        self.assertEqual("decopac|decopac-62924-case|case", row["unique_key"])
+
+        each_row = normalize_product_master_row({
+            "storefront": "DecoPac",
+            "packaging_level": "Each",
+            "sku": "SHARED-SKU",
+            "config_id": "DECOPAC-62924-CASE",
+        })
+        self.assertEqual("decopac|decopac-62924-case|each", each_row["unique_key"])
+        self.assertNotEqual(row["unique_key"], each_row["unique_key"])
 
     def test_legacy_unique_key_falls_back_to_storefront_packaging_and_sku(self):
         row = normalize_product_master_row({

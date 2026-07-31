@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260731-b2b-table-fix">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260731-b2b-creator-rework">
 </head>
 <body>
 
@@ -314,30 +314,152 @@
 
   <section class="mpl-workspace-page hidden" id="b2b-workspace-page">
     <div class="mpl-workspace-shell">
-      <div class="mpl-order-lookup-card">
-        <div class="mpl-order-lookup-copy">
+      <div class="b2b-page-header">
+        <div>
           <div class="mpl-order-lookup-kicker">B2B Creator</div>
           <h2>B2B Case-Pack Labels</h2>
-          <p>Customer-first workflow for case-pack labels. Manage storefront product configurations, destination directory defaults, and template requirements before generation.</p>
+          <p>Select a saved configuration, edit this run, preview the actual customer label, and print.</p>
         </div>
-        <div class="mpl-order-lookup-form">
-          <label>B2B Workflow Steps</label>
-          <div class="mpl-order-lookup-controls">
-            <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Step 1-3: Customer &amp; Product Config</button>
-            <button class="btn-secondary" type="button" onclick="openB2BDirectory()">Step 4: Destination Directory</button>
-            <button class="btn-generate" type="button" onclick="openB2BTemplateConfig()">Step 5-6: Template &amp; Preview Setup</button>
-          </div>
-          <div class="match-summary" id="b2b-workspace-status">Loading B2B configuration data...</div>
+        <div class="b2b-page-actions">
+          <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Manage Product Configurations</button>
+          <button class="btn-secondary" type="button" onclick="openB2BDirectory()">Manage Customer Directory</button>
         </div>
       </div>
 
-      <div class="mpl-workspace-header mpl-workspace-actions-only">
-        <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">
-          Open Product Master Table
-        </button>
-        <button class="btn-secondary" type="button" onclick="openB2BDirectory()">
-          Open Directory Table
-        </button>
+      <section class="b2b-card b2b-coverage-card">
+        <div class="b2b-card-heading">
+          <div>
+            <div class="b2b-card-kicker">Current coverage</div>
+            <h3>Supported labels and configured SKUs</h3>
+          </div>
+          <span class="b2b-save-state" id="b2b-coverage-summary">Loading label catalog</span>
+        </div>
+        <div class="b2b-coverage-scroll">
+          <table class="b2b-coverage-table">
+            <thead>
+              <tr>
+                <th>Customer / Storefront</th>
+                <th>Label</th>
+                <th>Print Size</th>
+                <th>SKU Configurations</th>
+                <th>Packaging Levels</th>
+              </tr>
+            </thead>
+            <tbody id="b2b-label-coverage-body">
+              <tr><td colspan="5">Loading supported labels…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="b2b-creator-layout">
+        <div class="b2b-creator-form">
+          <section class="b2b-card">
+            <div class="b2b-card-heading">
+              <div>
+                <div class="b2b-card-kicker">Label configuration</div>
+                <h3>Choose what to print</h3>
+              </div>
+              <span class="b2b-state-badge" id="b2b-configuration-status">Loading</span>
+            </div>
+            <div class="b2b-selector-grid">
+              <label>Customer
+                <select id="b2b-customer-select" onchange="selectB2BCustomer(this.value)"></select>
+              </label>
+              <label>Product / Configuration
+                <select id="b2b-product-select" onchange="selectB2BProduct(this.value)"></select>
+              </label>
+              <label>Packaging Level
+                <select id="b2b-level-select" onchange="selectB2BLevel(this.value)"></select>
+              </label>
+              <label>Label Template
+                <select id="b2b-template-select" onchange="selectB2BTemplate(this.value)"></select>
+              </label>
+              <label>Destination / Customer Record
+                <select id="b2b-directory-select" onchange="selectB2BDirectory(this.value)"></select>
+              </label>
+            </div>
+            <div class="b2b-template-summary" id="b2b-template-summary">Select a customer and configuration.</div>
+          </section>
+
+          <section class="b2b-card">
+            <div class="b2b-card-heading">
+              <div>
+                <div class="b2b-card-kicker">Saved product data</div>
+                <h3>Editable label values</h3>
+              </div>
+              <span class="b2b-save-state" id="b2b-product-save-state">Changes save to Product Master</span>
+            </div>
+            <div class="b2b-field-grid" id="b2b-product-fields">
+              <label class="b2b-field-wide">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
+              <label>Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
+              <label>Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
+              <label>GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
+              <label>Barcode Type
+                <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select>
+              </label>
+              <label>Barcode Level
+                <select id="b2b-product-barcode-level" onchange="updateB2BProductField('barcode_level', this.value)"></select>
+              </label>
+              <label>Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
+              <label>Each Net Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
+              <label>Package Net Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
+              <label>Gross Weight (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
+              <label>Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
+              <label>Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
+              <label>Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
+              <label class="b2b-field-wide">Pack Statement <input id="b2b-product-pack-statement" onchange="updateB2BProductField('pack_statement', this.value)"></label>
+              <label title="Tracks review without changing label content; Blocked hides the configuration from general users.">Data Status
+                <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select>
+                <span class="b2b-field-help">Does not alter label content. Blocked hides it from general users.</span>
+              </label>
+              <label class="mpl-toggle-field">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
+            </div>
+          </section>
+
+          <section class="b2b-card">
+            <div class="b2b-card-heading">
+              <div>
+                <div class="b2b-card-kicker">This print run</div>
+                <h3>Job and carton details</h3>
+              </div>
+            </div>
+            <div class="b2b-field-grid">
+              <label data-b2b-run-wrap="po_number">PO Number <input data-b2b-run-field="po_number" oninput="updateB2BRunField('po_number', this.value)"></label>
+              <label data-b2b-run-wrap="order_number">Order Number <input data-b2b-run-field="order_number" oninput="updateB2BRunField('order_number', this.value)"></label>
+              <label data-b2b-run-wrap="invoice_number">Invoice Number <input data-b2b-run-field="invoice_number" oninput="updateB2BRunField('invoice_number', this.value)"></label>
+              <label data-b2b-run-wrap="lot_number">Lot Number <input data-b2b-run-field="lot_number" oninput="updateB2BRunField('lot_number', this.value)"></label>
+              <label data-b2b-run-wrap="expected_delivery_date">Expected Delivery <input data-b2b-run-field="expected_delivery_date" type="date" oninput="updateB2BRunField('expected_delivery_date', this.value)"></label>
+              <label data-b2b-run-wrap="best_before">Best Before <input data-b2b-run-field="best_before" type="date" oninput="updateB2BRunField('best_before', this.value)"></label>
+              <label>Carton Total <input data-b2b-run-field="carton_total" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_total', this.value)"></label>
+              <label>Start Carton <input data-b2b-run-field="carton_start" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_start', this.value)"></label>
+              <label>End Carton <input data-b2b-run-field="carton_end" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_end', this.value)"></label>
+              <label>Copies per Carton <input data-b2b-run-field="copies" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('copies', this.value)"></label>
+              <label data-b2b-run-wrap="project_name">Project Name <input data-b2b-run-field="project_name" oninput="updateB2BRunField('project_name', this.value)"></label>
+              <label data-b2b-run-wrap="allergens">Allergens <input data-b2b-run-field="allergens" oninput="updateB2BRunField('allergens', this.value)"></label>
+              <label class="b2b-field-wide" data-b2b-run-wrap="required_statement">Required Statement <input data-b2b-run-field="required_statement" oninput="updateB2BRunField('required_statement', this.value)"></label>
+            </div>
+          </section>
+        </div>
+
+        <aside class="b2b-preview-card">
+          <div class="b2b-card-heading">
+            <div>
+              <div class="b2b-card-kicker">Print preview</div>
+              <h3 id="b2b-preview-title">Select a label</h3>
+            </div>
+          </div>
+          <div class="b2b-inline-preview" id="b2b-inline-preview-wrap">
+            <div class="b2b-preview-placeholder" id="b2b-preview-placeholder">Your generated label will appear here.</div>
+            <iframe id="b2b-inline-preview" title="B2B label PDF preview"></iframe>
+          </div>
+          <div class="b2b-validation" id="b2b-validation"></div>
+          <div class="b2b-print-actions">
+            <button class="btn-secondary" type="button" onclick="generateB2BPreview(true)">Full Preview</button>
+            <button class="btn-secondary" id="b2b-download-button" type="button" onclick="downloadB2BLabels()" disabled>Download PDF</button>
+            <button class="btn-generate" id="b2b-print-button" type="button" onclick="printB2BLabels()">Generate &amp; Print</button>
+          </div>
+        </aside>
       </div>
 
       <div class="status-bar" id="b2b-status-bar"></div>
@@ -517,7 +639,7 @@
             <button class="btn-secondary" type="button" onclick="triggerExcelImport('product-master')">Upload Excel/CSV</button>
             <button class="btn-secondary" type="button" onclick="exportMplProductMasterTable()">Export Product CSV</button>
             <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change History</button>
-            <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
+            <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Configuration</button>
           </div>
           <input class="hidden" id="product-master-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('product-master', this)">
         </div>
@@ -538,7 +660,7 @@
       </div>
 
       <div class="editor-footer">
-        <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Row</button>
+        <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Configuration</button>
         <button class="btn-generate" type="button" onclick="closeMplProductMasterModal()">Done</button>
       </div>
     </div>
@@ -550,8 +672,8 @@
       <div class="editor-toolbar">
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
-          <div class="editor-title">Directory Table</div>
-          <div class="kehe-product-master-subtitle">Shared Ship From, Ship To, and Bill To directory. KeHE uses rows marked Storefront = KeHE.</div>
+          <div class="editor-title">Customer &amp; Destination Directory</div>
+          <div class="kehe-product-master-subtitle">Customer defaults, receiving requirements, ship-to addresses, and template defaults.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplDirectoryModal()">Close</button>
       </div>
@@ -559,36 +681,30 @@
       <div class="editor-body">
         <div class="kehe-product-master-toolbar">
           <div>
-            <div class="kehe-product-master-title">Editable Directory Data</div>
-            <div class="kehe-product-master-subtitle">Full shared directory attributes are visible here.</div>
+            <div class="kehe-product-master-title">Directory Records</div>
+            <div class="kehe-product-master-subtitle">Open a record to review or edit it. Changes save automatically.</div>
           </div>
           <div class="kehe-product-master-actions">
             <button class="btn-secondary" type="button" onclick="downloadImportTemplate('dc-directory')">Download Directory Template</button>
             <button class="btn-secondary" type="button" onclick="triggerExcelImport('dc-directory')">Upload Excel/CSV</button>
             <button class="btn-secondary" type="button" onclick="exportMplDirectoryTable()">Export Directory CSV</button>
             <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
-            <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
+            <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Customer / Destination</button>
           </div>
           <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
         </div>
 
-        <div class="kehe-product-master-scroll">
-          <table class="kehe-dc-directory-table">
-            <thead>
-              <tr>
-                <th style="width:88%">Directory Entry</th>
-                <th style="width:12%">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="mpl-directory-body">
-              <tr><td class="empty-row" colspan="2">No directory rows yet.</td></tr>
-            </tbody>
-          </table>
+        <div class="directory-filter-bar">
+          <input id="mpl-directory-search" type="search" placeholder="Search customer, destination, code, address, or template" oninput="renderMplDirectoryTable()">
+          <span id="mpl-directory-count"></span>
+        </div>
+        <div class="mpl-directory-card-list" id="mpl-directory-body">
+          <div class="empty-row">No directory rows yet.</div>
         </div>
       </div>
 
       <div class="editor-footer">
-        <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Directory Row</button>
+        <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Customer / Destination</button>
         <button class="btn-generate" type="button" onclick="closeMplDirectoryModal()">Done</button>
       </div>
     </div>
@@ -713,7 +829,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260731-b2b-table-fix"></script>
+<script src="/assets/js/app.js?v=20260731-b2b-creator-rework"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

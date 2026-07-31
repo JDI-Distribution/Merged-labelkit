@@ -114,9 +114,9 @@ def _same_number(left: Any, right: Any) -> bool:
 def _product_key(row: Dict[str, Any]) -> str:
     store = str(row.get("storefront") or row.get("STOREFRONT") or "KeHE").strip().lower()
     config = str(row.get("config_id") or row.get("CONFIG_ID") or "").strip().lower()
-    if config:
-        return f"{store}|{config}"
     level = str(row.get("packaging_level") or row.get("PACKAGING_LEVEL") or "Other").strip().lower()
+    if config:
+        return f"{store}|{config}|{level}"
     sku = str(row.get("sku") or row.get("SKU") or "").strip().lower()
     return f"{store}|{level}|{sku}"
 

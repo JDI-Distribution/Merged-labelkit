@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional
 import fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 # ---------------------------------------------------------------------------
@@ -59,6 +59,7 @@ from pipelines.kehe_pipeline import (  # noqa: E402
     render_kehe_pack_label_pdf,
     load_kehe_dc_directory,
 )
+from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job  # noqa: E402
 
 MatchFailureErrors = (MichaelsMatchFailureError,)
 
@@ -295,9 +296,13 @@ DEFAULT_CASE_QTY_BY_LEVEL = {
     "Case": "",
     "Inner Pack": "",
     "Each": "",
+    "Master Case": "",
+    "Pallet": "",
     "Shipper Contents": "",
     "Other": "",
 }
+B2B_VERIFICATION_STATUSES = {"DRAFT", "NEEDS_REVIEW", "VERIFIED", "BLOCKED"}
+B2B_DIRECTORY_RECORD_TYPES = {"CUSTOMER_DEFAULT", "DESTINATION", "DISTRIBUTION_CENTER"}
 # Default Ship From used only for manual DC Directory rows when no value exists.
 DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
@@ -381,6 +386,8 @@ def health() -> Dict[str, Any]:
         "available_kits": {
             "michaels": "XML + shipping-label PDF matching workflow",
             "kehe": "XML-only GS1 label workflow",
+            "mpl": "Packing List and Ti-Hi workspace",
+            "b2b": "Editable customer case-pack label workflow",
         },
     }
 
@@ -515,6 +522,10 @@ def run_kehe_generation_job(result_id: str, xml_paths: List[str]) -> None:
 def normalize_packaging_level(value: Any) -> str:
     raw = re.sub(r"\s+", " ", str(value or "").strip().lower())
     compact = raw.replace(" ", "")
+    if raw in {"master case", "master carton"} or compact in {"mastercase", "mastercarton"}:
+        return "Master Case"
+    if raw in {"pallet", "plt"}:
+        return "Pallet"
     if raw in {"case", "cases", "master pack", "master packs", "mp", "case pack", "case packs"} or compact == "casepack":
         return "Case"
     if raw in {"inner pack", "inner packs", "inner", "ip"} or compact in {"innerpack", "innerpacks"}:
@@ -524,8 +535,22 @@ def normalize_packaging_level(value: Any) -> str:
     if raw in {"shipper contents", "shipper content", "shipper", "display shipper"}:
         return "Shipper Contents"
     if raw == "other":
-        return "Shipper Contents"
+        return "Other"
     return "Other"
+
+
+def _normalize_verification_status(value: Any) -> str:
+    raw = re.sub(r"\s+", "_", str(value or "").strip().upper())
+    if raw in {"APPROVED", "READY"}:
+        return "VERIFIED"
+    if raw in B2B_VERIFICATION_STATUSES:
+        return raw
+    return "NEEDS_REVIEW" if raw else "DRAFT"
+
+
+def _normalize_directory_record_type(value: Any) -> str:
+    raw = re.sub(r"\s+", "_", str(value or "").strip().upper())
+    return raw if raw in B2B_DIRECTORY_RECORD_TYPES else "DESTINATION"
 
 
 def _first_value(row: Dict[str, Any], *keys: str) -> str:
@@ -710,7 +735,9 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "Labels / Unit",
     )
     pack_statement = _first_value(row, "pack_statement", "PACK_STATEMENT")
-    verification_status = _first_value(row, "verification_status", "VERIFICATION_STATUS")
+    verification_status = _normalize_verification_status(
+        _first_value(row, "verification_status", "VERIFICATION_STATUS")
+    )
     source_note = _first_value(row, "source_note", "SOURCE_NOTE")
 
     length_in, width_in, height_in, legacy_dimension_display, parsed_legacy_dimensions = _resolve_dimensions(row)
@@ -719,11 +746,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     label_enabled_raw = _first_value(row, "label_enabled", "LABEL_ENABLED")
     label_enabled = _boolish(label_enabled_raw, False)
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
-
-    if not verification_status and legacy_dimension_display and not (length_in and width_in and height_in):
-        verification_status = "NEEDS_DIMENSION_REVIEW"
-    if parsed_legacy_dimensions and not verification_status:
-        verification_status = "VISUAL_ONLY"
 
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
@@ -767,6 +789,7 @@ def _product_master_unique_key(
         return "|".join([
             store.strip().lower(),
             str(config_id or "").strip().lower(),
+            normalize_packaging_level(packaging_level).strip().lower(),
         ])
     return "|".join([
         store.strip().lower(),
@@ -1581,6 +1604,18 @@ def _load_b2b_label_templates() -> Dict[str, Any]:
     return {"templates": []}
 
 
+def _find_b2b_label_template(template_id: Any) -> Optional[Dict[str, Any]]:
+    wanted = str(template_id or "").strip().lower()
+    if not wanted:
+        return None
+    for template in _load_b2b_label_templates().get("templates", []):
+        if not isinstance(template, dict):
+            continue
+        if str(template.get("template_id") or "").strip().lower() == wanted:
+            return template
+    return None
+
+
 @app.get("/api/kehe/product-master")
 async def get_kehe_product_master(request: Request) -> JSONResponse:
     _require_permission(request, "view")
@@ -1618,6 +1653,35 @@ async def get_mpl_product_master(request: Request) -> JSONResponse:
 async def get_b2b_label_templates(request: Request) -> JSONResponse:
     _require_permission(request, "view")
     return JSONResponse(content=_load_b2b_label_templates())
+
+
+@app.post("/api/b2b/render")
+async def render_b2b_labels(request: Request, payload: Dict[str, Any]) -> Response:
+    """Render an editable B2B label job without mutating Product Master.
+
+    Verification is intentionally advisory for this endpoint.  An authorized
+    generator may preview or print a configuration that still carries a review
+    warning; the renderer only blocks missing/unsupported templates and an
+    impossible carton range.
+    """
+    _require_permission(request, "generate")
+    template = _find_b2b_label_template(payload.get("template_id"))
+    if template is None:
+        raise HTTPException(status_code=400, detail="Select a supported B2B label template.")
+    try:
+        result = render_b2b_label_pdf(payload, template)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    warnings = validate_b2b_job(payload, template)
+    safe_template = re.sub(r"[^A-Za-z0-9._-]+", "_", str(template.get("template_id") or "b2b_label"))
+    headers = {
+        "Content-Disposition": f'inline; filename="{safe_template.lower()}.pdf"',
+        "X-B2B-Page-Count": str(result.get("pages") or 0),
+        "X-B2B-Warning-Count": str(len(warnings)),
+        "Access-Control-Expose-Headers": "X-B2B-Page-Count, X-B2B-Warning-Count",
+    }
+    return Response(content=result["pdf_bytes"], media_type="application/pdf", headers=headers)
 
 
 @app.put("/api/mpl/product-master")
@@ -1685,13 +1749,17 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
     billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
     match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
-    record_type = _first_value(row, "record_type", "RECORD_TYPE") or "DESTINATION"
+    record_type = _normalize_directory_record_type(
+        _first_value(row, "record_type", "RECORD_TYPE")
+    )
     default_label_template_id = _first_value(row, "default_label_template_id", "DEFAULT_LABEL_TEMPLATE_ID")
     manufacturer_name = _first_value(row, "manufacturer_name", "MANUFACTURER_NAME")
     manufacturer_address = _first_value(row, "manufacturer_address", "MANUFACTURER_ADDRESS")
     receiving_email = _first_value(row, "receiving_email", "RECEIVING_EMAIL")
     docking_instructions = _first_value(row, "docking_instructions", "DOCKING_INSTRUCTIONS")
-    verification_status = _first_value(row, "verification_status", "VERIFICATION_STATUS")
+    verification_status = _normalize_verification_status(
+        _first_value(row, "verification_status", "VERIFICATION_STATUS")
+    )
     source_note = _first_value(row, "source_note", "SOURCE_NOTE")
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
     return {

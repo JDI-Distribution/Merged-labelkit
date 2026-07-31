@@ -162,8 +162,8 @@
       "manufacturer_address": "",
       "receiving_email": "",
       "docking_instructions": "",
-      "is_active": false,
-      "verification_status": "NEEDS_FULL_ADDRESS",
+      "is_active": true,
+      "verification_status": "NEEDS_REVIEW",
       "source_note": "Source provides only DECOPAC, INC and ANOKA, MN USA; confirm full address before activation.",
       "unique_key": "decopac|decopac-default"
     },
@@ -184,8 +184,8 @@
       "manufacturer_address": "",
       "receiving_email": "ReceivingAppointments@wynnlasvegas.com",
       "docking_instructions": "",
-      "is_active": false,
-      "verification_status": "NEEDS_DOCKING_REQUIREMENTS",
+      "is_active": true,
+      "verification_status": "NEEDS_REVIEW",
       "source_note": "Email is present in the source; docking fields and SKU mappings remain missing.",
       "unique_key": "wynn|wynn-receiving"
     },
@@ -206,8 +206,8 @@
       "manufacturer_address": "1967 ESSEX CT\\nREDLANDS, CA 92373\\nUSA",
       "receiving_email": "",
       "docking_instructions": "",
-      "is_active": false,
-      "verification_status": "NEEDS_BUSINESS_CONFIRMATION",
+      "is_active": true,
+      "verification_status": "NEEDS_REVIEW",
       "source_note": "Manufacturer identity/address comes from the current LabelKit directory data; confirm it is authoritative for the bulk label.",
       "unique_key": "generic b2b|generic-bulk-default"
     }

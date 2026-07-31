@@ -439,11 +439,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_WEIGHT_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "UPC machine verified. Source calls 5216g/11.5lb Net Weight Case although calculated product net is 960g.",
-      "unique_key": "decopac|decopac-62924-case"
+      "unique_key": "decopac|decopac-62924-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -465,11 +465,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_BARCODE_AND_WEIGHT_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Barcode and internal SKU required. Source case value 5216g/11.5lb requires definition.",
-      "unique_key": "decopac|decopac-62922-case"
+      "unique_key": "decopac|decopac-62922-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -491,11 +491,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "48 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Source separately shows 8.5lb box weight; do not populate gross until definition is confirmed.",
-      "unique_key": "decopac|decopac-29364-case"
+      "unique_key": "decopac|decopac-29364-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -517,11 +517,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_WEIGHT_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "UPC machine verified. Source case value 5216g/11.5lb requires definition.",
-      "unique_key": "decopac|decopac-62921-case"
+      "unique_key": "decopac|decopac-62921-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -543,11 +543,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_WEIGHT_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "UPC machine verified. Source case value 5216g/11.5lb requires definition.",
-      "unique_key": "decopac|decopac-62923-case"
+      "unique_key": "decopac|decopac-62923-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -569,11 +569,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_WEIGHT_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "UPC machine verified. Source case value 5216g/11.5lb requires definition.",
-      "unique_key": "decopac|decopac-62925-case"
+      "unique_key": "decopac|decopac-62925-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -595,11 +595,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "INFO also lists a 4g Pumps workflow but this source row is 4g Jars.",
-      "unique_key": "decopac|decopac-29370-case"
+      "unique_key": "decopac|decopac-29370-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -621,11 +621,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "48 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Source separately shows 8.5lb box weight; confirm gross definition.",
-      "unique_key": "decopac|decopac-29363-case"
+      "unique_key": "decopac|decopac-29363-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -647,11 +647,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "25 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Barcode and internal SKU required.",
-      "unique_key": "decopac|decopac-29352-case"
+      "unique_key": "decopac|decopac-29352-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -673,11 +673,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "48 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Source separately shows 8.5lb box weight; confirm gross definition.",
-      "unique_key": "decopac|decopac-62927-case"
+      "unique_key": "decopac|decopac-62927-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -699,11 +699,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "48 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Historical artwork lot differs from current source; lots are run data and are not seeded.",
-      "unique_key": "decopac|decopac-29365-case"
+      "unique_key": "decopac|decopac-29365-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -725,11 +725,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "96 units per case",
-      "verification_status": "NEEDS_ITEM_NUMBER_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Source text says 65920; visually inspected barcode may correspond to 62920. Confirm item number before enabling.",
-      "unique_key": "decopac|decopac-65920-case"
+      "unique_key": "decopac|decopac-65920-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -751,11 +751,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "25 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_BARCODE_AND_LOT_RULE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Source example lot is blank; lot remains required run data.",
-      "unique_key": "decopac|decopac-29355-case"
+      "unique_key": "decopac|decopac-29355-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -777,11 +777,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "48 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Source separately shows 8.5lb box weight; confirm gross definition.",
-      "unique_key": "decopac|decopac-62926-case"
+      "unique_key": "decopac|decopac-62926-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -803,11 +803,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "25 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Barcode and internal SKU required.",
-      "unique_key": "decopac|decopac-29351-case"
+      "unique_key": "decopac|decopac-29351-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -829,11 +829,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "25 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Generated example carton range is run data and is not seeded.",
-      "unique_key": "decopac|decopac-29353-case"
+      "unique_key": "decopac|decopac-29353-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -855,11 +855,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "25 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Barcode and internal SKU required.",
-      "unique_key": "decopac|decopac-29354-case"
+      "unique_key": "decopac|decopac-29354-case|case"
     },
     {
       "storefront": "DecoPac",
@@ -881,11 +881,11 @@
       "label_template_id": "DECOPAC_CASE_4X6",
       "default_copies": "",
       "pack_statement": "12 units per case",
-      "verification_status": "NEEDS_INTERNAL_SKU_AND_BARCODE",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Generated carton range and page-helper values are run/UI data and are not seeded.",
-      "unique_key": "decopac|decopac-50250-case"
+      "unique_key": "decopac|decopac-50250-case|case"
     },
     {
       "storefront": "Generic Wholesale",
@@ -907,11 +907,11 @@
       "label_template_id": "MIXED_CASE_3X1_5",
       "default_copies": "",
       "pack_statement": "96 Unit Wholesale Case",
-      "verification_status": "NEEDS_TEMPLATE_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Confirmed internal mixed-case SKU; copy/order rule not confirmed.",
-      "unique_key": "generic wholesale|mixed-ecg-4g-96"
+      "unique_key": "generic wholesale|mixed-ecg-4g-96|case"
     },
     {
       "storefront": "Generic Wholesale",
@@ -933,11 +933,11 @@
       "label_template_id": "MIXED_CASE_3X1_5",
       "default_copies": "",
       "pack_statement": "96 Unit Wholesale Case",
-      "verification_status": "NEEDS_TEMPLATE_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Confirmed internal mixed-case SKU; copy/order rule not confirmed.",
-      "unique_key": "generic wholesale|mixed-ecg-4gpump-96"
+      "unique_key": "generic wholesale|mixed-ecg-4gpump-96|case"
     },
     {
       "storefront": "Generic Wholesale",
@@ -959,11 +959,11 @@
       "label_template_id": "MIXED_CASE_3X1_5",
       "default_copies": "",
       "pack_statement": "96 Unit Wholesale Case",
-      "verification_status": "NEEDS_TEMPLATE_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Confirmed internal mixed-case SKU; copy/order rule not confirmed.",
-      "unique_key": "generic wholesale|mixed-ecg02-4g-96"
+      "unique_key": "generic wholesale|mixed-ecg02-4g-96|case"
     },
     {
       "storefront": "Generic Wholesale",
@@ -985,11 +985,11 @@
       "label_template_id": "MIXED_CASE_3X1_5",
       "default_copies": "",
       "pack_statement": "96 Unit Wholesale Case",
-      "verification_status": "NEEDS_TEMPLATE_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Confirmed internal mixed-case SKU; copy/order rule not confirmed.",
-      "unique_key": "generic wholesale|mixed-ejd-5g-96"
+      "unique_key": "generic wholesale|mixed-ejd-5g-96|case"
     },
     {
       "storefront": "Generic Wholesale",
@@ -1011,11 +1011,11 @@
       "label_template_id": "MIXED_CASE_3X1_5",
       "default_copies": "",
       "pack_statement": "96 Unit Wholesale Case",
-      "verification_status": "NEEDS_TEMPLATE_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Confirmed internal mixed-case SKU; copy/order rule not confirmed.",
-      "unique_key": "generic wholesale|mixed-ejd-4gpump-96"
+      "unique_key": "generic wholesale|mixed-ejd-4gpump-96|case"
     },
     {
       "storefront": "Generic Wholesale",
@@ -1037,11 +1037,11 @@
       "label_template_id": "MIXED_CASE_3X1_5",
       "default_copies": "",
       "pack_statement": "96 Unit Wholesale Case",
-      "verification_status": "NEEDS_TEMPLATE_CONFIRMATION",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Confirmed internal mixed-case SKU; copy/order rule not confirmed.",
-      "unique_key": "generic wholesale|mixed-ejd02-5g-96"
+      "unique_key": "generic wholesale|mixed-ejd02-5g-96|case"
     },
     {
       "storefront": "Dutch Bros",
@@ -1063,11 +1063,11 @@
       "label_template_id": "DUTCH_PFG_3X3",
       "default_copies": "",
       "pack_statement": "10 units per case",
-      "verification_status": "VISUAL_ONLY",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Barcode is visually read and check-digit valid but requires customer-master verification; size/copy/invoice fields unresolved.",
-      "unique_key": "dutch bros|dutch-cp-bks450-case"
+      "unique_key": "dutch bros|dutch-cp-bks450-case|case"
     },
     {
       "storefront": "Ritas",
@@ -1089,11 +1089,11 @@
       "label_template_id": "RITA_CASE_PAIRED",
       "default_copies": "",
       "pack_statement": "12 units per case",
-      "verification_status": "VISUAL_ONLY",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
       "source_note": "Barcode is visually read and check-digit valid but requires customer-master verification; physical format unresolved.",
-      "unique_key": "ritas|ritas-bss101-case"
+      "unique_key": "ritas|ritas-bss101-case|case"
     },
     {
       "storefront": "Disney",
@@ -1115,11 +1115,11 @@
       "label_template_id": "DISNEY_CASE_3X3",
       "default_copies": "",
       "pack_statement": "",
-      "verification_status": "BLOCKED",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
-      "source_note": "Only customer item and color are present; internal SKU, package, barcode and final requirements are missing.",
-      "unique_key": "disney|disney-69153-case"
+      "source_note": "",
+      "unique_key": "disney|disney-69153-case|case"
     },
     {
       "storefront": "Disney",
@@ -1141,11 +1141,11 @@
       "label_template_id": "DISNEY_CASE_3X3",
       "default_copies": "",
       "pack_statement": "",
-      "verification_status": "BLOCKED",
-      "label_enabled": false,
+      "verification_status": "NEEDS_REVIEW",
+      "label_enabled": true,
       "is_active": true,
-      "source_note": "Only customer item and color are present; internal SKU, package, barcode and final requirements are missing.",
-      "unique_key": "disney|disney-69154-case"
+      "source_note": "",
+      "unique_key": "disney|disney-69154-case|case"
     }
   ],
   "updated_at": "2026-07-31T19:58:03Z"
