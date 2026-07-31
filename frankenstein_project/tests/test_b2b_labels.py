@@ -35,7 +35,6 @@ class B2BLabelRendererTests(unittest.TestCase):
                 "length_in": "11",
                 "width_in": "8",
                 "height_in": "12",
-                "pack_statement": "96 units per case",
             },
             "directory": {
                 "name": template.get("customer") or "Test Customer",
@@ -132,6 +131,16 @@ class B2BLabelRendererTests(unittest.TestCase):
         job["run"].update({"carton_start": "4", "carton_end": "3", "carton_total": "3"})
         with self.assertRaisesRegex(ValueError, "Carton range"):
             render_b2b_label_pdf(job, template)
+
+    def test_quantity_uses_case_qty_text(self):
+        template = next(t for t in self.templates if t["template_id"] == "DECOPAC_CASE_4X6")
+        job = self._job(template)
+        job["product"]["case_qty"] = "42"
+
+        result = render_b2b_label_pdf(job, template)
+        text = "\n".join(page.get_text() for page in fitz.open(stream=result["pdf_bytes"], filetype="pdf"))
+
+        self.assertIn("Master Carton of 42", text)
 
 
 if __name__ == "__main__":

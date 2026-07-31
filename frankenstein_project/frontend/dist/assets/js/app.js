@@ -1275,7 +1275,6 @@
       barcode_type: String(row.barcode_type ?? row.BARCODE_TYPE ?? '').trim(),
       barcode_level: String(row.barcode_level ?? row.BARCODE_LEVEL ?? '').trim(),
       default_copies: normalizeDefaultCopies(row.default_copies ?? row.DEFAULT_COPIES ?? row.labels_per_unit ?? row['Labels / Unit'], packagingLevel),
-      pack_statement: String(row.pack_statement ?? row.PACK_STATEMENT ?? '').trim(),
       verification_status: normalizeB2BVerificationStatus(row.verification_status ?? row.VERIFICATION_STATUS),
       source_note: String(row.source_note ?? row.SOURCE_NOTE ?? '').trim(),
       label_enabled: labelEnabledRaw === undefined ? false : parseBooleanLike(labelEnabledRaw, false),
@@ -1628,7 +1627,6 @@
             <label title="Tracks review without changing label content; Blocked hides the configuration from general users.">Data Status <select ${editDisabled} onchange="updateMplProductRow(${index}, 'verification_status', this.value)">
               ${selectOptionsHtml(B2B_VERIFICATION_STATUSES, row.verification_status, 'Select status')}
             </select></label>
-            <label>Pack Statement <input ${editDisabled} value="${escapeHtml(row.pack_statement || '')}" oninput="updateMplProductRow(${index}, 'pack_statement', this.value)"></label>
             <label class="mpl-toggle-field">Available in Label Creator <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
             <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
           </div>
@@ -1730,7 +1728,6 @@
       gross_weight_lbs: '',
       case_qty: level === 'Each' ? '1' : '',
       default_copies: '',
-      pack_statement: '',
       verification_status: 'DRAFT',
       source_note: '',
       label_enabled: false,
@@ -3251,7 +3248,6 @@
         row.barcode_type,
         row.barcode_level,
         row.default_copies,
-        row.pack_statement,
         row.verification_status,
         row.label_enabled,
         row.source_note,
@@ -5962,7 +5958,6 @@
       length_in: 'b2b-product-length',
       width_in: 'b2b-product-width',
       height_in: 'b2b-product-height',
-      pack_statement: 'b2b-product-pack-statement',
     };
   }
 

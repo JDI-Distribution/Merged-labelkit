@@ -31,7 +31,7 @@ PRODUCT_FIELDS = (
     "packaging_level", "gtin", "barcode_type", "barcode_level", "length_in",
     "width_in", "height_in", "case_qty", "each_net_weight_g",
     "package_net_weight_g", "gross_weight_lbs", "label_template_id",
-    "default_copies", "pack_statement", "verification_status", "label_enabled",
+    "default_copies", "verification_status", "label_enabled",
     "is_active", "source_note",
 )
 DIRECTORY_FIELDS = (

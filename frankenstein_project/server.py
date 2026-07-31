@@ -734,7 +734,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "LABELS_PER_UNIT",
         "Labels / Unit",
     )
-    pack_statement = _first_value(row, "pack_statement", "PACK_STATEMENT")
     verification_status = _normalize_verification_status(
         _first_value(row, "verification_status", "VERIFICATION_STATUS")
     )
@@ -768,7 +767,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "barcode_type": barcode_type,
         "barcode_level": barcode_level,
         "default_copies": default_copies,
-        "pack_statement": pack_statement,
         "verification_status": verification_status,
         "label_enabled": label_enabled,
         "source_note": source_note,
@@ -926,7 +924,6 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
         "PACKAGE_NET_WEIGHT_G": package_net_weight_g,
         "GROSS_WEIGHT_LBS": gross_weight_lbs,
         "DEFAULT_COPIES": default_copies,
-        "PACK_STATEMENT": normalized.get("pack_statement", ""),
         "VERIFICATION_STATUS": normalized.get("verification_status", ""),
         "LABEL_ENABLED": bool(normalized.get("label_enabled")),
         "UNIQUE_KEY": normalized["unique_key"],
@@ -2836,7 +2833,6 @@ def _canonical_import_key(header: str, table: str) -> str:
         "package_net_weight_g": "package_net_weight_g",
         "gross_weight_lbs": "gross_weight_lbs",
         "default_copies": "default_copies",
-        "pack_statement": "pack_statement",
         "verification_status": "verification_status",
         "label_enabled": "label_enabled",
         "source_note": "source_note",

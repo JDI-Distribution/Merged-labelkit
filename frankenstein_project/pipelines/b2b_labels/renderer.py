@@ -189,6 +189,19 @@ def _job_value(job: Dict[str, Any], *keys: str, default: str = "") -> str:
     return default
 
 
+def _qty_or_pack_text(
+    job: Dict[str, Any],
+    *,
+    qty_prefix: str = "",
+    qty_suffix: str = "",
+    default: str = "",
+) -> str:
+    qty_value = _job_value(job, "case_qty", "qty", "quantity", "pack_qty")
+    if qty_value:
+        return f"{qty_prefix}{qty_value}{qty_suffix}".strip()
+    return default
+
+
 def _carton_text(carton_number: int, carton_total: int) -> str:
     return f"Box {carton_number} of {carton_total}"
 
@@ -207,7 +220,15 @@ def _draw_decopac(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int
     y -= 0.05 * inch
     y = _draw_value_row(c, "DESCRIPTION:", _job_value(job, "description"), margin, y, width - 2 * margin, size=11, label_width=1.10 * inch)
     y -= 0.02 * inch
-    y = _draw_value_row(c, "QTY:", _job_value(job, "pack_statement", default=f"Master Carton of {_job_value(job, 'case_qty')}"), margin, y, width - 2 * margin, size=10)
+    y = _draw_value_row(
+        c,
+        "QTY:",
+        _qty_or_pack_text(job, qty_prefix="Master Carton of ", default="Master Carton"),
+        margin,
+        y,
+        width - 2 * margin,
+        size=10,
+    )
     y = _draw_value_row(c, "PO #:", _job_value(job, "po_number"), margin, y, (width / 2) - margin, size=10)
     _draw_value_row(c, "LOT #:", _job_value(job, "lot_number"), width / 2, y + 11.8, (width / 2) - margin, size=10)
 
@@ -259,7 +280,7 @@ def _draw_compact_case(
     y = _draw_value_row(c, "PO:", _job_value(job, "po_number"), margin, y, width - 2 * margin, size=8, label_width=0.44 * inch)
     if show_invoice and _job_value(job, "invoice_number"):
         y = _draw_value_row(c, "INV:", _job_value(job, "invoice_number"), margin, y, width - 2 * margin, size=8, label_width=0.44 * inch)
-    pack = _job_value(job, "pack_statement", default=_job_value(job, "case_qty"))
+    pack = _qty_or_pack_text(job)
     y = _draw_value_row(c, "PACK:", pack, margin, y, width - 2 * margin, size=8, label_width=0.50 * inch)
 
     c.setFont("Helvetica-Bold", 14)
@@ -298,7 +319,7 @@ def _draw_mixed(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, 
     _draw_wrapped(c, _job_value(job, "description"), margin, height - 0.39 * inch, width - 2 * margin, font="Helvetica-Bold", size=11, centered=True, max_lines=2)
     c.setFont("Helvetica", 7.5)
     c.drawString(margin, 0.27 * inch, f"SKU: {_job_value(job, 'sku', 'customer_item_number')}")
-    c.drawRightString(width - margin, 0.27 * inch, _job_value(job, "pack_statement", default=f"{_job_value(job, 'case_qty')} units"))
+    c.drawRightString(width - margin, 0.27 * inch, _qty_or_pack_text(job, qty_suffix=" units"))
     c.setFont("Helvetica", 7)
     c.drawString(margin, 0.10 * inch, f"PO: {_job_value(job, 'po_number')}")
 
@@ -328,7 +349,7 @@ def _draw_standard_case(c: canvas.Canvas, job: Dict[str, Any], carton: int, tota
         max_lines=4,
         centered=True,
     )
-    pack = _job_value(job, "pack_statement", default=f"{_job_value(job, 'case_qty')} units per case")
+    pack = _qty_or_pack_text(job, qty_suffix=" units per case", default="Units per case")
     c.setFont("Helvetica-Bold", 15)
     c.drawCentredString(width / 2, max(0.56 * inch, y - 0.18 * inch), pack)
     sku = _job_value(job, "sku", "customer_item_number")
