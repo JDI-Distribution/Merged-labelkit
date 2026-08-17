@@ -2361,6 +2361,12 @@ def _apply_product_row_to_item(
     item["height_in"] = product.get("height_in", "")
     item["dimensions_in"] = _product_dimensions_display(product)
     item["unit_weight_lbs"] = product.get("gross_weight_lbs", "")
+    if not _mpl_clean(item.get("quantity_per_case")):
+        item["quantity_per_case"] = product.get("case_qty", "")
+    if not _mpl_clean(item.get("product_size")):
+        each_weight = _mpl_clean(product.get("each_net_weight_g"))
+        if each_weight:
+            item["product_size"] = f"{each_weight} g"
     unit_weight = _parse_float(product.get("gross_weight_lbs"))
     if unit_weight is not None:
         item["calculated_weight_lbs"] = _format_lbs(unit_weight * _qty_value(item.get("qty_on_pallet") or item.get("total_shipped") or item.get("qty")))
@@ -3568,40 +3574,200 @@ def _mpl_template_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
     """Resolve allowed MPL templates while keeping KeHE XML drafts locked."""
     if not bool(draft.get("standalone_mpl")):
         mpl["template_id"] = "kehe"
+        mpl["title"] = "MASTER PACKING LIST"
         return "kehe"
     requested = _mpl_clean(mpl.get("template_id") or draft.get("template_id") or "standard").lower()
-    template_id = requested if requested in {"kehe", "standard", "compact"} else "standard"
+    template_id = requested if requested in {"kehe", "decopac", "dutch_bros", "standard"} else "standard"
     mpl["template_id"] = template_id
+    draft["template_id"] = template_id
+    current_title = _mpl_clean(mpl.get("title")).upper()
+    if not current_title or current_title in {"PACKING LIST", "COMPACT PACKING LIST"}:
+        mpl["title"] = {
+            "kehe": "MASTER PACKING LIST",
+            "decopac": "Pallet Breakdown",
+            "dutch_bros": "Pallet Breakdown",
+            "standard": "MASTER PACKING LIST",
+        }[template_id]
     return template_id
 
 
-def _mpl_template_theme(template_id: str) -> Dict[str, Any]:
-    if template_id == "standard":
+_MPL_BRAND_THEMES: Dict[str, Dict[str, Any]] = {
+    "brew_glitter": {
+        "brand_label": "BREW GLITTER",
+        "primary": (0.07, 0.07, 0.07),
+        "accent": (0.90, 0.68, 0.25),
+        "label_fill": (0.96, 0.84, 0.58),
+        "value_fill": (1.0, 0.98, 0.93),
+        "row_alt": (1.0, 0.97, 0.90),
+    },
+    "bakell": {
+        "brand_label": "BAKELL",
+        "primary": (0.66, 0.53, 0.42),
+        "accent": (0.91, 0.69, 0.21),
+        "label_fill": (0.95, 0.83, 0.55),
+        "value_fill": (1.0, 0.98, 0.93),
+        "row_alt": (0.99, 0.96, 0.90),
+    },
+    "pfg": {
+        "brand_label": "PFG",
+        "primary": (0.0, 0.66, 0.31),
+        "accent": (0.47, 0.75, 0.26),
+        "label_fill": (0.80, 0.93, 0.72),
+        "value_fill": (0.96, 1.0, 0.95),
+        "row_alt": (0.93, 0.99, 0.92),
+    },
+    "jdi_distribution": {
+        "brand_label": "JDI DISTRIBUTION",
+        "primary": (0.23, 0.23, 0.23),
+        "accent": (0.94, 0.29, 0.23),
+        "label_fill": (1.0, 0.84, 0.81),
+        "value_fill": (1.0, 0.97, 0.96),
+        "row_alt": (1.0, 0.94, 0.93),
+    },
+}
+
+
+def _mpl_brand_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
+    """Resolve standalone supplier branding without changing KeHE documents."""
+    if not bool(draft.get("standalone_mpl")):
+        return "kehe"
+    requested = _mpl_clean(mpl.get("brand_id") or draft.get("brand_id")).lower()
+    if requested not in _MPL_BRAND_THEMES:
+        template_id = _mpl_clean(mpl.get("template_id") or draft.get("template_id")).lower()
+        if template_id in {"decopac", "dutch_bros"}:
+            requested = "bakell"
+        else:
+            supplier = _mpl_clean(mpl.get("supplier_info")).lower()
+            if "brew glitter" in supplier:
+                requested = "brew_glitter"
+            elif "bakell" in supplier:
+                requested = "bakell"
+            elif re.search(r"(^|\s)pfg($|\s)", supplier):
+                requested = "pfg"
+            elif "jdi" in supplier:
+                requested = "jdi_distribution"
+            else:
+                requested = "jdi_distribution"
+    mpl["brand_id"] = requested
+    draft["brand_id"] = requested
+    return requested
+
+
+def _mpl_template_theme(template_id: str, brand_id: str = "") -> Dict[str, Any]:
+    if template_id == "kehe":
         return {
-            "title": "PACKING LIST",
-            "primary": _MPL_NAVY,
-            "label_fill": _MPL_BLUE_LIGHT,
-            "value_fill": _MPL_BLUE_PALE,
-            "row_alt": (0.95, 0.975, 1.0),
+            "title": "MASTER PACKING LIST",
+            "brand_label": "",
+            "primary": _MPL_BLACK,
+            "accent": _MPL_BLACK,
+            "label_fill": _MPL_GREY,
+            "value_fill": _MPL_CREAM,
+            "row_alt": _MPL_ROW_ALT,
             "compact": False,
         }
-    if template_id == "compact":
-        return {
-            "title": "COMPACT PACKING LIST",
-            "primary": _MPL_TEAL,
-            "label_fill": _MPL_TEAL_LIGHT,
-            "value_fill": _MPL_TEAL_PALE,
-            "row_alt": (0.94, 0.99, 0.98),
-            "compact": True,
-        }
-    return {
-        "title": "MASTER PACKING LIST",
-        "primary": _MPL_BLACK,
-        "label_fill": _MPL_GREY,
-        "value_fill": _MPL_CREAM,
-        "row_alt": _MPL_ROW_ALT,
-        "compact": False,
+
+    titles = {
+        "decopac": "Pallet Breakdown",
+        "dutch_bros": "Pallet Breakdown",
+        "standard": "MASTER PACKING LIST",
     }
+    palette = _MPL_BRAND_THEMES.get(brand_id) or _MPL_BRAND_THEMES["jdi_distribution"]
+    return {
+        "title": titles.get(template_id, titles["standard"]),
+        "compact": False,
+        **palette,
+    }
+
+
+def _draw_mpl_brand_logo(
+    c: canvas.Canvas,
+    brand_id: str,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    """Draw a compact vector supplier mark in a fixed logo box."""
+    theme = _MPL_BRAND_THEMES.get(brand_id) or _MPL_BRAND_THEMES["jdi_distribution"]
+    primary = theme["primary"]
+    accent = theme["accent"]
+    c.saveState()
+    c.setFillColorRGB(1, 1, 1)
+    c.setStrokeColorRGB(0.82, 0.84, 0.87)
+    c.setLineWidth(0.45)
+    c.roundRect(x, y, w, h, 4, fill=1, stroke=1)
+
+    def fit_font(text: str, font_name: str, maximum: float, available: float, minimum: float = 5.0) -> float:
+        size = maximum
+        while size > minimum and pdfmetrics.stringWidth(text, font_name, size) > available:
+            size -= 0.5
+        return max(minimum, size)
+
+    if brand_id == "pfg":
+        size = min(h - 14, w - 14)
+        cx = x + w / 2
+        cy = y + h / 2
+        c.setFillColorRGB(1, 1, 1)
+        c.setStrokeColorRGB(*accent)
+        c.setLineWidth(1.5)
+        c.circle(cx, cy, size / 2, fill=1, stroke=1)
+        c.setFillColorRGB(*primary)
+        c.circle(cx, cy, size / 2 - 3, fill=1, stroke=0)
+        c.setStrokeColorRGB(1, 1, 1)
+        c.setLineWidth(1.2)
+        c.circle(cx, cy, size / 2 - 6, fill=0, stroke=1)
+        c.setFillColorRGB(1, 1, 1)
+        mark_font_size = max(9, size * 0.28)
+        c.setFont("Helvetica-BoldOblique", mark_font_size)
+        c.drawCentredString(cx, cy - mark_font_size * 0.32, "PFG")
+    elif brand_id == "bakell":
+        c.setFillColorRGB(*accent)
+        bakell_size = fit_font("bakell", "Helvetica", min(28, h * 0.52), max(20, w - 55))
+        c.setFont("Helvetica", bakell_size)
+        c.drawString(x + 10, y + h * 0.47, "bakell")
+        c.setFillColorRGB(*primary)
+        c.setFont("Helvetica-Bold", min(7, h * 0.13))
+        c.drawString(x + 14, y + h * 0.25, "live well. bake well.")
+        whisk_x = x + w - 27
+        c.setStrokeColorRGB(*primary)
+        c.setLineWidth(2.0)
+        c.line(whisk_x, y + h * 0.75, whisk_x, y + h * 0.25)
+        for delta in (-10, -5, 5, 10):
+            c.line(whisk_x, y + h * 0.26, whisk_x + delta, y + 5)
+    elif brand_id == "brew_glitter":
+        icon_x = x + 9
+        icon_y = y + 7
+        icon_w = min(h - 14, w * 0.22)
+        c.setFillColorRGB(*accent)
+        c.setStrokeColorRGB(*primary)
+        c.setLineWidth(1.8)
+        path = c.beginPath()
+        path.moveTo(icon_x + icon_w * 0.20, icon_y + icon_w * 0.92)
+        path.lineTo(icon_x + icon_w * 0.05, icon_y + icon_w * 0.46)
+        path.curveTo(icon_x, icon_y + icon_w * 0.20, icon_x + icon_w * 0.22, icon_y + icon_w * 0.05, icon_x + icon_w * 0.50, icon_y)
+        path.curveTo(icon_x + icon_w * 0.78, icon_y + icon_w * 0.05, icon_x + icon_w, icon_y + icon_w * 0.20, icon_x + icon_w * 0.95, icon_y + icon_w * 0.46)
+        path.lineTo(icon_x + icon_w * 0.80, icon_y + icon_w * 0.92)
+        c.drawPath(path, fill=1, stroke=1)
+        c.setFillColorRGB(*primary)
+        brew_available = max(20, w - icon_w - 28)
+        brew_size = fit_font("GLITTER", "Helvetica-Bold", min(17, h * 0.29), brew_available)
+        c.setFont("Helvetica-Bold", brew_size)
+        c.drawString(icon_x + icon_w + 10, y + h * 0.54, "BREW")
+        c.drawString(icon_x + icon_w + 10, y + h * 0.26, "GLITTER")
+    else:
+        slash_x = x + 10
+        c.setStrokeColorRGB(*accent)
+        c.setLineWidth(7)
+        c.line(slash_x, y + 9, slash_x + 20, y + h - 9)
+        c.line(slash_x + 18, y + 9, slash_x + 38, y + h - 9)
+        c.setFillColorRGB(*primary)
+        jdi_size = fit_font("JDI DISTRIBUTION", "Helvetica-BoldOblique", min(19, h * 0.35), max(30, w - 67))
+        c.setFont("Helvetica-BoldOblique", jdi_size)
+        c.drawString(x + 55, y + h * 0.49, "JDI DISTRIBUTION")
+        c.setFillColorRGB(*accent)
+        c.setFont("Helvetica", min(6.2, h * 0.11))
+        c.drawString(x + 55, y + h * 0.27, "Consumer products. Global brands.")
+    c.restoreState()
 
 
 def _mpl_tihi_constraints(mpl: Optional[Dict[str, Any]] = None, pallet: str = "") -> Dict[str, float]:
@@ -3880,20 +4046,57 @@ def _render_mpl_header(
     page_num: int,
     total_pages: int,
     template_id: str = "kehe",
+    brand_id: str = "",
 ) -> float:
     """Draw MPL header block; return y position below header."""
-    theme = _mpl_template_theme(template_id)
+    theme = _mpl_template_theme(template_id, brand_id)
     compact = bool(theme["compact"])
     x0 = _MPL_MARGIN
     inner_w = _MPL_INNER_W
     y = _MPL_INNER_TOP
 
+    if template_id != "kehe":
+        logo_band_h = 0.72 * inch
+        c.setFillColorRGB(*theme["value_fill"])
+        c.setStrokeColorRGB(*theme["primary"])
+        c.setLineWidth(0.7)
+        c.rect(x0, y - logo_band_h, inner_w, logo_band_h, fill=1, stroke=1)
+        c.setFillColorRGB(*theme["accent"])
+        c.rect(x0, y - logo_band_h, 0.09 * inch, logo_band_h, fill=1, stroke=0)
+        heading = _mpl_clean(mpl.get("standard_heading")) or "Packing List"
+        subheading = _mpl_clean(mpl.get("standard_subheading")) or "Shipment and Pallet Detail"
+        logo_w = 2.35 * inch
+        copy_x = x0 + 0.18 * inch
+        copy_w = inner_w - logo_w - 0.43 * inch
+
+        heading_size = 13.0
+        while heading_size > 8.0 and pdfmetrics.stringWidth(heading, "Helvetica-Bold", heading_size) > copy_w:
+            heading_size -= 0.5
+        subheading_size = 6.5
+        while subheading_size > 5.0 and pdfmetrics.stringWidth(subheading.upper(), "Helvetica-Bold", subheading_size) > copy_w:
+            subheading_size -= 0.25
+
+        c.setFillColorRGB(*theme["primary"])
+        c.setFont("Helvetica-Bold", heading_size)
+        c.drawString(copy_x, y - 0.28 * inch, heading)
+        c.setFillColorRGB(0.28, 0.32, 0.38)
+        c.setFont("Helvetica-Bold", subheading_size)
+        c.drawString(copy_x, y - 0.48 * inch, subheading.upper())
+        _draw_mpl_brand_logo(c, brand_id, x0 + inner_w - logo_w - 0.08 * inch, y - logo_band_h + 0.05 * inch, logo_w, logo_band_h - 0.10 * inch)
+        y -= logo_band_h + 0.07 * inch
+
     # Title bar.
     title_h = (0.20 if compact else 0.23) * inch
     _draw_mpl_cell(c, x0, y - title_h, inner_w, title_h, theme["primary"], theme["primary"], 0.6)
+    if template_id != "kehe":
+        c.setFillColorRGB(*theme["accent"])
+        c.rect(x0, y - title_h, 0.07 * inch, title_h, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 6.4)
+        c.drawString(x0 + 0.10 * inch, y - title_h / 2 - 2.2, theme["brand_label"])
     c.setFont("Helvetica-Bold", 10)
     c.setFillColorRGB(1, 1, 1)
-    title = theme["title"] if template_id != "kehe" else (mpl.get("title") or theme["title"])
+    title = _mpl_clean(mpl.get("title")) or theme["title"]
     c.drawCentredString(x0 + inner_w / 2, y - title_h / 2 - 3.0, title)
     y -= title_h + (0.07 if compact else 0.12) * inch
 
@@ -4003,8 +4206,13 @@ def _render_mpl_header(
     return y
 
 
-def _render_mpl_table_header(c: canvas.Canvas, y: float, template_id: str = "kehe") -> float:
-    theme = _mpl_template_theme(template_id)
+def _render_mpl_table_header(
+    c: canvas.Canvas,
+    y: float,
+    template_id: str = "kehe",
+    brand_id: str = "",
+) -> float:
+    theme = _mpl_template_theme(template_id, brand_id)
     th = (0.30 if theme["compact"] else 0.36) * inch
     _draw_mpl_cell(c, _MPL_MARGIN, y - th, _MPL_INNER_W, th, theme["primary"], theme["primary"], 0.45)
 
@@ -4040,6 +4248,18 @@ def _mpl_item_height(item: Dict[str, Any], template_id: str = "kehe") -> float:
 
     if _mpl_clean(item.get("expiration_date")):
         extra += (0.10 if compact else 0.13) * inch
+
+    if template_id not in {"kehe", "standard"}:
+        detail_values = [
+            item.get("invoice_po_number"),
+            item.get("lot"),
+            item.get("color"),
+            item.get("product_size"),
+            item.get("quantity_per_case"),
+            item.get("balance_owed"),
+        ]
+        if any(_mpl_clean(value) for value in detail_values):
+            extra += (0.18 if compact else 0.24) * inch
 
     return max((0.36 if compact else 0.46) * inch, (0.33 if compact else 0.42) * inch + extra)
 
@@ -4078,6 +4298,29 @@ def _render_mpl_item_row(
                 leading=8.0 if compact else 8.9,
             )
 
+            detail_rows = [] if template_id in {"kehe", "standard"} else [
+                [
+                    ("PO", item.get("invoice_po_number")),
+                    ("LOT", item.get("lot")),
+                    ("COLOR", item.get("color")),
+                ],
+                [
+                    ("SIZE", item.get("product_size")),
+                    ("QTY/CASE", item.get("quantity_per_case")),
+                    ("BALANCE", item.get("balance_owed")),
+                ],
+            ]
+            c.setFont("Helvetica", 5.8 if compact else 6.2)
+            for detail_row in detail_rows:
+                detail_text = "   |   ".join(
+                    f"{label}: {_mpl_clean(value)}"
+                    for label, value in detail_row
+                    if _mpl_clean(value)
+                )
+                if detail_text:
+                    c.drawString(x + 5, ty - 1, detail_text[:110])
+                    ty -= 7.0 if compact else 7.5
+
             meta_y = max(y - row_h + 0.09 * inch, ty - 0.02 * inch)
             c.setFont("Helvetica-Oblique", 6.6 if compact else 7.2)
 
@@ -4113,8 +4356,9 @@ def _render_mpl_pallet_group_row(
     pallet_num: str,
     pallet_weight: str,
     template_id: str = "kehe",
+    brand_id: str = "",
 ) -> float:
-    theme = _mpl_template_theme(template_id)
+    theme = _mpl_template_theme(template_id, brand_id)
     _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, theme["label_fill"], _MPL_GRID, 0.40)
 
     cols = _mpl_col_widths()
@@ -5359,6 +5603,335 @@ def _render_mpl_tihi_pages(
     return pages
 
 
+def _mpl_units_on_pallet(item: Dict[str, Any]) -> str:
+    explicit = _mpl_clean(item.get("units_on_pallet"))
+    if explicit:
+        return explicit
+    cases = _parse_float(item.get("qty_on_pallet") or item.get("total_shipped"))
+    units_per_case = _parse_float(item.get("quantity_per_case"))
+    if cases is None or units_per_case is None:
+        return ""
+    units = cases * units_per_case
+    return str(int(units)) if float(units).is_integer() else f"{units:.2f}".rstrip("0").rstrip(".")
+
+
+def _render_decopac_mpl_pages(
+    c: canvas.Canvas,
+    mpl: Dict[str, Any],
+    items: List[Dict[str, Any]],
+    brand_id: str,
+    progress_callback: Optional[Callable[[str], None]] = None,
+    customer_heading: str = "DECOPAC",
+) -> int:
+    """Render the supplied DecoPac-style landscape pallet breakdown."""
+    page_w, page_h = landscape(A4)
+    margin = 0.30 * inch
+    inner_w = page_w - 2 * margin
+    theme = _mpl_template_theme("decopac", brand_id)
+    rows_per_page = 7
+    chunks = [items[i:i + rows_per_page] for i in range(0, len(items), rows_per_page)] or [[]]
+    column_specs = [
+        ("location_on_pallet", "Pallet #", 0.075),
+        ("invoice_po_number", "Invoice / PO #", 0.105),
+        ("item_number", "Item #", 0.085),
+        ("lot", "Lot #", 0.075),
+        ("color", "Color", 0.075),
+        ("description", "Description", 0.180),
+        ("product_size", "Product Size", 0.090),
+        ("quantity_per_case", "Quantity Per Case", 0.090),
+        ("qty_on_pallet", "# of Cases", 0.075),
+        ("units_on_pallet", "Units on this Pallet", 0.095),
+        ("balance_owed", "Balance Owed", 0.055),
+    ]
+    computed_tihi: Dict[str, str] = {}
+    try:
+        tihi_entries, _tihi_warnings = _mpl_build_tihi_entries(mpl, items)
+        computed_tihi = {
+            _mpl_clean(entry.get("pallet")): f"{entry.get('ti', '')} x {entry.get('hi', '')}"
+            for entry in tihi_entries
+        }
+    except Exception:
+        computed_tihi = {}
+
+    for page_index, page_items in enumerate(chunks, start=1):
+        if progress_callback:
+            progress_callback(f"Rendering {mpl.get('id', 'MPL')} DecoPac page {page_index}/{len(chunks)}...")
+        c.setPageSize((page_w, page_h))
+        y = page_h - margin
+
+        c.setFillColorRGB(*theme["primary"])
+        c.rect(margin, y - 0.08 * inch, inner_w, 0.08 * inch, fill=1, stroke=0)
+        y -= 0.20 * inch
+        c.setFillColorRGB(*theme["accent"])
+        c.setFont("Helvetica-Bold", 7.8)
+        c.drawString(margin + 4, y, _mpl_clean(customer_heading).upper())
+        y -= 0.18 * inch
+        c.setFillColorRGB(0.05, 0.05, 0.05)
+        c.setFont("Helvetica-Bold", 18)
+        pallet_heading = _mpl_clean(mpl.get("pallet_heading")) or "PALLET 1"
+        c.drawString(margin + 4, y, pallet_heading)
+        c.setFont("Helvetica-Bold", 8.2)
+        info_x = margin + 4
+        info_y = y - 0.27 * inch
+        supplier_lines = [line for line in _mpl_clean(mpl.get("supplier_info")).splitlines() if line.strip()]
+        supplier_name = _mpl_clean(mpl.get("delivery_from_name")) or (supplier_lines[0] if supplier_lines else theme["brand_label"])
+        detail_lines = [
+            ("DELIVERY FROM", supplier_name),
+            ("SHIPPING DATE", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date")))),
+            ("SHIP TO ADDRESS", _mpl_clean(mpl.get("ship_to")).replace("\n", ", ")),
+            ("PHONE #", _mpl_clean(mpl.get("phone_number"))),
+            ("CUSTOMER PO(S)", _mpl_clean(mpl.get("customer_po_number"))),
+        ]
+        for label, value in detail_lines:
+            c.setFont("Helvetica-Bold", 7.1)
+            c.drawString(info_x, info_y, f"{label}:")
+            c.setFont("Helvetica", 7.1)
+            value_x = info_x + 1.02 * inch
+            value_lines = wrap_text(value, "Helvetica", 7.1, inner_w * 0.54, max_lines=1) or [""]
+            c.drawString(value_x, info_y, value_lines[0])
+            info_y -= 0.16 * inch
+
+        logo_w = 2.55 * inch
+        logo_h = 0.90 * inch
+        _draw_mpl_brand_logo(c, brand_id, margin + inner_w - logo_w, y - logo_h + 0.06 * inch, logo_w, logo_h)
+        c.setFillColorRGB(*theme["primary"])
+        c.setFont("Helvetica-Bold", 6.2)
+        c.drawRightString(margin + inner_w, y - logo_h - 0.08 * inch, f"PAGE {page_index} OF {len(chunks)}")
+
+        title_top = page_h - 1.90 * inch
+        title_h = 0.28 * inch
+        _draw_mpl_cell(c, margin, title_top - title_h, inner_w, title_h, theme["label_fill"], _MPL_GRID, 0.55)
+        c.setFillColorRGB(0.08, 0.08, 0.08)
+        c.setFont("Helvetica-Bold", 11.5)
+        title = _mpl_clean(mpl.get("title")) or "Pallet Breakdown"
+        c.drawCentredString(margin + inner_w / 2, title_top - title_h / 2 - 3.6, title)
+
+        table_top = title_top - title_h
+        header_h = 0.42 * inch
+        x = margin
+        c.setFillColorRGB(0.06, 0.06, 0.06)
+        for _key, label, rel in column_specs:
+            cell_w = inner_w * rel
+            _draw_mpl_cell(c, x, table_top - header_h, cell_w, header_h, (1, 1, 1), _MPL_GRID, 0.45)
+            c.setFillColorRGB(0.06, 0.06, 0.06)
+            _draw_centered_wrapped(c, label, x, table_top - header_h / 2, cell_w, "Helvetica-BoldOblique", 6.4, max_lines=2, leading=6.8)
+            x += cell_w
+        y = table_top - header_h
+        row_h = 0.42 * inch
+        for row_index, item in enumerate(page_items):
+            x = margin
+            row_fill = (1, 1, 1) if row_index % 2 == 0 else theme["row_alt"]
+            for key, _label, rel in column_specs:
+                cell_w = inner_w * rel
+                _draw_mpl_cell(c, x, y - row_h, cell_w, row_h, row_fill, _MPL_GRID, 0.35)
+                c.setFillColorRGB(0, 0, 0)
+                if key == "units_on_pallet":
+                    value = _mpl_units_on_pallet(item)
+                elif key == "invoice_po_number":
+                    value = _mpl_clean(item.get(key)) or _mpl_clean(mpl.get("customer_po_number"))
+                elif key == "qty_on_pallet":
+                    value = item.get(key) or item.get("total_shipped") or ""
+                else:
+                    value = item.get(key, "")
+                _draw_centered_wrapped(c, _mpl_clean(value), x, y - row_h / 2, cell_w, "Helvetica", 5.9, max_lines=2, leading=6.3)
+                x += cell_w
+            y -= row_h
+
+        if page_index == len(chunks):
+            summary_title_y = y - 0.18 * inch
+            c.setFillColorRGB(*theme["primary"])
+            c.setFont("Helvetica-Bold", 7.4)
+            c.drawString(margin, summary_title_y, "PALLET SUMMARY")
+            summary_top = summary_title_y - 0.07 * inch
+            summary_w = inner_w * 0.66
+            summary_headers = [
+                ("PALLET NUMBER", 0.20), ("DIMENSIONS", 0.25), ("WEIGHT", 0.18),
+                ("TOTAL WEIGHT", 0.20), ("TIHI", 0.17),
+            ]
+            header_height = 0.20 * inch
+            sx = margin
+            for label, rel in summary_headers:
+                sw = summary_w * rel
+                _draw_mpl_cell(c, sx, summary_top - header_height, sw, header_height, theme["label_fill"], _MPL_GRID, 0.4)
+                c.setFillColorRGB(0.10, 0.10, 0.10)
+                c.setFont("Helvetica-Bold", 5.8)
+                c.drawCentredString(sx + sw / 2, summary_top - header_height / 2 - 2, label)
+                sx += sw
+            summary_y = summary_top - header_height
+            pallet_ids = [p for p, _rows in _mpl_group_items(items)] or ["1"]
+            dimensions = mpl.get("_pallet_dimensions") if isinstance(mpl.get("_pallet_dimensions"), dict) else {}
+            weights = mpl.get("_pallet_weights") if isinstance(mpl.get("_pallet_weights"), dict) else {}
+            tihi = mpl.get("_pallet_tihi") if isinstance(mpl.get("_pallet_tihi"), dict) else {}
+            for pallet_index, pallet_id in enumerate(pallet_ids[:3]):
+                values = [
+                    f"Pallet #{_mpl_pallet_label(pallet_id)}",
+                    _mpl_clean(dimensions.get(pallet_id)) or "48 x 40 in",
+                    _mpl_weight_label(weights.get(pallet_id)),
+                    _mpl_clean(mpl.get("total_weight")) if pallet_index == 0 else "",
+                    _mpl_clean(tihi.get(pallet_id)) or computed_tihi.get(pallet_id, ""),
+                ]
+                sx = margin
+                cell_h = 0.19 * inch
+                for value, (_label, rel) in zip(values, summary_headers):
+                    sw = summary_w * rel
+                    _draw_mpl_cell(c, sx, summary_y - cell_h, sw, cell_h, theme["value_fill"], _MPL_GRID, 0.35)
+                    c.setFillColorRGB(0, 0, 0)
+                    c.setFont("Helvetica", 5.9)
+                    c.drawCentredString(sx + sw / 2, summary_y - cell_h / 2 - 2, value)
+                    sx += sw
+                summary_y -= cell_h
+
+        c.setStrokeColorRGB(*theme["primary"])
+        c.setLineWidth(0.8)
+        c.rect(margin, margin, inner_w, page_h - 2 * margin)
+        c.showPage()
+    return len(chunks)
+
+
+def _render_dutch_bros_mpl_pages(
+    c: canvas.Canvas,
+    mpl: Dict[str, Any],
+    items: List[Dict[str, Any]],
+    brand_id: str,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> int:
+    """Render a portrait Dutch Bros delivery summary with pallet cards."""
+    page_w, page_h = A4
+    margin = 0.38 * inch
+    inner_w = page_w - 2 * margin
+    theme = _mpl_template_theme("dutch_bros", brand_id)
+    groups = _mpl_group_items(items) or [("1", [])]
+    page_payloads: List[Tuple[str, List[Dict[str, Any]]]] = []
+    for pallet_id, rows in groups:
+        chunks = [rows[i:i + 7] for i in range(0, len(rows), 7)] or [[]]
+        page_payloads.extend((pallet_id, chunk) for chunk in chunks)
+
+    for page_index, (pallet_id, page_items) in enumerate(page_payloads, start=1):
+        if progress_callback:
+            progress_callback(f"Rendering {mpl.get('id', 'MPL')} Dutch Bros page {page_index}/{len(page_payloads)}...")
+        c.setPageSize((page_w, page_h))
+        c.setFillColorRGB(*theme["accent"])
+        c.rect(margin, margin, 0.09 * inch, page_h - 2 * margin, fill=1, stroke=0)
+        x0 = margin + 0.18 * inch
+        content_w = inner_w - 0.18 * inch
+        y = page_h - margin
+
+        c.setFillColorRGB(*theme["accent"])
+        c.setFont("Helvetica-Bold", 7.2)
+        c.drawString(x0, y - 0.12 * inch, "DELIVERY PACKING LIST")
+        c.setFillColorRGB(*theme["primary"])
+        c.setFont("Helvetica-Bold", 18)
+        title = _mpl_clean(mpl.get("title")) or "DUTCH BROS PACKING LIST"
+        c.drawString(x0, y - 0.40 * inch, title)
+        c.setFont("Helvetica-Bold", 6.2)
+        c.drawString(x0, y - 0.58 * inch, f"ORDER {_mpl_clean(mpl.get('order_no')) or '-'}")
+        logo_w = 2.30 * inch
+        _draw_mpl_brand_logo(c, brand_id, x0 + content_w - logo_w, y - 0.69 * inch, logo_w, 0.62 * inch)
+        c.setStrokeColorRGB(*theme["accent"])
+        c.setLineWidth(2.0)
+        c.line(x0, y - 0.82 * inch, x0 + content_w, y - 0.82 * inch)
+
+        card_top = y - 0.98 * inch
+        card_h = 1.00 * inch
+        gap = 0.12 * inch
+        left_w = content_w * 0.57
+        right_w = content_w - left_w - gap
+        for cx, cw, heading in [(x0, left_w, "ORDER & DELIVERY DETAILS"), (x0 + left_w + gap, right_w, "SHIP TO")]:
+            _draw_mpl_cell(c, cx, card_top - card_h, cw, card_h, theme["value_fill"], theme["primary"], 0.55)
+            c.setFillColorRGB(*theme["primary"])
+            c.setFont("Helvetica-Bold", 7.0)
+            c.drawString(cx + 7, card_top - 0.16 * inch, heading)
+        detail_rows = [
+            ("Customer PO", _mpl_clean(mpl.get("customer_po_number"))),
+            ("Ship Date", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date")))),
+            ("Carrier", _mpl_clean(mpl.get("ship_via"))),
+            ("BOL / Pro", " / ".join(filter(None, [_mpl_clean(mpl.get("bol_number")), _mpl_clean(mpl.get("pro_number"))]))),
+            ("Total Weight", _mpl_clean(mpl.get("total_weight"))),
+        ]
+        col_x = x0 + 7
+        detail_y = card_top - 0.34 * inch
+        for idx, (label, value) in enumerate(detail_rows):
+            dx = col_x + (idx % 2) * (left_w * 0.49)
+            dy = detail_y - (idx // 2) * 0.20 * inch
+            c.setFillColorRGB(0.35, 0.39, 0.44)
+            c.setFont("Helvetica-Bold", 5.4)
+            c.drawString(dx, dy, label.upper())
+            c.setFillColorRGB(0.05, 0.05, 0.05)
+            c.setFont("Helvetica", 6.4)
+            c.drawString(dx, dy - 0.09 * inch, value[:38])
+        address_x = x0 + left_w + gap + 7
+        address_y = card_top - 0.35 * inch
+        c.setFillColorRGB(0.05, 0.05, 0.05)
+        c.setFont("Helvetica", 6.4)
+        address_lines: List[str] = []
+        for raw_line in _mpl_clean(mpl.get("ship_to")).splitlines():
+            address_lines.extend(wrap_text(raw_line, "Helvetica", 6.4, right_w - 14, max_lines=2) or [""])
+        for line in address_lines[:5]:
+            c.drawString(address_x, address_y, line)
+            address_y -= 0.12 * inch
+
+        pallet_top = card_top - card_h - 0.18 * inch
+        pallet_bar_h = 0.44 * inch
+        _draw_mpl_cell(c, x0, pallet_top - pallet_bar_h, content_w, pallet_bar_h, theme["primary"], theme["primary"], 0.5)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 7.0)
+        c.drawString(x0 + 8, pallet_top - 0.17 * inch, "PALLET")
+        c.setFillColorRGB(*theme["accent"])
+        c.setFont("Helvetica-Bold", 17)
+        c.drawString(x0 + 0.57 * inch, pallet_top - 0.25 * inch, _mpl_pallet_label(pallet_id))
+        weights = mpl.get("_pallet_weights") if isinstance(mpl.get("_pallet_weights"), dict) else {}
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 6.2)
+        c.drawRightString(x0 + content_w - 8, pallet_top - 0.19 * inch, f"WEIGHT  {_mpl_weight_label(weights.get(pallet_id)) or '-'}")
+
+        table_top = pallet_top - pallet_bar_h
+        columns = [
+            ("item_number", "ITEM / SKU", 0.16),
+            ("description", "PRODUCT", 0.39),
+            ("lot", "LOT", 0.12),
+            ("qty_on_pallet", "CASES", 0.10),
+            ("quantity_per_case", "UNITS / CASE", 0.11),
+            ("units_on_pallet", "TOTAL UNITS", 0.12),
+        ]
+        header_h = 0.28 * inch
+        x = x0
+        for _key, label, rel in columns:
+            cw = content_w * rel
+            _draw_mpl_cell(c, x, table_top - header_h, cw, header_h, theme["label_fill"], _MPL_GRID, 0.4)
+            c.setFillColorRGB(*theme["primary"])
+            c.setFont("Helvetica-Bold", 6.1)
+            c.drawCentredString(x + cw / 2, table_top - header_h / 2 - 2.2, label)
+            x += cw
+        row_y = table_top - header_h
+        row_h = 0.48 * inch
+        for row_index, item in enumerate(page_items):
+            x = x0
+            row_fill = (1, 1, 1) if row_index % 2 == 0 else theme["row_alt"]
+            for key, _label, rel in columns:
+                cw = content_w * rel
+                _draw_mpl_cell(c, x, row_y - row_h, cw, row_h, row_fill, _MPL_GRID, 0.35)
+                c.setFillColorRGB(0, 0, 0)
+                if key == "units_on_pallet":
+                    value = _mpl_units_on_pallet(item)
+                elif key == "qty_on_pallet":
+                    value = item.get(key) or item.get("total_shipped") or ""
+                else:
+                    value = item.get(key, "")
+                _draw_centered_wrapped(c, _mpl_clean(value), x, row_y - row_h / 2, cw, "Helvetica", 6.4, max_lines=2, leading=7.0)
+                x += cw
+            row_y -= row_h
+
+        footer_y = margin + 0.16 * inch
+        c.setFillColorRGB(*theme["primary"])
+        c.setFont("Helvetica-Bold", 5.9)
+        supplier = _mpl_clean(mpl.get("supplier_info")).splitlines()
+        supplier_label = supplier[0] if supplier else theme["brand_label"]
+        c.drawString(x0, footer_y, f"SHIP FROM: {supplier_label}")
+        c.drawRightString(x0 + content_w, footer_y, f"PAGE {page_index} OF {len(page_payloads)}")
+        c.showPage()
+    return len(page_payloads)
+
+
 def render_kehe_master_packing_list_pdf(
     draft: Dict[str, Any],
     out_pdf: str,
@@ -5388,17 +5961,10 @@ def render_kehe_master_packing_list_pdf(
             needs_review_count += 1
 
         template_id = _mpl_template_id(draft, mpl)
-        theme = _mpl_template_theme(template_id)
+        brand_id = _mpl_brand_id(draft, mpl)
+        theme = _mpl_template_theme(template_id, brand_id)
         items = _mpl_prepare_items(mpl)
         total_items_all += len(items)
-        units = _mpl_build_units(items, template_id)
-
-        # A4 page with taller MPL rows. Keep pagination conservative so rows do not clip.
-        pages_units = _mpl_paginate_units(
-            units,
-            available_h=(7.45 if theme["compact"] else 6.85) * inch,
-        )
-        total_mpl_pages = len(pages_units)
 
         if progress_callback:
             progress_callback(
@@ -5406,57 +5972,73 @@ def render_kehe_master_packing_list_pdf(
                 f"({len(items)} item{'s' if len(items) != 1 else ''})..."
             )
 
-        for page_idx, page_units in enumerate(pages_units, start=1):
-            if progress_callback:
-                progress_callback(
-                    f"Rendering {mpl.get('id', 'MPL')} page {page_idx}/{total_mpl_pages}..."
-                )
+        if template_id == "decopac":
+            total_pages_all += _render_decopac_mpl_pages(
+                c, mpl, items, brand_id, progress_callback, customer_heading="DECOPAC"
+            )
+        elif template_id == "dutch_bros":
+            total_pages_all += _render_decopac_mpl_pages(
+                c, mpl, items, brand_id, progress_callback, customer_heading="DUTCH BROS"
+            )
+        else:
+            units = _mpl_build_units(items, template_id)
+            available_h = (6.0 if template_id == "standard" else 6.85) * inch
+            pages_units = _mpl_paginate_units(units, available_h=available_h)
+            total_mpl_pages = len(pages_units)
 
-            mpl_page = dict(mpl)
-            y = _render_mpl_header(c, mpl_page, page_idx, total_mpl_pages, template_id)
-            y = _render_mpl_table_header(c, y, template_id)
-
-            alt = 0
-            for kind, payload, height in page_units:
-                if y - height < _MPL_INNER_BOTTOM + 0.15 * inch:
-                    break
-                if kind == "group":
-                    y = _render_mpl_pallet_group_row(
-                        c,
-                        y,
-                        height,
-                        payload.get("pallet", "1"),
-                        payload.get("pallet_weight", ""),
-                        template_id,
+            for page_idx, page_units in enumerate(pages_units, start=1):
+                if progress_callback:
+                    progress_callback(
+                        f"Rendering {mpl.get('id', 'MPL')} page {page_idx}/{total_mpl_pages}..."
                     )
-                else:
-                    bg = (1, 1, 1) if alt % 2 == 0 else theme["row_alt"]
-                    y = _render_mpl_item_row(c, payload, y, height, bg, template_id)
-                    alt += 1
 
-            # Outer border.
-            c.setStrokeColorRGB(0.2, 0.2, 0.2)
-            c.setLineWidth(0.8)
-            c.rect(_MPL_MARGIN, _MPL_INNER_BOTTOM, _MPL_INNER_W, _MPL_PAGE_H - 2 * _MPL_MARGIN)
+                c.setPageSize(A4)
+                mpl_page = dict(mpl)
+                y = _render_mpl_header(c, mpl_page, page_idx, total_mpl_pages, template_id, brand_id)
+                y = _render_mpl_table_header(c, y, template_id, brand_id)
 
-            if page_idx == 1 and mpl.get("warnings"):
-                warning_text = "; ".join(
-                    w for w in mpl["warnings"]
-                    if "defaulted to 1" not in w.lower()
-                    and "pallet count" not in w.lower()
-                )
-                if warning_text:
-                    warn_y = _MPL_INNER_BOTTOM + 0.07 * inch
-                    c.setFont("Helvetica-Oblique", 5.5)
-                    c.setFillColorRGB(*_COLOR_LABEL)
-                    for wline in wrap_text(warning_text, "Helvetica-Oblique", 5.5, _MPL_INNER_W - 0.10 * inch, max_lines=2):
-                        c.drawString(_MPL_MARGIN + 0.05 * inch, warn_y, wline)
-                        warn_y += 6.5
-                    c.setFillColorRGB(0, 0, 0)
+                alt = 0
+                for kind, payload, height in page_units:
+                    if y - height < _MPL_INNER_BOTTOM + 0.15 * inch:
+                        break
+                    if kind == "group":
+                        y = _render_mpl_pallet_group_row(
+                            c,
+                            y,
+                            height,
+                            payload.get("pallet", "1"),
+                            payload.get("pallet_weight", ""),
+                            template_id,
+                            brand_id,
+                        )
+                    else:
+                        bg = (1, 1, 1) if alt % 2 == 0 else theme["row_alt"]
+                        y = _render_mpl_item_row(c, payload, y, height, bg, template_id)
+                        alt += 1
 
-            c.showPage()
-            total_pages_all += 1
+                c.setStrokeColorRGB(0.2, 0.2, 0.2)
+                c.setLineWidth(0.8)
+                c.rect(_MPL_MARGIN, _MPL_INNER_BOTTOM, _MPL_INNER_W, _MPL_PAGE_H - 2 * _MPL_MARGIN)
 
+                if page_idx == 1 and mpl.get("warnings"):
+                    warning_text = "; ".join(
+                        w for w in mpl["warnings"]
+                        if "defaulted to 1" not in w.lower()
+                        and "pallet count" not in w.lower()
+                    )
+                    if warning_text:
+                        warn_y = _MPL_INNER_BOTTOM + 0.07 * inch
+                        c.setFont("Helvetica-Oblique", 5.5)
+                        c.setFillColorRGB(*_COLOR_LABEL)
+                        for wline in wrap_text(warning_text, "Helvetica-Oblique", 5.5, _MPL_INNER_W - 0.10 * inch, max_lines=2):
+                            c.drawString(_MPL_MARGIN + 0.05 * inch, warn_y, wline)
+                            warn_y += 6.5
+                        c.setFillColorRGB(0, 0, 0)
+
+                c.showPage()
+                total_pages_all += 1
+
+        c.setPageSize(A4)
         total_pages_all += _render_mpl_tihi_pages(
             c,
             mpl,
@@ -5474,7 +6056,7 @@ def render_kehe_master_packing_list_pdf(
             "items": len(items),
             "total_weight": mpl.get("total_weight", ""),
             "ship_to": ship_to_display,
-            "note": f"Generated with {_mpl_template_theme(template_id)['title']} template",
+            "note": f"Generated with {_mpl_template_theme(template_id, brand_id)['title']} template",
         })
 
     c.save()

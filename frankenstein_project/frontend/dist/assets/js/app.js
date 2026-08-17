@@ -250,17 +250,70 @@
       title: 'MASTER PACKING LIST',
       description: 'The required KeHE master packing list layout.'
     },
+    decopac: {
+      label: 'DecoPac',
+      title: 'Pallet Breakdown',
+      description: 'A pallet-first format for DecoPac orders, shipping details, and case totals.'
+    },
+    dutch_bros: {
+      label: 'Dutch Brothers',
+      title: 'Pallet Breakdown',
+      description: 'The DecoPac-style pallet breakdown headed for Dutch Bros.'
+    },
     standard: {
       label: 'Standard',
-      title: 'PACKING LIST',
-      description: 'A clean general-purpose packing list with prominent order and address details.'
-    },
-    compact: {
-      label: 'Compact',
-      title: 'COMPACT PACKING LIST',
-      description: 'A denser layout that fits more pallet line items on each page.'
+      title: 'MASTER PACKING LIST',
+      description: 'The familiar general-purpose format with the same editable fields and columns.'
     }
   };
+
+  const MPL_STANDALONE_TEMPLATE_IDS = ['kehe', 'decopac', 'dutch_bros', 'standard'];
+  const MPL_BRAND_CONFIG = {
+    brew_glitter: {
+      label: 'Brew Glitter',
+      supplierName: 'BREW GLITTER',
+      logo: '/assets/img/mpl-brands/brew_glitter.svg',
+      primary: '#111111',
+      accent: '#E6AE3F',
+      soft: '#F6D58C',
+      pale: '#FFF9EC',
+      onPrimary: '#FFFFFF'
+    },
+    bakell: {
+      label: 'Bakell',
+      supplierName: 'BAKELL LLC',
+      logo: '/assets/img/mpl-brands/bakell.svg',
+      primary: '#A7866C',
+      accent: '#E7AF35',
+      soft: '#F2D28A',
+      pale: '#FFF9EC',
+      onPrimary: '#FFFFFF'
+    },
+    pfg: {
+      label: 'PFG',
+      supplierName: 'PFG',
+      logo: '/assets/img/mpl-brands/pfg.svg?v=20260817-pfg-fit-1',
+      logoClass: 'pfg-safe',
+      primary: '#00A84F',
+      accent: '#79BE43',
+      soft: '#CDEEB7',
+      pale: '#F3FFF2',
+      onPrimary: '#FFFFFF'
+    },
+    jdi_distribution: {
+      label: 'JDI Distribution',
+      supplierName: 'JDI DISTRIBUTION',
+      logo: '/assets/img/mpl-brands/jdi_distribution.svg',
+      primary: '#3B3B3A',
+      accent: '#F04B3A',
+      soft: '#FFD5CE',
+      pale: '#FFF7F5',
+      onPrimary: '#FFFFFF'
+    }
+  };
+  const MPL_BRAND_IDS = Object.keys(MPL_BRAND_CONFIG);
+  const MPL_DEFAULT_BRAND_ID = 'jdi_distribution';
+  const MPL_DEFAULT_ADDRESS_LINES = ['1967 ESSEX CT', 'REDLANDS, CA 92373', 'USA'];
 
   const KEHE_UNIFIED_COLUMNS = [
     ['status', 'Status'],
@@ -1316,25 +1369,93 @@
 
   function mplTemplateId(mpl) {
     if (!isStandaloneMplReferenceMode()) {
-      if (mpl) mpl.template_id = 'kehe';
+      if (mpl) {
+        mpl.template_id = 'kehe';
+        mpl.title = MPL_TEMPLATE_CONFIG.kehe.title;
+      }
       return 'kehe';
     }
     const requested = String(mpl?.template_id || activeKeheDocumentDraft?.template_id || 'standard').trim().toLowerCase();
-    const templateId = ['kehe', 'standard', 'compact'].includes(requested) ? requested : 'standard';
-    if (mpl) mpl.template_id = templateId;
+    const templateId = MPL_STANDALONE_TEMPLATE_IDS.includes(requested) ? requested : 'standard';
+    if (mpl) {
+      mpl.template_id = templateId;
+      const currentTitle = String(mpl.title || '').trim().toUpperCase();
+      if (!currentTitle || ['PACKING LIST', 'COMPACT PACKING LIST'].includes(currentTitle)) {
+        mpl.title = MPL_TEMPLATE_CONFIG[templateId].title;
+      }
+    }
     if (activeKeheDocumentDraft) activeKeheDocumentDraft.template_id = templateId;
     return templateId;
+  }
+
+  function inferMplBrandId(value = '') {
+    const normalized = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    if (/brew\s*glitter/.test(normalized)) return 'brew_glitter';
+    if (/bakell/.test(normalized)) return 'bakell';
+    if (/(^|\s)pfg($|\s)|precision\s+food\s+group/.test(normalized)) return 'pfg';
+    if (/jdi/.test(normalized)) return 'jdi_distribution';
+    return '';
+  }
+
+  function mplBrandId(mpl) {
+    const requested = String(mpl?.brand_id || activeKeheDocumentDraft?.brand_id || '').trim().toLowerCase();
+    const inferred = inferMplBrandId(`${mpl?.supplier_info || ''} ${mpl?.storefront || activeKeheDocumentDraft?.storefront || ''}`);
+    const templateDefault = ['decopac', 'dutch_bros'].includes(mplTemplateId(mpl)) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
+    const brandId = MPL_BRAND_IDS.includes(requested)
+      ? requested
+      : (templateDefault === 'bakell' ? 'bakell' : (inferred || templateDefault));
+    if (mpl) mpl.brand_id = brandId;
+    if (activeKeheDocumentDraft) activeKeheDocumentDraft.brand_id = brandId;
+    return brandId;
+  }
+
+  function mplBrandSupplierInfo(brandId, currentValue = '') {
+    const brand = MPL_BRAND_CONFIG[brandId] || MPL_BRAND_CONFIG[MPL_DEFAULT_BRAND_ID];
+    const currentLines = String(currentValue || '').replace(/\\n/g, '\n').split('\n').map(line => line.trim()).filter(Boolean);
+    const addressLines = currentLines.length > 1 ? currentLines.slice(1) : MPL_DEFAULT_ADDRESS_LINES;
+    return [brand.supplierName, ...addressLines].join('\n');
+  }
+
+  function mplBrandCssVars(brandId) {
+    const brand = MPL_BRAND_CONFIG[brandId] || MPL_BRAND_CONFIG[MPL_DEFAULT_BRAND_ID];
+    return [
+      `--mpl-primary:${brand.primary}`,
+      `--mpl-accent:${brand.accent}`,
+      `--mpl-soft:${brand.soft}`,
+      `--mpl-pale:${brand.pale}`,
+      `--mpl-on-primary:${brand.onPrimary}`
+    ].join(';');
   }
 
   function setMplTemplate(mplIndex, templateId) {
     if (!isStandaloneMplReferenceMode()) return;
     const mpl = getMpl(mplIndex);
     const normalized = String(templateId || '').trim().toLowerCase();
-    if (!mpl || !['kehe', 'standard', 'compact'].includes(normalized)) return;
+    if (!mpl || !MPL_STANDALONE_TEMPLATE_IDS.includes(normalized)) return;
     mpl.template_id = normalized;
+    mpl.title = MPL_TEMPLATE_CONFIG[normalized].title;
+    if (['decopac', 'dutch_bros'].includes(normalized)) {
+      mpl.brand_id = 'bakell';
+      mpl.supplier_info = mplBrandSupplierInfo('bakell', mpl.supplier_info);
+      mpl.delivery_from_name = MPL_BRAND_CONFIG.bakell.supplierName;
+      activeKeheDocumentDraft.brand_id = 'bakell';
+    }
     activeKeheDocumentDraft.template_id = normalized;
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     setStatus(`${MPL_TEMPLATE_CONFIG[normalized].label} template selected.`, 'info');
+  }
+
+  function setMplBrand(mplIndex, brandId) {
+    if (!isStandaloneMplReferenceMode()) return;
+    const mpl = getMpl(mplIndex);
+    const normalized = String(brandId || '').trim().toLowerCase();
+    if (!mpl || !MPL_BRAND_IDS.includes(normalized)) return;
+    mpl.brand_id = normalized;
+    mpl.supplier_info = mplBrandSupplierInfo(normalized, mpl.supplier_info);
+    mpl.delivery_from_name = MPL_BRAND_CONFIG[normalized].supplierName;
+    activeKeheDocumentDraft.brand_id = normalized;
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    setStatus(`${MPL_BRAND_CONFIG[normalized].label} branding applied. Supplier information remains editable.`, 'info');
   }
 
   function renderMplTemplateSelector(mpl, mplIndex) {
@@ -1358,13 +1479,48 @@
           <div class="mpl-template-picker-title">Choose a layout</div>
         </div>
         <div class="mpl-template-options" role="radiogroup" aria-label="MPL template">
-          ${['kehe', 'standard', 'compact'].map(id => {
+          ${MPL_STANDALONE_TEMPLATE_IDS.map(id => {
             const cfg = MPL_TEMPLATE_CONFIG[id];
             const selected = id === templateId;
             return `
               <button class="mpl-template-option${selected ? ' selected' : ''}" type="button" role="radio" aria-checked="${selected ? 'true' : 'false'}" onclick="setMplTemplate(${mplIndex}, '${id}')">
                 <span>${escapeHtml(cfg.label)}</span>
                 <small>${escapeHtml(cfg.description)}</small>
+              </button>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  function renderMplBrandSelector(mpl, mplIndex) {
+    if (!isStandaloneMplReferenceMode()) return '';
+    if (mplTemplateId(mpl) === 'kehe') {
+      return `
+        <div class="mpl-brand-picker locked">
+          <div>
+            <div class="mpl-template-picker-kicker">Supplier Brand</div>
+            <div class="mpl-template-picker-title">Original KeHE MPL</div>
+            <div class="mpl-template-picker-description">KeHE keeps its original fixed black-and-cream packing-list format. Supplier logos apply to DecoPac, Dutch Brothers, and Standard.</div>
+          </div>
+          <span class="mpl-template-lock">KeHE fixed</span>
+        </div>`;
+    }
+    const brandId = mplBrandId(mpl);
+    return `
+      <div class="mpl-brand-picker">
+        <div>
+          <div class="mpl-template-picker-kicker">Supplier Brand</div>
+          <div class="mpl-template-picker-title">Choose the MPL color scheme</div>
+          <div class="mpl-template-picker-description">Branding and ship-from text are separate from the customer layout and can be changed at any time.</div>
+        </div>
+        <div class="mpl-brand-options" role="radiogroup" aria-label="MPL supplier brand">
+          ${MPL_BRAND_IDS.map(id => {
+            const brand = MPL_BRAND_CONFIG[id];
+            const selected = id === brandId;
+            return `
+              <button class="mpl-brand-option${selected ? ' selected' : ''}" style="--brand-primary:${brand.primary};--brand-accent:${brand.accent};--brand-soft:${brand.soft}" type="button" role="radio" aria-checked="${selected ? 'true' : 'false'}" onclick="setMplBrand(${mplIndex}, '${id}')">
+                <span class="mpl-brand-option-logo"><img class="${escapeHtml(brand.logoClass || '')}" src="${escapeHtml(brand.logo)}" alt="" aria-hidden="true"></span>
+                <strong>${escapeHtml(brand.label)}</strong>
               </button>`;
           }).join('')}
         </div>
@@ -2487,10 +2643,22 @@
     item.height_in = product.height_in || item.height_in || '';
     item.dimensions_in = product.dimensions_display || item.dimensions_in || '';
     item.unit_weight_lbs = product.gross_weight_lbs || item.unit_weight_lbs || '';
+    item.quantity_per_case = product.case_qty || item.quantity_per_case || '';
+    if (!String(item.product_size || '').trim()) {
+      const eachWeight = String(product.each_net_weight_g || '').trim();
+      item.product_size = eachWeight ? `${eachWeight} g` : '';
+    }
     item.uom = item.uom || 'CASES';
     if (!String(item.qty_on_pallet || '').trim()) item.qty_on_pallet = qtyFallback;
     if (!String(item.total_ordered || '').trim()) item.total_ordered = item.qty_on_pallet || qtyFallback;
     if (!String(item.total_shipped || '').trim()) item.total_shipped = item.qty_on_pallet || qtyFallback;
+    if (!String(item.units_on_pallet || '').trim()) {
+      const cases = Number(item.qty_on_pallet);
+      const unitsPerCase = Number(item.quantity_per_case);
+      item.units_on_pallet = Number.isFinite(cases) && Number.isFinite(unitsPerCase)
+        ? String(cases * unitsPerCase)
+        : '';
+    }
   }
 
   function getMplItemStorefront(item) {
@@ -2578,7 +2746,13 @@
       dimensions_in: '',
       unit_weight_lbs: '',
       calculated_weight_lbs: '',
+      invoice_po_number: '',
       lot: '',
+      color: '',
+      product_size: '',
+      quantity_per_case: '',
+      units_on_pallet: '',
+      balance_owed: '',
       expiration_date: '',
       uom: 'CASES',
       qty_on_pallet: '',
@@ -2592,7 +2766,7 @@
   function buildManualMasterPackingListDraft(options = {}) {
     const standalone = selectedKit === 'mpl';
     const requestedTemplate = String(options.templateId || '').trim().toLowerCase();
-    const templateId = standalone && ['kehe', 'standard', 'compact'].includes(requestedTemplate)
+    const templateId = standalone && MPL_STANDALONE_TEMPLATE_IDS.includes(requestedTemplate)
       ? requestedTemplate
       : (standalone ? 'standard' : 'kehe');
     const dcRows = getActiveDcDirectoryRows();
@@ -2601,15 +2775,24 @@
       requestedStorefront
         ? dcRows.find(row => normalizeStorefront(row.storefront || '') === normalizeStorefront(requestedStorefront))
         : null
-    ) || dcRows[0] || {};
+    ) || (standalone ? {} : (dcRows[0] || {}));
     const firstItem = blankManualMplItem(1, '1');
     const storefront = normalizeStorefront(requestedStorefront || firstDc.storefront || 'KeHE');
+    const requestedBrand = String(options.brandId || '').trim().toLowerCase();
+    const templateDefaultBrand = ['decopac', 'dutch_bros'].includes(templateId) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
+    const brandId = standalone
+      ? (MPL_BRAND_IDS.includes(requestedBrand) ? requestedBrand : (templateDefaultBrand === 'bakell' ? 'bakell' : (inferMplBrandId(storefront) || templateDefaultBrand)))
+      : 'bakell';
+    const supplierInfo = standalone
+      ? (firstDc.ship_from || mplBrandSupplierInfo(brandId))
+      : (firstDc.ship_from || DEFAULT_KEHE_SHIP_FROM);
     return {
       document_type: 'kehe_master_packing_list',
       version: 3,
       manual_mpl: true,
       standalone_mpl: standalone,
       template_id: templateId,
+      brand_id: brandId,
       storefront,
       summary: { packing_lists: 1, manual_mpl: true },
       warnings: [],
@@ -2618,8 +2801,11 @@
       extracted_items: [],
       packing_lists: [{
         id: 'MANUAL-MPL-1',
-        title: 'MASTER PACKING LIST',
+        title: MPL_TEMPLATE_CONFIG[templateId]?.title || 'MASTER PACKING LIST',
+        standard_heading: 'Packing List',
+        standard_subheading: 'Shipment and Pallet Detail',
         template_id: templateId,
+        brand_id: brandId,
         status: firstDc.delivery_address ? 'Ready' : 'Needs Review',
         manual_mpl: true,
         storefront,
@@ -2633,12 +2819,15 @@
         total_weight: '',
         ship_via: '',
         total_pallets: '1',
-        supplier_info: firstDc.ship_from || DEFAULT_KEHE_SHIP_FROM,
+        supplier_info: supplierInfo,
+        delivery_from_name: standalone ? MPL_BRAND_CONFIG[brandId].supplierName : 'BAKELL LLC',
         bill_to: firstDc.billing_address || '',
         ship_to: firstDc.delivery_address || '',
         customer_no: '',
         est_ship_date: '',
         shipping_instructions: '',
+        phone_number: '',
+        pallet_heading: 'PALLET 1',
         palletization_source: 'Manual',
         palletization_note: standalone
           ? 'Manual MPL created from standalone Product Master Table and Directory.'
@@ -2647,6 +2836,8 @@
         items: [firstItem],
         _pallet_ids: ['1'],
         _pallet_weights: {},
+        _pallet_dimensions: { '1': '48 x 40 in' },
+        _pallet_tihi: { '1': '' },
         _tihi_constraints: defaultTiHiConstraints(),
         _tihi_pallet_constraints: {},
         warnings: firstDc.delivery_address ? [] : ['Select a Ship To address from the DC Directory or enter it manually before printing.']
@@ -2758,7 +2949,7 @@
 
   function completeMplOrderLoad(payload, orderNumber, templateId) {
     const requestedTemplate = String(templateId || '').trim().toLowerCase();
-    const normalizedTemplate = ['kehe', 'standard', 'compact'].includes(requestedTemplate)
+    const normalizedTemplate = MPL_STANDALONE_TEMPLATE_IDS.includes(requestedTemplate)
       ? requestedTemplate
       : 'standard';
     activeKeheDocumentType = 'masterPackingList';
@@ -3651,7 +3842,7 @@
     mpl.dc_name = row.name || '';
     mpl.storefront = nextStorefront;
     if (activeKeheDocumentDraft) activeKeheDocumentDraft.storefront = nextStorefront;
-    mpl.supplier_info = row.ship_from || DEFAULT_KEHE_SHIP_FROM;
+    mpl.supplier_info = row.ship_from || mpl.supplier_info || mplBrandSupplierInfo(mplBrandId(mpl));
     mpl.ship_to = row.delivery_address || '';
     mpl.bill_to = row.billing_address || '';
     if (selectedStores.length && !selectedStores.includes(nextStorefront)) {
@@ -5972,6 +6163,140 @@
     });
   }
 
+  function showB2BOrderInstancePicker(orderNumber, orderInstances = []) {
+    const picker = document.getElementById('b2b-order-instance-picker');
+    const count = document.getElementById('b2b-order-instance-count');
+    const button = document.getElementById('btn-load-selected-b2b-order');
+    const body = document.getElementById('b2b-order-instance-body');
+    if (!picker || !body) return;
+    body.innerHTML = '';
+    orderInstances.forEach(instance => {
+      const row = document.createElement('tr');
+      const values = [
+        String(instance?.ecomdash_id || '').trim(),
+        String(instance?.storefront || '').trim(),
+        String(instance?.billing_customer_name || '').trim(),
+        String(instance?.invoice_date || '').trim(),
+        String(Number(instance?.sku_count || 0))
+      ];
+      values.forEach((value, index) => {
+        const cell = document.createElement('td');
+        cell.textContent = value || '—';
+        if (index === 0) cell.className = 'mpl-order-instance-id';
+        row.appendChild(cell);
+      });
+      const selectCell = document.createElement('td');
+      selectCell.className = 'mpl-order-instance-select-column';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'mpl-order-instance-checkbox';
+      checkbox.value = String(instance?.ecomdash_id || '').trim();
+      checkbox.disabled = !checkbox.value;
+      checkbox.setAttribute('aria-label', `Select ECOMDASH ID ${checkbox.value || 'missing'}`);
+      checkbox.addEventListener('change', () => selectB2BOrderInstance(checkbox));
+      selectCell.appendChild(checkbox);
+      row.appendChild(selectCell);
+      body.appendChild(row);
+    });
+    picker.dataset.salesOrderNumber = String(orderNumber || '').trim();
+    delete picker.dataset.ecomdashId;
+    if (count) count.textContent = `${orderInstances.length} unique order${orderInstances.length === 1 ? '' : 's'}`;
+    if (button) button.disabled = true;
+    picker.classList.remove('hidden');
+  }
+
+  function hideB2BOrderInstancePicker() {
+    const picker = document.getElementById('b2b-order-instance-picker');
+    if (picker) picker.classList.add('hidden');
+  }
+
+  function selectB2BOrderInstance(selectedCheckbox) {
+    const picker = document.getElementById('b2b-order-instance-picker');
+    const button = document.getElementById('btn-load-selected-b2b-order');
+    const help = document.getElementById('b2b-order-instance-selection-help');
+    if (!picker || !selectedCheckbox) return;
+    picker.querySelectorAll('.mpl-order-instance-checkbox').forEach(checkbox => {
+      if (checkbox !== selectedCheckbox) checkbox.checked = false;
+    });
+    const ecomdashId = selectedCheckbox.checked ? String(selectedCheckbox.value || '').trim() : '';
+    if (ecomdashId) picker.dataset.ecomdashId = ecomdashId;
+    else delete picker.dataset.ecomdashId;
+    if (button) button.disabled = !ecomdashId;
+    if (help) help.textContent = ecomdashId ? `ECOMDASH ID ${ecomdashId} selected.` : 'Check one order to continue.';
+  }
+
+  function loadSelectedB2BOrderInstance() {
+    const picker = document.getElementById('b2b-order-instance-picker');
+    const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
+    const ecomdashId = String(picker?.dataset.ecomdashId || '').trim();
+    if (!orderNumber || !ecomdashId) {
+      setStatus('Select an ECOMDASH ID before loading the order.', 'error');
+      return;
+    }
+    loadB2BOrderFromAnalytics(null, ecomdashId, orderNumber);
+  }
+
+  function completeB2BOrderLoad(payload, orderNumber) {
+    const orderDetails = payload?.order_details || {};
+    const analyticsItems = Array.isArray(payload?.items) ? payload.items : [];
+    const summary = payload?.summary || {};
+    const matchedProducts = Number(summary.matched_products || 0);
+    const unmatchedProducts = Number(summary.unmatched_products || 0);
+    const ambiguousProducts = Number(summary.ambiguous_products || 0);
+    const orderCustomer = String(orderDetails?.billing_customer_name || orderDetails?.storefront || '').trim() || 'Customer';
+    if (orderCustomer) b2bSelectedCustomer = orderCustomer;
+    if (analyticsItems.length) {
+      const firstMatched = analyticsItems.find(item => item?.product && item.match_status === 'matched') || analyticsItems[0];
+      if (firstMatched && firstMatched.product) {
+        const product = normalizeProductRow(firstMatched.product);
+        b2bSelectedGroupKey = mplProductGroupKey(product, mplProductMasterRows.findIndex(row => normalizeProductRow(row).unique_key === product.unique_key));
+        b2bSelectedProductIndex = mplProductMasterRows.findIndex(row => normalizeProductRow(row).unique_key === product.unique_key);
+        if (firstMatched?.label_template_id) b2bSelectedTemplateId = String(firstMatched.label_template_id || '');
+      }
+    }
+    b2bRunFields.order_number = String(orderNumber || '');
+    b2bRunFields.po_number = String(orderDetails?.purchase_order_number || orderDetails?.po_number || '');
+    b2bRunFields.invoice_number = String(orderDetails?.invoice_number || '');
+    clearB2BPreview();
+    renderB2BCreator();
+    setStatus(
+      `Sales Order ${orderNumber} loaded: ${analyticsItems.length} line item(s), ${matchedProducts} matched product row(s)${unmatchedProducts || ambiguousProducts ? `, ${unmatchedProducts + ambiguousProducts} need review` : ''}.`,
+      unmatchedProducts || ambiguousProducts ? 'info' : 'success'
+    );
+  }
+
+  async function loadB2BOrderFromAnalytics(event, selectedEcomdashId = '', selectedOrderNumber = '') {
+    if (event) event.preventDefault();
+    const input = document.getElementById('b2b-sales-order-number');
+    const orderNumber = String(selectedOrderNumber || input?.value || '').trim();
+    const ecomdashId = String(selectedEcomdashId || '').trim();
+    if (!orderNumber) {
+      setStatus('Enter a Sales Order Number.', 'error');
+      if (input) input.focus();
+      return;
+    }
+
+    setStatus(`Searching Zoho Analytics for Sales Order ${orderNumber}…`, 'info');
+    try {
+      const response = await fetch('/api/b2b/orders/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sales_order_number: orderNumber, ecomdash_id: ecomdashId })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || 'The sales order could not be loaded.');
+      if (payload.requires_order_selection) {
+        showB2BOrderInstancePicker(orderNumber, payload.order_instances || []);
+        setStatus(`Sales Order ${orderNumber} matches multiple ECOMDASH IDs. Select the correct storefront/customer order.`, 'info');
+        return;
+      }
+      hideB2BOrderInstancePicker();
+      completeB2BOrderLoad(payload, orderNumber);
+    } catch (err) {
+      setStatus('Error: ' + (err?.message || 'The sales order could not be loaded.'), 'error');
+    }
+  }
+
   function renderB2BLabelCoverage() {
     const body = document.getElementById('b2b-label-coverage-body');
     const summary = document.getElementById('b2b-coverage-summary');
@@ -7046,11 +7371,19 @@
     if (!mpl._pallet_weights || typeof mpl._pallet_weights !== 'object') {
       mpl._pallet_weights = {};
     }
+    if (!mpl._pallet_dimensions || typeof mpl._pallet_dimensions !== 'object') {
+      mpl._pallet_dimensions = {};
+    }
+    if (!mpl._pallet_tihi || typeof mpl._pallet_tihi !== 'object') {
+      mpl._pallet_tihi = {};
+    }
     mpl._pallet_ids.forEach(id => {
       const weightedItem = mpl.items.find(item => normalizePalletId(item.location_on_pallet) === id && String(item.pallet_weight || '').trim());
       if (weightedItem && !mpl._pallet_weights[id]) {
         mpl._pallet_weights[id] = weightedItem.pallet_weight;
       }
+      if (!Object.prototype.hasOwnProperty.call(mpl._pallet_dimensions, id)) mpl._pallet_dimensions[id] = '48 x 40 in';
+      if (!Object.prototype.hasOwnProperty.call(mpl._pallet_tihi, id)) mpl._pallet_tihi[id] = '';
     });
 
     const assignedPalletCount = mpl._pallet_ids.length || assignedIds.length || 1;
@@ -7062,8 +7395,9 @@
     mpl.items.forEach((item, index) => { item.line = index + 1; });
   }
 
-  function editorPdfInput(path, value, className = '', placeholder = '') {
-    return `<input class="${escapeHtml(className)}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(placeholder)}" data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)">`;
+  function editorPdfInput(path, value, className = '', placeholder = '', ariaLabel = '') {
+    const aria = ariaLabel ? ` aria-label="${escapeHtml(ariaLabel)}"` : '';
+    return `<input class="${escapeHtml(className)}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(placeholder)}" data-draft-path="${escapeHtml(path)}" oninput="updateDraftValue(this)"${aria}>`;
   }
 
   function renderCopiesControl(path, value, helpText = 'Number of labels to generate.', minCopies = 1) {
@@ -7190,6 +7524,7 @@
   function renderMplItemRow(mplIndex, itemIndex, item) {
     const base = `packing_lists.${mplIndex}.items.${itemIndex}`;
     const qty = item.qty_on_pallet || item.total_shipped || item.qty || '';
+    const showSecondaryDetails = !['kehe', 'standard'].includes(mplTemplateId(getMpl(mplIndex) || {}));
     return `
       <tr class="mpl-pallet-item-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
         <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || '')}</td>
@@ -7210,7 +7545,19 @@
         <td class="mpl-row-drag-cell">
           <button class="mpl-drag-handle-btn" type="button" draggable="true" ondragstart="dragMplItem(event, ${mplIndex}, ${itemIndex})" title="Drag line item to another pallet" aria-label="Drag line item">⋮⋮</button>
         </td>
-      </tr>`;
+      </tr>
+      ${showSecondaryDetails ? `<tr class="mpl-item-details-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
+        <td colspan="8">
+          <div class="mpl-line-meta-grid">
+            <label><span>Invoice / PO</span>${editorPdfInput(`${base}.invoice_po_number`, item.invoice_po_number || '')}</label>
+            <label><span>Lot</span>${editorPdfInput(`${base}.lot`, item.lot || '')}</label>
+            <label><span>Color</span>${editorPdfInput(`${base}.color`, item.color || '')}</label>
+            <label><span>Product Size</span>${editorPdfInput(`${base}.product_size`, item.product_size || '')}</label>
+            <label><span>Qty / Case</span>${editorPdfInput(`${base}.quantity_per_case`, item.quantity_per_case || '')}</label>
+            <label><span>Balance Owed</span>${editorPdfInput(`${base}.balance_owed`, item.balance_owed || '')}</label>
+          </div>
+        </td>
+      </tr>` : ''}`;
   }
 
   function renderMplDropZone(mplIndex, palletId, items, emptyText) {
@@ -7310,6 +7657,217 @@
       ${palletIds.map(id => renderMplPalletBox(mplIndex, mpl, id)).join('')}`;
   }
 
+  function renderStandaloneMplLogo(brand) {
+    return `<div class="mpl-brand-logo-wrap">
+      <img class="mpl-brand-logo ${escapeHtml(brand.logoClass || '')}" src="${escapeHtml(brand.logo)}" alt="${escapeHtml(brand.label)} logo">
+    </div>`;
+  }
+
+  function mplItemUnits(item) {
+    if (String(item?.units_on_pallet || '').trim()) return item.units_on_pallet;
+    const cases = Number(item?.qty_on_pallet ?? item?.total_shipped);
+    const unitsPerCase = Number(item?.quantity_per_case);
+    return Number.isFinite(cases) && Number.isFinite(unitsPerCase) ? String(cases * unitsPerCase) : '';
+  }
+
+  function renderStandaloneMplToolbar(mpl, mplIndex, label) {
+    return `<div class="standalone-mpl-toolbar">
+      <div><strong>${escapeHtml(label)}</strong><span>Every displayed value can be edited before PDF generation.</span></div>
+      <div>
+        <button class="btn-secondary" type="button" onclick="addMplPallet(${mplIndex})">Add Pallet</button>
+        <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString((mpl._pallet_ids || ['1'])[0] || '1')}')">Add Line Item</button>
+        <button class="btn-secondary" type="button" onclick="recalculateMplWeights(${mplIndex})">Recalculate Weights</button>
+      </div>
+    </div>`;
+  }
+
+  function mplTiHiSummaryValue(mpl, palletId) {
+    const manual = String(mpl?._pallet_tihi?.[palletId] || '').trim();
+    if (manual) return manual;
+    try {
+      const { entries } = buildMplTiHiEntries(mpl);
+      const entry = entries.find(row => normalizePalletId(row.palletLabel) === normalizePalletId(palletId));
+      return entry ? `${entry.ti} x ${entry.hi}` : '';
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function renderBreakdownTiHiPanels(mplIndex, palletIds) {
+    return `<section class="decopac-tihi-section">
+      <div class="decopac-tihi-heading"><strong>Ti-Hi Layout</strong><span>Live pallet layout from Product Master case dimensions and weight.</span></div>
+      <div class="decopac-tihi-grid">${palletIds.map(palletId => `
+        <aside class="mpl-live-tihi-panel decopac-tihi-panel" data-mpl-live-tihi="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+          <div class="mpl-live-tihi-head"><div><strong>Live Ti-Hi</strong><span>Pallet ${escapeHtml(palletId)}</span></div><span class="mpl-live-tihi-badge">Auto</span></div>
+          <div class="mpl-live-tihi-body">${mplLiveTiHiLoadingMarkup()}</div>
+          <button class="btn-secondary decopac-tihi-edit" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Edit Ti-Hi Settings</button>
+        </aside>`).join('')}</div>
+    </section>`;
+  }
+
+  function renderDecopacMplSheet(mpl, mplIndex, brand, customerHeading = 'DECOPAC') {
+    ensureMplPalletState(mpl);
+    const items = mpl.items || [];
+    const base = `packing_lists.${mplIndex}`;
+    const palletIds = mpl._pallet_ids || ['1'];
+    return `
+      <div class="decopac-customer-heading">${escapeHtml(customerHeading)}</div>
+      <div class="decopac-document-header">
+        <div class="decopac-delivery-block">
+          ${editorPdfInput(`${base}.pallet_heading`, mpl.pallet_heading || 'PALLET 1', 'decopac-pallet-heading')}
+          <label><span>Delivery From</span>${editorPdfInput(`${base}.delivery_from_name`, mpl.delivery_from_name || firstLine(mpl.supplier_info))}</label>
+          <label><span>Shipping Date</span>${editorPdfInput(`${base}.est_ship_date`, mpl.est_ship_date)}</label>
+          <label><span>Ship To Address</span>${editorPdfTextarea(`${base}.ship_to`, mpl.ship_to)}</label>
+          <label><span>Phone #</span>${editorPdfInput(`${base}.phone_number`, mpl.phone_number || '')}</label>
+          <label><span>Customer PO(s)</span>${editorPdfInput(`${base}.customer_po_number`, mpl.customer_po_number)}</label>
+        </div>
+        ${renderStandaloneMplLogo(brand)}
+      </div>
+      <div class="decopac-breakdown-title">${editorPdfInput(`${base}.title`, mpl.title || 'Pallet Breakdown', 'mpl-title-input')}</div>
+      <div class="decopac-table-wrap">
+        <table class="decopac-table">
+          <thead><tr>
+            <th>Pallet #</th><th>Invoice / PO #</th><th>Item #</th><th>Lot #</th><th>Color</th>
+            <th>Description</th><th>Product Size</th><th>Quantity<br>Per Case</th><th># of Cases</th>
+            <th>Units on<br>This Pallet</th><th>Balance<br>Owed</th>
+          </tr></thead>
+          <tbody>${items.length ? items.map((item, itemIndex) => {
+            const itemBase = `${base}.items.${itemIndex}`;
+            return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
+              <td>${editorPdfInput(`${itemBase}.location_on_pallet`, item.location_on_pallet || '1')}<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button></td>
+              <td>${editorPdfInput(`${itemBase}.invoice_po_number`, item.invoice_po_number || mpl.customer_po_number || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.lot`, item.lot || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.color`, item.color || '')}</td>
+              <td><div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div></td>
+              <td>${editorPdfInput(`${itemBase}.product_size`, item.product_size || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.quantity_per_case`, item.quantity_per_case || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.qty_on_pallet`, item.qty_on_pallet || item.total_shipped || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.units_on_pallet`, mplItemUnits(item))}</td>
+              <td>${editorPdfInput(`${itemBase}.balance_owed`, item.balance_owed || '0')}</td>
+            </tr>`;
+          }).join('') : '<tr><td colspan="11" class="decopac-empty">Add a line item to begin the pallet breakdown.</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${renderStandaloneMplToolbar(mpl, mplIndex, `${customerHeading} pallet breakdown`)}
+      <div class="decopac-summary-title">Pallet Summary</div>
+      <div class="decopac-summary-wrap"><table class="decopac-summary-table">
+        <thead><tr><th>Pallet Number</th><th>Dimensions</th><th>Weight</th><th>Total Weight</th><th>TIHI</th><th>Settings</th></tr></thead>
+        <tbody>${palletIds.map((palletId, palletIndex) => `<tr data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+          <td>${editorPdfInput(`${base}._pallet_ids.${palletIndex}`, palletId)}</td>
+          <td>${editorPdfInput(`${base}._pallet_dimensions.${palletId}`, mpl._pallet_dimensions[palletId] || '48 x 40 in')}</td>
+          <td><input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" placeholder="ex: 589 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></td>
+          <td>${palletIndex === 0 ? editorPdfInput(`${base}.total_weight`, mpl.total_weight || '') : ''}</td>
+          <td>${editorPdfInput(`${base}._pallet_tihi.${palletId}`, mplTiHiSummaryValue(mpl, palletId))}</td>
+          <td><button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Edit Ti-Hi</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      ${renderBreakdownTiHiPanels(mplIndex, palletIds)}`;
+  }
+
+  function renderLegacyDutchBrosMplSheet(mpl, mplIndex, brand) {
+    ensureMplPalletState(mpl);
+    const base = `packing_lists.${mplIndex}`;
+    const palletIds = mpl._pallet_ids || ['1'];
+    return `
+      <div class="dutch-bros-header">
+        <div class="dutch-bros-title-block">
+          <div class="dutch-bros-kicker">Delivery Packing List</div>
+          ${editorPdfInput(`${base}.title`, mpl.title || 'DUTCH BROS PACKING LIST', 'dutch-bros-title')}
+          <div class="dutch-bros-order-number">ORDER ${editorPdfInput(`${base}.order_no`, mpl.order_no || '', '', 'Order number')}</div>
+        </div>
+        ${renderStandaloneMplLogo(brand)}
+      </div>
+      <div class="dutch-bros-detail-grid">
+        <section><h3>Order &amp; Delivery Details</h3>
+          <div class="dutch-bros-fields">
+            <label><span>Customer PO</span>${editorPdfInput(`${base}.customer_po_number`, mpl.customer_po_number)}</label>
+            <label><span>Ship Date</span>${editorPdfInput(`${base}.est_ship_date`, mpl.est_ship_date)}</label>
+            <label><span>Carrier / Ship Via</span>${editorPdfInput(`${base}.ship_via`, mpl.ship_via)}</label>
+            <label><span>BOL Number</span>${editorPdfInput(`${base}.bol_number`, mpl.bol_number)}</label>
+            <label><span>Pro Number</span>${editorPdfInput(`${base}.pro_number`, mpl.pro_number)}</label>
+            <label><span>Total Weight</span>${editorPdfInput(`${base}.total_weight`, mpl.total_weight)}</label>
+          </div>
+        </section>
+        <section><h3>Ship To</h3>${editorPdfTextarea(`${base}.ship_to`, mpl.ship_to)}<h3 class="dutch-bros-subhead">Ship From</h3>${editorPdfTextarea(`${base}.supplier_info`, mpl.supplier_info)}</section>
+      </div>
+      <div class="dutch-bros-pallet-stack">${palletIds.map(palletId => {
+        const rows = (mpl.items || []).map((item, itemIndex) => ({ item, itemIndex }))
+          .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
+        return `<section class="dutch-bros-pallet" data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+          <header><div><span>Pallet</span><strong>${escapeHtml(palletId)}</strong></div><div class="dutch-bros-pallet-meta"><label>Weight <input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></label><button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Ti-Hi</button><button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Item</button></div></header>
+          <div class="dutch-bros-table-wrap"><table><thead><tr><th>Item / SKU</th><th>Product</th><th>Lot</th><th>Cases</th><th>Units / Case</th><th>Total Units</th><th></th></tr></thead>
+          <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
+            const itemBase = `${base}.items.${itemIndex}`;
+            return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
+              <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || item.sku || '')}</td>
+              <td><div class="dutch-bros-product">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div></td>
+              <td>${editorPdfInput(`${itemBase}.lot`, item.lot || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.qty_on_pallet`, item.qty_on_pallet || item.total_shipped || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.quantity_per_case`, item.quantity_per_case || '')}</td>
+              <td>${editorPdfInput(`${itemBase}.units_on_pallet`, mplItemUnits(item))}</td>
+              <td><button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button></td>
+            </tr>`;
+          }).join('') : '<tr><td colspan="7" class="decopac-empty">No products assigned to this pallet.</td></tr>'}</tbody></table></div>
+        </section>`;
+      }).join('')}</div>
+      ${renderStandaloneMplToolbar(mpl, mplIndex, 'Dutch Bros pallet cards')}`;
+  }
+
+  function renderDutchBrosMplSheet(mpl, mplIndex, brand) {
+    return renderDecopacMplSheet(mpl, mplIndex, brand, 'DUTCH BROS');
+  }
+
+  function renderStandardMplSheet(mpl, mplIndex, template, brand, standaloneBranding) {
+    return `
+      ${standaloneBranding ? `<header class="standard-mpl-letterhead">
+        <div class="standard-mpl-letterhead-copy">
+          ${editorPdfInput(
+            `packing_lists.${mplIndex}.standard_heading`,
+            mpl.standard_heading || 'Packing List',
+            'standard-mpl-heading',
+            'Packing List',
+            'Standard document heading'
+          )}
+          ${editorPdfInput(
+            `packing_lists.${mplIndex}.standard_subheading`,
+            mpl.standard_subheading || 'Shipment and Pallet Detail',
+            'standard-mpl-subheading',
+            'Shipment and Pallet Detail',
+            'Standard document subtitle'
+          )}
+        </div>
+        ${renderStandaloneMplLogo(brand)}
+      </header>` : ''}
+      <div class="mpl-pdf-title">${editorPdfInput(`packing_lists.${mplIndex}.title`, mpl.title || template.title, 'mpl-title-input')}</div>
+      <div class="mpl-info-grid two">
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.customer_po_number`, 'Customer PO Number', mpl.customer_po_number)}
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.pro_number`, 'Pro No', mpl.pro_number)}
+      </div>
+      <div class="mpl-info-grid four">
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.order_no`, 'Order No', mpl.order_no)}
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.po_date`, 'PO Date', mpl.po_date)}
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.bol_number`, 'BOL No', mpl.bol_number)}
+        <div class="mpl-info-cell"><div class="mpl-info-cell-label">Page No</div><input value="Auto" disabled></div>
+      </div>
+      <div class="mpl-info-grid three">
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.total_weight`, 'Total Weight', mpl.total_weight)}
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.ship_via`, 'Ship Via', mpl.ship_via)}
+        ${renderMplInfoCell(`packing_lists.${mplIndex}.total_pallets`, 'Total Pallets', mpl.total_pallets)}
+      </div>
+      <div class="mpl-address-grid">
+        ${renderMplAddressBox(`packing_lists.${mplIndex}.supplier_info`, 'SUPPLIER INFO:', mpl.supplier_info)}
+        ${renderMplAddressBox(`packing_lists.${mplIndex}.bill_to`, 'BILL TO:', mpl.bill_to)}
+        ${renderMplAddressBox(`packing_lists.${mplIndex}.ship_to`, 'SHIP TO:', mpl.ship_to)}
+      </div>
+      <div class="mpl-ship-bar">
+        ${renderMplShipCell(`packing_lists.${mplIndex}.customer_no`, 'Customer No', mpl.customer_no || mpl.customer_po_number)}
+        ${renderMplShipCell(`packing_lists.${mplIndex}.est_ship_date`, 'Ship Date', mpl.est_ship_date)}
+        ${renderMplShipCell(`packing_lists.${mplIndex}.shipping_instructions`, 'Shipping Instructions', mpl.shipping_instructions)}
+      </div>
+      ${renderMplItemsEditor(mplIndex, mpl.items || [])}`;
+  }
+
   function renderMasterPackingListEditor(draft) {
     const lists = draft.packing_lists || [];
     if (!lists.length) {
@@ -7317,9 +7875,12 @@
     }
 
     return `
-            ${lists.map((mpl, index) => {
+      ${lists.map((mpl, index) => {
         const templateId = mplTemplateId(mpl);
         const template = MPL_TEMPLATE_CONFIG[templateId] || MPL_TEMPLATE_CONFIG.kehe;
+        const standaloneBranding = isStandaloneMplReferenceMode() && templateId !== 'kehe';
+        const brandId = standaloneBranding ? mplBrandId(mpl) : '';
+        const brand = MPL_BRAND_CONFIG[brandId] || MPL_BRAND_CONFIG[MPL_DEFAULT_BRAND_ID];
         return `
         <div class="pdf-document-shell" data-pack-label-index="${index}">
           <div class="pdf-sheet-toolbar">
@@ -7327,45 +7888,17 @@
             ${pdfStatusBadge(mpl.status)}
           </div>
           ${renderMplTemplateSelector(mpl, index)}
+          ${renderMplBrandSelector(mpl, index)}
           ${renderManualMplTools(mpl, index)}
           ${Array.isArray(mpl.warnings) && mpl.warnings.length
             ? `<div class="editor-warning" style="width:min(100%, 920px)">${mpl.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}
-          <div class="pdf-sheet mpl-sheet mpl-template-${escapeHtml(templateId)}">
-            <div class="mpl-pdf-title">${escapeHtml(template.title)}</div>
-
-            <div class="mpl-info-grid two">
-              ${renderMplInfoCell(`packing_lists.${index}.customer_po_number`, 'Customer PO Number', mpl.customer_po_number)}
-              ${renderMplInfoCell(`packing_lists.${index}.pro_number`, 'Pro No', mpl.pro_number)}
-            </div>
-            <div class="mpl-info-grid four">
-              ${renderMplInfoCell(`packing_lists.${index}.order_no`, 'Order No', mpl.order_no)}
-              ${renderMplInfoCell(`packing_lists.${index}.po_date`, 'PO Date', mpl.po_date)}
-              ${renderMplInfoCell(`packing_lists.${index}.bol_number`, 'BOL No', mpl.bol_number)}
-              <div class="mpl-info-cell">
-                <div class="mpl-info-cell-label">Page No</div>
-                <input value="Auto" disabled>
-              </div>
-            </div>
-            <div class="mpl-info-grid three">
-              ${renderMplInfoCell(`packing_lists.${index}.total_weight`, 'Total Weight', mpl.total_weight)}
-              ${renderMplInfoCell(`packing_lists.${index}.ship_via`, 'Ship Via', mpl.ship_via)}
-              ${renderMplInfoCell(`packing_lists.${index}.total_pallets`, 'Total Pallets', mpl.total_pallets)}
-            </div>
-
-            <div class="mpl-address-grid">
-              ${renderMplAddressBox(`packing_lists.${index}.supplier_info`, 'SUPPLIER INFO:', mpl.supplier_info)}
-              ${renderMplAddressBox(`packing_lists.${index}.bill_to`, 'BILL TO:', mpl.bill_to)}
-              ${renderMplAddressBox(`packing_lists.${index}.ship_to`, 'SHIP TO:', mpl.ship_to)}
-            </div>
-
-            <div class="mpl-ship-bar">
-              ${renderMplShipCell(`packing_lists.${index}.customer_no`, 'Customer No', mpl.customer_no || mpl.customer_po_number)}
-              ${renderMplShipCell(`packing_lists.${index}.est_ship_date`, 'Ship Date', mpl.est_ship_date)}
-              ${renderMplShipCell(`packing_lists.${index}.shipping_instructions`, 'Shipping Instructions', mpl.shipping_instructions)}
-            </div>
-
-            ${renderMplItemsEditor(index, mpl.items || [])}
+          <div class="pdf-sheet mpl-sheet${standaloneBranding ? ' mpl-branded' : ''}${['decopac', 'dutch_bros'].includes(templateId) ? ' mpl-breakdown-layout' : ''} mpl-template-${escapeHtml(templateId)}"${standaloneBranding ? ` style="${escapeHtml(mplBrandCssVars(brandId))}"` : ''}>
+            ${templateId === 'decopac'
+              ? renderDecopacMplSheet(mpl, index, brand)
+              : (templateId === 'dutch_bros'
+                ? renderDutchBrosMplSheet(mpl, index, brand)
+                : renderStandardMplSheet(mpl, index, template, brand, standaloneBranding))}
           </div>
         </div>`;
       }).join('')}

@@ -6,7 +6,7 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260731-directory-editor-6">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260817-line-cleanup-2">
 </head>
 <body>
 
@@ -324,6 +324,49 @@
           <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Manage Product Configurations</button>
           <button class="btn-secondary" type="button" onclick="openB2BDirectory()">Manage Customer Directory</button>
         </div>
+      </div>
+
+      <div class="mpl-order-lookup-card b2b-order-lookup-card">
+        <div class="mpl-order-lookup-copy">
+          <div class="mpl-order-lookup-kicker">Order Data</div>
+          <h2>Load a Zoho order</h2>
+          <p>Use the same sales-order lookup as MPL to auto-match the customer and product rows, then fine-tune the manual settings if needed.</p>
+        </div>
+        <form class="mpl-order-lookup-form" onsubmit="loadB2BOrderFromAnalytics(event)">
+          <label for="b2b-sales-order-number">Sales Order Number</label>
+          <div class="mpl-order-lookup-controls">
+            <input id="b2b-sales-order-number" type="text" maxlength="120" autocomplete="off" placeholder="Enter order number" required />
+            <button class="btn-generate" id="btn-load-b2b-order" type="submit">Load Order</button>
+          </div>
+          <div class="mpl-order-instance-picker hidden" id="b2b-order-instance-picker">
+            <div class="mpl-order-instance-heading">
+              <div>
+                <strong>Multiple ECOMDASH IDs found</strong>
+                <span>Select the storefront and customer order you want to load.</span>
+              </div>
+              <span class="mpl-order-instance-count" id="b2b-order-instance-count"></span>
+            </div>
+            <div class="mpl-order-instance-table-wrap">
+              <table class="mpl-order-instance-table">
+                <thead>
+                  <tr>
+                    <th scope="col">ECOMDASH ID</th>
+                    <th scope="col">Storefront</th>
+                    <th scope="col">Billing Customer Name</th>
+                    <th scope="col">Invoice Date</th>
+                    <th scope="col">SKUs</th>
+                    <th scope="col" class="mpl-order-instance-select-column">Select</th>
+                  </tr>
+                </thead>
+                <tbody id="b2b-order-instance-body"></tbody>
+              </table>
+            </div>
+            <div class="mpl-order-instance-actions">
+              <span id="b2b-order-instance-selection-help">Check one order to continue.</span>
+              <button class="btn-secondary" id="btn-load-selected-b2b-order" type="button" onclick="loadSelectedB2BOrderInstance()" disabled>Load Selected Order</button>
+            </div>
+          </div>
+        </form>
       </div>
 
       <section class="b2b-card b2b-coverage-card">
@@ -835,7 +878,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-<script src="/assets/js/app.js?v=20260731-directory-editor-6"></script>
+<script src="/assets/js/app.js?v=20260817-line-cleanup-2"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

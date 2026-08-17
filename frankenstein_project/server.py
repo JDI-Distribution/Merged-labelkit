@@ -1651,6 +1651,100 @@ async def get_b2b_label_templates(request: Request) -> JSONResponse:
     return JSONResponse(content=_load_b2b_label_templates())
 
 
+@app.post("/api/b2b/orders/lookup")
+def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    _require_permission(request, "generate")
+    sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
+    requested_ecomdash_id = str(payload.get("ecomdash_id") or "").strip() if isinstance(payload, dict) else ""
+    if not sales_order_number:
+        raise HTTPException(status_code=400, detail="Sales Order Number is required.")
+
+    analytics_rows = _analytics_export_order_rows(request, sales_order_number)
+    if not analytics_rows:
+        raise HTTPException(status_code=404, detail=f"No rows were found for Sales Order Number '{sales_order_number}'.")
+
+    order_instances = _analytics_order_instance_groups(analytics_rows)
+    selected_ecomdash_id = ""
+    if requested_ecomdash_id:
+        wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
+        selected_instance = next(
+            (
+                instance
+                for instance in order_instances
+                if _canonical_order_number(instance.get("ecomdash_id")) == wanted_ecomdash_id
+            ),
+            None,
+        )
+        if selected_instance is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"ECOMDASH ID '{requested_ecomdash_id}' was not found for Sales Order Number '{sales_order_number}'."
+                ),
+            )
+        analytics_rows = selected_instance["rows"]
+        selected_ecomdash_id = str(selected_instance.get("ecomdash_id") or "")
+    elif len(order_instances) > 1:
+        return JSONResponse(content={
+            "sales_order_number": sales_order_number,
+            "requires_order_selection": True,
+            "order_instances": [
+                _analytics_order_instance_summary(instance)
+                for instance in order_instances
+            ],
+            "source": {
+                "service": "local_file" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else "zoho_analytics",
+                "connection": "" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else ANALYTICS_CONNECTION_LINK_NAME,
+                "local_file": ANALYTICS_LOCAL_FILE.name if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES and ANALYTICS_LOCAL_FILE else "",
+                "workspace_id": ANALYTICS_WORKSPACE_ID,
+                "view_id": ANALYTICS_VIEW_ID,
+                "view_name": ANALYTICS_VIEW_NAME,
+            },
+        })
+    elif order_instances:
+        analytics_rows = order_instances[0]["rows"]
+        selected_ecomdash_id = str(order_instances[0].get("ecomdash_id") or "")
+
+    product_rows = _datastore_load_product_master(request)
+    if product_rows is None:
+        product_rows = _shared_product_master_file_read()
+
+    order_details = {
+        field_name: next(
+            (
+                value
+                for row in analytics_rows
+                if (value := _analytics_row_value(row, column_name))
+            ),
+            "",
+        )
+        for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
+    }
+    items = _b2b_analytics_order_items_for_products(analytics_rows, product_rows or [])
+    summary = {
+        "analytics_rows": len(analytics_rows),
+        "line_items": len(items),
+        "matched_products": sum(1 for item in items if item.get("match_status") == "matched"),
+        "unmatched_products": sum(1 for item in items if item.get("match_status") == "unmatched"),
+        "ambiguous_products": sum(1 for item in items if item.get("match_status") == "ambiguous"),
+    }
+    return JSONResponse(content={
+        "sales_order_number": sales_order_number,
+        "order_details": order_details,
+        "source": {
+            "service": "local_file" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else "zoho_analytics",
+            "connection": "" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else ANALYTICS_CONNECTION_LINK_NAME,
+            "local_file": ANALYTICS_LOCAL_FILE.name if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES and ANALYTICS_LOCAL_FILE else "",
+            "workspace_id": ANALYTICS_WORKSPACE_ID,
+            "view_id": ANALYTICS_VIEW_ID,
+            "view_name": ANALYTICS_VIEW_NAME,
+            "ecomdash_id": selected_ecomdash_id,
+        },
+        "summary": summary,
+        "items": items,
+    })
+
+
 @app.post("/api/b2b/render")
 async def render_b2b_labels(request: Request, payload: Dict[str, Any]) -> Response:
     """Render an editable B2B label job without mutating Product Master.
@@ -2439,6 +2533,58 @@ def _analytics_quantity(value: Any) -> Optional[float | int]:
     if quantity <= 0 or quantity != quantity:
         return None
     return int(quantity) if quantity.is_integer() else round(quantity, 6)
+
+
+def _b2b_analytics_order_items_for_products(
+    analytics_rows: List[Dict[str, Any]],
+    product_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    aggregated: Dict[str, Dict[str, Any]] = {}
+    for row in analytics_rows:
+        sku = _analytics_row_value(row, ANALYTICS_SKU_COLUMN)
+        quantity = _analytics_quantity(_analytics_row_value(row, ANALYTICS_QUANTITY_COLUMN))
+        sku_key = _canonical_order_sku(sku)
+        if not sku_key or quantity is None:
+            continue
+        if sku_key not in aggregated:
+            aggregated[sku_key] = {"sku": sku, "quantity_ordered": quantity}
+        else:
+            aggregated[sku_key]["quantity_ordered"] = float(aggregated[sku_key]["quantity_ordered"]) + float(quantity)
+
+    normalized_product_rows = _dedupe_product_master_rows(product_rows)
+    products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
+    for product in normalized_product_rows:
+        if normalize_packaging_level(product.get("packaging_level")) != "Case":
+            continue
+        if not bool(product.get("in_packing_list")):
+            continue
+        sku_key = _canonical_order_sku(product.get("sku"))
+        if sku_key:
+            products_by_sku.setdefault(sku_key, []).append(product)
+
+    items: List[Dict[str, Any]] = []
+    for sku_key, order_item in aggregated.items():
+        candidates = products_by_sku.get(sku_key, [])
+        if len(candidates) > 1:
+            match_status = "ambiguous"
+            product = None
+        elif len(candidates) == 1:
+            match_status = "matched"
+            product = candidates[0]
+        else:
+            match_status = "unmatched"
+            product = None
+
+        item = {
+            "sku": order_item["sku"],
+            "quantity_ordered": int(order_item["quantity_ordered"]) if float(order_item["quantity_ordered"]).is_integer() else round(float(order_item["quantity_ordered"]), 6),
+            "match_status": match_status,
+            "product": product,
+        }
+        if product is not None:
+            item["label_template_id"] = str(product.get("label_template_id") or "")
+        items.append(item)
+    return items
 
 
 def _analytics_kehe_case_conversion(

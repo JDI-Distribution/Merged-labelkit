@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 760 250" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="title desc">
+  <title id="title">Bakell</title>
+  <desc id="desc">Gold and tan Bakell wordmark with whisk.</desc>
+  <defs>
+    <linearGradient id="gold" x1="0" x2="1">
+      <stop offset="0" stop-color="#F0C134"/>
+      <stop offset="1" stop-color="#DC9838"/>
+    </linearGradient>
+  </defs>
+  <text x="18" y="155" fill="url(#gold)" font-family="Arial, Helvetica, sans-serif" font-size="172" font-weight="300" letter-spacing="-13">bakell</text>
+  <g transform="translate(548 28) rotate(-5 35 84)" stroke="#A7866C" fill="none" stroke-width="8" stroke-linecap="round">
+    <rect x="27" y="0" width="25" height="90" rx="12"/>
+    <line x1="39" y1="88" x2="39" y2="176"/>
+    <path d="M39 103c-31 34-31 64 0 82M39 103c31 34 31 64 0 82M39 103c-16 42-16 69 0 82M39 103c16 42 16 69 0 82"/>
+  </g>
+  <text x="195" y="204" fill="#A7866C" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">live well. bake well.</text>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-15 -12 1050 244" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="title desc">
+  <title id="title">JDI Distribution</title>
+  <desc id="desc">Charcoal and coral JDI Distribution wordmark.</desc>
+  <g transform="translate(18 40) skewX(-18)" fill="#F04B3A">
+    <rect width="28" height="110"/>
+    <rect x="45" width="28" height="110"/>
+  </g>
+  <text x="115" y="142" fill="#3B3B3A" font-family="Arial, Helvetica, sans-serif" font-size="86" font-style="italic" font-weight="800" letter-spacing="1">JDI DISTRIBUTION</text>
+  <text x="25" y="202" fill="#F04B3A" font-family="Arial, Helvetica, sans-serif" font-size="27" letter-spacing="1">Consumer products. Global brands.</text>
+</svg>

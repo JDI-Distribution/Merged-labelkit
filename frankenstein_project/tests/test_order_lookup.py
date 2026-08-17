@@ -4,6 +4,7 @@ from unittest.mock import patch
 from server import (
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
+    _b2b_analytics_order_items_for_products,
     _hydrate_saved_mpl_record,
     _product_each_gtin,
     _datastore_row_to_mpl_draft,
@@ -103,6 +104,62 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         })
 
         self.assertEqual("", row["case_qty"])
+
+    def test_b2b_analytics_order_items_match_case_product_rows(self):
+        analytics_rows = [
+            {
+                "Sales Order Number": "SO-9001",
+                "Quantity Ordered": "12",
+                "SKUNumber": "ABC-123",
+                "Ecomdash ID": "9001",
+                "Billing Customer Name": "Acme Foods",
+                "Storefront": "Acme Foods",
+            },
+            {
+                "Sales Order Number": "SO-9001",
+                "Quantity Ordered": "8",
+                "SKUNumber": "ABC-123",
+                "Ecomdash ID": "9001",
+                "Billing Customer Name": "Acme Foods",
+                "Storefront": "Acme Foods",
+            },
+            {
+                "Sales Order Number": "SO-9001",
+                "Quantity Ordered": "7",
+                "SKUNumber": "XYZ-999",
+                "Ecomdash ID": "9001",
+                "Billing Customer Name": "Acme Foods",
+                "Storefront": "Acme Foods",
+            },
+        ]
+        product_rows = [
+            {
+                "storefront": "Acme Foods",
+                "packaging_level": "Case",
+                "in_packing_list": True,
+                "case_qty": "24",
+                "sku": "ABC-123",
+                "label_template_id": "standard",
+                "config_id": "ACME-CASE",
+            },
+            {
+                "storefront": "Acme Foods",
+                "packaging_level": "Case",
+                "in_packing_list": True,
+                "case_qty": "12",
+                "sku": "XYZ-999",
+                "label_template_id": "standard",
+                "config_id": "ACME-OTHER",
+            },
+        ]
+
+        items = _b2b_analytics_order_items_for_products(analytics_rows, product_rows)
+
+        self.assertEqual(2, len(items))
+        self.assertEqual("ABC-123", items[0]["sku"])
+        self.assertEqual(20, items[0]["quantity_ordered"])
+        self.assertEqual("matched", items[0]["match_status"])
+        self.assertEqual("standard", items[0]["product"]["label_template_id"])
 
     def test_b2b_unique_key_includes_packaging_level(self):
         row = normalize_product_master_row({
