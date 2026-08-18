@@ -3626,6 +3626,13 @@ _MPL_BRAND_THEMES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+_MPL_BRAND_LOGO_PATHS: Dict[str, Path] = {
+    "brew_glitter": PROJECT_ROOT / "frontend" / "dist" / "assets" / "img" / "mpl-brands" / "brew_glitter.png",
+    "bakell": PROJECT_ROOT / "frontend" / "dist" / "assets" / "img" / "mpl-brands" / "bakell.png",
+    "pfg": PROJECT_ROOT / "frontend" / "dist" / "assets" / "img" / "mpl-brands" / "pfg.png",
+    "jdi_distribution": PROJECT_ROOT / "frontend" / "dist" / "assets" / "img" / "mpl-brands" / "jdi_distribution.png",
+}
+
 
 def _mpl_brand_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
     """Resolve standalone supplier branding without changing KeHE documents."""
@@ -3687,86 +3694,35 @@ def _draw_mpl_brand_logo(
     w: float,
     h: float,
 ) -> None:
-    """Draw a compact vector supplier mark in a fixed logo box."""
+    """Draw the supplied supplier-logo artwork inside a fixed logo box."""
     theme = _MPL_BRAND_THEMES.get(brand_id) or _MPL_BRAND_THEMES["jdi_distribution"]
-    primary = theme["primary"]
-    accent = theme["accent"]
     c.saveState()
     c.setFillColorRGB(1, 1, 1)
     c.setStrokeColorRGB(0.82, 0.84, 0.87)
     c.setLineWidth(0.45)
     c.roundRect(x, y, w, h, 4, fill=1, stroke=1)
-
-    def fit_font(text: str, font_name: str, maximum: float, available: float, minimum: float = 5.0) -> float:
-        size = maximum
-        while size > minimum and pdfmetrics.stringWidth(text, font_name, size) > available:
-            size -= 0.5
-        return max(minimum, size)
-
-    if brand_id == "pfg":
-        size = min(h - 14, w - 14)
-        cx = x + w / 2
-        cy = y + h / 2
-        c.setFillColorRGB(1, 1, 1)
-        c.setStrokeColorRGB(*accent)
-        c.setLineWidth(1.5)
-        c.circle(cx, cy, size / 2, fill=1, stroke=1)
-        c.setFillColorRGB(*primary)
-        c.circle(cx, cy, size / 2 - 3, fill=1, stroke=0)
-        c.setStrokeColorRGB(1, 1, 1)
-        c.setLineWidth(1.2)
-        c.circle(cx, cy, size / 2 - 6, fill=0, stroke=1)
-        c.setFillColorRGB(1, 1, 1)
-        mark_font_size = max(9, size * 0.28)
-        c.setFont("Helvetica-BoldOblique", mark_font_size)
-        c.drawCentredString(cx, cy - mark_font_size * 0.32, "PFG")
-    elif brand_id == "bakell":
-        c.setFillColorRGB(*accent)
-        bakell_size = fit_font("bakell", "Helvetica", min(28, h * 0.52), max(20, w - 55))
-        c.setFont("Helvetica", bakell_size)
-        c.drawString(x + 10, y + h * 0.47, "bakell")
-        c.setFillColorRGB(*primary)
-        c.setFont("Helvetica-Bold", min(7, h * 0.13))
-        c.drawString(x + 14, y + h * 0.25, "live well. bake well.")
-        whisk_x = x + w - 27
-        c.setStrokeColorRGB(*primary)
-        c.setLineWidth(2.0)
-        c.line(whisk_x, y + h * 0.75, whisk_x, y + h * 0.25)
-        for delta in (-10, -5, 5, 10):
-            c.line(whisk_x, y + h * 0.26, whisk_x + delta, y + 5)
-    elif brand_id == "brew_glitter":
-        icon_x = x + 9
-        icon_y = y + 7
-        icon_w = min(h - 14, w * 0.22)
-        c.setFillColorRGB(*accent)
-        c.setStrokeColorRGB(*primary)
-        c.setLineWidth(1.8)
-        path = c.beginPath()
-        path.moveTo(icon_x + icon_w * 0.20, icon_y + icon_w * 0.92)
-        path.lineTo(icon_x + icon_w * 0.05, icon_y + icon_w * 0.46)
-        path.curveTo(icon_x, icon_y + icon_w * 0.20, icon_x + icon_w * 0.22, icon_y + icon_w * 0.05, icon_x + icon_w * 0.50, icon_y)
-        path.curveTo(icon_x + icon_w * 0.78, icon_y + icon_w * 0.05, icon_x + icon_w, icon_y + icon_w * 0.20, icon_x + icon_w * 0.95, icon_y + icon_w * 0.46)
-        path.lineTo(icon_x + icon_w * 0.80, icon_y + icon_w * 0.92)
-        c.drawPath(path, fill=1, stroke=1)
-        c.setFillColorRGB(*primary)
-        brew_available = max(20, w - icon_w - 28)
-        brew_size = fit_font("GLITTER", "Helvetica-Bold", min(17, h * 0.29), brew_available)
-        c.setFont("Helvetica-Bold", brew_size)
-        c.drawString(icon_x + icon_w + 10, y + h * 0.54, "BREW")
-        c.drawString(icon_x + icon_w + 10, y + h * 0.26, "GLITTER")
-    else:
-        slash_x = x + 10
-        c.setStrokeColorRGB(*accent)
-        c.setLineWidth(7)
-        c.line(slash_x, y + 9, slash_x + 20, y + h - 9)
-        c.line(slash_x + 18, y + 9, slash_x + 38, y + h - 9)
-        c.setFillColorRGB(*primary)
-        jdi_size = fit_font("JDI DISTRIBUTION", "Helvetica-BoldOblique", min(19, h * 0.35), max(30, w - 67))
-        c.setFont("Helvetica-BoldOblique", jdi_size)
-        c.drawString(x + 55, y + h * 0.49, "JDI DISTRIBUTION")
-        c.setFillColorRGB(*accent)
-        c.setFont("Helvetica", min(6.2, h * 0.11))
-        c.drawString(x + 55, y + h * 0.27, "Consumer products. Global brands.")
+    logo_path = _MPL_BRAND_LOGO_PATHS.get(brand_id) or _MPL_BRAND_LOGO_PATHS["jdi_distribution"]
+    try:
+        reader = ImageReader(str(logo_path))
+        image_w, image_h = reader.getSize()
+        available_w = max(1.0, w - 12)
+        available_h = max(1.0, h - 12)
+        scale = min(available_w / image_w, available_h / image_h)
+        draw_w = image_w * scale
+        draw_h = image_h * scale
+        c.drawImage(
+            reader,
+            x + (w - draw_w) / 2,
+            y + (h - draw_h) / 2,
+            width=draw_w,
+            height=draw_h,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+    except Exception:
+        c.setFillColorRGB(*theme["primary"])
+        c.setFont("Helvetica-Bold", min(11, h * 0.20))
+        c.drawCentredString(x + w / 2, y + h / 2 - 3, theme["brand_label"])
     c.restoreState()
 
 
@@ -3815,19 +3771,46 @@ def _mpl_snapshot_image_reader(image_data_url: str) -> Optional[ImageReader]:
         return None
 
 
-def _draw_mpl_snapshot_page(c: canvas.Canvas, reader: ImageReader) -> bool:
+def _draw_mpl_snapshot_page(
+    c: canvas.Canvas,
+    reader: ImageReader,
+    title: str = "TI-HI LAYOUT PREVIEW",
+    subtitle: str = "",
+) -> bool:
     img_w, img_h = reader.getSize()
     if img_w <= 0 or img_h <= 0:
         return False
     page_w, page_h = A4
-    margin = 0.40 * inch
+    margin = 0.36 * inch
+    header_h = 0.62 * inch
+    content_bottom = margin
+    content_top = page_h - margin - header_h
     max_w = page_w - (2 * margin)
-    max_h = page_h - (2 * margin)
+    max_h = content_top - content_bottom
     scale = min(max_w / img_w, max_h / img_h)
     draw_w = img_w * scale
     draw_h = img_h * scale
     draw_x = (page_w - draw_w) / 2
-    draw_y = (page_h - draw_h) / 2
+    # Anchor the preview directly below its heading. Vertical centering left a
+    # large, inconsistent blank band above landscape-oriented snapshots.
+    draw_y = content_top - draw_h
+
+    c.setPageSize(A4)
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+    c.setFillColorRGB(*_MPL_BLACK)
+    c.rect(margin, page_h - margin - 0.34 * inch, max_w, 0.34 * inch, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 9.2)
+    c.drawString(margin + 9, page_h - margin - 0.21 * inch, _mpl_clean(title).upper())
+    if subtitle:
+        c.setFillColorRGB(*_COLOR_LABEL)
+        c.setFont("Helvetica", 6.2)
+        c.drawString(margin + 2, content_top + 0.07 * inch, _mpl_clean(subtitle)[:110])
+
+    c.setStrokeColorRGB(*_MPL_GRID)
+    c.setLineWidth(0.7)
+    c.rect(draw_x - 3, draw_y - 3, draw_w + 6, draw_h + 6, fill=0, stroke=1)
     c.drawImage(reader, draw_x, draw_y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
     c.showPage()
     return True
@@ -5501,7 +5484,12 @@ def _render_mpl_tihi_pages(
         if sheet_reader is not None:
             if progress_callback:
                 progress_callback(f"Rendering {mpl.get('id', 'MPL')} TI-Hi layout summary image...")
-            return 1 if _draw_mpl_snapshot_page(c, sheet_reader) else 0
+            return 1 if _draw_mpl_snapshot_page(
+                c,
+                sheet_reader,
+                "TI-HI LAYOUT SUMMARY",
+                f"{mpl.get('id', 'MPL')}  |  PO {_mpl_clean(mpl.get('customer_po_number')) or '-'}",
+            ) else 0
     else:
         entries, warnings = _mpl_build_tihi_entries(mpl, items)
         constraints = _mpl_tihi_constraints(mpl)
@@ -5512,15 +5500,21 @@ def _render_mpl_tihi_pages(
         if reader is None:
             snapshot_images = []
             break
-        snapshot_images.append(reader)
+        snapshot_images.append((entry, reader))
     if snapshot_images:
         pages = 0
-        for index, reader in enumerate(snapshot_images, start=1):
+        for index, (entry, reader) in enumerate(snapshot_images, start=1):
             if progress_callback:
                 progress_callback(
                     f"Rendering {mpl.get('id', 'MPL')} TI-Hi image page {index}/{len(snapshot_images)}..."
                 )
-            if _draw_mpl_snapshot_page(c, reader):
+            pallet_label = _mpl_clean(entry.get("pallet_label") or entry.get("pallet")) or str(index)
+            if _draw_mpl_snapshot_page(
+                c,
+                reader,
+                f"PALLET {pallet_label} TI-HI LAYOUT PREVIEW",
+                f"{mpl.get('id', 'MPL')}  |  PO {_mpl_clean(mpl.get('customer_po_number')) or '-'}  |  Preview {index} of {len(snapshot_images)}",
+            ):
                 pages += 1
         return pages
 

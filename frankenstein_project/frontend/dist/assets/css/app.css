@@ -3203,12 +3203,20 @@
       border-radius: 8px;
       background: #ffffff;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
       place-items: center;
       overflow: visible;
     }
     .mpl-brand-logo {
       width: 100%;
       height: 100%;
+      min-width: 0;
+      min-height: 0;
+      max-width: 100%;
+      max-height: 100%;
+      align-self: stretch;
+      justify-self: stretch;
       object-fit: contain;
       object-position: center;
       display: block;
@@ -3423,36 +3431,67 @@
     .decopac-summary-table td { height: 31px; background: var(--mpl-pale); }
     .decopac-summary-table input { min-height: 30px; padding: 3px; font-size: 9px; }
     .decopac-summary-table .btn-secondary { margin: 3px; padding: 4px 7px; font-size: 8px; }
-    .decopac-tihi-section {
-      margin-top: 4px;
-      border-top: 3px solid var(--mpl-accent);
-      padding-top: 10px;
+    .decopac-pallet-flow-stack {
       display: grid;
-      gap: 9px;
+      gap: 18px;
     }
-    .decopac-tihi-heading {
+    .decopac-pallet-flow {
+      display: grid;
+      gap: 8px;
+      border: 1px solid color-mix(in srgb, var(--mpl-primary) 38%, #cbd5e1);
+      background: color-mix(in srgb, var(--mpl-pale) 48%, #ffffff);
+      padding: 10px;
+    }
+    .decopac-pallet-flow-head {
+      min-height: 48px;
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      color: var(--mpl-primary);
+      gap: 14px;
+      padding: 7px 10px;
+      background: var(--mpl-primary);
+      color: #ffffff;
       font-family: 'DM Sans', sans-serif;
     }
-    .decopac-tihi-heading strong {
-      font-size: 12px;
-      font-weight: 950;
-      letter-spacing: .45px;
+    .decopac-pallet-flow-head > div:first-child {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
       text-transform: uppercase;
     }
-    .decopac-tihi-heading span { color: #64748b; font-size: 9px; }
-    .decopac-tihi-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-      gap: 10px;
+    .decopac-pallet-flow-head strong { color: var(--mpl-accent); font-size: 21px; line-height: 1; }
+    .decopac-pallet-flow-head span { font-size: 9px; font-weight: 900; letter-spacing: .4px; }
+    .decopac-pallet-flow-head small { color: #e2e8f0; font-size: 9px; font-weight: 750; text-transform: none; }
+    .decopac-pallet-flow-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 7px;
+      flex-wrap: wrap;
     }
-    .decopac-tihi-panel { min-height: 250px; }
-    .decopac-tihi-panel .mpl-live-tihi-head { display: flex; }
-    .decopac-tihi-edit { margin: 0 10px 10px; justify-self: start; }
+    .decopac-pallet-flow-actions label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .decopac-pallet-flow-actions input {
+      width: 120px;
+      min-height: 29px;
+      border: 1px solid rgba(255,255,255,.55);
+      border-radius: 5px;
+      background: #ffffff;
+      color: #111827;
+      padding: 4px 7px;
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .decopac-pallet-flow-actions .btn-secondary {
+      min-height: 29px;
+      border-color: rgba(255,255,255,.55);
+      background: #ffffff;
+      color: var(--mpl-primary);
+    }
+    .decopac-tihi-panel { min-height: 350px; }
 
     /* Dutch Bros: modern delivery summary with separate pallet cards. */
     .mpl-template-dutch_bros:not(.mpl-breakdown-layout) {
@@ -3726,9 +3765,9 @@
     .mpl-pallet-live-row {
       margin-top: 10px;
       display: grid;
-      grid-template-columns: minmax(0, 1.72fr) minmax(300px, 0.78fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 10px;
-      align-items: stretch;
+      align-items: start;
     }
     .mpl-pallet-live-row > .mpl-pdf-pallet-section {
       margin-top: 0;
@@ -3738,23 +3777,23 @@
       min-width: 700px;
     }
     .mpl-live-tihi-panel {
-      border: 1px solid #bfdbfe;
+      border: 1px solid color-mix(in srgb, var(--mpl-primary, #0f5ea8) 32%, #dbeafe);
       border-radius: 10px;
-      background: #f8fbff;
+      background: color-mix(in srgb, var(--mpl-pale, #eff6ff) 45%, #ffffff);
       min-width: 0;
       overflow: hidden;
       font-family: 'DM Sans', sans-serif;
     }
     .mpl-live-tihi-head {
       min-height: 45px;
-      border-bottom: 1px solid #bfdbfe;
-      background: #eff6ff;
+      border-bottom: 1px solid color-mix(in srgb, var(--mpl-primary, #0f5ea8) 28%, #dbeafe);
+      background: color-mix(in srgb, var(--mpl-primary, #0f5ea8) 10%, #ffffff);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
       padding: 7px 9px;
-      color: #1e3a8a;
+      color: var(--mpl-primary, #1e3a8a);
     }
     .mpl-live-tihi-head > div {
       display: grid;
@@ -3771,15 +3810,29 @@
       font-weight: 750;
     }
     .mpl-live-tihi-badge {
-      border: 1px solid #93c5fd;
+      border: 1px solid color-mix(in srgb, var(--mpl-primary, #0f5ea8) 42%, #ffffff);
       border-radius: 999px;
       background: #ffffff;
       padding: 3px 6px;
       text-transform: uppercase;
     }
+    .mpl-live-tihi-actions {
+      display: flex !important;
+      grid-auto-flow: column;
+      align-items: center;
+      justify-content: end;
+      gap: 7px !important;
+    }
+    .mpl-live-tihi-actions .btn-secondary {
+      min-height: 27px;
+      padding: 4px 9px;
+      border-color: color-mix(in srgb, var(--mpl-primary, #0f5ea8) 35%, #cbd5e1);
+      color: var(--mpl-primary, #1e3a8a);
+      font-size: 8.5px;
+    }
     .mpl-live-tihi-body {
-      min-height: 250px;
-      padding: 9px;
+      min-height: 340px;
+      padding: 11px;
       display: grid;
       align-content: start;
       gap: 8px;
@@ -3871,10 +3924,10 @@
     }
     .mpl-live-tihi-panel .tihi-svg {
       width: 100%;
-      height: 118px;
+      height: clamp(190px, 24vw, 270px);
     }
     .mpl-live-tihi-panel .tihi-svg.side {
-      height: 118px;
+      height: clamp(190px, 24vw, 270px);
     }
     .mpl-pdf-pallet-heading {
       min-height: 32px;
@@ -4595,7 +4648,6 @@
       .decopac-document-header,
       .dutch-bros-header,
       .dutch-bros-detail-grid { grid-template-columns: 1fr; }
-      .decopac-tihi-grid { grid-template-columns: 1fr; }
       .decopac-document-header > .mpl-brand-logo-wrap,
       .dutch-bros-header > .mpl-brand-logo-wrap { justify-self: start; }
     }

@@ -272,7 +272,7 @@
     brew_glitter: {
       label: 'Brew Glitter',
       supplierName: 'BREW GLITTER',
-      logo: '/assets/img/mpl-brands/brew_glitter.svg',
+      logo: '/assets/img/mpl-brands/brew_glitter.png',
       primary: '#111111',
       accent: '#E6AE3F',
       soft: '#F6D58C',
@@ -282,7 +282,7 @@
     bakell: {
       label: 'Bakell',
       supplierName: 'BAKELL LLC',
-      logo: '/assets/img/mpl-brands/bakell.svg',
+      logo: '/assets/img/mpl-brands/bakell.png',
       primary: '#A7866C',
       accent: '#E7AF35',
       soft: '#F2D28A',
@@ -292,7 +292,7 @@
     pfg: {
       label: 'PFG',
       supplierName: 'PFG',
-      logo: '/assets/img/mpl-brands/pfg.svg?v=20260817-pfg-fit-1',
+      logo: '/assets/img/mpl-brands/pfg.png',
       logoClass: 'pfg-safe',
       primary: '#00A84F',
       accent: '#79BE43',
@@ -303,7 +303,7 @@
     jdi_distribution: {
       label: 'JDI Distribution',
       supplierName: 'JDI DISTRIBUTION',
-      logo: '/assets/img/mpl-brands/jdi_distribution.svg',
+      logo: '/assets/img/mpl-brands/jdi_distribution.png',
       primary: '#3B3B3A',
       accent: '#F04B3A',
       soft: '#FFD5CE',
@@ -5127,77 +5127,6 @@
     return { entries, warnings: [...new Set(warnings)], constraints };
   }
 
-  function copyElementComputedStyles(source, target) {
-    const computed = window.getComputedStyle(source);
-    for (const prop of computed) {
-      target.style.setProperty(prop, computed.getPropertyValue(prop), computed.getPropertyPriority(prop));
-    }
-    Array.from(source.children || []).forEach((child, index) => {
-      if (target.children[index]) copyElementComputedStyles(child, target.children[index]);
-    });
-  }
-
-  async function renderElementToPngDataUrl(element) {
-    const rect = element.getBoundingClientRect();
-    const width = Math.max(1, Math.ceil(rect.width));
-    const height = Math.max(1, Math.ceil(rect.height));
-    const cloned = element.cloneNode(true);
-    copyElementComputedStyles(element, cloned);
-    cloned.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-    const markup = new XMLSerializer().serializeToString(cloned);
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-        <foreignObject width="100%" height="100%">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;background:#ffffff;overflow:hidden;">${markup}</div>
-        </foreignObject>
-      </svg>`;
-    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = reject;
-        image.src = url;
-      });
-      const scale = 2;
-      const canvas = document.createElement('canvas');
-      canvas.width = width * scale;
-      canvas.height = height * scale;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(scale, scale);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      return canvas.toDataURL('image/png');
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
-  async function renderMplTiHiCardSnapshot(entry, constraints) {
-    const host = document.createElement('div');
-    host.style.position = 'fixed';
-    host.style.left = '-10000px';
-    host.style.top = '0';
-    host.style.width = '720px';
-    host.style.padding = '0';
-    host.style.background = '#ffffff';
-    host.style.zIndex = '-1';
-    host.innerHTML = renderMplTiHiCard(entry, 0, entry.constraints || constraints, false);
-    document.body.appendChild(host);
-    try {
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const card = host.querySelector('.tihi-card');
-      if (!card) return '';
-      return await renderElementToPngDataUrl(card);
-    } catch (_err) {
-      return '';
-    } finally {
-      host.remove();
-    }
-  }
-
   function drawSnapshotRect(ctx, x, y, w, h, fill = '#ffffff', stroke = '#cbd5e1', lineWidth = 1) {
     ctx.save();
     ctx.fillStyle = fill;
@@ -5420,8 +5349,9 @@
   }
 
   async function captureMplTiHiEntrySnapshot(mpl, entry) {
-    const domImage = await renderMplTiHiCardSnapshot(entry, entry.constraints || getMplTiHiConstraints(mpl, entry.palletLabel));
-    if (domImage) return domImage;
+    // Use the deterministic canvas renderer for PDF snapshots. Capturing the
+    // responsive DOM card made the exported preview depend on viewport width,
+    // font timing, and foreignObject support, which could crop or shift diagrams.
     return renderMplTiHiEntryCanvasSnapshot(mpl, entry);
   }
 
@@ -7608,16 +7538,7 @@
           </div>
           ${renderMplDropZone(mplIndex, palletId, items, 'Drop line items here')}
         </div>
-        <aside class="mpl-live-tihi-panel" data-mpl-live-tihi="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
-          <div class="mpl-live-tihi-head">
-            <div>
-              <strong>Live Ti-Hi</strong>
-              <span>Pallet ${escapeHtml(palletId)}</span>
-            </div>
-            <span class="mpl-live-tihi-badge">Auto</span>
-          </div>
-          <div class="mpl-live-tihi-body">${mplLiveTiHiLoadingMarkup()}</div>
-        </aside>
+        ${renderMplLiveTiHiPanel(mplIndex, palletId)}
       </div>`;
   }
 
@@ -7693,15 +7614,67 @@
     }
   }
 
-  function renderBreakdownTiHiPanels(mplIndex, palletIds) {
-    return `<section class="decopac-tihi-section">
-      <div class="decopac-tihi-heading"><strong>Ti-Hi Layout</strong><span>Live pallet layout from Product Master case dimensions and weight.</span></div>
-      <div class="decopac-tihi-grid">${palletIds.map(palletId => `
-        <aside class="mpl-live-tihi-panel decopac-tihi-panel" data-mpl-live-tihi="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
-          <div class="mpl-live-tihi-head"><div><strong>Live Ti-Hi</strong><span>Pallet ${escapeHtml(palletId)}</span></div><span class="mpl-live-tihi-badge">Auto</span></div>
-          <div class="mpl-live-tihi-body">${mplLiveTiHiLoadingMarkup()}</div>
-          <button class="btn-secondary decopac-tihi-edit" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Edit Ti-Hi Settings</button>
-        </aside>`).join('')}</div>
+  function renderMplLiveTiHiPanel(mplIndex, palletId, extraClass = '') {
+    return `<aside class="mpl-live-tihi-panel ${escapeHtml(extraClass)}" data-mpl-live-tihi="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+      <div class="mpl-live-tihi-head">
+        <div>
+          <strong>Pallet ${escapeHtml(palletId)} Ti-Hi Preview</strong>
+          <span>Live layout from Product Master case dimensions and weight</span>
+        </div>
+        <div class="mpl-live-tihi-actions">
+          <span class="mpl-live-tihi-badge">Auto</span>
+          <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Edit Ti-Hi</button>
+        </div>
+      </div>
+      <div class="mpl-live-tihi-body">${mplLiveTiHiLoadingMarkup()}</div>
+    </aside>`;
+  }
+
+  function renderBreakdownTable(mpl, mplIndex, palletId) {
+    const base = `packing_lists.${mplIndex}`;
+    const rows = (mpl.items || [])
+      .map((item, itemIndex) => ({ item, itemIndex }))
+      .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
+    return `<div class="decopac-table-wrap">
+      <table class="decopac-table">
+        <thead><tr>
+          <th>Pallet #</th><th>Invoice / PO #</th><th>Item #</th><th>Lot #</th><th>Color</th>
+          <th>Description</th><th>Product Size</th><th>Quantity<br>Per Case</th><th># of Cases</th>
+          <th>Units on<br>This Pallet</th><th>Balance<br>Owed</th>
+        </tr></thead>
+        <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
+          const itemBase = `${base}.items.${itemIndex}`;
+          return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
+            <td>${editorPdfInput(`${itemBase}.location_on_pallet`, item.location_on_pallet || palletId)}<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button></td>
+            <td>${editorPdfInput(`${itemBase}.invoice_po_number`, item.invoice_po_number || mpl.customer_po_number || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.lot`, item.lot || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.color`, item.color || '')}</td>
+            <td><div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div></td>
+            <td>${editorPdfInput(`${itemBase}.product_size`, item.product_size || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.quantity_per_case`, item.quantity_per_case || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.qty_on_pallet`, item.qty_on_pallet || item.total_shipped || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.units_on_pallet`, mplItemUnits(item))}</td>
+            <td>${editorPdfInput(`${itemBase}.balance_owed`, item.balance_owed || '0')}</td>
+          </tr>`;
+        }).join('') : '<tr><td colspan="11" class="decopac-empty">No products assigned to this pallet.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }
+
+  function renderBreakdownPalletFlow(mpl, mplIndex, palletId) {
+    const rowCount = (mpl.items || []).filter(item => normalizePalletId(item.location_on_pallet) === palletId).length;
+    return `<section class="decopac-pallet-flow" data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
+      <div class="decopac-pallet-flow-head">
+        <div><span>Pallet</span><strong>${escapeHtml(palletId)}</strong><small>${rowCount} line${rowCount === 1 ? '' : 's'}</small></div>
+        <div class="decopac-pallet-flow-actions">
+          <label><span>Weight</span><input value="${escapeHtml(mpl._pallet_weights?.[palletId] || '')}" placeholder="ex: 589 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></label>
+          <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Line Item</button>
+          <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Ti-Hi Settings</button>
+        </div>
+      </div>
+      ${renderBreakdownTable(mpl, mplIndex, palletId)}
+      ${renderMplLiveTiHiPanel(mplIndex, palletId, 'decopac-tihi-panel')}
     </section>`;
   }
 
@@ -7724,32 +7697,10 @@
         ${renderStandaloneMplLogo(brand)}
       </div>
       <div class="decopac-breakdown-title">${editorPdfInput(`${base}.title`, mpl.title || 'Pallet Breakdown', 'mpl-title-input')}</div>
-      <div class="decopac-table-wrap">
-        <table class="decopac-table">
-          <thead><tr>
-            <th>Pallet #</th><th>Invoice / PO #</th><th>Item #</th><th>Lot #</th><th>Color</th>
-            <th>Description</th><th>Product Size</th><th>Quantity<br>Per Case</th><th># of Cases</th>
-            <th>Units on<br>This Pallet</th><th>Balance<br>Owed</th>
-          </tr></thead>
-          <tbody>${items.length ? items.map((item, itemIndex) => {
-            const itemBase = `${base}.items.${itemIndex}`;
-            return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
-              <td>${editorPdfInput(`${itemBase}.location_on_pallet`, item.location_on_pallet || '1')}<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button></td>
-              <td>${editorPdfInput(`${itemBase}.invoice_po_number`, item.invoice_po_number || mpl.customer_po_number || '')}</td>
-              <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || '')}</td>
-              <td>${editorPdfInput(`${itemBase}.lot`, item.lot || '')}</td>
-              <td>${editorPdfInput(`${itemBase}.color`, item.color || '')}</td>
-              <td><div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div></td>
-              <td>${editorPdfInput(`${itemBase}.product_size`, item.product_size || '')}</td>
-              <td>${editorPdfInput(`${itemBase}.quantity_per_case`, item.quantity_per_case || '')}</td>
-              <td>${editorPdfInput(`${itemBase}.qty_on_pallet`, item.qty_on_pallet || item.total_shipped || '')}</td>
-              <td>${editorPdfInput(`${itemBase}.units_on_pallet`, mplItemUnits(item))}</td>
-              <td>${editorPdfInput(`${itemBase}.balance_owed`, item.balance_owed || '0')}</td>
-            </tr>`;
-          }).join('') : '<tr><td colspan="11" class="decopac-empty">Add a line item to begin the pallet breakdown.</td></tr>'}</tbody>
-        </table>
-      </div>
       ${renderStandaloneMplToolbar(mpl, mplIndex, `${customerHeading} pallet breakdown`)}
+      <div class="decopac-pallet-flow-stack">
+        ${palletIds.map(palletId => renderBreakdownPalletFlow(mpl, mplIndex, palletId)).join('')}
+      </div>
       <div class="decopac-summary-title">Pallet Summary</div>
       <div class="decopac-summary-wrap"><table class="decopac-summary-table">
         <thead><tr><th>Pallet Number</th><th>Dimensions</th><th>Weight</th><th>Total Weight</th><th>TIHI</th><th>Settings</th></tr></thead>
@@ -7761,8 +7712,7 @@
           <td>${editorPdfInput(`${base}._pallet_tihi.${palletId}`, mplTiHiSummaryValue(mpl, palletId))}</td>
           <td><button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Edit Ti-Hi</button></td>
         </tr>`).join('')}</tbody>
-      </table></div>
-      ${renderBreakdownTiHiPanels(mplIndex, palletIds)}`;
+      </table></div>`;
   }
 
   function renderLegacyDutchBrosMplSheet(mpl, mplIndex, brand) {

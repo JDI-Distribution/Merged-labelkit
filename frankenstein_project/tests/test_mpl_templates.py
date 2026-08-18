@@ -1,13 +1,18 @@
+import base64
 import tempfile
 import unittest
 from pathlib import Path
 
 import fitz
 
-from pipelines.kehe.common import _mpl_template_id, render_kehe_master_packing_list_pdf
+from pipelines.kehe.common import _MPL_BRAND_LOGO_PATHS, _mpl_template_id, render_kehe_master_packing_list_pdf
 
 
 class MplTemplateTests(unittest.TestCase):
+    _ONE_PIXEL_PNG = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDAT\x08\xd7c\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99=\x1d\x00\x00\x00\x00IEND\xaeB`\x82"
+    ).decode("ascii")
+
     def _draft(self, template_id: str, *, standalone: bool = True, brand_id: str = "jdi_distribution"):
         titles = {
             "decopac": "Pallet Breakdown",
@@ -102,6 +107,40 @@ class MplTemplateTests(unittest.TestCase):
             with fitz.open(output_path) as document:
                 return document[0].rect.width, document[0].rect.height
 
+    def _render_first_page_image_count(self, draft) -> int:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "mpl.pdf"
+            render_kehe_master_packing_list_pdf(draft, str(output_path))
+            with fitz.open(output_path) as document:
+                return len(document[0].get_images(full=True))
+
+    def _render_page_texts(self, draft):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "mpl.pdf"
+            render_kehe_master_packing_list_pdf(draft, str(output_path))
+            with fitz.open(output_path) as document:
+                return [page.get_text() for page in document]
+
+    def _add_second_pallet_and_snapshots(self, draft):
+        mpl = draft["packing_lists"][0]
+        second_item = dict(mpl["items"][0])
+        second_item.update({"line": 2, "location_on_pallet": "2", "item_number": "TEST-SKU-2"})
+        mpl["items"].append(second_item)
+        mpl["_pallet_ids"] = ["1", "2"]
+        mpl["_pallet_weights"]["2"] = "130 LBS"
+        mpl["_pallet_dimensions"]["2"] = "48 x 40 in"
+        mpl["_pallet_tihi"]["2"] = "4 x 3"
+        mpl["total_pallets"] = "2"
+        mpl["_tihi_snapshot"] = {
+            "constraints": {},
+            "warnings": [],
+            "entries": [
+                {"pallet": "1", "pallet_label": "1", "image_data_url": self._ONE_PIXEL_PNG},
+                {"pallet": "2", "pallet_label": "2", "image_data_url": self._ONE_PIXEL_PNG},
+            ],
+        }
+        return draft
+
     def test_kehe_draft_is_locked_to_kehe_template(self):
         mpl = {"template_id": "compact"}
 
@@ -164,9 +203,9 @@ class MplTemplateTests(unittest.TestCase):
                 mpl = draft["packing_lists"][0]
                 mpl.pop("brand_id", None)
                 mpl["supplier_info"] = "JDI DISTRIBUTION\n1967 ESSEX CT\nREDLANDS, CA 92373"
-                text = self._render_first_page_text(draft)
+                image_count = self._render_first_page_image_count(draft)
                 self.assertEqual("bakell", mpl["brand_id"])
-                self.assertIn("bakell", text.lower())
+                self.assertGreaterEqual(image_count, 1)
 
     def test_removed_compact_standalone_option_migrates_to_standard(self):
         draft = self._draft("compact")
@@ -220,11 +259,42 @@ class MplTemplateTests(unittest.TestCase):
                 text = self._render_first_page_text(self._draft("standard", brand_id=brand_id))
                 self.assertIn(brand_text, text)
 
+    def test_all_four_supplier_brands_use_png_artwork_in_pdf(self):
+        for brand_id, logo_path in _MPL_BRAND_LOGO_PATHS.items():
+            with self.subTest(brand=brand_id):
+                self.assertEqual(".png", logo_path.suffix.lower())
+                self.assertTrue(logo_path.is_file())
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    output_path = Path(temp_dir) / f"{brand_id}.pdf"
+                    render_kehe_master_packing_list_pdf(
+                        self._draft("standard", brand_id=brand_id),
+                        str(output_path),
+                    )
+                    with fitz.open(output_path) as document:
+                        self.assertGreaterEqual(len(document[0].get_images(full=True)), 1)
+
     def test_kehe_render_ignores_standalone_template_request(self):
         text = self._render_first_page_text(self._draft("dutch_bros", standalone=False))
 
         self.assertIn("MASTER PACKING LIST", text)
         self.assertNotIn("COMPACT PACKING LIST", text)
+
+    def test_standard_pdf_places_all_tihi_previews_after_pallet_details(self):
+        texts = self._render_page_texts(self._add_second_pallet_and_snapshots(self._draft("standard")))
+
+        self.assertIn("MASTER PACKING LIST", texts[0])
+        self.assertNotIn("TI-HI LAYOUT PREVIEW", texts[0])
+        self.assertIn("PALLET 1 TI-HI LAYOUT PREVIEW", texts[-2])
+        self.assertIn("PALLET 2 TI-HI LAYOUT PREVIEW", texts[-1])
+
+    def test_decopac_pdf_places_summary_before_all_tihi_previews(self):
+        draft = self._add_second_pallet_and_snapshots(self._draft("decopac", brand_id="bakell"))
+        texts = self._render_page_texts(draft)
+
+        self.assertIn("PALLET SUMMARY", texts[0])
+        self.assertNotIn("TI-HI LAYOUT PREVIEW", texts[0])
+        self.assertIn("PALLET 1 TI-HI LAYOUT PREVIEW", texts[-2])
+        self.assertIn("PALLET 2 TI-HI LAYOUT PREVIEW", texts[-1])
 
 
 if __name__ == "__main__":
