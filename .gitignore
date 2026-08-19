@@ -11,6 +11,9 @@ __pycache__/
 venv/
 env/
 
+# Local editor settings
+.vscode/
+
 # Catalyst local config
 frankenstein_project/.catalystrc
 

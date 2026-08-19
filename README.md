@@ -282,11 +282,10 @@ From repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
-& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m uvicorn server:app --host 0.0.0.0 --port 9000 --reload
+Set-Location ".."
+& ".\.venv\Scripts\python.exe" -m pip install -r ".\frankenstein_project\requirements.txt"
+Set-Location ".\frankenstein_project"
+& "..\.venv\Scripts\python.exe" -m uvicorn server:app --host 127.0.0.1 --port 9000 --reload
 ```
 
 Open:
@@ -305,6 +304,13 @@ Expected signal:
 
 - `status` is `ok`.
 - `frontend_found` is `true`.
+
+### MPL Ti-Hi editing
+
+- `Ti-Hi Settings` is one order-level action in the MPL toolbar beside Add Pallet, Auto Palletize, and Recalculate Weights.
+- Settings shows the pallet count and constraint form only. It supports All pallets or one specific pallet and Recalculate re-optimizes the complete order.
+- `Edit Ti-Hi` is available from each pallet's live preview. It opens that pallet's preview and constraint editor without Recalculate, so it does not reorganize pallet contents.
+- Back and Close from either Ti-Hi view return directly to Review & Edit Master Packing List.
 
 ## Docker Run
 
@@ -505,10 +511,10 @@ Set-Location ".."
 Python compile:
 
 ```powershell
-& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\server.py"
-& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe_pipeline.py"
-& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\michaels_label_pipeline.py"
-& "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe\common.py"
+& ".\.venv\Scripts\python.exe" -m py_compile ".\frankenstein_project\server.py"
+& ".\.venv\Scripts\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe_pipeline.py"
+& ".\.venv\Scripts\python.exe" -m py_compile ".\frankenstein_project\pipelines\michaels_label_pipeline.py"
+& ".\.venv\Scripts\python.exe" -m py_compile ".\frankenstein_project\pipelines\kehe\common.py"
 ```
 
 Frontend script parse:
@@ -541,7 +547,7 @@ mods = [
 for mod in mods:
     importlib.import_module(mod)
 print("python-import-ok", len(mods))
-'@ | & "C:\Users\JDI Employee\AppData\Local\Python\bin\python.exe" -
+'@ | & ".\.venv\Scripts\python.exe" -
 ```
 
 Route smoke:

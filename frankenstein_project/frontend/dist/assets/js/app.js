@@ -742,6 +742,11 @@
   }
 
   function goBackFromWindow() {
+    const current = getRouteFromHash();
+    if (routeSubpath(current).startsWith('tihi/')) {
+      returnToMplEditor();
+      return;
+    }
     closeCurrentRouteView(getCurrentPage());
   }
 
@@ -4192,9 +4197,9 @@
     const unassigned = [];
     const defaultConstraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
     mpl._tihi_constraints = defaultConstraints;
-    mpl._tihi_pallet_constraints = {};
+    mpl._tihi_pallet_constraints = mpl._tihi_pallet_constraints || {};
 
-    const constraintsForPallet = () => defaultConstraints;
+    const constraintsForPallet = (palletId = '') => getMplTiHiConstraints(mpl, palletId);
     const maxCasesWithinConstraints = (meta, constraints) => {
       if (!meta || !constraints) return 0;
       const perLayerA = Math.floor(constraints.max_length_in / meta.dims.l) * Math.floor(constraints.max_width_in / meta.dims.w);
@@ -4236,13 +4241,13 @@
       const tempMpl = {
         ...mpl,
         items: candidateItems,
-        _tihi_constraints: defaultConstraints,
-        _tihi_pallet_constraints: {}
+        _tihi_constraints: normalizeTiHiConstraints(mpl._tihi_constraints || {}),
+        _tihi_pallet_constraints: { ...(mpl._tihi_pallet_constraints || {}) }
       };
       const { entries } = buildMplTiHiEntries(tempMpl);
       const entry = entries.find(row => normalizePalletId(row.pallet) === palletId);
       if (!entry) return false;
-      const constraints = constraintsForPallet();
+      const constraints = constraintsForPallet(palletId);
       if ((entry.overflowCases || 0) > 0) return false;
       if (Number(entry.usedHeight || 0) > Number(constraints.max_height_in || 0) + 0.0001) return false;
       if (Number(entry.grossWeightLbs || 0) > Number(constraints.max_gross_lbs || 0) + 0.0001) return false;
@@ -4251,7 +4256,7 @@
 
     function fits(pallet, item, meta, qty) {
       if (!pallet || !meta || qty <= 0) return false;
-      const constraints = constraintsForPallet();
+      const constraints = constraintsForPallet(pallet?.id);
       const maxCases = maxCasesWithinConstraints(meta, constraints);
       if (qty > maxCases) return false;
       const palletVolumeLimit = constraints.max_length_in * constraints.max_width_in * constraints.max_height_in;
@@ -5665,33 +5670,59 @@
     });
   }
 
+  function openMplTiHiSettings(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl || !activeKeheDocumentDraft) return;
+    mpl._tihi_mode = 'settings';
+    mpl._tihi_focus_pallet = '';
+    navigateToRoute(`${getCurrentPage()}/tihi/settings/${mplIndex}`);
+  }
+
   function openMplPalletTiHi(mplIndex, palletId) {
     const mpl = getMpl(mplIndex);
     if (!mpl || !activeKeheDocumentDraft) return;
-    const normalizedPallet = normalizePalletId(palletId) || '1';
-    navigateToRoute(`${getCurrentPage()}/tihi/${mplIndex}/${encodeURIComponent(normalizedPallet)}`);
+    mpl._tihi_mode = 'edit';
+    const normalizedPallet = normalizePalletId(palletId) || '';
+    mpl._tihi_focus_pallet = normalizedPallet;
+    navigateToRoute(`${getCurrentPage()}/tihi/edit/${mplIndex}/${encodeURIComponent(normalizedPallet)}`);
   }
 
   function showMplTiHiRoute(subpath) {
     const parts = subpath.split('/');
-    const mplIndex = parseInt(parts[1], 10);
-    const palletId = decodeURIComponent(parts.slice(2).join('/') || '1');
+    const isSettings = parts[0] === 'tihi' && parts[1] === 'settings';
+    const isEdit = parts[0] === 'tihi' && parts[1] === 'edit';
+    const mplIndex = parseInt(parts[isSettings || isEdit ? 2 : 1], 10);
+    const palletId = isSettings ? '' : decodeURIComponent(parts.slice(isEdit ? 3 : 2).join('/') || '');
     const mpl = getMpl(mplIndex);
     if (!mpl || !activeKeheDocumentDraft) return;
     applyProductMasterToDraft(activeKeheDocumentDraft, true);
     (activeKeheDocumentDraft.packing_lists || []).forEach((list, index) => {
       list._show_tihi = index === mplIndex;
     });
-    mpl._tihi_focus_pallet = normalizePalletId(palletId) || '1';
+    mpl._tihi_mode = isSettings ? 'settings' : 'edit';
+    mpl._tihi_focus_pallet = normalizePalletId(palletId) || '';
     mpl._show_tihi = true;
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     showDocumentEditorView();
-    setStatus(`TI-Hi preview refreshed for pallet ${palletId}.`, 'info');
+    setStatus(isSettings ? 'TI-Hi settings opened for all pallets.' : `TI-Hi editor opened for pallet ${palletId}.`, 'info');
+  }
+
+  function returnToMplEditor() {
+    if (activeKeheDocumentDraft?.packing_lists) {
+      activeKeheDocumentDraft.packing_lists.forEach(mpl => {
+        mpl._show_tihi = false;
+        mpl._tihi_mode = '';
+      });
+    }
+    document.querySelectorAll('.tihi-popup-panel').forEach(panel => panel.remove());
+    document.getElementById('document-editor-panel')?.classList.add('visible');
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    navigateToRoute(`${getCurrentPage()}/document-editor`, true);
   }
 
   function closeMplTiHiPopup(mplIndex, useHistory = true) {
     if (useHistory) {
-      closeCurrentRouteView(`${getCurrentPage()}/document-editor`);
+      returnToMplEditor();
       return;
     }
     const mpl = getMpl(mplIndex);
@@ -5707,6 +5738,11 @@
     constraints[key] = value;
   }
 
+  function updateMplTiHiConstraintAndPreview(mplIndex, palletId, key, value) {
+    updateMplTiHiConstraint(mplIndex, palletId, key, value);
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
   function resetMplTiHiConstraints(mplIndex, palletId) {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
@@ -5720,18 +5756,38 @@
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
   }
 
+  function setMplTiHiFocusPallet(mplIndex, palletId) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    mpl._tihi_focus_pallet = normalizePalletId(palletId) || '';
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
   function recalcMplTiHiPopup(mplIndex, palletId = '') {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
     const normalizedPallet = normalizePalletId(palletId);
     if (normalizedPallet) {
-      getMplTiHiConstraints(mpl, normalizedPallet);
+      const next = normalizeTiHiConstraints(getMplTiHiConstraints(mpl, normalizedPallet));
+      mpl._tihi_pallet_constraints = mpl._tihi_pallet_constraints || {};
+      mpl._tihi_pallet_constraints[normalizedPallet] = next;
+      mpl._tihi_focus_pallet = normalizedPallet;
     } else {
       mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
+      mpl._tihi_focus_pallet = '';
+      if (mpl._tihi_pallet_constraints && typeof mpl._tihi_pallet_constraints === 'object') {
+        Object.keys(mpl._tihi_pallet_constraints).forEach(palletKey => {
+          delete mpl._tihi_pallet_constraints[palletKey];
+        });
+      }
     }
+    if (activeKeheDocumentDraft) {
+      applyProductMasterToDraft(activeKeheDocumentDraft, false);
+    }
+    autoPalletizeMpl(mplIndex, { render: true, showStatus: false });
     mpl._show_tihi = true;
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    setStatus(`TI-Hi recalculated for ${normalizedPallet ? `pallet ${normalizedPallet}` : (mpl.id || `MPL ${mplIndex + 1}`)}.`, 'info');
+    setStatus(`TI-Hi recalculated for ${normalizedPallet ? `pallet ${normalizedPallet}` : (mpl.id || `MPL ${mplIndex + 1}`)} and the order was re-optimized to the updated pallet limits.`, 'success');
   }
 
   function renderMplTiHiSheet(mpl, mplIndex, options = {}) {
@@ -5744,46 +5800,58 @@
     const statusLabel = options.statusLabel || 'Preview Page';
     const idPrefix = options.idPrefix || 'tihi';
     const editable = !!options.editable;
+    const showPreview = options.showPreview !== false;
+    const showRecalculate = options.showRecalculate ?? !focusPallet;
+    const palletOptions = (mpl?._pallet_ids || ['1']).map(palletId => normalizePalletId(palletId)).filter(Boolean);
+    const selectedScope = focusPallet || '';
     return `
       <div class="pdf-document-shell">
-        <div class="pdf-sheet-toolbar">
+        ${showPreview ? `<div class="pdf-sheet-toolbar">
           <span>${escapeHtml((mpl?.id || 'MPL') + ' · TI-HI')}</span>
           <span class="status-tag success">${escapeHtml(statusLabel)}</span>
-        </div>
+        </div>` : ''}
         <div class="pdf-sheet tihi-sheet">
-          <div class="tihi-sheet-title">TI-HI Layout Summary</div>
+          ${showPreview ? `<div class="tihi-sheet-title">TI-HI Layout Summary</div>
           <div class="tihi-sheet-subtitle">
             <span>PO: ${escapeHtml(mpl?.customer_po_number || '—')}</span>
             <span>Constraints: ${escapeHtml(String(sheetConstraints.max_length_in))} × ${escapeHtml(String(sheetConstraints.max_width_in))} × ${escapeHtml(String(sheetConstraints.max_height_in))} in • Max ${escapeHtml(String(sheetConstraints.max_gross_lbs))} lbs gross</span>
             <span>All dimensions shown in inches</span>
-          </div>
+          </div>` : `<div class="tihi-settings-title">TI-HI Settings</div>`}
           ${editable ? `
             <div class="tihi-sheet-subtitle">
               <div class="tihi-constraint-bar">
+                ${!showPreview ? `<div class="tihi-constraint-field tihi-scope-field">
+                  <label>Apply To</label>
+                  <select onchange="setMplTiHiFocusPallet(${mplIndex}, this.value)">
+                    <option value="" ${!selectedScope ? 'selected' : ''}>All pallets</option>
+                    ${palletOptions.map(palletId => `<option value="${escapeHtml(palletId)}" ${selectedScope === palletId ? 'selected' : ''}>Pallet ${escapeHtml(palletId)}</option>`).join('')}
+                  </select>
+                </div>` : `<div class="tihi-constraint-field tihi-scope-field"><label>Edit Pallet</label><output>Pallet ${escapeHtml(focusPallet)}</output></div>`}
+                ${!showPreview ? `<div class="tihi-constraint-field tihi-pallet-count-field"><label>Pallets</label><output>${escapeHtml(String(palletOptions.length || 1))}</output></div>` : ''}
                 <div class="tihi-constraint-field">
                   <label>Max Length (in)</label>
-                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_length_in))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_length_in', this.value)">
+                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_length_in))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'max_length_in', this.value)">
                 </div>
                 <div class="tihi-constraint-field">
                   <label>Max Width (in)</label>
-                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_width_in))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_width_in', this.value)">
+                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_width_in))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'max_width_in', this.value)">
                 </div>
                 <div class="tihi-constraint-field">
                   <label>Max Height (in)</label>
-                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_height_in))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_height_in', this.value)">
+                  <input type="number" min="1" step="0.1" value="${escapeHtml(String(sheetConstraints.max_height_in))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'max_height_in', this.value)">
                 </div>
                 <div class="tihi-constraint-field">
                   <label>Max Gross (lbs)</label>
-                  <input type="number" min="1" step="1" value="${escapeHtml(String(sheetConstraints.max_gross_lbs))}" oninput="updateMplTiHiConstraint(${mplIndex}, '${jsString(focusPallet)}', 'max_gross_lbs', this.value)">
+                  <input type="number" min="1" step="1" value="${escapeHtml(String(sheetConstraints.max_gross_lbs))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'max_gross_lbs', this.value)">
                 </div>
                 <div class="tihi-constraint-actions">
                   <button class="btn-secondary" type="button" onclick="resetMplTiHiConstraints(${mplIndex}, '${jsString(focusPallet)}')">Defaults</button>
-                  <button class="btn-generate" type="button" onclick="recalcMplTiHiPopup(${mplIndex}, '${jsString(focusPallet)}')">Recalculate</button>
+                  ${showRecalculate ? `<button class="btn-generate" type="button" onclick="recalcMplTiHiPopup(${mplIndex}, '${jsString(focusPallet)}')">Recalculate</button>` : ''}
                 </div>
               </div>
             </div>` : ''}
-          ${warnings.length ? `<div class="tihi-warning">${warnings.slice(0, 6).map(escapeHtml).join('<br>')}</div>` : ''}
-          ${entriesToShow.length
+          ${showPreview && warnings.length ? `<div class="tihi-warning">${warnings.slice(0, 6).map(escapeHtml).join('<br>')}</div>` : ''}
+          ${showPreview && entriesToShow.length
             ? entriesToShow.map(entry => `
               <section class="tihi-pallet-section" id="${escapeHtml(getMplTiHiSectionId(mplIndex, entry.palletLabel, idPrefix))}">
                 <div class="tihi-pallet-section-head">
@@ -5792,13 +5860,14 @@
                 </div>
                 ${renderMplTiHiCard(entry, mplIndex, entry.constraints || constraints, normalizePalletId(entry.palletLabel) === focusPallet)}
               </section>`).join('')
-            : '<div class="tihi-empty">No TI-Hi diagram could be generated for this MPL.<br>Add Case dimensions and Case weight for the palletized SKU rows in the product master, then render again.</div>'}
+            : (showPreview ? '<div class="tihi-empty">No TI-Hi diagram could be generated for this MPL.<br>Add Case dimensions and Case weight for the palletized SKU rows in the product master, then render again.</div>' : '')}
         </div>
       </div>`;
   }
 
   function renderMplTiHiPopup(mpl, mplIndex) {
     if (!mpl?._show_tihi) return '';
+    const editMode = mpl?._tihi_mode === 'edit';
     return `
       <div class="tihi-popup-panel visible tihi-screen-only" onclick="if (event.target === this) closeMplTiHiPopup(${mplIndex}, true)">
         <div class="editor-dialog">
@@ -5811,7 +5880,7 @@
           </div>
           <div class="editor-body">
             <div class="tihi-popup-shell">
-              ${renderMplTiHiSheet(mpl, mplIndex, { showOnlyFocus: true, statusLabel: 'Popup Preview', idPrefix: 'popup', editable: true })}
+              ${renderMplTiHiSheet(mpl, mplIndex, { showOnlyFocus: editMode, statusLabel: editMode ? 'Pallet Editor' : 'Settings', idPrefix: 'popup', editable: true, showPreview: editMode, showRecalculate: !editMode })}
             </div>
           </div>
         </div>
@@ -7532,7 +7601,6 @@
               <input value="${escapeHtml(weight)}" placeholder="ex: 820 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)">
             </div>
             <div class="mpl-pallet-heading-actions">
-              <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Ti-Hi Settings</button>
               <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Line Item</button>
             </div>
           </div>
@@ -7562,6 +7630,7 @@
         <div class="mpl-pdf-editor-tools-actions">
           <button class="btn-secondary" type="button" onclick="addMplPallet(${mplIndex})">Add Pallet</button>
           <button class="btn-secondary" type="button" onclick="autoPalletizeMpl(${mplIndex})">Auto Palletize</button>
+          <button class="btn-secondary" type="button" onclick="openMplTiHiSettings(${mplIndex})">Ti-Hi Settings</button>
           ${canReverseMplToXml(mpl) ? `<button class="btn-secondary" type="button" onclick="reverseMplToXmlPalletization(${mplIndex})">Reverse to XML Palletization</button>` : ''}
           <button class="btn-secondary" type="button" onclick="recalculateMplWeights(${mplIndex})">Recalculate Weights</button>
         </div>
@@ -7597,6 +7666,8 @@
       <div>
         <button class="btn-secondary" type="button" onclick="addMplPallet(${mplIndex})">Add Pallet</button>
         <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString((mpl._pallet_ids || ['1'])[0] || '1')}')">Add Line Item</button>
+        <button class="btn-secondary" type="button" onclick="autoPalletizeMpl(${mplIndex})">Auto Palletize</button>
+        <button class="btn-secondary" type="button" onclick="openMplTiHiSettings(${mplIndex})">Ti-Hi Settings</button>
         <button class="btn-secondary" type="button" onclick="recalculateMplWeights(${mplIndex})">Recalculate Weights</button>
       </div>
     </div>`;
@@ -7670,7 +7741,6 @@
         <div class="decopac-pallet-flow-actions">
           <label><span>Weight</span><input value="${escapeHtml(mpl._pallet_weights?.[palletId] || '')}" placeholder="ex: 589 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></label>
           <button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Line Item</button>
-          <button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Ti-Hi Settings</button>
         </div>
       </div>
       ${renderBreakdownTable(mpl, mplIndex, palletId)}
@@ -7710,7 +7780,7 @@
           <td><input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" placeholder="ex: 589 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></td>
           <td>${palletIndex === 0 ? editorPdfInput(`${base}.total_weight`, mpl.total_weight || '') : ''}</td>
           <td>${editorPdfInput(`${base}._pallet_tihi.${palletId}`, mplTiHiSummaryValue(mpl, palletId))}</td>
-          <td><button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Edit Ti-Hi</button></td>
+          <td></td>
         </tr>`).join('')}</tbody>
       </table></div>`;
   }
@@ -7745,7 +7815,7 @@
         const rows = (mpl.items || []).map((item, itemIndex) => ({ item, itemIndex }))
           .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
         return `<section class="dutch-bros-pallet" data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
-          <header><div><span>Pallet</span><strong>${escapeHtml(palletId)}</strong></div><div class="dutch-bros-pallet-meta"><label>Weight <input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></label><button class="btn-secondary" type="button" onclick="openMplPalletTiHi(${mplIndex}, '${jsString(palletId)}')">Ti-Hi</button><button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Item</button></div></header>
+          <header><div><span>Pallet</span><strong>${escapeHtml(palletId)}</strong></div><div class="dutch-bros-pallet-meta"><label>Weight <input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></label><button class="btn-secondary" type="button" onclick="addMplItem(${mplIndex}, '${jsString(palletId)}')">Add Item</button></div></header>
           <div class="dutch-bros-table-wrap"><table><thead><tr><th>Item / SKU</th><th>Product</th><th>Lot</th><th>Cases</th><th>Units / Case</th><th>Total Units</th><th></th></tr></thead>
           <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
             const itemBase = `${base}.items.${itemIndex}`;
