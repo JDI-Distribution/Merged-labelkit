@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260825-module-themes-5">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260826-b2b-editor-4">
 </head>
 <body data-module="home">
 
@@ -493,60 +493,71 @@
               <span class="b2b-state-badge" id="b2b-configuration-status">Loading</span>
             </div>
             <div class="b2b-selector-grid">
-              <label>Customer
+              <label data-b2b-selector-wrap="customer">Customer
                 <select id="b2b-customer-select" onchange="selectB2BCustomer(this.value)"></select>
               </label>
-              <label>Product / Configuration
+              <label class="hidden" data-b2b-selector-wrap="product">Product / Configuration
                 <select id="b2b-product-select" onchange="selectB2BProduct(this.value)"></select>
               </label>
-              <label>Packaging Level
+              <label class="hidden" data-b2b-selector-wrap="level">Packaging Level
                 <select id="b2b-level-select" onchange="selectB2BLevel(this.value)"></select>
               </label>
-              <label>Label Template
+              <label class="hidden" data-b2b-selector-wrap="template">Label Template
                 <select id="b2b-template-select" onchange="selectB2BTemplate(this.value)"></select>
               </label>
-              <label>Destination / Customer Record
+              <label class="hidden" data-b2b-selector-wrap="directory">Destination / Customer Record
                 <select id="b2b-directory-select" onchange="selectB2BDirectory(this.value)"></select>
               </label>
             </div>
             <div class="b2b-template-summary" id="b2b-template-summary">Select a customer and configuration.</div>
           </section>
 
-          <section class="b2b-card">
+          <div class="b2b-workbench-grid">
+          <section class="b2b-card b2b-label-editor-card">
             <div class="b2b-card-heading">
               <div class="b2b-heading-with-step">
                 <span class="b2b-step-number">02</span>
                 <div>
-                  <div class="b2b-card-kicker">Saved product data</div>
-                  <h3>Review label values</h3>
+                  <div class="b2b-card-kicker">Editable label</div>
+                  <h3>Edit what will print</h3>
                 </div>
               </div>
               <span class="b2b-save-state" id="b2b-product-save-state">Changes save to Product Master</span>
             </div>
-            <div class="b2b-field-grid" id="b2b-product-fields">
-              <label class="b2b-field-wide">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
-              <label>Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
-              <label>Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
-              <label>GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
-              <label>Barcode Type
-                <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select>
-              </label>
-              <label>Barcode Level
-                <select id="b2b-product-barcode-level" onchange="updateB2BProductField('barcode_level', this.value)"></select>
-              </label>
-              <label>Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
-              <label>Each Net Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
-              <label>Package Net Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
-              <label>Gross Weight (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
-              <label>Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
-              <label>Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
-              <label>Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
-              <label title="Tracks review without changing label content; Blocked hides the configuration from general users.">Data Status
-                <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select>
-                <span class="b2b-field-help">Does not alter label content. Blocked hides it from general users.</span>
-              </label>
-              <label class="mpl-toggle-field">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
+            <div class="b2b-label-editor-meta" id="b2b-label-editor-meta">Select a packaging level to load its print layout.</div>
+            <div class="b2b-section-empty" id="b2b-label-editor-empty">Your editable label will appear after Section 1 is complete.</div>
+            <div class="b2b-label-editor-stage hidden" id="b2b-label-editor-stage">
+              <div id="b2b-label-editor-canvas"></div>
             </div>
+            <details class="b2b-product-settings hidden" id="b2b-product-settings">
+              <summary>
+                <span class="b2b-settings-summary-copy">
+                  <span class="b2b-settings-icon">⚙</span>
+                  <span><strong>Product &amp; Barcode Settings</strong><small>Complete GTIN, barcode, weights, dimensions, and configuration data.</small></span>
+                </span>
+                <span class="b2b-settings-status" id="b2b-settings-status">Review setup</span>
+              </summary>
+              <div class="b2b-settings-body">
+                <div class="b2b-settings-note">Use this setup panel for product data that may not appear as text on every label. Printed text can still be edited directly above.</div>
+                <div class="b2b-settings-grid">
+                  <label class="b2b-setting-wide">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
+                  <label>Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
+                  <label>Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
+                  <label>GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
+                  <label>Barcode Type <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select></label>
+                  <label>Barcode Level <select id="b2b-product-barcode-level" onchange="updateB2BProductField('barcode_level', this.value)"></select></label>
+                  <label>Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
+                  <label>Each Net Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
+                  <label>Package Net Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
+                  <label>Gross Weight (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
+                  <label>Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
+                  <label>Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
+                  <label>Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
+                  <label>Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
+                  <label class="b2b-setting-toggle">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
+                </div>
+              </div>
+            </details>
           </section>
 
           <section class="b2b-card">
@@ -555,49 +566,49 @@
                 <span class="b2b-step-number">03</span>
                 <div>
                   <div class="b2b-card-kicker">This print run</div>
-                  <h3>Job and carton details</h3>
+                  <h3>Carton range &amp; copies</h3>
                 </div>
               </div>
             </div>
-            <div class="b2b-field-grid">
-              <label data-b2b-run-wrap="po_number">PO Number <input data-b2b-run-field="po_number" oninput="updateB2BRunField('po_number', this.value)"></label>
-              <label data-b2b-run-wrap="order_number">Order Number <input data-b2b-run-field="order_number" oninput="updateB2BRunField('order_number', this.value)"></label>
-              <label data-b2b-run-wrap="invoice_number">Invoice Number <input data-b2b-run-field="invoice_number" oninput="updateB2BRunField('invoice_number', this.value)"></label>
-              <label data-b2b-run-wrap="lot_number">Lot Number <input data-b2b-run-field="lot_number" oninput="updateB2BRunField('lot_number', this.value)"></label>
-              <label data-b2b-run-wrap="expected_delivery_date">Expected Delivery <input data-b2b-run-field="expected_delivery_date" type="date" oninput="updateB2BRunField('expected_delivery_date', this.value)"></label>
-              <label data-b2b-run-wrap="best_before">Best Before <input data-b2b-run-field="best_before" type="date" oninput="updateB2BRunField('best_before', this.value)"></label>
-              <label>Carton Total <input data-b2b-run-field="carton_total" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_total', this.value)"></label>
-              <label>Start Carton <input data-b2b-run-field="carton_start" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_start', this.value)"></label>
-              <label>End Carton <input data-b2b-run-field="carton_end" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_end', this.value)"></label>
-              <label>Copies per Carton <input data-b2b-run-field="copies" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('copies', this.value)"></label>
-              <label data-b2b-run-wrap="project_name">Project Name <input data-b2b-run-field="project_name" oninput="updateB2BRunField('project_name', this.value)"></label>
-              <label data-b2b-run-wrap="allergens">Allergens <input data-b2b-run-field="allergens" oninput="updateB2BRunField('allergens', this.value)"></label>
-              <label class="b2b-field-wide" data-b2b-run-wrap="required_statement">Required Statement <input data-b2b-run-field="required_statement" oninput="updateB2BRunField('required_statement', this.value)"></label>
+            <div class="b2b-section-empty" id="b2b-run-fields-empty">Complete Section 1 to set the print quantity.</div>
+            <div class="b2b-field-grid" id="b2b-run-fields">
+              <label data-b2b-run-wrap="carton_total">Carton Total <input data-b2b-run-field="carton_total" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_total', this.value)"></label>
+              <label data-b2b-run-wrap="carton_start">Start Carton <input data-b2b-run-field="carton_start" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_start', this.value)"></label>
+              <label data-b2b-run-wrap="carton_end">End Carton <input data-b2b-run-field="carton_end" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_end', this.value)"></label>
+              <label data-b2b-run-wrap="copies">Copies per Carton <input data-b2b-run-field="copies" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('copies', this.value)"></label>
             </div>
           </section>
-        </div>
+          </div>
 
-        <aside class="b2b-preview-card">
+        <section class="b2b-preview-card">
           <div class="b2b-card-heading">
             <div class="b2b-heading-with-step">
               <span class="b2b-step-number">04</span>
               <div>
-                <div class="b2b-card-kicker">Print preview</div>
+                <div class="b2b-card-kicker">Final PDF proof</div>
                 <h3 id="b2b-preview-title">Select a label</h3>
               </div>
             </div>
+            <span class="b2b-proof-note">Rendered by the production print engine</span>
           </div>
-          <div class="b2b-inline-preview" id="b2b-inline-preview-wrap">
-            <div class="b2b-preview-placeholder" id="b2b-preview-placeholder">Your generated label will appear here.</div>
-            <iframe id="b2b-inline-preview" title="B2B label PDF preview"></iframe>
+          <div class="b2b-proof-layout">
+            <div class="b2b-inline-preview" id="b2b-inline-preview-wrap">
+              <div class="b2b-preview-placeholder" id="b2b-preview-placeholder">Render the final PDF after completing Sections 1–3.</div>
+              <iframe id="b2b-inline-preview" title="B2B label PDF preview"></iframe>
+            </div>
+            <div class="b2b-proof-sidebar">
+              <div class="b2b-proof-sidebar-heading">Preflight check</div>
+              <div class="b2b-validation" id="b2b-validation"></div>
+              <div class="b2b-print-actions">
+                <button class="btn-secondary" id="b2b-render-button" type="button" onclick="generateB2BPreview(false)">Render Final PDF</button>
+                <button class="btn-secondary" type="button" onclick="generateB2BPreview(true)">Open Full Preview</button>
+                <button class="btn-secondary" id="b2b-download-button" type="button" onclick="downloadB2BLabels()" disabled>Download PDF</button>
+                <button class="btn-generate" id="b2b-print-button" type="button" onclick="printB2BLabels()">Print Labels</button>
+              </div>
+            </div>
           </div>
-          <div class="b2b-validation" id="b2b-validation"></div>
-          <div class="b2b-print-actions">
-            <button class="btn-secondary" type="button" onclick="generateB2BPreview(true)">Full Preview</button>
-            <button class="btn-secondary" id="b2b-download-button" type="button" onclick="downloadB2BLabels()" disabled>Download PDF</button>
-            <button class="btn-generate" id="b2b-print-button" type="button" onclick="printB2BLabels()">Generate &amp; Print</button>
-          </div>
-        </aside>
+        </section>
+        </div>
       </div>
 
       <div class="status-bar" id="b2b-status-bar"></div>
@@ -974,7 +985,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-  <script src="/assets/js/app.js?v=20260825-module-themes-5"></script>
+  <script src="/assets/js/app.js?v=20260826-b2b-editor-4"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

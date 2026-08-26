@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from server import (
+    FRONTEND_DIST,
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
     _b2b_analytics_order_items_for_products,
@@ -478,6 +479,29 @@ class FrontendDeliveryTests(unittest.TestCase):
 
         self.assertEqual("no-store, no-cache, must-revalidate, max-age=0", response.headers["cache-control"])
         self.assertEqual("no-cache", response.headers["pragma"])
+
+    def test_b2b_creator_uses_progressive_hierarchy_and_dynamic_run_fields(self):
+        response = serve_frontend_index()
+        html = response.body.decode("utf-8")
+        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-b2b-selector-wrap="customer"', html)
+        for selector in ("product", "level", "template", "directory"):
+            self.assertIn(f'class="hidden" data-b2b-selector-wrap="{selector}"', html)
+        self.assertIn('id="b2b-label-editor-canvas"', html)
+        self.assertIn('id="b2b-product-settings"', html)
+        self.assertIn('id="b2b-product-gtin"', html)
+        self.assertIn('id="b2b-product-barcode-type"', html)
+        self.assertIn('id="b2b-run-fields-empty"', html)
+        self.assertEqual(4, html.count("data-b2b-run-wrap="))
+        self.assertNotIn('data-b2b-run-field="po_number"', html)
+        self.assertIn("function b2bRunFieldNames(template)", javascript)
+        self.assertIn("function b2bLabelEditorHtml(template, product, directory)", javascript)
+        self.assertIn("function renderB2BProductSettings(product", javascript)
+        self.assertIn("function commitB2BLabelEdit(element)", javascript)
+        self.assertIn("function commitB2BRunLabelEdit(element)", javascript)
+        self.assertIn("setB2BSelectorVisibility('level', !!selectedGroup)", javascript)
+        self.assertIn("b2bRunFieldNames(template).forEach(field =>", javascript)
 
 
 if __name__ == "__main__":

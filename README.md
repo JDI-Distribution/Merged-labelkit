@@ -5,7 +5,7 @@ Merged LabelKit is a FastAPI web app for print-ready label and packing-list work
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
 - Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
-- B2B Case-Pack Labels: select a customer, SKU configuration, packaging level, label template, and destination; edit saved or run-specific values; preview the actual PDF; then download or print it.
+- B2B Case-Pack Labels: follow a customer-first configuration hierarchy, edit printed values directly on a live label canvas, complete technical product/barcode setup when needed, and render the production PDF for download or printing.
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
@@ -19,13 +19,13 @@ FastAPI routes in server.py
    |-- Michaels pipeline ---- ASN XML + shipping-label PDF --> combined PDF + match report
    |-- KeHE pipeline -------- ASN XML + reference data ------> GS1/pack/pallet/MPL PDFs
    |-- Packing List & Ti-Hi - sales order + Product Master --> editable MPL + optional TI-HI
-   `-- B2B labels ----------- sales order + saved template ---> case-pack label PDF
+   `-- B2B labels ----------- sales order + product/template --> editable label canvas --> case-pack PDF
 ```
 
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
 - `labelkit_config.json` selects the local or Catalyst runtime profile. `auto` uses local JSON/CSV sources on a workstation and Catalyst authentication, connections, and Data Store in AppSail.
 - Local master data is stored under `frankenstein_project/data/`. Catalyst uses the configured Data Store tables and does not fall back to bundled JSON in strict cloud mode.
-- Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser.
+- Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser. The B2B editable canvas mirrors the selected renderer, while Section 4 remains the authoritative production-PDF proof.
 - Packing List and B2B order lookup use the field label `Sales Order Number`. Catalyst reads the Zoho Analytics order view through the `orderdata` connection.
 - Missing Product Master data remains visible as a review warning. Packing-list output can still be generated with the order SKU as its line identity; lines without safe case data are excluded from TI-HI.
 
@@ -222,12 +222,15 @@ The standalone table views and major document views are full-screen, route-backe
 
 ## B2B Case-Pack Label Workflow
 
-The B2B page is a working label creator, not a staged checklist. It shows the supported label catalog and current SKU counts, then provides one print form:
+The B2B page is a working label editor driven by the saved customer/product hierarchy:
 
-1. Select Customer, Product/Configuration, Packaging Level, Label Template, and Destination/Customer Record.
-2. Review or edit the Product Master values. Authorized changes save automatically.
-3. Enter print-run values such as PO, order, invoice, lot, delivery date, carton range, and copies. Only fields used by the selected template are shown.
-4. Use `Full Preview`, `Download PDF`, or `Generate & Print`.
+1. Select `Customer`, then `Product / Configuration`, then `Packaging Level`. Downstream selectors appear only after the preceding choice. A single matching template resolves automatically; template selection appears only when a choice is genuinely required.
+2. Edit the label directly in Section 2. Brown-outlined values are Product Master data and save automatically for authorized users. Green-outlined values are print-run data such as PO, order, invoice, lot, delivery date, project name, allergens, and required statements; these values stay with the current job and are not written to Product Master.
+3. Expand `Product & Barcode Settings` when technical setup is needed. It contains description, SKU, customer item, GTIN/UPC, barcode type/level, package quantity, weights, dimensions, verification status, and Label Creator availability. The panel opens automatically when required data or a supported barcode configuration is missing.
+4. Section 3 contains only physical-output controls: carton total, start carton, end carton, and copies per carton.
+5. Section 4 is the authoritative production-PDF proof. Use `Render Final PDF`, `Open Full Preview`, `Download PDF`, or `Print Labels`.
+
+Loading a Sales Order Number can preselect matching customer and product data and populate available print-run fields. Missing or ambiguous Product Master matches remain review warnings; they are not silently replaced with guessed data.
 
 Supported workbook-derived label types:
 
@@ -241,7 +244,7 @@ Supported workbook-derived label types:
 
 All nine supported label types have at least one enabled Product Master configuration. The five non-production examples use `SAMPLE-*` configuration/SKU values and `DRAFT` status so they are easy to identify and replace after testing. Fancy SRD, Fancy Master-Pack, Dutch PFG, and Dutch Other share one configurable compact renderer; their titles, copy counts, invoice visibility, and required fields remain template-driven.
 
-Customer-specific fields come from Product Master and Directory; PO/lot/carton/job values remain print-run data and are not written back. The bundled template registry is `frankenstein_project/data/b2b_label_templates.json`, and renderers live under `frankenstein_project/pipelines/b2b_labels/`.
+Customer-specific fields come from Product Master and Directory. Direct label edits to product text write through to Product Master, while PO/lot/carton/job values remain print-run data. The bundled template registry is `frankenstein_project/data/b2b_label_templates.json`, and the production renderers live under `frankenstein_project/pipelines/b2b_labels/`.
 
 ## Master Packing List And TI-HI
 
@@ -360,7 +363,7 @@ Build from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-docker build --pull --build-arg APP_VERSION=2026.08.25 -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.26-b2b-editor -t merged-labelkit:latest .
 ```
 
 Run locally:
@@ -406,7 +409,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-docker build --pull --build-arg APP_VERSION=2026.08.25 -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.26-b2b-editor -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
 
@@ -691,6 +694,7 @@ Tracked app source:
     |-- server.py
     |-- start.sh
     |-- data
+    |   |-- b2b_label_templates.json
     |   |-- kehe_mpl_drafts.json
     |   |-- mpl_directory.json
     |   |-- mpl_product_master.json
@@ -708,8 +712,15 @@ Tracked app source:
     |-- scripts
     |   `-- migrate_product_master_and_seed_b2b.py
     |-- tests
+    |   |-- test_b2b_labels.py
+    |   |-- test_kehe_gs1_label.py
+    |   |-- test_mpl_templates.py
+    |   |-- test_order_lookup.py
     |   `-- test_product_master_migration.py
     `-- pipelines
+        |-- b2b_labels
+        |   |-- __init__.py
+        |   `-- renderer.py
         |-- kehe_pipeline.py
         |-- michaels_label_pipeline.py
         |-- kehe
@@ -811,10 +822,10 @@ catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit
 - [ ] Run frontend script parse.
 - [ ] Run import and route smoke checks.
 - [ ] Build `docker build -t merged-labelkit:latest .`.
-- [ ] Commit on `main`.
-- [ ] Push `origin main`.
 - [ ] Deploy with `catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000`.
 - [ ] Health-check `https://mergedlabelkit.development.catalystappsail.com/health`.
+- [ ] Commit the exact source used for the verified image on `main`.
+- [ ] Push `origin main`.
 - [ ] Confirm route-backed views open and close with browser Back for table, preview, editor, import, audit, saved MPL, and TI-HI views.
 - [ ] Confirm `Export Product CSV` and `Export Directory CSV` download the full standalone tables.
 - [ ] Confirm `git status --short` is clean.

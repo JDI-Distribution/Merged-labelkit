@@ -254,7 +254,7 @@
       "storefront": "Generic B2B",
       "dc": "GENERIC-BULK-DEFAULT",
       "name": "Bakell Bulk Manufacturer",
-      "ship_from": "BAKELL LLC\\n1967 ESSEX CT\\nREDLANDS, CA 92373\\nUSA",
+      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
       "delivery_address": "",
       "billing_address": "",
       "match_values": [
@@ -264,7 +264,7 @@
       "record_type": "CUSTOMER_DEFAULT",
       "default_label_template_id": "BULK_FURTHER_PROCESSING_4X6",
       "manufacturer_name": "BAKELL LLC",
-      "manufacturer_address": "1967 ESSEX CT\\nREDLANDS, CA 92373\\nUSA",
+      "manufacturer_address": "1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
       "receiving_email": "",
       "docking_instructions": "",
       "verification_status": "NEEDS_REVIEW",

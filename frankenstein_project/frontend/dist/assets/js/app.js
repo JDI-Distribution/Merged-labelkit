@@ -431,6 +431,8 @@
   let b2bSelectedProductIndex = -1;
   let b2bSelectedDirectoryIndex = -1;
   let b2bSelectedTemplateId = '';
+  let b2bCopiesTemplateId = '';
+  let b2bSettingsProductIndex = -1;
   let b2bPreviewUrl = null;
   let b2bRunFields = {
     po_number: '',
@@ -6156,7 +6158,17 @@
     select.value = selectedValue || '';
   }
 
-  function b2bProductFieldMap() {
+  function b2bPreviewValue(product, directory, ...fields) {
+    for (const source of [b2bRunFields, product || {}, directory || {}]) {
+      for (const field of fields) {
+        const value = String(source?.[field] ?? '').trim();
+        if (value) return value.replace(/\\n/g, '\n');
+      }
+    }
+    return '';
+  }
+
+  function b2bProductSettingMap() {
     return {
       description: 'b2b-product-description',
       sku: 'b2b-product-sku',
@@ -6172,15 +6184,272 @@
     };
   }
 
-  function visibleB2BRunFields(template) {
-    const visible = new Set([
-      'carton_total', 'carton_start', 'carton_end', 'copies',
-      ...((template?.required_run_fields || []).map(String)),
-      ...((template?.optional_run_fields || []).map(String)),
-    ]);
-    document.querySelectorAll('[data-b2b-run-wrap]').forEach(wrapper => {
-      wrapper.classList.toggle('hidden', !visible.has(wrapper.dataset.b2bRunWrap));
+  function renderB2BProductSettings(product = getSelectedB2BProduct(), template = getSelectedB2BTemplate()) {
+    const panel = document.getElementById('b2b-product-settings');
+    const status = document.getElementById('b2b-settings-status');
+    if (!panel) return;
+    panel.classList.toggle('hidden', !product);
+    if (!product) {
+      panel.open = false;
+      b2bSettingsProductIndex = -1;
+      return;
+    }
+
+    const canEdit = hasPermission('table_crud');
+    Object.entries(b2bProductSettingMap()).forEach(([field, id]) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      input.value = product[field] ?? '';
+      input.disabled = !canEdit;
     });
+    setNativeSelectOptions(document.getElementById('b2b-product-barcode-type'), B2B_BARCODE_TYPES, product.barcode_type || '', 'Select type');
+    setNativeSelectOptions(document.getElementById('b2b-product-barcode-level'), B2B_BARCODE_LEVELS, product.barcode_level || '', 'Select level');
+    setNativeSelectOptions(document.getElementById('b2b-product-verification'), B2B_VERIFICATION_STATUSES, product.verification_status || '', 'Select status');
+    ['b2b-product-barcode-type', 'b2b-product-barcode-level', 'b2b-product-verification'].forEach(id => {
+      const select = document.getElementById(id);
+      if (select) select.disabled = !canEdit;
+    });
+    const enabled = document.getElementById('b2b-product-enabled');
+    if (enabled) {
+      enabled.checked = !!product.label_enabled;
+      enabled.disabled = !canEdit;
+    }
+
+    const requiredMissing = uniqueTextValues((template?.required_product_fields || []).map(String))
+      .filter(field => !String(product[field] ?? '').trim());
+    const barcodePolicy = String(template?.barcode_policy || 'NONE').toUpperCase();
+    const barcodeConfigured = !!String(product.gtin || '').trim()
+      && !['', 'NONE'].includes(String(product.barcode_type || '').toUpperCase())
+      && !['', 'NONE'].includes(String(product.barcode_level || '').toUpperCase());
+    const needsAttention = requiredMissing.length > 0 || (barcodePolicy !== 'NONE' && !barcodeConfigured);
+    if (status) {
+      if (requiredMissing.length) status.textContent = `${requiredMissing.length} required field${requiredMissing.length === 1 ? '' : 's'} missing`;
+      else if (barcodePolicy === 'NONE') status.textContent = 'Barcode not printed by this template';
+      else if (!barcodeConfigured) status.textContent = 'Barcode not configured';
+      else status.textContent = 'Setup complete';
+      status.className = `b2b-settings-status ${needsAttention ? 'review' : barcodePolicy === 'NONE' ? 'neutral' : 'ready'}`;
+    }
+    if (b2bSettingsProductIndex !== b2bSelectedProductIndex) {
+      panel.open = needsAttention;
+      b2bSettingsProductIndex = b2bSelectedProductIndex;
+    }
+  }
+
+  function b2bEditableValue(product, field, placeholder, className = '') {
+    const value = String(product?.[field] ?? '').trim();
+    const editable = !!product && hasPermission('table_crud');
+    return `<span class="b2b-label-editable ${className} ${value ? '' : 'is-empty'} ${editable ? '' : 'is-readonly'}"
+      data-b2b-product-edit="${escapeHtml(field)}"
+      data-placeholder="${escapeHtml(placeholder)}"
+      contenteditable="${editable ? 'true' : 'false'}"
+      role="textbox"
+      aria-label="Edit ${escapeHtml(field.replace(/_/g, ' '))}"
+      spellcheck="false"
+      onkeydown="handleB2BEditorKeydown(event)"
+      onfocus="this.classList.remove('is-empty')"
+      onblur="commitB2BLabelEdit(this)">${escapeHtml(value)}</span>`;
+  }
+
+  function b2bEditableRunValue(field, placeholder, className = '') {
+    const value = String(b2bRunFields[field] ?? '').trim();
+    return `<span class="b2b-label-editable b2b-label-run-editable ${className} ${value ? '' : 'is-empty'}"
+      data-b2b-run-edit="${escapeHtml(field)}"
+      data-placeholder="${escapeHtml(placeholder)}"
+      contenteditable="true"
+      role="textbox"
+      aria-label="Edit ${escapeHtml(field.replace(/_/g, ' '))} for this print run"
+      spellcheck="false"
+      onkeydown="handleB2BEditorKeydown(event)"
+      onfocus="this.classList.remove('is-empty')"
+      onblur="commitB2BRunLabelEdit(this)">${escapeHtml(value)}</span>`;
+  }
+
+  function b2bLabelEditorHtml(template, product, directory) {
+    const renderer = String(template?.renderer_key || '');
+    const runValue = (...fields) => escapeHtml(b2bPreviewValue(product, directory, ...fields));
+    const edit = (field, placeholder, className = '') => b2bEditableValue(product, field, placeholder, className);
+    const runEdit = (field, placeholder, className = '') => b2bEditableRunValue(field, placeholder, className);
+    const skuField = String(product?.sku || '').trim() ? 'sku' : 'customer_item_number';
+    const customer = runValue('name', 'storefront') || escapeHtml(template?.customer || 'Customer');
+    const carton = runValue('carton_start') || '1';
+    const total = runValue('carton_total') || '1';
+    const box = `Box ${carton} of ${total}`;
+    const dimensions = [
+      edit('length_in', 'Length'),
+      edit('width_in', 'Width'),
+      edit('height_in', 'Height'),
+    ].join('<span class="b2b-label-dimension-times">×</span>');
+    const options = template?.renderer_options || {};
+
+    if (renderer === 'decopac_case_4x6') {
+      const manufacturer = runValue('manufacturer_name', 'name') || 'DECOPAC, INC';
+      const destination = runValue('delivery_address') || 'ANOKA, MN USA';
+      const barcodeVisible = !!String(product?.gtin || '').trim()
+        && !['', 'NONE'].includes(String(product?.barcode_type || '').toUpperCase());
+      return `<div class="b2b-label-sheet b2b-label-decocpac">
+        <div class="b2b-label-topline"><strong>${manufacturer.toUpperCase()}</strong><span>${destination.replace(/\n/g, ' ')}</span></div>
+        <div class="b2b-label-rule"></div>
+        <div class="b2b-label-row"><b>ITEM #:</b>${edit('customer_item_number', 'Customer item number')}</div>
+        <div class="b2b-label-row b2b-label-description"><b>DESCRIPTION:</b>${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-row"><b>QTY:</b><span>Master Carton of ${edit('case_qty', 'Quantity')}</span></div>
+        <div class="b2b-label-split"><div><b>PO #:</b> ${runEdit('po_number', 'Enter PO number')}</div><div><b>LOT #:</b> ${runEdit('lot_number', 'Enter lot number')}</div><strong>${box}</strong></div>
+        <div class="b2b-label-details">
+          <div><b>NET ITEM:</b> ${edit('each_net_weight_g', 'Weight')} g</div>
+          <div><b>NET CASE:</b> ${edit('package_net_weight_g', 'Weight')} g</div>
+          <div><b>DIMENSIONS:</b> <span class="b2b-label-dimensions">${dimensions}</span> in</div>
+        </div>
+        ${barcodeVisible ? `<div class="b2b-label-barcode"><div class="b2b-label-bars"></div>${edit('gtin', 'GTIN / UPC', 'b2b-edit-barcode')}</div>` : ''}
+      </div>`;
+    }
+
+    if (renderer === 'disney_case_3x3') {
+      return `<div class="b2b-label-sheet b2b-label-square b2b-label-disney">
+        <strong class="b2b-label-customer">${customer.toUpperCase()}</strong>
+        <div class="b2b-label-rule"></div>
+        <div class="b2b-label-hero-description">${edit('customer_item_number', 'Customer item')}<span>—</span>${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-center-row"><b>PO #</b> ${runEdit('po_number', 'Enter PO number')}</div>
+        <strong class="b2b-label-box-count">${box}</strong>
+        <div class="b2b-label-date-caption">EXPECTED DELIVERY BY</div>
+        <strong class="b2b-label-date">${runEdit('expected_delivery_date', 'YYYY-MM-DD')}</strong>
+      </div>`;
+    }
+
+    if (renderer === 'compact_case_3x3') {
+      const showInvoice = !!options.show_invoice;
+      const showBarcode = !!options.show_barcode;
+      return `<div class="b2b-label-sheet b2b-label-square b2b-label-compact">
+        <strong class="b2b-label-customer">${customer.toUpperCase()}</strong>
+        <div class="b2b-label-rule"></div>
+        <div class="b2b-label-hero-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-row"><b>SKU:</b>${edit(skuField, 'SKU')}</div>
+        <div class="b2b-label-row"><b>PO:</b>${runEdit('po_number', 'Enter PO number')}</div>
+        ${showInvoice ? `<div class="b2b-label-row"><b>INV:</b>${runEdit('invoice_number', 'Enter invoice number')}</div>` : ''}
+        <div class="b2b-label-row"><b>PACK:</b>${edit('case_qty', 'Pack quantity')}</div>
+        <strong class="b2b-label-box-count">${box}</strong>
+        ${showBarcode ? `<div class="b2b-label-barcode"><div class="b2b-label-bars"></div>${edit('gtin', 'GTIN / UPC', 'b2b-edit-barcode')}</div>` : ''}
+      </div>`;
+    }
+
+    if (renderer === 'mixed_case_3x1_5') {
+      return `<div class="b2b-label-sheet b2b-label-strip">
+        <div class="b2b-label-topline"><strong>${customer.toUpperCase()}</strong><strong>${box}</strong></div>
+        <div class="b2b-label-hero-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-strip-footer"><span>SKU: ${edit(skuField, 'SKU')}</span><span>${edit('case_qty', 'Qty')} units</span></div>
+        <div class="b2b-label-strip-po">PO: ${runEdit('po_number', 'Enter PO number')}</div>
+      </div>`;
+    }
+
+    if (renderer === 'standard_case_4x6') {
+      return `<div class="b2b-label-sheet b2b-label-standard">
+        <strong class="b2b-label-box-count">${box}</strong>
+        <div class="b2b-label-rule"></div>
+        <strong class="b2b-label-standard-po">PO # ${runEdit('po_number', 'Enter PO number')}</strong>
+        <div class="b2b-label-standard-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <strong class="b2b-label-standard-pack">${edit('case_qty', 'Quantity')} units per case</strong>
+        <div class="b2b-label-standard-sku">SKU: ${edit(skuField, 'SKU')}</div>
+      </div>`;
+    }
+
+    if (renderer === 'bulk_further_processing_4x6') {
+      const manufacturer = [runValue('manufacturer_name'), runValue('manufacturer_address')].filter(Boolean).join('<br>') || 'Manufacturer details';
+      const weightField = String(product?.gross_weight_lbs || '').trim() ? 'gross_weight_lbs' : 'package_net_weight_g';
+      const weightUnit = weightField === 'gross_weight_lbs' ? 'lb' : 'g';
+      return `<div class="b2b-label-sheet b2b-label-bulk">
+        <strong class="b2b-label-customer">${runEdit('project_name', runValue('name') || 'BULK PACKAGED ITEM', 'b2b-run-project')}</strong>
+        <div class="b2b-label-row"><b>ORDER #:</b>${runEdit('order_number', 'Enter order number')}</div>
+        <div class="b2b-label-row"><b>PO #:</b>${runEdit('po_number', 'Enter PO number')}</div>
+        <div class="b2b-label-row"><b>LOT #:</b>${runEdit('lot_number', 'Enter lot number')}</div>
+        <div class="b2b-label-row b2b-label-description"><b>DESCRIPTION:</b>${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-row"><b>ALLERGENS:</b>${runEdit('allergens', 'NONE')}</div>
+        <div class="b2b-label-row"><b>NET WT:</b><span>${edit(weightField, 'Weight')} ${weightUnit}</span></div>
+        <div class="b2b-label-manufacturer"><b>MANUFACTURED BY:</b><span>${manufacturer}</span></div>
+        <div class="b2b-label-statement">${runEdit('required_statement', 'Bulk Packaged Item – Further Processing and / or Labeling Needed for Retail Sale', 'b2b-edit-wide')}</div>
+        <strong class="b2b-label-box-count">${box}</strong>
+      </div>`;
+    }
+
+    return '<div class="b2b-section-empty">This label renderer does not have an editable canvas yet.</div>';
+  }
+
+  function renderB2BLabelEditor(product = getSelectedB2BProduct(), template = getSelectedB2BTemplate()) {
+    const canvas = document.getElementById('b2b-label-editor-canvas');
+    const stage = document.getElementById('b2b-label-editor-stage');
+    const empty = document.getElementById('b2b-label-editor-empty');
+    const meta = document.getElementById('b2b-label-editor-meta');
+    if (!canvas || !stage || !empty) return;
+    const ready = !!product && !!template;
+    stage.classList.toggle('hidden', !ready);
+    empty.classList.toggle('hidden', ready);
+    if (!ready) {
+      canvas.innerHTML = '';
+      if (meta) meta.textContent = 'Select a packaging level to load its print layout.';
+      return;
+    }
+    const width = Number(template.physical_width_in || 4);
+    const height = Number(template.physical_height_in || 6);
+    const sheetWidth = width <= 3 && height >= 3 ? 440 : width <= 3 ? 640 : 720;
+    canvas.style.setProperty('--b2b-label-ratio', `${width} / ${height}`);
+    canvas.style.setProperty('--b2b-label-max-width', `${sheetWidth}px`);
+    canvas.innerHTML = b2bLabelEditorHtml(template, product, getSelectedB2BDirectory());
+    if (meta) {
+      meta.innerHTML = `<span>${escapeHtml(template.name || template.template_id)}</span><span>${width} × ${height} in</span><span class="b2b-meta-product">Product text saves automatically</span><span class="b2b-meta-run">Print-run text stays with this job</span>`;
+    }
+  }
+
+  function handleB2BEditorKeydown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+  }
+
+  function commitB2BLabelEdit(element) {
+    const field = String(element?.dataset?.b2bProductEdit || '');
+    if (!field || !hasPermission('table_crud')) return;
+    const value = String(element.innerText || '').replace(/\s+/g, ' ').trim();
+    element.classList.toggle('is-empty', !value);
+    updateB2BProductField(field, value, false);
+  }
+
+  function commitB2BRunLabelEdit(element) {
+    const field = String(element?.dataset?.b2bRunEdit || '');
+    if (!field) return;
+    const value = String(element.innerText || '').replace(/\s+/g, ' ').trim();
+    element.classList.toggle('is-empty', !value);
+    updateB2BRunField(field, value, false);
+  }
+
+  function b2bRunFieldNames(template) {
+    if (!template) return [];
+    return uniqueTextValues([
+      ...((template.required_run_fields || []).map(String)),
+      ...((template.optional_run_fields || []).map(String)),
+      'copies',
+    ]);
+  }
+
+  function setB2BSelectorVisibility(name, visible) {
+    const wrapper = document.querySelector(`[data-b2b-selector-wrap="${name}"]`);
+    if (wrapper) wrapper.classList.toggle('hidden', !visible);
+  }
+
+  function visibleB2BRunFields(template) {
+    const visible = new Set(b2bRunFieldNames(template));
+    const required = new Set((template?.required_run_fields || []).map(String));
+    document.querySelectorAll('[data-b2b-run-wrap]').forEach(wrapper => {
+      const field = wrapper.dataset.b2bRunWrap;
+      const isVisible = visible.has(field);
+      wrapper.classList.toggle('hidden', !isVisible);
+      wrapper.classList.toggle('b2b-run-required', isVisible && required.has(field));
+      wrapper.classList.toggle('b2b-run-optional', isVisible && field !== 'copies' && !required.has(field));
+      const input = wrapper.querySelector('[data-b2b-run-field]');
+      if (input) {
+        input.disabled = !isVisible;
+        input.required = isVisible && required.has(field);
+      }
+    });
+    const empty = document.getElementById('b2b-run-fields-empty');
+    if (empty) empty.classList.toggle('hidden', !!template);
   }
 
   function showB2BOrderInstancePicker(orderNumber, orderInstances = []) {
@@ -6269,6 +6538,7 @@
       const firstMatched = analyticsItems.find(item => item?.product && item.match_status === 'matched') || analyticsItems[0];
       if (firstMatched && firstMatched.product) {
         const product = normalizeProductRow(firstMatched.product);
+        b2bSelectedCustomer = product.storefront || orderCustomer;
         b2bSelectedGroupKey = mplProductGroupKey(product, mplProductMasterRows.findIndex(row => normalizeProductRow(row).unique_key === product.unique_key));
         b2bSelectedProductIndex = mplProductMasterRows.findIndex(row => normalizeProductRow(row).unique_key === product.unique_key);
         if (firstMatched?.label_template_id) b2bSelectedTemplateId = String(firstMatched.label_template_id || '');
@@ -6359,32 +6629,47 @@
       ...getB2BProductEntries('').map(entry => entry.row.storefront),
       ...mplDirectoryRows.map(row => normalizeDcDirectoryRow(row).storefront).filter(storefront => !isKeheStorefront(storefront)),
     ]);
-    if (!customers.includes(b2bSelectedCustomer)) b2bSelectedCustomer = customers[0] || '';
-    setNativeSelectOptions(document.getElementById('b2b-customer-select'), customers, b2bSelectedCustomer, 'No customers available');
+    if (!customers.includes(b2bSelectedCustomer)) {
+      b2bSelectedCustomer = '';
+      b2bSelectedGroupKey = '';
+      b2bSelectedProductIndex = -1;
+      b2bSelectedDirectoryIndex = -1;
+      b2bSelectedTemplateId = '';
+    }
+    setNativeSelectOptions(document.getElementById('b2b-customer-select'), customers, b2bSelectedCustomer, customers.length ? 'Select customer' : 'No customers available');
 
-    const groups = getB2BProductGroups();
-    if (!groups.some(group => group.key === b2bSelectedGroupKey)) b2bSelectedGroupKey = groups[0]?.key || '';
+    const hasCustomer = !!b2bSelectedCustomer;
+    const groups = hasCustomer ? getB2BProductGroups() : [];
+    if (!groups.some(group => group.key === b2bSelectedGroupKey)) {
+      b2bSelectedGroupKey = '';
+      b2bSelectedProductIndex = -1;
+      b2bSelectedTemplateId = '';
+    }
     const productSelect = document.getElementById('b2b-product-select');
     if (productSelect) {
       productSelect.innerHTML = groups.length
-        ? groups.map(group => {
+        ? `<option value="">Select product / configuration</option>${groups.map(group => {
             const primary = group.entries.find(entry => entry.row.packaging_level === 'Case')?.row || group.entries[0]?.row || {};
             const label = [primary.description || primary.sku || primary.customer_item_number || 'Unnamed product', primary.config_id || primary.sku || 'No Config ID'].join(' — ');
             return `<option value="${escapeHtml(group.key)}" ${group.key === b2bSelectedGroupKey ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-          }).join('')
+          }).join('')}`
         : '<option value="">No configurations for this customer</option>';
+      productSelect.value = b2bSelectedGroupKey;
     }
+    setB2BSelectorVisibility('product', hasCustomer);
 
     const selectedGroup = groups.find(group => group.key === b2bSelectedGroupKey);
     const groupEntries = selectedGroup?.entries || [];
     if (!groupEntries.some(entry => entry.index === b2bSelectedProductIndex)) {
-      b2bSelectedProductIndex = (groupEntries.find(entry => entry.row.packaging_level === 'Case') || groupEntries[0])?.index ?? -1;
+      b2bSelectedProductIndex = -1;
+      b2bSelectedTemplateId = '';
     }
     const product = getSelectedB2BProduct();
-    const levels = groupEntries.map(entry => entry.row.packaging_level);
-    setNativeSelectOptions(document.getElementById('b2b-level-select'), levels, product?.packaging_level || '', 'No levels');
+    const levels = uniqueTextValues(groupEntries.map(entry => entry.row.packaging_level));
+    setNativeSelectOptions(document.getElementById('b2b-level-select'), levels, product?.packaging_level || '', levels.length ? 'Select packaging level' : 'No levels');
+    setB2BSelectorVisibility('level', !!selectedGroup);
 
-    const directoryEntries = getB2BDirectoryEntries();
+    const directoryEntries = product ? getB2BDirectoryEntries() : [];
     if (!directoryEntries.some(entry => entry.index === b2bSelectedDirectoryIndex)) {
       b2bSelectedDirectoryIndex = (directoryEntries.find(entry => entry.row.record_type === 'CUSTOMER_DEFAULT') || directoryEntries[0])?.index ?? -1;
     }
@@ -6394,55 +6679,42 @@
         ? directoryEntries.map(entry => `<option value="${entry.index}" ${entry.index === b2bSelectedDirectoryIndex ? 'selected' : ''}>${escapeHtml(`${entry.row.name || entry.row.storefront} — ${entry.row.dc || entry.row.record_type}`)}</option>`).join('')
         : '<option value="">No directory record; label values remain editable</option>';
     }
+    setB2BSelectorVisibility('directory', !!product && directoryEntries.length > 0);
 
     const directory = getSelectedB2BDirectory();
-    const customerTemplates = b2bLabelTemplates.filter(template => {
+    const customerTemplates = product ? b2bLabelTemplates.filter(template => {
       const templateCustomer = normalizeStorefront(template.customer || '').toLowerCase();
       return !templateCustomer || templateCustomer === normalizeStorefront(b2bSelectedCustomer).toLowerCase() || template.template_id === product?.label_template_id;
-    });
-    const desiredTemplate = product?.label_template_id || directory.default_label_template_id || customerTemplates[0]?.template_id || '';
-    if (!b2bLabelTemplates.some(template => template.template_id === b2bSelectedTemplateId)) b2bSelectedTemplateId = desiredTemplate;
-    if (product?.label_template_id && b2bSelectedTemplateId !== product.label_template_id) b2bSelectedTemplateId = product.label_template_id;
-    const templateChoices = uniqueTextValues([b2bSelectedTemplateId, ...customerTemplates.map(template => template.template_id)]);
-    setNativeSelectOptions(document.getElementById('b2b-template-select'), templateChoices, b2bSelectedTemplateId, 'Select template');
-
-    Object.entries(b2bProductFieldMap()).forEach(([field, id]) => {
-      const input = document.getElementById(id);
-      if (input) {
-        input.value = product?.[field] ?? '';
-        input.disabled = !product || !hasPermission('table_crud');
-      }
-    });
-    setNativeSelectOptions(document.getElementById('b2b-product-barcode-type'), B2B_BARCODE_TYPES, product?.barcode_type || '', 'Select type');
-    setNativeSelectOptions(document.getElementById('b2b-product-barcode-level'), B2B_BARCODE_LEVELS, product?.barcode_level || '', 'Select level');
-    setNativeSelectOptions(document.getElementById('b2b-product-verification'), B2B_VERIFICATION_STATUSES, product?.verification_status || '', 'Select status');
-    ['b2b-product-barcode-type', 'b2b-product-barcode-level', 'b2b-product-verification'].forEach(id => {
-      const select = document.getElementById(id);
-      if (select) select.disabled = !product || !hasPermission('table_crud');
-    });
-    const enabled = document.getElementById('b2b-product-enabled');
-    if (enabled) {
-      enabled.checked = !!product?.label_enabled;
-      enabled.disabled = !product || !hasPermission('table_crud');
+    }) : [];
+    const templateChoices = product?.label_template_id
+      ? [product.label_template_id]
+      : uniqueTextValues([directory.default_label_template_id, ...customerTemplates.map(template => template.template_id)]);
+    if (!templateChoices.includes(b2bSelectedTemplateId)) {
+      b2bSelectedTemplateId = templateChoices.length === 1 ? templateChoices[0] : '';
     }
+    setNativeSelectOptions(document.getElementById('b2b-template-select'), templateChoices, b2bSelectedTemplateId, 'Select template');
+    setB2BSelectorVisibility('template', !!product && templateChoices.length !== 1);
 
+    const template = getSelectedB2BTemplate();
+    if (template && b2bCopiesTemplateId !== template.template_id) {
+      b2bRunFields.copies = String(template.default_copies || 1);
+      b2bCopiesTemplateId = template.template_id;
+    }
+    if (!template) b2bCopiesTemplateId = '';
     document.querySelectorAll('[data-b2b-run-field]').forEach(input => {
       input.value = b2bRunFields[input.dataset.b2bRunField] ?? '';
     });
-    const template = getSelectedB2BTemplate();
-    if (template && !b2bRunFields.copies) b2bRunFields.copies = String(template.default_copies || 1);
-    const copiesInput = document.querySelector('[data-b2b-run-field="copies"]');
-    if (copiesInput && (!copiesInput.value || copiesInput.value === '1')) {
-      copiesInput.value = String(template?.default_copies || b2bRunFields.copies || 1);
-      b2bRunFields.copies = copiesInput.value;
-    }
     visibleB2BRunFields(template);
+    renderB2BProductSettings(product, template);
+    renderB2BLabelEditor(product, template);
 
     const summary = document.getElementById('b2b-template-summary');
     if (summary) {
-      summary.textContent = template
-        ? `${template.name || template.template_id} · ${template.physical_width_in} × ${template.physical_height_in} in · ${template.default_copies || 1} default cop${Number(template.default_copies || 1) === 1 ? 'y' : 'ies'} per carton. Values may be edited before every run.`
-        : 'Select a supported label template. Product data remains editable even when review warnings are present.';
+      if (!hasCustomer) summary.textContent = 'Start by selecting a customer.';
+      else if (!selectedGroup) summary.textContent = 'Now select the product or configuration for this customer.';
+      else if (!product) summary.textContent = 'Choose the packaging level to load its exact product data and label requirements.';
+      else if (!template) summary.textContent = 'Choose the label template for this packaging level.';
+      else summary.textContent = `${template.name || template.template_id} · ${template.physical_width_in} × ${template.physical_height_in} in · ${template.default_copies || 1} default cop${Number(template.default_copies || 1) === 1 ? 'y' : 'ies'} per carton. Only applicable print-run fields are shown below.`;
     }
     const title = document.getElementById('b2b-preview-title');
     if (title) title.textContent = template?.name || 'Select a label';
@@ -6490,34 +6762,47 @@
     const parsed = String(value || '').trim() ? Number(value) : -1;
     b2bSelectedDirectoryIndex = Number.isInteger(parsed) ? parsed : -1;
     clearB2BPreview();
+    renderB2BLabelEditor();
     renderB2BValidation();
   }
 
-  function updateB2BProductField(field, value) {
+  function updateB2BProductField(field, value, rerenderEditor = true) {
     if (b2bSelectedProductIndex < 0 || !hasPermission('table_crud')) return;
     updateMplProductRow(b2bSelectedProductIndex, field, value);
     const state = document.getElementById('b2b-product-save-state');
     if (state) state.textContent = 'Saving to Product Master…';
     clearB2BPreview();
+    renderB2BProductSettings(getSelectedB2BProduct(), getSelectedB2BTemplate());
+    if (rerenderEditor) renderB2BLabelEditor();
     renderB2BValidation();
     window.setTimeout(() => {
       if (state) state.textContent = 'Saved automatically';
     }, 750);
   }
 
-  function updateB2BRunField(field, value) {
+  function updateB2BRunField(field, value, rerenderEditor = true) {
     b2bRunFields[field] = String(value ?? '');
     clearB2BPreview();
+    if (rerenderEditor) renderB2BLabelEditor();
     renderB2BValidation();
   }
 
   function buildB2BPayload() {
     const product = getSelectedB2BProduct();
+    const template = getSelectedB2BTemplate();
+    const directory = Object.fromEntries(Object.entries(getSelectedB2BDirectory()).map(([field, value]) => [
+      field,
+      typeof value === 'string' ? value.replace(/\\n/g, '\n') : value,
+    ]));
+    const run = {};
+    b2bRunFieldNames(template).forEach(field => {
+      run[field] = b2bRunFields[field] ?? '';
+    });
     return {
       template_id: b2bSelectedTemplateId,
       product: product || {},
-      directory: getSelectedB2BDirectory(),
-      run: { ...b2bRunFields },
+      directory,
+      run,
     };
   }
 
@@ -6534,7 +6819,9 @@
     const template = getSelectedB2BTemplate();
     const product = getSelectedB2BProduct();
     const warnings = [];
-    if (!product) warnings.push('Select a product configuration.');
+    if (!b2bSelectedCustomer) return ['Select a customer.'];
+    if (!b2bSelectedGroupKey) return ['Select a product configuration.'];
+    if (!product) return ['Select a packaging level.'];
     if (!template) warnings.push('Select a supported label template.');
     (template?.required_product_fields || []).forEach(field => {
       if (!b2bJobValue(payload, field)) warnings.push(`${String(field).replace(/_/g, ' ')} is blank for this template.`);
@@ -6542,10 +6829,12 @@
     (template?.required_run_fields || []).forEach(field => {
       if (!b2bJobValue(payload, field)) warnings.push(`${String(field).replace(/_/g, ' ')} is blank for this print run.`);
     });
-    const start = Number(payload.run.carton_start || 0);
-    const end = Number(payload.run.carton_end || 0);
-    const total = Number(payload.run.carton_total || 0);
-    if (!(start >= 1 && end >= start && total >= end)) warnings.push('Carton range must be Start ≥ 1, End ≥ Start, and Total ≥ End.');
+    if (['carton_start', 'carton_end', 'carton_total'].every(field => b2bRunFieldNames(template).includes(field))) {
+      const start = Number(payload.run.carton_start || 0);
+      const end = Number(payload.run.carton_end || 0);
+      const total = Number(payload.run.carton_total || 0);
+      if (!(start >= 1 && end >= start && total >= end)) warnings.push('Carton range must be Start ≥ 1, End ≥ Start, and Total ≥ End.');
+    }
     if (product && String(product.verification_status || '').toUpperCase() !== 'VERIFIED') {
       warnings.push(`Data status is ${product.verification_status || 'not set'}. Admin preview and printing remain available.`);
     }
@@ -6557,6 +6846,15 @@
 
   function renderB2BValidation() {
     const warnings = getB2BValidationWarnings();
+    const selectionPrompt = !b2bSelectedCustomer
+      ? 'Select customer'
+      : !b2bSelectedGroupKey
+        ? 'Select product'
+        : !getSelectedB2BProduct()
+          ? 'Select level'
+          : !getSelectedB2BTemplate()
+            ? 'Select template'
+            : '';
     const validation = document.getElementById('b2b-validation');
     if (validation) {
       validation.innerHTML = warnings.length
@@ -6565,12 +6863,14 @@
     }
     const badge = document.getElementById('b2b-configuration-status');
     if (badge) {
-      badge.textContent = warnings.length ? `${warnings.length} review item${warnings.length === 1 ? '' : 's'}` : 'Ready to print';
-      badge.className = `b2b-state-badge ${warnings.length ? 'review' : 'ready'}`;
+      badge.textContent = selectionPrompt || (warnings.length ? `${warnings.length} review item${warnings.length === 1 ? '' : 's'}` : 'Ready to print');
+      badge.className = `b2b-state-badge ${selectionPrompt ? '' : warnings.length ? 'review' : 'ready'}`;
     }
     const hasTechnicalSelection = !!getSelectedB2BProduct() && !!getSelectedB2BTemplate();
     const printButton = document.getElementById('b2b-print-button');
     if (printButton) printButton.disabled = !hasTechnicalSelection;
+    const renderButton = document.getElementById('b2b-render-button');
+    if (renderButton) renderButton.disabled = !hasTechnicalSelection;
   }
 
   function clearB2BPreview() {
