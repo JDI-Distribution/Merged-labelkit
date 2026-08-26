@@ -9,6 +9,38 @@ Merged LabelKit is a FastAPI web app for print-ready label and packing-list work
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
+## How LabelKit Works
+
+```text
+Browser UI
+   |
+   v
+FastAPI routes in server.py
+   |-- Michaels pipeline ---- ASN XML + shipping-label PDF --> combined PDF + match report
+   |-- KeHE pipeline -------- ASN XML + reference data ------> GS1/pack/pallet/MPL PDFs
+   |-- Packing List & Ti-Hi - sales order + Product Master --> editable MPL + optional TI-HI
+   `-- B2B labels ----------- sales order + saved template ---> case-pack label PDF
+```
+
+- The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
+- `labelkit_config.json` selects the local or Catalyst runtime profile. `auto` uses local JSON/CSV sources on a workstation and Catalyst authentication, connections, and Data Store in AppSail.
+- Local master data is stored under `frankenstein_project/data/`. Catalyst uses the configured Data Store tables and does not fall back to bundled JSON in strict cloud mode.
+- Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser.
+- Packing List and B2B order lookup use the field label `Sales Order Number`. Catalyst reads the Zoho Analytics order view through the `orderdata` connection.
+- Missing Product Master data remains visible as a review warning. Packing-list output can still be generated with the order SKU as its line identity; lines without safe case data are excluded from TI-HI.
+
+## Release Order
+
+Use this sequence for a reproducible release:
+
+1. Run the regression and syntax checks.
+2. Build and health-check `merged-labelkit:latest` locally.
+3. Deploy that exact local image to the Catalyst Development AppSail.
+4. Verify the cloud `/health` endpoint and authenticated application behavior.
+5. Commit the validated source and push `main` to GitHub.
+
+The Docker image and Git commit should therefore describe the same tested source tree.
+
 ## Single Environment Config
 
 Use one file to switch between local development and Catalyst hosting:
@@ -155,7 +187,7 @@ KeHE functionality:
 - `frankenstein_project/data/mpl_directory.json`
 - `frankenstein_project/data/kehe_mpl_drafts.json`
 
-The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details` through the Catalyst Connection `orderdata`. If that number is reused, LabelKit lists the distinct `Ecomdash ID` values with Storefront, Billing Customer Name, and Invoice Date so the user can select the intended order instance; every SKU row sharing that Ecomdash ID is retained. Duplicate `SKUNumber` rows within the selected order are grouped. Analytics `Quantity Ordered` values are eaches; matched KeHE products are converted to cases using the explicit `Eaches / Package` value on the Product Master Case row before palletization (for example, 36 eaches per case). When an Inner Pack row is present, LabelKit also derives the packaging breakdown, such as 6 eaches per inner pack × 6 inner packs per case. It never silently assumes 36: a missing or invalid Case package quantity blocks the conversion with a Product Master correction message. A non-full-case remainder is rounded up and marked for review. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then automatically palletizes and recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs are left editable and marked for review.
+The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details` through the Catalyst Connection `orderdata`. If that number is reused, LabelKit lists the distinct `Ecomdash ID` values with Storefront, Billing Customer Name, and Invoice Date so the user can select the intended order instance; every SKU row sharing that Ecomdash ID is retained. Duplicate `SKUNumber` rows within the selected order are grouped. Analytics `Quantity Ordered` values are eaches; matched KeHE products are converted to cases using the explicit `Eaches / Package` value on the Product Master Case row before palletization (for example, 36 eaches per case). When an Inner Pack row is present, LabelKit also derives the packaging breakdown, such as 6 eaches per inner pack × 6 inner packs per case. It never silently assumes 36: a missing or invalid Case package quantity blocks the conversion with a Product Master correction message. A non-full-case remainder is rounded up and marked for review. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then automatically palletizes and recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs are left editable and marked for review. A missing Product Master match or Each GTIN does not block the packing-list PDF; when the verified Item Number is unavailable, the order SKU is printed as the line identity. Product-missing or ambiguous lines retain the unconverted quantity labeled `EACHES`, remain unassigned, and are omitted from TI-HI. A line missing only its Each GTIN can still use TI-HI when its Case dimensions and weight are available. If the order has no valid TI-HI entries, no TI-HI page is appended to the PDF.
 
 For local testing, the `local` LabelKit profile reads the file configured by `analytics_local_file` instead of the Catalyst Connection. It points to the local fixture at `data/KeHE_Michaels_Storefront_Test_Data.csv`. The fixture contains customer contact and address columns and is explicitly excluded from Git. A Docker image built on this workstation still includes the local file unless it is also added to `.dockerignore`. The `catalyst` profile continues to use `orderdata` and does not read the local file.
 
@@ -278,15 +310,25 @@ The second command should classify all reviewed seeds as `IDENTICAL`. The review
 
 ## Local Run
 
-From repo root:
+First-time setup from the repository root:
 
 ```powershell
-Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit\frankenstein_project"
-Set-Location ".."
+$repo = "C:\Users\JDI Employee\Downloads\merged_labelkit"
+Set-Location $repo
+py -3.11 -m venv .venv
+& ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
 & ".\.venv\Scripts\python.exe" -m pip install -r ".\frankenstein_project\requirements.txt"
-Set-Location ".\frankenstein_project"
-& "..\.venv\Scripts\python.exe" -m uvicorn server:app --host 127.0.0.1 --port 9000 --reload
 ```
+
+Start one local instance:
+
+```powershell
+$repo = "C:\Users\JDI Employee\Downloads\merged_labelkit"
+Set-Location "$repo\frankenstein_project"
+& "$repo\.venv\Scripts\python.exe" -m uvicorn server:app --host 127.0.0.1 --port 9000
+```
+
+Add `--reload` only while actively developing. The reloader intentionally creates a supervisor and worker process; omit it for single-instance verification. Stop the foreground server with `Ctrl+C`.
 
 Open:
 
@@ -297,7 +339,7 @@ http://127.0.0.1:9000
 Health check:
 
 ```powershell
-Invoke-WebRequest "http://127.0.0.1:9000/health" | Select-Object -ExpandProperty Content
+Invoke-RestMethod "http://127.0.0.1:9000/health"
 ```
 
 Expected signal:
@@ -318,13 +360,20 @@ Build from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-docker build -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.25 -t merged-labelkit:latest .
 ```
 
 Run locally:
 
 ```powershell
 docker run --rm -p 9000:9000 --name merged-labelkit-local merged-labelkit:latest
+```
+
+Verify container status:
+
+```powershell
+docker ps --filter "name=merged-labelkit-local"
+Invoke-RestMethod "http://127.0.0.1:9000/health"
 ```
 
 Open:
@@ -357,14 +406,16 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-docker build -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.25 -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
+
+The Catalyst CLI command deploys to the active project's Development environment. Confirm `.catalystrc` points to project `27327000000040032` and environment `921277719` before deploying.
 
 Verify:
 
 ```powershell
-Invoke-WebRequest "https://mergedlabelkit.development.catalystappsail.com/health" | Select-Object -ExpandProperty Content
+Invoke-RestMethod "https://mergedlabelkit.development.catalystappsail.com/health"
 ```
 
 Expected response includes:
@@ -372,6 +423,13 @@ Expected response includes:
 ```json
 {"status":"ok"}
 ```
+
+After the health check, sign in through Embedded Authentication and confirm:
+
+- `/api/auth/session` reports the expected user and LabelKit role.
+- Product Master and Directory APIs report `source: "datastore"`.
+- One sales order can be loaded in Packing List and B2B.
+- One representative PDF can be generated from each required workflow.
 
 ## Catalyst Cloud Auth And Storage
 

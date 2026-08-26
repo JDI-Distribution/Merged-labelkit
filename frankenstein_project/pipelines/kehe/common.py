@@ -2443,7 +2443,15 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
     return draft
 
 
-def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> None:
+def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> List[str]:
+    """Return MPL rows that do not have a verified consumer-unit GTIN.
+
+    Missing Product Master data is advisory for MPL rendering. The enrichment
+    pass marks affected lists as Needs Review and leaves ``item_number`` blank;
+    the PDF uses the order SKU as a visible fallback. TI-HI still ignores rows
+    that do not have the required Case measurements, and no TI-HI page is added
+    when no valid layout entries remain.
+    """
     missing: List[str] = []
     for mpl in draft.get("packing_lists") or []:
         for item in mpl.get("items") or []:
@@ -2462,13 +2470,7 @@ def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> None:
             )
             if identity not in missing:
                 missing.append(identity)
-    if missing:
-        shown = ", ".join(missing[:8])
-        suffix = f" and {len(missing) - 8} more" if len(missing) > 8 else ""
-        raise ValueError(
-            "MPL generation blocked: Item Number must be the Product Master Each GTIN. "
-            f"Add one unique Each row with a GTIN for: {shown}{suffix}."
-        )
+    return missing
 
 
 def _extracted_rows_from_shipments(shipments: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -3820,6 +3822,14 @@ def _mpl_clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _mpl_item_number_display(item: Dict[str, Any]) -> str:
+    item_number = _mpl_clean(item.get("item_number"))
+    if item_number:
+        return item_number
+    sku = _mpl_clean(item.get("sku"))
+    return f"SKU: {sku}" if sku else ""
+
+
 def _mpl_date_mmddyyyy(value: str) -> str:
     """Normalize MPL dates to MM/DD/YYYY."""
     v = _mpl_clean(value)
@@ -4312,6 +4322,8 @@ def _render_mpl_item_row(
 
         else:
             value = item.get(key)
+            if key == "item_number":
+                value = _mpl_item_number_display(item)
             if key == "uom":
                 value = _display_uom(value)
 
@@ -5494,6 +5506,9 @@ def _render_mpl_tihi_pages(
         entries, warnings = _mpl_build_tihi_entries(mpl, items)
         constraints = _mpl_tihi_constraints(mpl)
 
+    if not entries:
+        return 0
+
     snapshot_images = []
     for entry in entries:
         reader = _mpl_snapshot_image_reader(entry.get("image_data_url", ""))
@@ -5522,7 +5537,7 @@ def _render_mpl_tihi_pages(
     entry_index = 0
     first_page = True
 
-    while first_page or entry_index < len(entries) or (first_page and not entries):
+    while first_page or entry_index < len(entries):
         if progress_callback:
             progress_callback(
                 f"Rendering {mpl.get('id', 'MPL')} TI-Hi page {pages + 1}..."
@@ -5564,23 +5579,6 @@ def _render_mpl_tihi_pages(
                     font_size=5.6,
                     padding=3,
                 ) - 0.08 * inch
-
-        if not entries:
-            c.setFont("Helvetica-Bold", 8.0)
-            c.drawCentredString(
-                _MPL_MARGIN + _MPL_INNER_W / 2,
-                y - 0.8 * inch,
-                "No TI-Hi diagram could be generated for this MPL.",
-            )
-            c.setFont("Helvetica", 6.0)
-            c.drawCentredString(
-                _MPL_MARGIN + _MPL_INNER_W / 2,
-                y - 1.05 * inch,
-                "Add Case dimensions and Case weight for the palletized SKU rows in the product master, then render again.",
-            )
-            c.showPage()
-            pages += 1
-            break
 
         card_h = 4.15 * inch
         card_gap = 0.10 * inch
@@ -5725,6 +5723,8 @@ def _render_decopac_mpl_pages(
                     value = _mpl_clean(item.get(key)) or _mpl_clean(mpl.get("customer_po_number"))
                 elif key == "qty_on_pallet":
                     value = item.get(key) or item.get("total_shipped") or ""
+                elif key == "item_number":
+                    value = _mpl_item_number_display(item)
                 else:
                     value = item.get(key, "")
                 _draw_centered_wrapped(c, _mpl_clean(value), x, y - row_h / 2, cell_w, "Helvetica", 5.9, max_lines=2, leading=6.3)
@@ -5909,6 +5909,8 @@ def _render_dutch_bros_mpl_pages(
                     value = _mpl_units_on_pallet(item)
                 elif key == "qty_on_pallet":
                     value = item.get(key) or item.get("total_shipped") or ""
+                elif key == "item_number":
+                    value = _mpl_item_number_display(item)
                 else:
                     value = item.get(key, "")
                 _draw_centered_wrapped(c, _mpl_clean(value), x, row_y - row_h / 2, cw, "Helvetica", 6.4, max_lines=2, leading=7.0)

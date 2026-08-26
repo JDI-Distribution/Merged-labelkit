@@ -292,8 +292,10 @@ class KeheMplItemNumberTests(unittest.TestCase):
         self.assertEqual("Needs Review", mpl["status"])
         self.assertIn("Each row with a GTIN is required", mpl["warnings"][0])
 
-        with self.assertRaisesRegex(ValueError, "Item Number must be the Product Master Each GTIN"):
-            _validate_mpl_each_item_numbers(draft)
+        self.assertEqual(
+            ["TW-BRS205-4OZ"],
+            _validate_mpl_each_item_numbers(draft),
+        )
 
     def test_unmatched_xml_item_is_not_allowed_to_keep_unverified_upc(self):
         draft = {

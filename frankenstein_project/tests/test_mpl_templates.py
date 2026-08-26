@@ -141,6 +141,42 @@ class MplTemplateTests(unittest.TestCase):
         }
         return draft
 
+    def test_unmatched_order_sku_still_generates_a_needs_review_pdf(self):
+        draft = self._draft("standard")
+        draft["product_master"] = []
+        mpl = draft["packing_lists"][0]
+        mpl["status"] = "Needs Review"
+        mpl["warnings"] = [
+            "SKU UNKNOWN-SKU was not found as an enabled Case row in Product Master."
+        ]
+        mpl["items"] = [{
+            "line": 1,
+            "location_on_pallet": "",
+            "item_number": "",
+            "sku": "UNKNOWN-SKU",
+            "description": "",
+            "qty_on_pallet": "7",
+            "total_ordered": "7",
+            "total_shipped": "7",
+            "uom": "EACHES",
+        }]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "unmatched-order.pdf"
+            report = render_kehe_master_packing_list_pdf(draft, str(output_path))
+
+            self.assertTrue(output_path.exists())
+            self.assertGreater(output_path.stat().st_size, 0)
+            self.assertEqual(1, report["summary"]["needs_review"])
+            self.assertEqual(1, report["summary"]["pages"])
+            with fitz.open(output_path) as document:
+                self.assertEqual(1, len(document))
+                text = "\n".join(page.get_text() for page in document)
+
+        self.assertIn("SKU: UNKNOWN-SKU", text)
+        self.assertIn("EACHES", text)
+        self.assertNotIn("TI-HI LAYOUT", text)
+
     def test_kehe_draft_is_locked_to_kehe_template(self):
         mpl = {"template_id": "compact"}
 

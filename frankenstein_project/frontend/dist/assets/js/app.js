@@ -602,7 +602,23 @@
       : '';
   }
 
+  function removeTemporaryUrlParameters() {
+    const url = new URL(window.location.href);
+    let changed = false;
+    ['verify', 'refresh', 'ui'].forEach(parameter => {
+      if (url.searchParams.has(parameter)) {
+        url.searchParams.delete(parameter);
+        changed = true;
+      }
+    });
+    if (changed) {
+      const cleanUrl = `${url.pathname}${url.search}${url.hash}`;
+      history.replaceState(history.state, '', cleanUrl);
+    }
+  }
+
   async function bootstrapLabelKit() {
+    removeTemporaryUrlParameters();
     await loadAppRuntimeConfig();
     if (appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated) {
       return;
@@ -3024,7 +3040,7 @@
     const localOrderFile = String(payload?.source?.local_file || '').toLowerCase();
     const orderSourceLabel = payload?.source?.service === 'local_file'
       ? (localOrderFile.endsWith('.csv') ? 'Local CSV' : 'Local Excel')
-      : 'Zoho Analytics';
+      : 'Order data';
 
     mpl.id = orderNumber ? `SO-${orderNumber}` : mpl.id;
     mpl.customer_po_number = orderNumber;
@@ -3074,10 +3090,12 @@
         const storefronts = Array.isArray(sourceItem.candidate_storefronts)
           ? sourceItem.candidate_storefronts.filter(Boolean).join(', ')
           : '';
-        item.notes = `SKU ${sku} matches multiple Product Master rows${storefronts ? ` (${storefronts})` : ''}; select the correct product.`;
+        item.uom = 'EACHES';
+        item.notes = `SKU ${sku} matches multiple Product Master rows${storefronts ? ` (${storefronts})` : ''}; quantity remains as Analytics eaches. Select the correct product for case conversion and TI-HI.`;
         warnings.push(item.notes);
       } else {
-        item.notes = `SKU ${sku} was not found as an enabled Case row in Product Master.`;
+        item.uom = 'EACHES';
+        item.notes = `SKU ${sku} was not found as an enabled Case row in Product Master. The packing list will use the order SKU and Analytics each quantity; TI-HI is unavailable until the product is configured.`;
         warnings.push(item.notes);
       }
       return item;
@@ -3139,7 +3157,7 @@
 
     setMplOrderLookupBusy(true);
     if (!ecomdashId) hideMplOrderInstancePicker();
-    setStatus(`Searching Zoho Analytics for Sales Order ${orderNumber}…`, 'info');
+    setStatus(`Searching order data for Sales Order ${orderNumber}…`, 'info');
     try {
       await ensureKeheReferenceDataLoaded();
       const response = await fetch('/api/mpl/orders/lookup', {
@@ -5889,6 +5907,7 @@
 
   function selectKit(kit, updateHistory = true) {
     selectedKit = kit;
+    document.body.dataset.module = kit;
     xmlFiles = [];
     pdfFiles = [];
     currentResultId = null;
@@ -5959,6 +5978,7 @@
 
   async function selectMplWorkspace(updateHistory = true) {
     selectedKit = 'mpl';
+    document.body.dataset.module = 'mpl';
     xmlFiles = [];
     pdfFiles = [];
     currentResultId = null;
@@ -6015,6 +6035,7 @@
 
   async function selectB2BWorkspace(updateHistory = true) {
     selectedKit = 'b2b';
+    document.body.dataset.module = 'b2b';
     xmlFiles = [];
     pdfFiles = [];
     currentResultId = null;
@@ -6275,7 +6296,7 @@
       return;
     }
 
-    setStatus(`Searching Zoho Analytics for Sales Order ${orderNumber}…`, 'info');
+    setStatus(`Searching order data for Sales Order ${orderNumber}…`, 'info');
     try {
       const response = await fetch('/api/b2b/orders/lookup', {
         method: 'POST',
@@ -6638,6 +6659,7 @@
 
   function resetToSelection(updateHistory = true) {
     selectedKit = null;
+    document.body.dataset.module = 'home';
     document.title = 'JDI Label Kits';
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
@@ -7526,7 +7548,7 @@
     const showSecondaryDetails = !['kehe', 'standard'].includes(mplTemplateId(getMpl(mplIndex) || {}));
     return `
       <tr class="mpl-pallet-item-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
-        <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || '')}</td>
+        <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || item.sku || '')}</td>
         <td style="width:37%">
           <div class="mpl-description-edit">
             ${renderMplProductSelect(mplIndex, itemIndex, item)}
@@ -7718,7 +7740,7 @@
           return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
             <td>${editorPdfInput(`${itemBase}.location_on_pallet`, item.location_on_pallet || palletId)}<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button></td>
             <td>${editorPdfInput(`${itemBase}.invoice_po_number`, item.invoice_po_number || mpl.customer_po_number || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || '')}</td>
+            <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || item.sku || '')}</td>
             <td>${editorPdfInput(`${itemBase}.lot`, item.lot || '')}</td>
             <td>${editorPdfInput(`${itemBase}.color`, item.color || '')}</td>
             <td><div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div></td>
@@ -8929,19 +8951,6 @@
       activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
       applyProductMasterToDraft(activeKeheDocumentDraft, true);
       if (activeKeheDocumentType === 'masterPackingList') {
-        const missingEachGtins = [];
-        (activeKeheDocumentDraft.packing_lists || []).forEach(mpl => {
-          (mpl.items || []).forEach(item => {
-            const hasIdentity = [item.sku, item.gtin, item.case_upc, item.upc, item.description]
-              .some(value => !!String(value || '').trim());
-            if (hasIdentity && !String(item.item_number || '').trim()) {
-              missingEachGtins.push(item.sku || item.gtin || item.case_upc || item.upc || `Line ${item.line || '?'}`);
-            }
-          });
-        });
-        if (missingEachGtins.length) {
-          throw new Error(`MPL generation blocked: Item Number must be the Product Master Each GTIN. Add one unique Each row with a GTIN for: ${[...new Set(missingEachGtins)].join(', ')}.`);
-        }
         const storefrontCheck = validateMplStorefrontConsistency(activeKeheDocumentDraft);
         if (!storefrontCheck.ok) {
           throw new Error(`MPL generation blocked: ${storefrontCheck.message}`);

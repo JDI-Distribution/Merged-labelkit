@@ -6,9 +6,12 @@
   <title>JDI Label Kits</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260819-tihi-modes-2">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260825-module-themes-5">
 </head>
-<body>
+<body data-module="home">
 
 <header class="auth-locked">
   <button class="jdi-mark" onclick="resetToSelection()" aria-label="Go to kit selection">
@@ -45,31 +48,70 @@
 </section>
 
 <div class="main auth-locked" id="app-shell">
-  <!-- FRONTEND: Landing page. Explanations removed; only workflow buttons remain. -->
+  <!-- FRONTEND: Landing page and workspace switcher. -->
   <section class="selection-page" id="kit-selection">
     <div class="selection-shell">
-      <div class="selection-icon" aria-hidden="true">
-        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 9V4h12v5"/>
-          <rect x="6" y="14" width="12" height="6" rx="1"/>
-          <path d="M6 18H5a2 2 0 01-2-2v-5a2 2 0 012-2h14a2 2 0 012 2v5a2 2 0 01-2 2h-1"/>
-        </svg>
+      <div class="selection-brand" aria-hidden="true">
+        <span class="selection-brand-mark">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9V4h12v5"/>
+            <rect x="6" y="14" width="12" height="6" rx="1"/>
+            <path d="M6 18H5a2 2 0 01-2-2v-5a2 2 0 012-2h14a2 2 0 012 2v5a2 2 0 01-2 2h-1"/>
+          </svg>
+        </span>
+        <span>Label operations</span>
       </div>
       <h2 class="selection-heading">LabelKit</h2>
-      <p class="selection-subheading">Pick a workflow below and we'll load the right workspace for you.</p>
+      <p class="selection-subheading">Choose a workflow to prepare, validate, and print the right shipping documents.</p>
       <div class="selection-card">
         <div class="kit-choice-grid">
-          <button class="kit-choice-btn" onclick="selectKit('michaels')">
-            Michaels
+          <button class="kit-choice-btn michaels-choice" type="button" onclick="selectKit('michaels')">
+            <span class="kit-choice-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7.5h16v12H4z"/><path d="M8 7.5V5h8v2.5M8 12h8M8 15.5h5"/></svg>
+            </span>
+            <span class="kit-choice-copy">
+              <span class="kit-choice-eyebrow">Retail workflow</span>
+              <strong>Michaels</strong>
+              <span class="kit-choice-description">Combine ASN data and shipping labels into one print-ready document.</span>
+              <span class="kit-choice-meta"><span>ASN XML</span><span>Shipping PDF</span></span>
+            </span>
+            <span class="kit-choice-arrow" aria-hidden="true">&#8594;</span>
           </button>
-          <button class="kit-choice-btn secondary-choice" onclick="selectKit('kehe')">
-            KeHE
+          <button class="kit-choice-btn secondary-choice" type="button" onclick="selectKit('kehe')">
+            <span class="kit-choice-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h12v9H3zM15 11h3l3 3v3h-6z"/><circle cx="7" cy="18" r="1.5"/><circle cx="18" cy="18" r="1.5"/></svg>
+            </span>
+            <span class="kit-choice-copy">
+              <span class="kit-choice-eyebrow">Distribution workflow</span>
+              <strong>KeHE</strong>
+              <span class="kit-choice-description">Validate ASN files and produce compliant pallet and shipping output.</span>
+              <span class="kit-choice-meta"><span>ASN XML</span><span>Validation</span></span>
+            </span>
+            <span class="kit-choice-arrow" aria-hidden="true">&#8594;</span>
           </button>
-          <button class="kit-choice-btn mpl-choice" onclick="selectMplWorkspace()">
-            Packing List &amp; Ti-Hi
+          <button class="kit-choice-btn mpl-choice" type="button" onclick="selectMplWorkspace()">
+            <span class="kit-choice-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9l8-4 8 4-8 4zM4 9v7l8 4 8-4V9M12 13v7"/></svg>
+            </span>
+            <span class="kit-choice-copy">
+              <span class="kit-choice-eyebrow">Packing operations</span>
+              <strong>Packing List &amp; Ti-Hi</strong>
+              <span class="kit-choice-description">Load an order, review pallet details, and generate the packing list.</span>
+              <span class="kit-choice-meta"><span>Order lookup</span><span>MPL + Ti-Hi</span></span>
+            </span>
+            <span class="kit-choice-arrow" aria-hidden="true">&#8594;</span>
           </button>
-          <button class="kit-choice-btn" onclick="selectB2BWorkspace()">
-            B2B Case-Pack Labels
+          <button class="kit-choice-btn b2b-choice" type="button" onclick="selectB2BWorkspace()">
+            <span class="kit-choice-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4M8 12h8M8 16h6"/></svg>
+            </span>
+            <span class="kit-choice-copy">
+              <span class="kit-choice-eyebrow">Customer labels</span>
+              <strong>B2B Case-Pack Labels</strong>
+              <span class="kit-choice-description">Create customer-specific carton labels from saved product configurations.</span>
+              <span class="kit-choice-meta"><span>Configured SKUs</span><span>Live preview</span></span>
+            </span>
+            <span class="kit-choice-arrow" aria-hidden="true">&#8594;</span>
           </button>
         </div>
       </div>
@@ -250,11 +292,24 @@
   <!-- FRONTEND: Standalone Packing List & Ti-Hi workspace. KeHE upload remains separate. -->
   <section class="mpl-workspace-page hidden" id="mpl-workspace-page">
     <div class="mpl-workspace-shell">
+      <div class="workspace-overview mpl-workspace-overview">
+        <div class="workspace-overview-copy">
+          <div class="workspace-eyebrow">Packing operations</div>
+          <h1>Packing List &amp; Ti-Hi</h1>
+          <p>Turn sales-order data into a reviewed, print-ready master packing list.</p>
+        </div>
+        <div class="workspace-flow" aria-label="Packing list workflow">
+          <div class="workspace-flow-step"><span>1</span><div><strong>Load</strong><small>Sales order</small></div></div>
+          <div class="workspace-flow-step"><span>2</span><div><strong>Review</strong><small>Items &amp; pallets</small></div></div>
+          <div class="workspace-flow-step"><span>3</span><div><strong>Generate</strong><small>MPL &amp; Ti-Hi</small></div></div>
+        </div>
+      </div>
+
       <div class="mpl-order-lookup-card">
         <div class="mpl-order-lookup-copy">
-          <div class="mpl-order-lookup-kicker">Order Data</div>
-          <h2>Create an MPL from a sales order</h2>
-          <p>Search Data with Product Details. Local development uses the configured CSV file; the deployed app uses Zoho Analytics. Matching SKUs are enriched from Product Master and calculate weight automatically.</p>
+          <div class="mpl-order-lookup-kicker">Step 1 &middot; Order data</div>
+          <h2>Start with a sales order</h2>
+          <p>Load order lines, match SKUs against Product Master, and calculate shipment weight automatically. Missing products remain visible for review.</p>
         </div>
         <form class="mpl-order-lookup-form" onsubmit="loadMplOrderFromAnalytics(event)">
           <label for="mpl-sales-order-number">Sales Order Number</label>
@@ -293,32 +348,50 @@
         </form>
       </div>
 
-      <div class="mpl-workspace-header mpl-workspace-actions-only">
-        <button class="btn-secondary" type="button" onclick="openMplProductMasterModal()">
-          Product Master Table
-        </button>
-        <button class="btn-secondary" type="button" onclick="openMplDirectoryModal()">
-          Directory Table
-        </button>
-        <button class="btn-generate" type="button" onclick="openManualMasterPackingList()">
-          Create MPL
-        </button>
-        <button class="btn-secondary" type="button" onclick="openSavedMplModal()">
-          Open Saved MPL
-        </button>
-      </div>
+      <section class="mpl-tools-panel">
+        <div class="mpl-tools-heading">
+          <div>
+            <div class="workspace-eyebrow">Tools &amp; records</div>
+            <h2>Manage source data or work manually</h2>
+          </div>
+          <p>Reference data is shared across packing-list workflows.</p>
+        </div>
+        <div class="mpl-tool-grid">
+          <button class="mpl-tool-card" type="button" onclick="openMplProductMasterModal()">
+            <span class="mpl-tool-icon" aria-hidden="true">PM</span>
+            <span><small>Source data</small><strong>Product Master</strong><em>SKUs, case packs, dimensions, and weight</em></span>
+            <b aria-hidden="true">&#8594;</b>
+          </button>
+          <button class="mpl-tool-card" type="button" onclick="openMplDirectoryModal()">
+            <span class="mpl-tool-icon" aria-hidden="true">DR</span>
+            <span><small>Shipping data</small><strong>Customer Directory</strong><em>Addresses and consignee details</em></span>
+            <b aria-hidden="true">&#8594;</b>
+          </button>
+          <button class="mpl-tool-card mpl-tool-card-primary" type="button" onclick="openManualMasterPackingList()">
+            <span class="mpl-tool-icon" aria-hidden="true">+</span>
+            <span><small>Manual workflow</small><strong>Create an MPL</strong><em>Build a packing list without an order lookup</em></span>
+            <b aria-hidden="true">&#8594;</b>
+          </button>
+          <button class="mpl-tool-card" type="button" onclick="openSavedMplModal()">
+            <span class="mpl-tool-icon" aria-hidden="true">SV</span>
+            <span><small>Saved work</small><strong>Open Saved MPL</strong><em>Resume or reprint a previous packing list</em></span>
+            <b aria-hidden="true">&#8594;</b>
+          </button>
+        </div>
+      </section>
 
       <div class="status-bar" id="mpl-status-bar"></div>
     </div>
   </section>
 
   <section class="mpl-workspace-page hidden" id="b2b-workspace-page">
-    <div class="mpl-workspace-shell">
+    <div class="mpl-workspace-shell b2b-workspace-shell">
       <div class="b2b-page-header">
-        <div>
+        <div class="b2b-page-title">
           <div class="mpl-order-lookup-kicker">B2B Creator</div>
           <h2>B2B Case-Pack Labels</h2>
           <p>Select a saved configuration, edit this run, preview the actual customer label, and print.</p>
+          <div class="b2b-header-badges"><span>Configuration driven</span><span>Live PDF preview</span></div>
         </div>
         <div class="b2b-page-actions">
           <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Manage Product Configurations</button>
@@ -326,11 +399,19 @@
         </div>
       </div>
 
+      <div class="b2b-workflow-strip" aria-label="B2B label workflow">
+        <div class="b2b-workflow-step"><span>01</span><div><strong>Select configuration</strong><small>Customer, product, and label</small></div></div>
+        <div class="b2b-workflow-connector" aria-hidden="true"></div>
+        <div class="b2b-workflow-step"><span>02</span><div><strong>Complete run details</strong><small>Order and carton values</small></div></div>
+        <div class="b2b-workflow-connector" aria-hidden="true"></div>
+        <div class="b2b-workflow-step"><span>03</span><div><strong>Preview &amp; print</strong><small>Validate the final PDF</small></div></div>
+      </div>
+
       <div class="mpl-order-lookup-card b2b-order-lookup-card">
         <div class="mpl-order-lookup-copy">
-          <div class="mpl-order-lookup-kicker">Order Data</div>
-          <h2>Load a Zoho order</h2>
-          <p>Use the same sales-order lookup as MPL to auto-match the customer and product rows, then fine-tune the manual settings if needed.</p>
+          <div class="mpl-order-lookup-kicker">Sales order data</div>
+          <h2>Start with a sales order</h2>
+          <p>Enter the sales order number to match customer and product rows automatically, then fine-tune the label settings if needed.</p>
         </div>
         <form class="mpl-order-lookup-form" onsubmit="loadB2BOrderFromAnalytics(event)">
           <label for="b2b-sales-order-number">Sales Order Number</label>
@@ -369,14 +450,17 @@
         </form>
       </div>
 
-      <section class="b2b-card b2b-coverage-card">
-        <div class="b2b-card-heading">
+      <details class="b2b-card b2b-coverage-card">
+        <summary class="b2b-coverage-heading">
           <div>
             <div class="b2b-card-kicker">Current coverage</div>
-            <h3>Supported labels and configured SKUs</h3>
+            <h3>Label catalog and configured SKUs</h3>
           </div>
-          <span class="b2b-save-state" id="b2b-coverage-summary">Loading label catalog</span>
-        </div>
+          <div class="b2b-coverage-heading-meta">
+            <span class="b2b-save-state" id="b2b-coverage-summary">Loading label catalog</span>
+            <span class="b2b-coverage-toggle" aria-hidden="true">View catalog</span>
+          </div>
+        </summary>
         <div class="b2b-coverage-scroll">
           <table class="b2b-coverage-table">
             <thead>
@@ -393,15 +477,18 @@
             </tbody>
           </table>
         </div>
-      </section>
+      </details>
 
       <div class="b2b-creator-layout">
         <div class="b2b-creator-form">
           <section class="b2b-card">
             <div class="b2b-card-heading">
-              <div>
-                <div class="b2b-card-kicker">Label configuration</div>
-                <h3>Choose what to print</h3>
+              <div class="b2b-heading-with-step">
+                <span class="b2b-step-number">01</span>
+                <div>
+                  <div class="b2b-card-kicker">Label configuration</div>
+                  <h3>Choose what to print</h3>
+                </div>
               </div>
               <span class="b2b-state-badge" id="b2b-configuration-status">Loading</span>
             </div>
@@ -427,9 +514,12 @@
 
           <section class="b2b-card">
             <div class="b2b-card-heading">
-              <div>
-                <div class="b2b-card-kicker">Saved product data</div>
-                <h3>Editable label values</h3>
+              <div class="b2b-heading-with-step">
+                <span class="b2b-step-number">02</span>
+                <div>
+                  <div class="b2b-card-kicker">Saved product data</div>
+                  <h3>Review label values</h3>
+                </div>
               </div>
               <span class="b2b-save-state" id="b2b-product-save-state">Changes save to Product Master</span>
             </div>
@@ -461,9 +551,12 @@
 
           <section class="b2b-card">
             <div class="b2b-card-heading">
-              <div>
-                <div class="b2b-card-kicker">This print run</div>
-                <h3>Job and carton details</h3>
+              <div class="b2b-heading-with-step">
+                <span class="b2b-step-number">03</span>
+                <div>
+                  <div class="b2b-card-kicker">This print run</div>
+                  <h3>Job and carton details</h3>
+                </div>
               </div>
             </div>
             <div class="b2b-field-grid">
@@ -486,9 +579,12 @@
 
         <aside class="b2b-preview-card">
           <div class="b2b-card-heading">
-            <div>
-              <div class="b2b-card-kicker">Print preview</div>
-              <h3 id="b2b-preview-title">Select a label</h3>
+            <div class="b2b-heading-with-step">
+              <span class="b2b-step-number">04</span>
+              <div>
+                <div class="b2b-card-kicker">Print preview</div>
+                <h3 id="b2b-preview-title">Select a label</h3>
+              </div>
             </div>
           </div>
           <div class="b2b-inline-preview" id="b2b-inline-preview-wrap">
@@ -878,7 +974,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-  <script src="/assets/js/app.js?v=20260819-tihi-modes-2"></script>
+  <script src="/assets/js/app.js?v=20260825-module-themes-5"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
