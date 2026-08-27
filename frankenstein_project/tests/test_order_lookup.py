@@ -128,6 +128,8 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
                 "Sales Order Number": "SO-9001",
                 "Quantity Ordered": "7",
                 "SKUNumber": "XYZ-999",
+                "Product Name": "Order-only product",
+                "Unit Weight Lbs": "2.5",
                 "Ecomdash ID": "9001",
                 "Billing Customer Name": "Acme Foods",
                 "Storefront": "Acme Foods",
@@ -143,15 +145,6 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
                 "label_template_id": "standard",
                 "config_id": "ACME-CASE",
             },
-            {
-                "storefront": "Acme Foods",
-                "packaging_level": "Case",
-                "in_packing_list": True,
-                "case_qty": "12",
-                "sku": "XYZ-999",
-                "label_template_id": "standard",
-                "config_id": "ACME-OTHER",
-            },
         ]
 
         items = _b2b_analytics_order_items_for_products(analytics_rows, product_rows)
@@ -161,6 +154,10 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         self.assertEqual(20, items[0]["quantity_ordered"])
         self.assertEqual("matched", items[0]["match_status"])
         self.assertEqual("standard", items[0]["product"]["label_template_id"])
+        self.assertEqual("unmatched", items[1]["match_status"])
+        self.assertEqual("XYZ-999", items[1]["item_number"])
+        self.assertEqual("Order-only product", items[1]["description"])
+        self.assertEqual("2.5", items[1]["unit_weight_lbs"])
 
     def test_b2b_unique_key_includes_packaging_level(self):
         row = normalize_product_master_row({
@@ -265,7 +262,7 @@ class KeheMplItemNumberTests(unittest.TestCase):
         self.assertEqual("20850068684780", item["gtin"])
         self.assertEqual("20850068684780", item["case_upc"])
 
-    def test_missing_each_gtin_is_flagged_instead_of_using_case_or_sku(self):
+    def test_missing_each_gtin_uses_sku_as_visible_item_number(self):
         draft = {
             "product_master": [{
                 "storefront": "KeHE",
@@ -289,14 +286,11 @@ class KeheMplItemNumberTests(unittest.TestCase):
         apply_product_master_to_mpl_draft(draft, force=True)
 
         mpl = draft["packing_lists"][0]
-        self.assertEqual("", mpl["items"][0]["item_number"])
+        self.assertEqual("TW-BRS205-4OZ", mpl["items"][0]["item_number"])
         self.assertEqual("Needs Review", mpl["status"])
-        self.assertIn("Each row with a GTIN is required", mpl["warnings"][0])
+        self.assertIn("no Each GTIN", mpl["warnings"][0])
 
-        self.assertEqual(
-            ["TW-BRS205-4OZ"],
-            _validate_mpl_each_item_numbers(draft),
-        )
+        self.assertEqual([], _validate_mpl_each_item_numbers(draft))
 
     def test_unmatched_xml_item_is_not_allowed_to_keep_unverified_upc(self):
         draft = {
@@ -315,8 +309,8 @@ class KeheMplItemNumberTests(unittest.TestCase):
         apply_product_master_to_mpl_draft(draft)
 
         mpl = draft["packing_lists"][0]
-        self.assertEqual("", mpl["items"][0]["item_number"])
-        self.assertIn("enabled Product Master Case row", mpl["warnings"][0])
+        self.assertEqual("UNKNOWN-SKU", mpl["items"][0]["item_number"])
+        self.assertIn("using order data", mpl["warnings"][0])
 
     def test_mpl_render_refreshes_stale_draft_from_authoritative_product_master(self):
         stale_draft = {

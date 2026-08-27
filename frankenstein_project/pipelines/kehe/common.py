@@ -2346,7 +2346,12 @@ def _apply_product_row_to_item(
     each_gtin = str((each_product or {}).get("gtin") or "").strip()
     # KeHE's MPL Item Number is the consumer-unit (Each) GTIN. The Case GTIN
     # remains in gtin/case_upc for case identification and label generation.
-    item["item_number"] = each_gtin
+    fallback_item_number = (
+        _mpl_clean(item.get("sku"))
+        or _mpl_clean(product.get("sku"))
+        or _mpl_clean(item.get("item_number"))
+    )
+    item["item_number"] = each_gtin or fallback_item_number
     item["each_gtin"] = each_gtin
     if product.get("gtin"):
         item["gtin"] = product.get("gtin", "")
@@ -2388,6 +2393,7 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
             str(warning)
             for warning in (mpl.get("warnings") or [])
             if "required for MPL Item Number" not in str(warning)
+            and "was not found as an enabled Case row in Product Master" not in str(warning)
         ]
         mpl["warnings"] = existing_warnings
         for item in items:
@@ -2406,12 +2412,9 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
                         or _mpl_clean(item.get("item_number"))
                         or "Unknown item"
                     )
-                    item["item_number"] = ""
+                    item["item_number"] = _mpl_clean(item.get("sku")) or _mpl_clean(item.get("item_number")) or identity
                     item["each_gtin"] = ""
-                    warning = (
-                        f"Item {identity}: enabled Product Master Case row and related Each GTIN "
-                        "are required for MPL Item Number."
-                    )
+                    warning = f"SKU {identity}: using order data; add Product Master data for GTIN, weight, and TI-HI."
                     if warning not in mpl["warnings"]:
                         mpl["warnings"].append(warning)
                     mpl["status"] = "Needs Review"
@@ -2420,7 +2423,7 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
             _apply_product_row_to_item(item, product, each_product)
             if not each_product:
                 sku = str(product.get("sku") or item.get("sku") or "").strip() or "Unknown SKU"
-                warning = f"SKU {sku}: Product Master Each row with a GTIN is required for MPL Item Number."
+                warning = f"SKU {sku}: no Each GTIN; using SKU as Item Number."
                 if warning not in mpl["warnings"]:
                     mpl["warnings"].append(warning)
                 mpl["status"] = "Needs Review"
@@ -2444,13 +2447,12 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
 
 
 def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> List[str]:
-    """Return MPL rows that do not have a verified consumer-unit GTIN.
+    """Return MPL rows that still have no visible Item Number.
 
     Missing Product Master data is advisory for MPL rendering. The enrichment
-    pass marks affected lists as Needs Review and leaves ``item_number`` blank;
-    the PDF uses the order SKU as a visible fallback. TI-HI still ignores rows
-    that do not have the required Case measurements, and no TI-HI page is added
-    when no valid layout entries remain.
+    pass marks affected lists as Needs Review and preserves the order SKU as a
+    visible fallback. TI-HI still ignores rows without the required Case
+    measurements, and no TI-HI page is added when no valid layout entries remain.
     """
     missing: List[str] = []
     for mpl in draft.get("packing_lists") or []:

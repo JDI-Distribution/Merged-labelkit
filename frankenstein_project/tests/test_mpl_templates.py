@@ -173,7 +173,7 @@ class MplTemplateTests(unittest.TestCase):
                 self.assertEqual(1, len(document))
                 text = "\n".join(page.get_text() for page in document)
 
-        self.assertIn("SKU: UNKNOWN-SKU", text)
+        self.assertIn("UNKNOWN-SKU", text)
         self.assertIn("EACHES", text)
         self.assertNotIn("TI-HI LAYOUT", text)
 

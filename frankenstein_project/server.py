@@ -219,10 +219,22 @@ ANALYTICS_QUANTITY_COLUMN = str(
     _config_value("ANALYTICS_QUANTITY_COLUMN", "analytics_quantity_column", "Quantity Ordered")
     or "Quantity Ordered"
 ).strip()
+ANALYTICS_ITEM_DESCRIPTION_COLUMNS = ("Product Name", "Item Description", "Description")
+ANALYTICS_ITEM_NUMBER_COLUMNS = ("Item Number", "Customer Item Number")
+ANALYTICS_ITEM_GTIN_COLUMNS = ("GTIN", "UPC", "UPC Code", "Barcode")
+ANALYTICS_ITEM_UNIT_WEIGHT_COLUMNS = (
+    "Unit Weight Lbs",
+    "Unit Weight",
+    "Item Weight Lbs",
+    "Item Weight",
+    "Gross Weight Lbs",
+)
+ANALYTICS_ITEM_PALLET_WEIGHT_COLUMNS = ("Pallet Weight Lbs", "Pallet Weight")
 ANALYTICS_ORDER_INSTANCE_ID_COLUMN = "Ecomdash ID"
 ANALYTICS_ORDER_INSTANCE_DATE_COLUMN = "Invoice Date"
 ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN = "Storefront"
 ANALYTICS_ORDER_DETAIL_COLUMNS: Dict[str, str] = {
+    "storefront": "Storefront",
     "billing_customer_name": "Billing Customer Name",
     "bill_to_phone": "Bill To Phone",
     "billing_street1": "Billing Street1",
@@ -2466,6 +2478,32 @@ def _analytics_row_value(row: Dict[str, Any], column_name: str) -> str:
     return ""
 
 
+def _analytics_first_row_value(row: Dict[str, Any], column_names: Tuple[str, ...]) -> str:
+    for column_name in column_names:
+        value = _analytics_row_value(row, column_name)
+        if value:
+            return value
+    return ""
+
+
+def _analytics_order_item_fallback(row: Dict[str, Any], sku: str) -> Dict[str, str]:
+    """Keep usable line data when Product Master has no matching SKU.
+
+    Values come only from the order export. SKU is the visible Item Number
+    fallback; identifiers, weights, and descriptions are never guessed.
+    """
+    order_item_number = _analytics_first_row_value(row, ANALYTICS_ITEM_NUMBER_COLUMNS)
+    return {
+        "item_number": order_item_number or str(sku or "").strip(),
+        "customer_item_number": order_item_number or str(sku or "").strip(),
+        "description": _analytics_first_row_value(row, ANALYTICS_ITEM_DESCRIPTION_COLUMNS),
+        "gtin": _analytics_first_row_value(row, ANALYTICS_ITEM_GTIN_COLUMNS),
+        "unit_weight_lbs": _analytics_first_row_value(row, ANALYTICS_ITEM_UNIT_WEIGHT_COLUMNS),
+        "pallet_weight": _analytics_first_row_value(row, ANALYTICS_ITEM_PALLET_WEIGHT_COLUMNS),
+        "storefront": _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN),
+    }
+
+
 def _canonical_order_sku(value: Any) -> str:
     raw = str(value or "").strip().lower()
     if re.fullmatch(r"\d+(?:\.0+)?", raw):
@@ -2559,9 +2597,17 @@ def _b2b_analytics_order_items_for_products(
         if not sku_key or quantity is None:
             continue
         if sku_key not in aggregated:
-            aggregated[sku_key] = {"sku": sku, "quantity_ordered": quantity}
+            aggregated[sku_key] = {
+                "sku": sku,
+                "quantity_ordered": quantity,
+                **_analytics_order_item_fallback(row, sku),
+            }
         else:
             aggregated[sku_key]["quantity_ordered"] = float(aggregated[sku_key]["quantity_ordered"]) + float(quantity)
+            fallback = _analytics_order_item_fallback(row, sku)
+            for field, value in fallback.items():
+                if value and not aggregated[sku_key].get(field):
+                    aggregated[sku_key][field] = value
 
     normalized_product_rows = _dedupe_product_master_rows(product_rows)
     products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
@@ -2588,7 +2634,7 @@ def _b2b_analytics_order_items_for_products(
             product = None
 
         item = {
-            "sku": order_item["sku"],
+            **order_item,
             "quantity_ordered": int(order_item["quantity_ordered"]) if float(order_item["quantity_ordered"]).is_integer() else round(float(order_item["quantity_ordered"]), 6),
             "match_status": match_status,
             "product": product,
@@ -2763,10 +2809,18 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             ignored_rows += 1
             continue
         if sku_key not in aggregated:
-            aggregated[sku_key] = {"sku": sku, "quantity_ordered": quantity}
+            aggregated[sku_key] = {
+                "sku": sku,
+                "quantity_ordered": quantity,
+                **_analytics_order_item_fallback(row, sku),
+            }
         else:
             total = float(aggregated[sku_key]["quantity_ordered"]) + float(quantity)
             aggregated[sku_key]["quantity_ordered"] = int(total) if total.is_integer() else round(total, 6)
+            fallback = _analytics_order_item_fallback(row, sku)
+            for field, value in fallback.items():
+                if value and not aggregated[sku_key].get(field):
+                    aggregated[sku_key][field] = value
 
     if not aggregated:
         raise HTTPException(

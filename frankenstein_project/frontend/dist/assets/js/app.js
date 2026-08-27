@@ -431,6 +431,7 @@
   let b2bSelectedProductIndex = -1;
   let b2bSelectedDirectoryIndex = -1;
   let b2bSelectedTemplateId = '';
+  let b2bOrderFallbackProducts = [];
   let b2bCopiesTemplateId = '';
   let b2bSettingsProductIndex = -1;
   let b2bPreviewUrl = null;
@@ -2653,7 +2654,7 @@
     const qtyFallback = options.defaultQty || '1';
     const eachProduct = findEachProductForCaseProduct(product);
     const eachGtin = String(options.eachGtin || eachProduct?.gtin || '').trim();
-    item.item_number = eachGtin;
+    item.item_number = eachGtin || product.sku || item.sku || item.item_number || '';
     item.each_gtin = eachGtin;
     item.case_upc = product.gtin || item.case_upc || '';
     item.gtin = product.gtin || item.gtin || '';
@@ -3061,8 +3062,13 @@
       const quantity = analyticsOrderQuantity(sourceItem?.quantity_ordered) || '1';
       const sku = String(sourceItem?.sku || '').trim();
       const item = blankManualMplItem(index + 1, '1');
-      item.item_number = '';
+      item.item_number = String(sourceItem?.item_number || sku).trim();
       item.sku = sku;
+      item.description = String(sourceItem?.description || '').trim();
+      item.unit_weight_lbs = String(sourceItem?.unit_weight_lbs || '').trim();
+      item.pallet_weight = String(sourceItem?.pallet_weight || '').trim();
+      item.gtin = String(sourceItem?.gtin || '').trim();
+      item.order_match_status = String(sourceItem?.match_status || '').trim();
       item.qty_on_pallet = quantity;
       item.total_ordered = quantity;
       item.total_shipped = quantity;
@@ -3071,6 +3077,11 @@
       item.inner_packs_per_case = analyticsOrderQuantity(sourceItem?.inner_packs_per_case);
       item.eaches_per_case = analyticsOrderQuantity(sourceItem?.eaches_per_case);
       item.case_conversion_exact = sourceItem?.case_conversion_exact !== false;
+      const orderUnitWeight = parseWeight(item.unit_weight_lbs);
+      if (orderUnitWeight !== null) {
+        item.calculated_weight_lbs = formatLbs(orderUnitWeight * Number(quantity));
+        if (!item.pallet_weight) item.pallet_weight = item.calculated_weight_lbs;
+      }
 
       if (sourceItem?.match_status === 'matched' && sourceItem.product) {
         applyProductRowToMplItem(item, normalizeProductRow(sourceItem.product), {
@@ -3078,8 +3089,9 @@
           eachGtin: sourceItem.each_gtin
         });
         const itemWarnings = [];
-        if (!item.item_number) {
-          itemWarnings.push(`Product Master Each row with a GTIN is required for MPL Item Number.`);
+        if (!item.each_gtin) {
+          item.item_number = sku;
+          itemWarnings.push('No Each GTIN; using SKU as Item Number.');
         }
         if (sourceItem?.quantity_uom === 'CASES' && sourceItem?.case_conversion_exact === false) {
           itemWarnings.push(`Analytics ordered ${item.analytics_quantity_eaches || sourceItem.quantity_ordered_eaches} eaches, which is not a full ${item.eaches_per_case || sourceItem.eaches_per_case}-each case multiple. Rounded up to ${quantity} cases for palletization.`);
@@ -3089,15 +3101,12 @@
           warnings.push(`SKU ${sku}: ${item.notes}`);
         }
       } else if (sourceItem?.match_status === 'ambiguous') {
-        const storefronts = Array.isArray(sourceItem.candidate_storefronts)
-          ? sourceItem.candidate_storefronts.filter(Boolean).join(', ')
-          : '';
         item.uom = 'EACHES';
-        item.notes = `SKU ${sku} matches multiple Product Master rows${storefronts ? ` (${storefronts})` : ''}; quantity remains as Analytics eaches. Select the correct product for case conversion and TI-HI.`;
+        item.notes = `SKU ${sku}: multiple Product Master matches; using order data. Select a product for case pack, weight, and TI-HI.`;
         warnings.push(item.notes);
       } else {
         item.uom = 'EACHES';
-        item.notes = `SKU ${sku} was not found as an enabled Case row in Product Master. The packing list will use the order SKU and Analytics each quantity; TI-HI is unavailable until the product is configured.`;
+        item.notes = `SKU ${sku}: using order data; add Product Master data for GTIN, weight, and TI-HI.`;
         warnings.push(item.notes);
       }
       return item;
@@ -3137,6 +3146,10 @@
       quantity_ordered_eaches: item.quantity_ordered_eaches ?? '',
       quantity_ordered_cases: item.quantity_ordered_cases ?? '',
       eaches_per_case: item.eaches_per_case ?? '',
+      item_number: item.item_number || '',
+      description: item.description || '',
+      unit_weight_lbs: item.unit_weight_lbs || '',
+      pallet_weight: item.pallet_weight || '',
       match_status: item.match_status || ''
     }));
     ensureMplPalletState(mpl);
@@ -3995,26 +4008,42 @@
       const totals = {};
       let listTotal = 0;
       const itemNumberWarnings = [];
-      mpl.warnings = (mpl.warnings || []).filter(warning => !String(warning).includes('required for MPL Item Number'));
+      mpl.warnings = (mpl.warnings || []).filter(warning => (
+        !String(warning).includes('required for MPL Item Number')
+        && !String(warning).includes('was not found as an enabled Case row in Product Master')
+      ));
       (mpl.items || []).forEach(item => {
-        const product = matchProductMaster(item, { caseOnly: true });
+        const orderMatchStatus = String(item.order_match_status || '').toLowerCase();
+        const product = ['unmatched', 'ambiguous'].includes(orderMatchStatus)
+          ? null
+          : matchProductMaster(item, { caseOnly: true });
         const hasIdentity = [item.item_number, item.sku, item.gtin, item.case_upc, item.upc, item.description]
           .some(value => !!String(value || '').trim());
         if (!product) {
           if (hasIdentity) {
             const identity = item.sku || item.gtin || item.case_upc || item.upc || item.item_number || 'Unknown item';
-            item.item_number = '';
+            item.item_number = item.sku || item.item_number || identity;
             item.each_gtin = '';
-            itemNumberWarnings.push(`Item ${identity}: enabled Product Master Case row and related Each GTIN are required for MPL Item Number.`);
+            itemNumberWarnings.push(orderMatchStatus === 'ambiguous'
+              ? `SKU ${identity}: multiple Product Master matches; using order data. Select a product for case pack, weight, and TI-HI.`
+              : `SKU ${identity}: using order data; add Product Master data for GTIN, weight, and TI-HI.`);
+            const orderUnitWeight = parseWeight(item.unit_weight_lbs);
+            if (orderUnitWeight !== null) {
+              const pallet = normalizePalletId(item.location_on_pallet);
+              const itemWeight = orderUnitWeight * itemQuantityForWeight(item);
+              item.calculated_weight_lbs = formatLbs(itemWeight);
+              listTotal += itemWeight;
+              if (pallet) totals[pallet] = (totals[pallet] || 0) + itemWeight;
+            }
           }
           return;
         }
         const eachProduct = findEachProductForCaseProduct(product);
         const eachGtin = String(eachProduct?.gtin || item.each_gtin || '').trim();
-        item.item_number = eachGtin;
+        item.item_number = eachGtin || product.sku || item.sku || item.item_number || '';
         item.each_gtin = eachGtin;
         if (!eachGtin) {
-          itemNumberWarnings.push(`SKU ${product.sku || item.sku || 'Unknown SKU'}: Product Master Each row with a GTIN is required for MPL Item Number.`);
+          itemNumberWarnings.push(`SKU ${product.sku || item.sku || 'Unknown SKU'}: no Each GTIN; using SKU as Item Number.`);
         }
         item.gtin = product.gtin || item.gtin || '';
         item.case_upc = product.gtin || item.case_upc || '';
@@ -6046,6 +6075,7 @@
     blobUrl = null;
     activeKeheDocumentType = null;
     activeKeheDocumentDraft = null;
+    b2bOrderFallbackProducts = [];
     mplProductMasterRows = loadMplProductMasterFromStorage();
     mplDirectoryRows = loadMplDirectoryFromStorage();
 
@@ -6106,7 +6136,7 @@
   function getB2BProductEntries(customer = b2bSelectedCustomer) {
     const rawCustomer = String(customer || '').trim();
     const normalizedCustomer = rawCustomer ? normalizeStorefront(rawCustomer).toLowerCase() : '';
-    return mplProductMasterRows
+    const savedEntries = mplProductMasterRows
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
       .filter(({ row }) => !isKeheStorefront(row.storefront))
       .filter(({ row }) => hasPermission('table_crud') || (
@@ -6116,6 +6146,10 @@
       ))
       .filter(({ row }) => !normalizedCustomer || normalizeStorefront(row.storefront).toLowerCase() === normalizedCustomer)
       .filter(({ row }) => row.config_id || row.sku || row.customer_item_number || row.description || row.label_template_id);
+    const fallbackEntries = b2bOrderFallbackProducts
+      .map((raw, index) => ({ row: normalizeProductRow(raw), index: -1000 - index }))
+      .filter(({ row }) => !normalizedCustomer || normalizeStorefront(row.storefront).toLowerCase() === normalizedCustomer);
+    return [...savedEntries, ...fallbackEntries];
   }
 
   function getB2BProductGroups(customer = b2bSelectedCustomer) {
@@ -6141,7 +6175,13 @@
   }
 
   function getSelectedB2BProduct() {
-    return b2bSelectedProductIndex >= 0 ? normalizeProductRow(mplProductMasterRows[b2bSelectedProductIndex] || {}) : null;
+    if (b2bSelectedProductIndex >= 0) {
+      return normalizeProductRow(mplProductMasterRows[b2bSelectedProductIndex] || {});
+    }
+    if (b2bSelectedProductIndex <= -1000) {
+      return normalizeProductRow(b2bOrderFallbackProducts[-1000 - b2bSelectedProductIndex] || {});
+    }
+    return null;
   }
 
   function getSelectedB2BDirectory() {
@@ -6195,7 +6235,8 @@
       return;
     }
 
-    const canEdit = hasPermission('table_crud');
+    const isOrderFallback = b2bSelectedProductIndex <= -1000;
+    const canEdit = isOrderFallback || hasPermission('table_crud');
     Object.entries(b2bProductSettingMap()).forEach(([field, id]) => {
       const input = document.getElementById(id);
       if (!input) return;
@@ -6223,7 +6264,9 @@
       && !['', 'NONE'].includes(String(product.barcode_level || '').toUpperCase());
     const needsAttention = requiredMissing.length > 0 || (barcodePolicy !== 'NONE' && !barcodeConfigured);
     if (status) {
-      if (requiredMissing.length) status.textContent = `${requiredMissing.length} required field${requiredMissing.length === 1 ? '' : 's'} missing`;
+      if (isOrderFallback && requiredMissing.length) status.textContent = `Order data loaded · ${requiredMissing.length} field${requiredMissing.length === 1 ? '' : 's'} to review`;
+      else if (isOrderFallback) status.textContent = 'Order data loaded for this label';
+      else if (requiredMissing.length) status.textContent = `${requiredMissing.length} required field${requiredMissing.length === 1 ? '' : 's'} missing`;
       else if (barcodePolicy === 'NONE') status.textContent = 'Barcode not printed by this template';
       else if (!barcodeConfigured) status.textContent = 'Barcode not configured';
       else status.textContent = 'Setup complete';
@@ -6237,7 +6280,7 @@
 
   function b2bEditableValue(product, field, placeholder, className = '') {
     const value = String(product?.[field] ?? '').trim();
-    const editable = !!product && hasPermission('table_crud');
+    const editable = !!product && (b2bSelectedProductIndex <= -1000 || hasPermission('table_crud'));
     return `<span class="b2b-label-editable ${className} ${value ? '' : 'is-empty'} ${editable ? '' : 'is-readonly'}"
       data-b2b-product-edit="${escapeHtml(field)}"
       data-placeholder="${escapeHtml(placeholder)}"
@@ -6392,7 +6435,10 @@
     canvas.style.setProperty('--b2b-label-max-width', `${sheetWidth}px`);
     canvas.innerHTML = b2bLabelEditorHtml(template, product, getSelectedB2BDirectory());
     if (meta) {
-      meta.innerHTML = `<span>${escapeHtml(template.name || template.template_id)}</span><span>${width} × ${height} in</span><span class="b2b-meta-product">Product text saves automatically</span><span class="b2b-meta-run">Print-run text stays with this job</span>`;
+      const productNote = b2bSelectedProductIndex <= -1000
+        ? 'Order-derived product text stays with this job'
+        : 'Product text saves automatically';
+      meta.innerHTML = `<span>${escapeHtml(template.name || template.template_id)}</span><span>${width} × ${height} in</span><span class="b2b-meta-product">${escapeHtml(productNote)}</span><span class="b2b-meta-run">Print-run text stays with this job</span>`;
     }
   }
 
@@ -6405,7 +6451,7 @@
 
   function commitB2BLabelEdit(element) {
     const field = String(element?.dataset?.b2bProductEdit || '');
-    if (!field || !hasPermission('table_crud')) return;
+    if (!field || (b2bSelectedProductIndex > -1000 && !hasPermission('table_crud'))) return;
     const value = String(element.innerText || '').replace(/\s+/g, ' ').trim();
     element.classList.toggle('is-empty', !value);
     updateB2BProductField(field, value, false);
@@ -6532,17 +6578,63 @@
     const matchedProducts = Number(summary.matched_products || 0);
     const unmatchedProducts = Number(summary.unmatched_products || 0);
     const ambiguousProducts = Number(summary.ambiguous_products || 0);
-    const orderCustomer = String(orderDetails?.billing_customer_name || orderDetails?.storefront || '').trim() || 'Customer';
-    if (orderCustomer) b2bSelectedCustomer = orderCustomer;
-    if (analyticsItems.length) {
-      const firstMatched = analyticsItems.find(item => item?.product && item.match_status === 'matched') || analyticsItems[0];
-      if (firstMatched && firstMatched.product) {
-        const product = normalizeProductRow(firstMatched.product);
-        b2bSelectedCustomer = product.storefront || orderCustomer;
-        b2bSelectedGroupKey = mplProductGroupKey(product, mplProductMasterRows.findIndex(row => normalizeProductRow(row).unique_key === product.unique_key));
-        b2bSelectedProductIndex = mplProductMasterRows.findIndex(row => normalizeProductRow(row).unique_key === product.unique_key);
-        if (firstMatched?.label_template_id) b2bSelectedTemplateId = String(firstMatched.label_template_id || '');
-      }
+    const firstMatched = analyticsItems.find(item => item?.product && item.match_status === 'matched');
+    const matchedProduct = firstMatched?.product ? normalizeProductRow(firstMatched.product) : null;
+    const orderCustomer = String(
+      matchedProduct?.storefront
+      || orderDetails?.billing_customer_name
+      || orderDetails?.storefront
+      || ''
+    ).trim() || 'Order Customer';
+    const normalizedOrderCustomer = normalizeStorefront(orderCustomer).toLowerCase();
+    const compactOrderCustomer = normalizedOrderCustomer.replace(/[^a-z0-9]+/g, '');
+    const customerTemplate = b2bLabelTemplates.find(template => {
+      const compactTemplateCustomer = normalizeStorefront(template?.customer || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return compactTemplateCustomer && (
+        compactTemplateCustomer === compactOrderCustomer
+        || compactOrderCustomer.includes(compactTemplateCustomer)
+        || compactTemplateCustomer.includes(compactOrderCustomer)
+      );
+    });
+    const fallbackTemplateId = String(customerTemplate?.template_id || 'STANDARD_CASE_PACK_4X6');
+
+    b2bOrderFallbackProducts = analyticsItems
+      .filter(item => !item?.product || item.match_status !== 'matched')
+      .map((item, index) => ({
+        storefront: orderCustomer,
+        config_id: `ORDER-${String(orderNumber || 'SO').trim()}-${String(item?.sku || index + 1).trim()}`,
+        packaging_level: 'Case',
+        sku: String(item?.sku || '').trim(),
+        customer_item_number: String(item?.customer_item_number || item?.item_number || item?.sku || '').trim(),
+        description: String(item?.description || item?.sku || 'Order item').trim(),
+        gtin: String(item?.gtin || '').trim(),
+        gross_weight_lbs: String(item?.unit_weight_lbs || '').trim(),
+        case_qty: '',
+        label_template_id: fallbackTemplateId,
+        barcode_type: item?.gtin ? 'GTIN_14' : 'NONE',
+        barcode_level: item?.gtin ? 'CASE' : 'NONE',
+        verification_status: 'NEEDS_REVIEW',
+        label_enabled: true,
+        is_active: true,
+        source_note: `Order fallback from Sales Order ${orderNumber}`,
+      }));
+
+    b2bSelectedCustomer = orderCustomer;
+    if (matchedProduct) {
+      const productIndex = mplProductMasterRows.findIndex(row => {
+        const candidate = normalizeProductRow(row);
+        return normalizeStorefront(candidate.storefront).toLowerCase() === normalizeStorefront(matchedProduct.storefront).toLowerCase()
+          && normalizePackagingLevel(candidate.packaging_level) === normalizePackagingLevel(matchedProduct.packaging_level)
+          && String(candidate.config_id || candidate.sku || '').trim().toLowerCase() === String(matchedProduct.config_id || matchedProduct.sku || '').trim().toLowerCase();
+      });
+      b2bSelectedGroupKey = mplProductGroupKey(matchedProduct, productIndex);
+      b2bSelectedProductIndex = productIndex;
+      b2bSelectedTemplateId = String(firstMatched?.label_template_id || matchedProduct.label_template_id || '');
+    } else if (b2bOrderFallbackProducts.length) {
+      const fallbackProduct = normalizeProductRow(b2bOrderFallbackProducts[0]);
+      b2bSelectedProductIndex = -1000;
+      b2bSelectedGroupKey = mplProductGroupKey(fallbackProduct, b2bSelectedProductIndex);
+      b2bSelectedTemplateId = fallbackProduct.label_template_id || fallbackTemplateId;
     }
     b2bRunFields.order_number = String(orderNumber || '');
     b2bRunFields.po_number = String(orderDetails?.purchase_order_number || orderDetails?.po_number || '');
@@ -6550,7 +6642,7 @@
     clearB2BPreview();
     renderB2BCreator();
     setStatus(
-      `Sales Order ${orderNumber} loaded: ${analyticsItems.length} line item(s), ${matchedProducts} matched product row(s)${unmatchedProducts || ambiguousProducts ? `, ${unmatchedProducts + ambiguousProducts} need review` : ''}.`,
+      `Sales Order ${orderNumber} loaded · ${analyticsItems.length} line item(s) · ${matchedProducts} matched${unmatchedProducts || ambiguousProducts ? ` · ${unmatchedProducts + ambiguousProducts} using order data` : ''}.`,
       unmatchedProducts || ambiguousProducts ? 'info' : 'success'
     );
   }
@@ -6767,16 +6859,22 @@
   }
 
   function updateB2BProductField(field, value, rerenderEditor = true) {
-    if (b2bSelectedProductIndex < 0 || !hasPermission('table_crud')) return;
-    updateMplProductRow(b2bSelectedProductIndex, field, value);
+    const fallbackIndex = b2bSelectedProductIndex <= -1000 ? -1000 - b2bSelectedProductIndex : -1;
+    if (fallbackIndex >= 0) {
+      if (!b2bOrderFallbackProducts[fallbackIndex]) return;
+      b2bOrderFallbackProducts[fallbackIndex][field] = value;
+    } else {
+      if (b2bSelectedProductIndex < 0 || !hasPermission('table_crud')) return;
+      updateMplProductRow(b2bSelectedProductIndex, field, value);
+    }
     const state = document.getElementById('b2b-product-save-state');
-    if (state) state.textContent = 'Saving to Product Master…';
+    if (state) state.textContent = fallbackIndex >= 0 ? 'Updated for this label job' : 'Saving to Product Master…';
     clearB2BPreview();
     renderB2BProductSettings(getSelectedB2BProduct(), getSelectedB2BTemplate());
     if (rerenderEditor) renderB2BLabelEditor();
     renderB2BValidation();
     window.setTimeout(() => {
-      if (state) state.textContent = 'Saved automatically';
+      if (state) state.textContent = fallbackIndex >= 0 ? 'Order-only values · not saved to Product Master' : 'Saved automatically';
     }, 750);
   }
 

@@ -27,7 +27,7 @@ FastAPI routes in server.py
 - Local master data is stored under `frankenstein_project/data/`. Catalyst uses the configured Data Store tables and does not fall back to bundled JSON in strict cloud mode.
 - Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser. The B2B editable canvas mirrors the selected renderer, while Section 4 remains the authoritative production-PDF proof.
 - Packing List and B2B order lookup use the field label `Sales Order Number`. Catalyst reads the Zoho Analytics order view through the `orderdata` connection.
-- Missing Product Master data remains visible as a review warning. Packing-list output can still be generated with the order SKU as its line identity; lines without safe case data are excluded from TI-HI.
+- Missing Product Master data produces one short review warning instead of blocking output. Packing lists use the order SKU as Item Number, carry the order Product Name into Item Description, and use order-provided weight fields when present. Lines without safe case dimensions or case-pack data remain excluded from TI-HI.
 
 ## Release Order
 
@@ -187,11 +187,11 @@ KeHE functionality:
 - `frankenstein_project/data/mpl_directory.json`
 - `frankenstein_project/data/kehe_mpl_drafts.json`
 
-The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details` through the Catalyst Connection `orderdata`. If that number is reused, LabelKit lists the distinct `Ecomdash ID` values with Storefront, Billing Customer Name, and Invoice Date so the user can select the intended order instance; every SKU row sharing that Ecomdash ID is retained. Duplicate `SKUNumber` rows within the selected order are grouped. Analytics `Quantity Ordered` values are eaches; matched KeHE products are converted to cases using the explicit `Eaches / Package` value on the Product Master Case row before palletization (for example, 36 eaches per case). When an Inner Pack row is present, LabelKit also derives the packaging breakdown, such as 6 eaches per inner pack × 6 inner packs per case. It never silently assumes 36: a missing or invalid Case package quantity blocks the conversion with a Product Master correction message. A non-full-case remainder is rounded up and marked for review. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then automatically palletizes and recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs are left editable and marked for review. A missing Product Master match or Each GTIN does not block the packing-list PDF; when the verified Item Number is unavailable, the order SKU is printed as the line identity. Product-missing or ambiguous lines retain the unconverted quantity labeled `EACHES`, remain unassigned, and are omitted from TI-HI. A line missing only its Each GTIN can still use TI-HI when its Case dimensions and weight are available. If the order has no valid TI-HI entries, no TI-HI page is appended to the PDF.
+The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details` through the Catalyst Connection `orderdata`. If that number is reused, LabelKit lists the distinct `Ecomdash ID` values with Storefront, Billing Customer Name, and Invoice Date so the user can select the intended order instance; every SKU row sharing that Ecomdash ID is retained. Duplicate `SKUNumber` rows within the selected order are grouped. Analytics `Quantity Ordered` values are eaches; matched KeHE products are converted to cases using the explicit `Eaches / Package` value on the Product Master Case row before palletization (for example, 36 eaches per case). When an Inner Pack row is present, LabelKit also derives the packaging breakdown, such as 6 eaches per inner pack × 6 inner packs per case. It never silently assumes 36: a missing or invalid Case package quantity blocks the conversion with a Product Master correction message. A non-full-case remainder is rounded up and marked for review. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then automatically palletizes and recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs remain editable and receive a condensed review warning. Their order SKU fills `Item Number`, `Product Name` fills Item Description, and any recognized order weight field fills the available line/pallet weight. The unconverted quantity remains labeled `EACHES`; without verified case pack and dimensions the line stays unassigned and is omitted from TI-HI. A line missing only its Each GTIN uses its SKU as Item Number and can still use TI-HI when Case dimensions and weight are available. No TI-HI page is added when the order has no valid TI-HI entries.
 
 For local testing, the `local` LabelKit profile reads the file configured by `analytics_local_file` instead of the Catalyst Connection. It points to the local fixture at `data/KeHE_Michaels_Storefront_Test_Data.csv`. The fixture contains customer contact and address columns and is explicitly excluded from Git. A Docker image built on this workstation still includes the local file unless it is also added to `.dockerignore`. The `catalyst` profile continues to use `orderdata` and does not read the local file.
 
-Required workbook headers: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`, `Billing Customer Name`, `Bill To Phone`, `Billing Street1`, `Billing Street2`, `Billing Street3`, `Billing City`, `Billing State`, `Billing Zip Code`, `Billing Country`, `Ship To Name`, `Ship To Phone`, `Shipping Street1`, `Shipping Street2`, `Shipping Street3`, `Shipping City`, `Shipping State`, `Shipping Zip Code`, `Shipping Country`, and `Order Notes`.
+Required workbook headers: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`, `Billing Customer Name`, `Bill To Phone`, `Billing Street1`, `Billing Street2`, `Billing Street3`, `Billing City`, `Billing State`, `Billing Zip Code`, `Billing Country`, `Ship To Name`, `Ship To Phone`, `Shipping Street1`, `Shipping Street2`, `Shipping Street3`, `Shipping City`, `Shipping State`, `Shipping Zip Code`, `Shipping Country`, and `Order Notes`. `Product Name` is used as the unmatched-SKU description. Optional item identifiers and weight aliases are accepted when present: `Item Number`, `Customer Item Number`, `GTIN`, `UPC`, `Unit Weight Lbs`, `Unit Weight`, `Item Weight Lbs`, `Item Weight`, `Gross Weight Lbs`, `Pallet Weight Lbs`, and `Pallet Weight`.
 
 KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`. This keeps all storefront data in one place while letting KeHE remain isolated to KeHE rows:
 
@@ -230,7 +230,7 @@ The B2B page is a working label editor driven by the saved customer/product hier
 4. Section 3 contains only physical-output controls: carton total, start carton, end carton, and copies per carton.
 5. Section 4 is the authoritative production-PDF proof. Use `Render Final PDF`, `Open Full Preview`, `Download PDF`, or `Print Labels`.
 
-Loading a Sales Order Number can preselect matching customer and product data and populate available print-run fields. Missing or ambiguous Product Master matches remain review warnings; they are not silently replaced with guessed data.
+Loading a Sales Order Number preselects matching customer/product data and populates available print-run fields. If a SKU has no Product Master match, LabelKit creates an editable order-only configuration using the real order customer, SKU, Product Name, item identifier, GTIN, and weight values that are available. It selects the customer template when one can be identified and otherwise uses the Standard Case-Pack template. These fallback values render and print but are not silently saved to Product Master; missing case-pack, barcode, or weight values remain concise review items.
 
 Supported workbook-derived label types:
 
@@ -363,7 +363,7 @@ Build from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-docker build --pull --build-arg APP_VERSION=2026.08.26-b2b-editor -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.26-order-fallback -t merged-labelkit:latest .
 ```
 
 Run locally:
@@ -409,7 +409,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-docker build --pull --build-arg APP_VERSION=2026.08.26-b2b-editor -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.26-order-fallback -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
 
