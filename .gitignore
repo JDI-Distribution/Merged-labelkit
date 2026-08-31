@@ -31,11 +31,13 @@ build/
 
 # Local utility and temp files
 check_frontend.js
+_sop_work/
 *.tmp
 *.temp
 
 # Runtime-generated local state
 frankenstein_project/data/kehe_audit_log.json
+frankenstein_project/.local/
 
 # Local order fixture contains customer contact/address data
 frankenstein_project/data/KeHE_Michaels_Storefront_Test_Data.csv

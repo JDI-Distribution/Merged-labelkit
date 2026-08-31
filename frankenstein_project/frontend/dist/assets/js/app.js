@@ -8,9 +8,9 @@
       headerName: 'Michaels DTS · LabelKit',
       headerSub: 'ASN XML + ShipStation shipping labels',
       titleHtml: 'Michaels DTS · <span>LabelKit</span>',
-      description: 'Upload your ASN XML from Infocon and your shipping labels from ShipStation to generate a single print-ready PDF. After each run, a match report appears below the button and the combined UPS Shipping Label, GS1 Label with SSCC-18 barcode, and Packing List preview opens in a popup.',
+      description: 'Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. One PDF upload returns one print-ready PDF; multiple PDF uploads return a ZIP with one separate output PDF per upload. A combined preview and match report remain available for the full run.',
       generateTitle: 'Generate Michaels Documents',
-      generateSubtitle: 'Create Michaels labels and packing documents from the uploaded ASN XML and shipping-label PDF.',
+      generateSubtitle: 'Create matched Michaels documents while preserving each uploaded shipping PDF as a separate output file.',
       noteHtml: '<strong>Note:</strong> Keep US and CAN orders separate. Print shipping labels separately, and use separate XML files for each group.',
       xmlTitle: 'ASN File — XML',
       xmlHintHtml: 'Upload your <strong>EDI 856 ASN XML</strong> file exported from <strong>Infocon</strong>',
@@ -22,6 +22,8 @@
       reportRules: 'Matching order: Tracking → Store. The results for each shipping label page appear here after every run.',
       waitingText: 'Generate labels to see how each shipping label matched the XML.',
       summaryLabels: [
+        ['output_order', 'Final PDF Order'],
+        ['output_files', 'Output Files'],
         ['shipping_pages', 'Shipping Pages'],
         ['xml_packs', 'XML Packs'],
         ['matched_pages', 'Matched'],
@@ -107,7 +109,7 @@
     },
     mpl: {
       headerName: 'Packing List & Ti-Hi · LabelKit',
-      headerSub: 'Standalone MPL workspace',
+      headerSub: '',
       titleHtml: 'Packing List &amp; <span>Ti-Hi</span>',
       description: '',
       noteHtml: '',
@@ -374,6 +376,7 @@
   let xmlFiles = [];
   let pdfFiles = [];
   let blobUrl = null;
+  let downloadBlobUrl = null;
   let currentResultId = null;
   let currentReport = null;
   let activeKeheDocumentType = null;
@@ -5943,6 +5946,8 @@
     pdfFiles = [];
     currentResultId = null;
     currentReport = null;
+    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
+    downloadBlobUrl = null;
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = null;
     keheProductMasterRows = loadKeheProductMasterFromStorage();
@@ -5961,7 +5966,9 @@
     document.getElementById('btn-change-kit').classList.add('visible');
 
     document.getElementById('header-app-name').textContent = cfg.headerName;
-    document.getElementById('header-app-sub').textContent = cfg.headerSub;
+    const headerSub = document.getElementById('header-app-sub');
+    headerSub.textContent = cfg.headerSub;
+    headerSub.classList.toggle('hidden', !cfg.headerSub);
     document.getElementById('workflow-title').innerHTML = cfg.titleHtml;
     const titleAccent = document.querySelector('#workflow-title span');
     if (titleAccent) {
@@ -5975,7 +5982,14 @@
     document.getElementById('xml-drop-hint').innerHTML = cfg.xmlHintHtml;
     document.getElementById('btn-label').textContent = cfg.generateLabel;
     document.getElementById('btn-download').download = cfg.outputName;
+    document.getElementById('btn-download-label').textContent = 'Download PDF';
     document.getElementById('pdf-step-block').classList.toggle('hidden', !cfg.requiresPdf);
+    const michaelsOutputOrder = document.getElementById('michaels-output-order');
+    michaelsOutputOrder.classList.toggle('visible', selectedKit === 'michaels');
+    if (selectedKit === 'michaels') {
+      const pdfOrderOption = michaelsOutputOrder.querySelector('input[value="pdf"]');
+      if (pdfOrderOption) pdfOrderOption.checked = true;
+    }
 
     const docActions = document.getElementById('kehe-document-actions');
     docActions.classList.toggle('visible', selectedKit === 'kehe');
@@ -6014,6 +6028,8 @@
     pdfFiles = [];
     currentResultId = null;
     currentReport = null;
+    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
+    downloadBlobUrl = null;
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = null;
     activeKeheDocumentType = null;
@@ -6034,7 +6050,8 @@
     document.getElementById('mpl-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'Packing List & Ti-Hi';
-    document.getElementById('header-app-sub').textContent = 'Standalone MPL workspace';
+    document.getElementById('header-app-sub').textContent = '';
+    document.getElementById('header-app-sub').classList.add('hidden');
 
     resetKeheXmlDerivedState();
     toggleKeheExtractedPanel(false);
@@ -6071,6 +6088,8 @@
     pdfFiles = [];
     currentResultId = null;
     currentReport = null;
+    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
+    downloadBlobUrl = null;
     if (blobUrl && blobUrl !== b2bPreviewUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = null;
     activeKeheDocumentType = null;
@@ -6086,7 +6105,8 @@
     document.getElementById('b2b-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'B2B Case-Pack Labels';
-    document.getElementById('header-app-sub').textContent = 'Customer-first configuration workflow';
+    document.getElementById('header-app-sub').textContent = '';
+    document.getElementById('header-app-sub').classList.add('hidden');
 
     setDownloadReady(false);
     setExportReady(false);
@@ -7066,6 +7086,7 @@
     document.getElementById('btn-change-kit').classList.remove('visible');
     document.getElementById('header-app-name').textContent = 'LabelKit';
     document.getElementById('header-app-sub').textContent = 'Select a workflow';
+    document.getElementById('header-app-sub').classList.remove('hidden');
     document.querySelector('.generate-block').classList.remove('kehe-mode');
     document.getElementById('kehe-preview-actions').classList.remove('visible');
     document.getElementById('btn-open-preview').classList.remove('hidden');
@@ -7108,6 +7129,14 @@
       dl.removeAttribute('href');
     }
     setPreviewReady(isReady && !!href);
+  }
+
+  function setDownloadPresentation(filename, mediaType = 'application/pdf') {
+    const dl = document.getElementById('btn-download');
+    dl.download = filename || currentConfig().outputName;
+    document.getElementById('btn-download-label').textContent = mediaType.includes('zip')
+      ? 'Download ZIP'
+      : 'Download PDF';
   }
 
   function setPreviewReady(isReady) {
@@ -7618,6 +7647,11 @@
     resetPreviewSurface();
     closePreview();
 
+    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
+    downloadBlobUrl = null;
+    if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
+    blobUrl = null;
+
     const form = new FormData();
     xmlFiles.forEach(f => form.append('xml_files', f));
     if (selectedKit === 'kehe') {
@@ -7625,6 +7659,8 @@
     }
     if (cfg.requiresPdf) {
       pdfFiles.forEach(f => form.append('pdf_files', f));
+      const selectedOrder = document.querySelector('input[name="michaels-output-order"]:checked');
+      form.append('group_by_pdf', String(!selectedOrder || selectedOrder.value === 'pdf'));
     }
 
     try {
@@ -7654,10 +7690,24 @@
           throw new Error(fileErr.detail || 'Generated PDF could not be downloaded.');
         }
 
-        const blob = await fileRes.blob();
-        if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
-        blobUrl = URL.createObjectURL(blob);
-        setDownloadReady(true, blobUrl);
+        const downloadBlob = await fileRes.blob();
+        const outputMediaType = String(status.media_type || fileRes.headers.get('content-type') || 'application/pdf').toLowerCase();
+        downloadBlobUrl = URL.createObjectURL(downloadBlob);
+        setDownloadPresentation(status.output_filename || cfg.outputName, outputMediaType);
+
+        if (outputMediaType.includes('zip')) {
+          const previewRes = await fetch(`/results/${encodeURIComponent(currentResultId)}/preview`);
+          if (!previewRes.ok) {
+            const previewErr = await previewRes.json().catch(() => ({ detail: previewRes.statusText }));
+            throw new Error(previewErr.detail || 'Combined PDF preview could not be loaded.');
+          }
+          blobUrl = URL.createObjectURL(await previewRes.blob());
+          setDownloadReady(true, downloadBlobUrl);
+          setPreviewReady(true);
+        } else {
+          blobUrl = downloadBlobUrl;
+          setDownloadReady(true, blobUrl);
+        }
         if (selectedKit === 'kehe') {
           setKehePreviewReady('labels', true, blobUrl);
           setActivePreviewFormat('rollo');
@@ -7670,6 +7720,8 @@
         const blob = await res.blob();
         if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
         blobUrl = URL.createObjectURL(blob);
+        downloadBlobUrl = blobUrl;
+        setDownloadPresentation(cfg.outputName, 'application/pdf');
         setDownloadReady(true, blobUrl);
         if (selectedKit === 'kehe') {
           setKehePreviewReady('labels', true, blobUrl);

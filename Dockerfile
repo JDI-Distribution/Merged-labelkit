@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.9-slim-bookworm
 
 ARG APP_VERSION=dev
 
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd --system labelkit && useradd --system --gid labelkit --home-dir /app labelkit
 
 COPY frankenstein_project/requirements.txt ./requirements.txt
-RUN python -m pip install --no-cache-dir "pip<26" && \
+RUN python -m pip install --no-cache-dir --upgrade "pip>=25.2,<26" && \
     python -m pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=labelkit:labelkit frankenstein_project/ ./

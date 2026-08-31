@@ -1081,6 +1081,7 @@ def _build_match_report(
     all_packs: List[Pack],
     used_pack_ssccs: set[str],
     shipping_pages: int,
+    output_order: str = "Uploaded PDF order",
 ) -> Dict[str, Any]:
     unused_packs: List[Pack] = []
     seen_ssccs: set[str] = set()
@@ -1097,6 +1098,7 @@ def _build_match_report(
             "2. Unique store-only match",
         ],
         "summary": {
+            "output_order": output_order,
             "success": matched_pages == shipping_pages and len(unused_packs) == 0,
             "shipping_pages": shipping_pages,
             "xml_packs": len(all_packs),
@@ -1166,6 +1168,7 @@ def _render_shipping_label_first(
     by_po_store: Dict[Tuple[str, str], List[Pack]],
     out_pdf: str,
     ocr_dpi: int,
+    group_by_shipping_pdf: bool = True,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
@@ -1226,6 +1229,11 @@ def _render_shipping_label_first(
     unmatched_details: List[PageOcrData] = []
     duplicate_messages: List[str] = []
     report_rows: List[Dict[str, Any]] = []
+    bundle_ranges: List[Dict[str, int]] = []
+    xml_order_by_pack = {
+        (pack.sscc.strip(), pack.po.strip(), pack.store.strip()): index
+        for index, pack in enumerate(all_packs)
+    }
     order_index = 0
 
     for page_idx, tracking, po, store in ocr_results:
@@ -1289,6 +1297,7 @@ def _render_shipping_label_first(
             _status_log(f"  Page {page_idx+1:>3}  OCR={ocr_tag:<22}  →  ⚠ no XML match")
 
         # ── 1. Shipping page — rasterised, guaranteed exactly one page ────
+        bundle_start = out_doc.page_count
         ship_bytes = _shipping_page_to_bytes(fitz_doc, page_idx)
         ship_fitz  = _bytes_to_fitz(ship_bytes)
         out_doc.insert_pdf(ship_fitz, from_page=0, to_page=0)
@@ -1296,7 +1305,13 @@ def _render_shipping_label_first(
 
         # ── 2. GS1 label — always exactly one page ────────────────────────
         if pack:
-            gs1_bytes = render_gs1_label_page(pack, order_index=order_index, total_orders=total)
+            pack_key = (pack.sscc.strip(), pack.po.strip(), pack.store.strip())
+            render_order_index = (
+                order_index
+                if group_by_shipping_pdf
+                else xml_order_by_pack.get(pack_key, order_index - 1) + 1
+            )
+            gs1_bytes = render_gs1_label_page(pack, order_index=render_order_index, total_orders=total)
         else:
             pd_obj    = PageOcrData(page_idx=page_idx, tracking=tracking, po=po, store=store)
             gs1_bytes = render_no_xml_match_page(pd_obj)
@@ -1306,10 +1321,18 @@ def _render_shipping_label_first(
 
         # ── 3. Packing list — one or more pages ───────────────────────────
         if pack:
-            pl_bytes = render_packing_list_pages(pack, order_index=order_index, total_orders=total)
+            pl_bytes = render_packing_list_pages(pack, order_index=render_order_index, total_orders=total)
             pl_fitz  = _bytes_to_fitz(pl_bytes)
             out_doc.insert_pdf(pl_fitz)          # all pages
             pl_fitz.close()
+            bundle_ranges.append(
+                {
+                    "label_page": page_idx + 1,
+                    "rank": render_order_index,
+                    "from_page": bundle_start,
+                    "to_page": out_doc.page_count - 1,
+                }
+            )
 
     unused_packs = []
     seen_unused_ssccs: set[str] = set()
@@ -1330,7 +1353,14 @@ def _render_shipping_label_first(
             f"{[_pack_debug_label(pack) for pack in unused_packs[:10]]}"
         )
 
-    report = _build_match_report(report_rows, all_packs, used_pack_ssccs, n_pages)
+    output_order = "Uploaded PDF order" if group_by_shipping_pdf else "ASN XML order"
+    report = _build_match_report(
+        report_rows,
+        all_packs,
+        used_pack_ssccs,
+        n_pages,
+        output_order=output_order,
+    )
 
     if unmatched_pages or unused_packs or duplicate_messages:
         out_doc.close()
@@ -1343,6 +1373,30 @@ def _render_shipping_label_first(
             ),
             report=report,
         )
+
+    if not group_by_shipping_pdf:
+        xml_order_doc = fitz.open()
+        next_output_page = 0
+        for bundle in sorted(bundle_ranges, key=lambda item: item["rank"]):
+            from_page = bundle["from_page"]
+            to_page = bundle["to_page"]
+            xml_order_doc.insert_pdf(out_doc, from_page=from_page, to_page=to_page)
+            bundle["final_from_page"] = next_output_page
+            bundle["final_to_page"] = next_output_page + (to_page - from_page)
+            next_output_page = bundle["final_to_page"] + 1
+        out_doc.close()
+        out_doc = xml_order_doc
+    else:
+        for bundle in bundle_ranges:
+            bundle["final_from_page"] = bundle["from_page"]
+            bundle["final_to_page"] = bundle["to_page"]
+
+    output_range_by_label = {bundle["label_page"]: bundle for bundle in bundle_ranges}
+    for row in report_rows:
+        bundle = output_range_by_label.get(int(row.get("label_page") or 0))
+        if bundle:
+            row["output_start_page"] = bundle["final_from_page"] + 1
+            row["output_end_page"] = bundle["final_to_page"] + 1
 
     out_doc.save(out_pdf, garbage=4, deflate=True)
     out_doc.close()
@@ -1359,6 +1413,7 @@ def run_pipeline(
     out_pdf: str,
     shipping_pdf_path: Optional[str] = None,
     ocr_dpi: int = 200,
+    group_by_shipping_pdf: bool = True,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     all_packs: List[Pack] = []
@@ -1394,6 +1449,7 @@ def run_pipeline(
             by_po_store        = by_po_store,
             out_pdf            = out_pdf,
             ocr_dpi            = ocr_dpi,
+            group_by_shipping_pdf = group_by_shipping_pdf,
             progress_callback  = progress_callback,
         )
     else:
@@ -1434,6 +1490,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--shipping", help="UPS shipping label PDF (image-based OK)")
     parser.add_argument("--out",      required=True, help="Output PDF path")
     parser.add_argument("--dpi",      type=int, default=300, help="OCR DPI (default 300)")
+    parser.add_argument(
+        "--asn-order",
+        action="store_true",
+        help="Arrange matched document groups in ASN XML order instead of shipping-PDF order",
+    )
     args = parser.parse_args(argv)
 
     run_pipeline(
@@ -1441,6 +1502,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         out_pdf           = args.out,
         shipping_pdf_path = args.shipping,
         ocr_dpi           = args.dpi,
+        group_by_shipping_pdf = not args.asn_order,
     )
 
 

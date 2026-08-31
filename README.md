@@ -131,10 +131,15 @@ KeHE and standalone MPL reference table routes:
 1. Select `Michaels DTS`.
 2. Upload one or more EDI 856 ASN XML files from Infocon.
 3. Upload ShipStation shipping-label PDFs.
-4. Click `Generate Labels`.
-5. Review the `Matching Report`.
-6. Use `Open Preview` or download the generated PDF.
-7. Use `Export for Excel` for the match report CSV.
+4. Choose the final PDF order:
+   - `Yes — follow uploaded PDF order` keeps every shipping label with its GS1 label and packing list, in the exact sequence of the uploaded ShipStation PDF. This is the default and recommended option.
+   - `No — use ASN XML order` keeps the same matched document groups but arranges them in the ASN pack sequence.
+5. Click `Generate Labels`.
+6. Review the `Matching Report`, including the `Final PDF Order` confirmation.
+7. Use `Open Preview` or download the generated PDF.
+8. Use `Export for Excel` for the match report CSV.
+
+When more than one ShipStation PDF is uploaded, LabelKit matches every page against the combined XML pack set, preserves each uploaded PDF's boundary, and returns a ZIP containing one generated PDF per uploaded shipping PDF. The in-app preview remains a combined PDF so the full run can still be reviewed in one place.
 
 The matching report includes page, status, method, OCR tracking, OCR PO, OCR store, matched XML, and note. The report table is horizontally scrollable and wraps long values so data does not overlap.
 
@@ -363,7 +368,7 @@ Build from repo root:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-docker build --pull --build-arg APP_VERSION=2026.08.26-order-fallback -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.31-michaels-multipdf -t merged-labelkit:latest .
 ```
 
 Run locally:
@@ -409,7 +414,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-docker build --pull --build-arg APP_VERSION=2026.08.26-order-fallback -t merged-labelkit:latest .
+docker build --pull --build-arg APP_VERSION=2026.08.31-michaels-multipdf -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
 

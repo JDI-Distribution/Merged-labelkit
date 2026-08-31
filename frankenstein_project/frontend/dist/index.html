@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260826-order-fallback-1">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260827-ui-cleanup-2">
 </head>
 <body data-module="home">
 
@@ -123,7 +123,7 @@
 
     <div class="upload-intro">
       <h2 id="workflow-title">JDID · <span>LabelKit</span></h2>
-      <p id="workflow-description">Upload your ASN XML from Infocon and your shipping labels from ShipStation to generate a single print-ready PDF.</p>
+      <p id="workflow-description">Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. Multiple PDF uploads produce separate output PDFs.</p>
       <div class="upload-note" id="workflow-note"><strong>Note:</strong> Keep US and CAN orders separate. Print shipping labels separately, and use separate XML files for each group.</div>
     </div>
 
@@ -170,7 +170,7 @@
             </svg>
           </div>
           <div class="drop-label">Click or drag PDF files here</div>
-          <div class="drop-hint">Upload your <strong>bulk shipping label PDF</strong> from <strong>ShipStation</strong>. A popup preview and match report appear after a successful run.</div>
+          <div class="drop-hint">Upload one or more <strong>bulk shipping label PDFs</strong> from <strong>ShipStation</strong>. Each uploaded PDF produces its own output PDF when the run succeeds.</div>
         </div>
         <div class="file-list" id="pdf-file-list"></div>
       </div>
@@ -182,6 +182,27 @@
         <div class="kehe-product-master-title" id="kehe-generate-title">Generate</div>
         <div class="kehe-generate-subtitle" id="generate-subtitle">Create labels and documents from the uploaded files.</div>
       </div>
+
+      <fieldset class="michaels-output-order" id="michaels-output-order">
+        <legend>Final PDF order</legend>
+        <p>Should each completed document be grouped in the same order as its uploaded ShipStation PDF? Multiple outputs are downloaded together as a ZIP.</p>
+        <div class="michaels-output-order-options">
+          <label class="michaels-output-order-option">
+            <input type="radio" name="michaels-output-order" value="pdf" checked>
+            <span>
+              <strong>Yes — follow uploaded PDF order</strong>
+              <small>Recommended. Each shipping label stays with its GS1 label and packing list.</small>
+            </span>
+          </label>
+          <label class="michaels-output-order-option">
+            <input type="radio" name="michaels-output-order" value="xml">
+            <span>
+              <strong>No — use ASN XML order</strong>
+              <small>The same matched document groups are arranged in the XML pack sequence.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
 
       <div class="kehe-generate-buttons">
         <div class="kehe-document-actions" id="kehe-document-actions">
@@ -298,11 +319,6 @@
           <h1>Packing List &amp; Ti-Hi</h1>
           <p>Turn sales-order data into a reviewed, print-ready master packing list.</p>
         </div>
-        <div class="workspace-flow" aria-label="Packing list workflow">
-          <div class="workspace-flow-step"><span>1</span><div><strong>Load</strong><small>Sales order</small></div></div>
-          <div class="workspace-flow-step"><span>2</span><div><strong>Review</strong><small>Items &amp; pallets</small></div></div>
-          <div class="workspace-flow-step"><span>3</span><div><strong>Generate</strong><small>MPL &amp; Ti-Hi</small></div></div>
-        </div>
       </div>
 
       <div class="mpl-order-lookup-card">
@@ -391,7 +407,6 @@
           <div class="mpl-order-lookup-kicker">B2B Creator</div>
           <h2>B2B Case-Pack Labels</h2>
           <p>Select a saved configuration, edit this run, preview the actual customer label, and print.</p>
-          <div class="b2b-header-badges"><span>Configuration driven</span><span>Live PDF preview</span></div>
         </div>
         <div class="b2b-page-actions">
           <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Manage Product Configurations</button>
@@ -629,7 +644,7 @@
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 4v11"/>
           </svg>
-          Download PDF
+          <span id="btn-download-label">Download PDF</span>
         </a>
         <button class="btn-close-preview" onclick="closePreview(true)">
           <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -985,7 +1000,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-  <script src="/assets/js/app.js?v=20260826-order-fallback-1"></script>
+  <script src="/assets/js/app.js?v=20260827-ui-cleanup-2"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

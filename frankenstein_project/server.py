@@ -31,6 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -454,7 +455,12 @@ def update_result_job(result_id: str, **changes: Any) -> None:
 # BACKEND SECTION 4A: Michaels worker.
 # Requires XML files and shipping-label PDF files. It uses OCR/matching.
 # ---------------------------------------------------------------------------
-def run_michaels_generation_job(result_id: str, xml_paths: List[str], pdf_paths: List[str]) -> None:
+def run_michaels_generation_job(
+    result_id: str,
+    xml_paths: List[str],
+    pdf_paths: List[str],
+    group_by_pdf: bool = True,
+) -> None:
     job = RESULT_JOBS[result_id]
     temp_dir = Path(job["temp_dir"])
     output_path = temp_dir / KIT_CONFIG["michaels"]["output_filename"]
@@ -474,11 +480,29 @@ def run_michaels_generation_job(result_id: str, xml_paths: List[str], pdf_paths:
             xml_paths=xml_paths,
             out_pdf=str(output_path),
             shipping_pdf_path=str(shipping_pdf_path),
+            group_by_shipping_pdf=group_by_pdf,
             progress_callback=_progress,
         )
 
         if not output_path.exists():
             raise RuntimeError("Output PDF was not generated.")
+
+        download_path = output_path
+        download_filename = KIT_CONFIG["michaels"]["output_filename"]
+        download_media_type = "application/pdf"
+        separate_output_names = [download_filename]
+        if len(pdf_paths) > 1:
+            download_path, separate_output_names = split_michaels_output_by_shipping_pdf(
+                combined_output_path=output_path,
+                shipping_pdf_paths=[Path(path) for path in pdf_paths],
+                report=report,
+                temp_dir=temp_dir,
+            )
+            download_filename = "michaels_separate_outputs.zip"
+            download_media_type = "application/zip"
+
+        report.setdefault("summary", {})["output_files"] = len(separate_output_names)
+        report["output_files"] = separate_output_names
 
         RESULT_REPORTS[result_id] = report
         update_result_job(
@@ -486,7 +510,11 @@ def run_michaels_generation_job(result_id: str, xml_paths: List[str], pdf_paths:
             status="complete",
             detail="Michaels labels generated successfully.",
             report=report,
-            output_path=str(output_path),
+            output_path=str(download_path),
+            output_filename=download_filename,
+            media_type=download_media_type,
+            preview_path=str(output_path),
+            separate_output_names=separate_output_names,
         )
     except MatchFailureErrors as exc:
         RESULT_REPORTS[result_id] = exc.report or {}
@@ -3778,6 +3806,10 @@ def get_result_status(request: Request, result_id: str) -> JSONResponse:
             "detail": job.get("detail", "Processing…"),
             "report": job.get("report"),
             "file_ready": bool(job.get("output_path")),
+            "output_filename": job.get("output_filename"),
+            "media_type": job.get("media_type", "application/pdf"),
+            "preview_ready": bool(job.get("preview_path") or job.get("output_path")),
+            "separate_output_names": job.get("separate_output_names", []),
         }
     )
 
@@ -3811,8 +3843,25 @@ def get_result_file(request: Request, result_id: str) -> FileResponse:
     )
     return FileResponse(
         path=job["output_path"],
-        media_type="application/pdf",
+        media_type=str(job.get("media_type") or "application/pdf"),
         filename=filename,
+        headers={"Access-Control-Expose-Headers": "X-Result-Id"},
+    )
+
+
+@app.get("/results/{result_id}/preview")
+def get_result_preview(request: Request, result_id: str) -> FileResponse:
+    _require_permission(request, "view")
+    job = RESULT_JOBS.get(result_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Generated preview not found.")
+    preview_path = job.get("preview_path") or job.get("output_path")
+    if job.get("status") != "complete" or not preview_path:
+        raise HTTPException(status_code=409, detail="PDF preview is not ready yet.")
+    return FileResponse(
+        path=preview_path,
+        media_type="application/pdf",
+        filename="michaels_combined_preview.pdf",
         headers={"Access-Control-Expose-Headers": "X-Result-Id"},
     )
 
@@ -3828,6 +3877,7 @@ async def generate_for_kit(
     xml_files: List[UploadFile] = File(...),
     pdf_files: Optional[List[UploadFile]] = File(default=None),
     mode: Optional[str] = Form(default="xml"),
+    group_by_pdf: bool = Form(default=True),
 ) -> JSONResponse:
     _require_permission(request, "generate")
     kit = normalize_kit(kit)
@@ -3845,11 +3895,16 @@ async def generate_for_kit(
     try:
         xml_paths: List[str] = []
         pdf_paths: List[str] = []
+        reserved_upload_names: set[str] = set()
 
         for upload in xml_files:
             if not (upload.filename or "").lower().endswith(".xml"):
                 raise HTTPException(status_code=400, detail=f"Invalid XML file: {upload.filename}")
-            out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
+            out_path = unique_upload_destination(
+                temp_dir,
+                upload.filename or "input.xml",
+                reserved_upload_names,
+            )
             await save_upload_file(upload, out_path)
             xml_paths.append(str(out_path))
 
@@ -3857,7 +3912,11 @@ async def generate_for_kit(
             for upload in pdf_files:
                 if not (upload.filename or "").lower().endswith(".pdf"):
                     raise HTTPException(status_code=400, detail=f"Invalid PDF file: {upload.filename}")
-                out_path = temp_dir / sanitize_filename(upload.filename or "label.pdf")
+                out_path = unique_upload_destination(
+                    temp_dir,
+                    upload.filename or "label.pdf",
+                    reserved_upload_names,
+                )
                 await save_upload_file(upload, out_path)
                 pdf_paths.append(str(out_path))
 
@@ -3865,7 +3924,7 @@ async def generate_for_kit(
         if kit == "michaels":
             worker = threading.Thread(
                 target=run_michaels_generation_job,
-                args=(result_id, xml_paths, pdf_paths),
+                args=(result_id, xml_paths, pdf_paths, group_by_pdf),
                 daemon=True,
             )
         else:
@@ -4278,6 +4337,75 @@ def combine_shipping_pdfs(pdf_paths: List[Path], combined_path: Path) -> Path:
     return combined_path
 
 
+def split_michaels_output_by_shipping_pdf(
+    combined_output_path: Path,
+    shipping_pdf_paths: List[Path],
+    report: Dict[str, Any],
+    temp_dir: Path,
+) -> tuple[Path, List[str]]:
+    """Split the globally matched output back into one PDF per uploaded PDF."""
+    rows = list(report.get("rows") or [])
+    source_output = fitz.open(combined_output_path)
+    output_dir = temp_dir / "separate_michaels_outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generated: List[tuple[Path, str]] = []
+    used_names: Dict[str, int] = {}
+    first_label_page = 1
+
+    try:
+        for shipping_path in shipping_pdf_paths:
+            shipping_doc = fitz.open(shipping_path)
+            try:
+                shipping_page_count = shipping_doc.page_count
+            finally:
+                shipping_doc.close()
+
+            last_label_page = first_label_page + shipping_page_count - 1
+            source_rows = [
+                row
+                for row in rows
+                if first_label_page <= int(row.get("label_page") or 0) <= last_label_page
+            ]
+            source_rows.sort(key=lambda row: int(row.get("output_start_page") or 0))
+            if len(source_rows) != shipping_page_count or any(
+                not row.get("output_start_page") or not row.get("output_end_page")
+                for row in source_rows
+            ):
+                raise RuntimeError(
+                    f"Could not preserve output boundaries for {shipping_path.name}."
+                )
+
+            split_doc = fitz.open()
+            try:
+                for row in source_rows:
+                    split_doc.insert_pdf(
+                        source_output,
+                        from_page=int(row["output_start_page"]) - 1,
+                        to_page=int(row["output_end_page"]) - 1,
+                    )
+
+                base_stem = sanitize_filename(shipping_path.stem).strip(" ._") or "shipping_labels"
+                occurrence = used_names.get(base_stem.lower(), 0) + 1
+                used_names[base_stem.lower()] = occurrence
+                suffix = f"_{occurrence}" if occurrence > 1 else ""
+                output_name = f"{base_stem}{suffix}_michaels_output.pdf"
+                output_path = output_dir / output_name
+                split_doc.save(output_path, garbage=4, deflate=True)
+            finally:
+                split_doc.close()
+
+            generated.append((output_path, output_name))
+            first_label_page = last_label_page + 1
+    finally:
+        source_output.close()
+
+    zip_path = temp_dir / "michaels_separate_outputs.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for output_path, output_name in generated:
+            archive.write(output_path, arcname=output_name)
+    return zip_path, [output_name for _output_path, output_name in generated]
+
+
 def sanitize_filename(name: str) -> str:
     keep = []
     for ch in name:
@@ -4286,6 +4414,23 @@ def sanitize_filename(name: str) -> str:
         else:
             keep.append("_")
     return "".join(keep)
+
+
+def unique_upload_destination(
+    directory: Path,
+    filename: str,
+    reserved_names: set[str],
+) -> Path:
+    safe_name = sanitize_filename(filename).strip(" .") or "upload"
+    candidate = Path(safe_name)
+    stem = candidate.stem or "upload"
+    suffix = candidate.suffix
+    occurrence = 1
+    while candidate.name.lower() in reserved_names or (directory / candidate.name).exists():
+        occurrence += 1
+        candidate = Path(f"{stem}_{occurrence}{suffix}")
+    reserved_names.add(candidate.name.lower())
+    return directory / candidate.name
 
 
 def normalize_kit(value: str) -> str:
