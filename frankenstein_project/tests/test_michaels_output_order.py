@@ -153,9 +153,10 @@ class MichaelsOutputOrderTests(unittest.TestCase):
                     {"label_page": 2, "output_start_page": 4, "output_end_page": 6},
                 ]
             }
-            zip_path, output_names = split_michaels_output_by_shipping_pdf(
+            zip_path, output_names, preview_path = split_michaels_output_by_shipping_pdf(
                 combined_output_path=combined_path,
                 shipping_pdf_paths=shipping_paths,
+                shipping_pdf_names=["US original.pdf", "CAN original.pdf"],
                 report=report,
                 temp_dir=temp_path,
             )
@@ -176,6 +177,16 @@ class MichaelsOutputOrderTests(unittest.TestCase):
                 finally:
                     first_pdf.close()
                     second_pdf.close()
+
+            preview = fitz.open(preview_path)
+            try:
+                self.assertEqual(preview.page_count, 7)
+                self.assertIn("OUTPUT-PAGE-1", preview[0].get_text())
+                self.assertIn('PDF "US original.pdf" END', preview[3].get_text())
+                self.assertIn('PDF "CAN original.pdf" START', preview[3].get_text())
+                self.assertIn("OUTPUT-PAGE-4", preview[4].get_text())
+            finally:
+                preview.close()
 
 
 if __name__ == "__main__":

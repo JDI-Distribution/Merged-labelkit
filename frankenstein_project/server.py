@@ -460,6 +460,7 @@ def run_michaels_generation_job(
     xml_paths: List[str],
     pdf_paths: List[str],
     group_by_pdf: bool = True,
+    pdf_display_names: Optional[List[str]] = None,
 ) -> None:
     job = RESULT_JOBS[result_id]
     temp_dir = Path(job["temp_dir"])
@@ -491,10 +492,16 @@ def run_michaels_generation_job(
         download_filename = KIT_CONFIG["michaels"]["output_filename"]
         download_media_type = "application/pdf"
         separate_output_names = [download_filename]
+        preview_path = output_path
         if len(pdf_paths) > 1:
-            download_path, separate_output_names = split_michaels_output_by_shipping_pdf(
+            (
+                download_path,
+                separate_output_names,
+                preview_path,
+            ) = split_michaels_output_by_shipping_pdf(
                 combined_output_path=output_path,
                 shipping_pdf_paths=[Path(path) for path in pdf_paths],
+                shipping_pdf_names=pdf_display_names,
                 report=report,
                 temp_dir=temp_dir,
             )
@@ -513,7 +520,7 @@ def run_michaels_generation_job(
             output_path=str(download_path),
             output_filename=download_filename,
             media_type=download_media_type,
-            preview_path=str(output_path),
+            preview_path=str(preview_path),
             separate_output_names=separate_output_names,
         )
     except MatchFailureErrors as exc:
@@ -3895,6 +3902,7 @@ async def generate_for_kit(
     try:
         xml_paths: List[str] = []
         pdf_paths: List[str] = []
+        pdf_display_names: List[str] = []
         reserved_upload_names: set[str] = set()
 
         for upload in xml_files:
@@ -3912,6 +3920,8 @@ async def generate_for_kit(
             for upload in pdf_files:
                 if not (upload.filename or "").lower().endswith(".pdf"):
                     raise HTTPException(status_code=400, detail=f"Invalid PDF file: {upload.filename}")
+                display_name = (upload.filename or "label.pdf").replace("\\", "/").rsplit("/", 1)[-1]
+                pdf_display_names.append(display_name.strip() or "label.pdf")
                 out_path = unique_upload_destination(
                     temp_dir,
                     upload.filename or "label.pdf",
@@ -3924,7 +3934,7 @@ async def generate_for_kit(
         if kit == "michaels":
             worker = threading.Thread(
                 target=run_michaels_generation_job,
-                args=(result_id, xml_paths, pdf_paths, group_by_pdf),
+                args=(result_id, xml_paths, pdf_paths, group_by_pdf, pdf_display_names),
                 daemon=True,
             )
         else:
@@ -4342,8 +4352,9 @@ def split_michaels_output_by_shipping_pdf(
     shipping_pdf_paths: List[Path],
     report: Dict[str, Any],
     temp_dir: Path,
-) -> tuple[Path, List[str]]:
-    """Split the globally matched output back into one PDF per uploaded PDF."""
+    shipping_pdf_names: Optional[List[str]] = None,
+) -> tuple[Path, List[str], Path]:
+    """Create separate downloads plus a combined preview with PDF boundary pages."""
     rows = list(report.get("rows") or [])
     source_output = fitz.open(combined_output_path)
     output_dir = temp_dir / "separate_michaels_outputs"
@@ -4351,6 +4362,11 @@ def split_michaels_output_by_shipping_pdf(
     generated: List[tuple[Path, str]] = []
     used_names: Dict[str, int] = {}
     first_label_page = 1
+    display_names = (
+        list(shipping_pdf_names)
+        if shipping_pdf_names and len(shipping_pdf_names) == len(shipping_pdf_paths)
+        else [path.name for path in shipping_pdf_paths]
+    )
 
     try:
         for shipping_path in shipping_pdf_paths:
@@ -4403,7 +4419,107 @@ def split_michaels_output_by_shipping_pdf(
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for output_path, output_name in generated:
             archive.write(output_path, arcname=output_name)
-    return zip_path, [output_name for _output_path, output_name in generated]
+
+    preview_path = temp_dir / "michaels_combined_preview_with_breaks.pdf"
+    preview_doc = fitz.open()
+    try:
+        for index, (output_path, _output_name) in enumerate(generated):
+            output_doc = fitz.open(output_path)
+            try:
+                preview_doc.insert_pdf(output_doc)
+            finally:
+                output_doc.close()
+
+            if index < len(generated) - 1:
+                append_michaels_pdf_boundary_page(
+                    preview_doc,
+                    ending_pdf_name=display_names[index],
+                    starting_pdf_name=display_names[index + 1],
+                    ending_pdf_number=index + 1,
+                    starting_pdf_number=index + 2,
+                    total_pdfs=len(generated),
+                )
+        preview_doc.save(preview_path, garbage=4, deflate=True)
+    finally:
+        preview_doc.close()
+
+    return (
+        zip_path,
+        [output_name for _output_path, output_name in generated],
+        preview_path,
+    )
+
+
+def append_michaels_pdf_boundary_page(
+    document: fitz.Document,
+    ending_pdf_name: str,
+    starting_pdf_name: str,
+    ending_pdf_number: int,
+    starting_pdf_number: int,
+    total_pdfs: int,
+) -> None:
+    """Append a high-visibility letter-size boundary page between source PDFs."""
+    page = document.new_page(width=612, height=792)
+    navy = (0.10, 0.15, 0.22)
+    muted = (0.37, 0.43, 0.51)
+    end_color = (0.73, 0.14, 0.16)
+    start_color = (0.08, 0.48, 0.32)
+    light_fill = (0.96, 0.97, 0.98)
+
+    page.draw_rect(page.rect, color=navy, fill=(1, 1, 1), width=3)
+    page.insert_textbox(
+        fitz.Rect(48, 42, 564, 82),
+        "PDF BOUNDARY",
+        fontname="helv",
+        fontsize=14,
+        color=muted,
+        align=fitz.TEXT_ALIGN_CENTER,
+    )
+
+    page.draw_rect(fitz.Rect(48, 105, 564, 330), color=end_color, fill=light_fill, width=3)
+    page.insert_textbox(
+        fitz.Rect(72, 132, 540, 174),
+        f'PDF {ending_pdf_number} OF {total_pdfs} - END',
+        fontname="hebo",
+        fontsize=22,
+        color=end_color,
+        align=fitz.TEXT_ALIGN_CENTER,
+    )
+    page.insert_textbox(
+        fitz.Rect(76, 190, 536, 292),
+        f'PDF "{ending_pdf_name}" END',
+        fontname="hebo",
+        fontsize=20,
+        color=navy,
+        align=fitz.TEXT_ALIGN_CENTER,
+    )
+
+    page.insert_textbox(
+        fitz.Rect(48, 365, 564, 427),
+        "NEXT UPLOADED PDF BEGINS AFTER THIS PAGE",
+        fontname="helv",
+        fontsize=14,
+        color=muted,
+        align=fitz.TEXT_ALIGN_CENTER,
+    )
+
+    page.draw_rect(fitz.Rect(48, 462, 564, 687), color=start_color, fill=light_fill, width=3)
+    page.insert_textbox(
+        fitz.Rect(72, 489, 540, 531),
+        f'PDF {starting_pdf_number} OF {total_pdfs} - START',
+        fontname="hebo",
+        fontsize=22,
+        color=start_color,
+        align=fitz.TEXT_ALIGN_CENTER,
+    )
+    page.insert_textbox(
+        fitz.Rect(76, 547, 536, 649),
+        f'PDF "{starting_pdf_name}" START',
+        fontname="hebo",
+        fontsize=20,
+        color=navy,
+        align=fitz.TEXT_ALIGN_CENTER,
+    )
 
 
 def sanitize_filename(name: str) -> str:

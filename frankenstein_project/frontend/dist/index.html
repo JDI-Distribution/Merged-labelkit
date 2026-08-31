@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260827-ui-cleanup-2">
+  <link rel="stylesheet" href="/assets/css/app.css?v=20260831-michaels-pdf-boundaries">
 </head>
 <body data-module="home">
 
@@ -123,7 +123,7 @@
 
     <div class="upload-intro">
       <h2 id="workflow-title">JDID · <span>LabelKit</span></h2>
-      <p id="workflow-description">Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. Multiple PDF uploads produce separate output PDFs.</p>
+      <p id="workflow-description">Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. Multiple PDF uploads produce separate output PDFs and a combined preview with named break pages.</p>
       <div class="upload-note" id="workflow-note"><strong>Note:</strong> Keep US and CAN orders separate. Print shipping labels separately, and use separate XML files for each group.</div>
     </div>
 
@@ -170,7 +170,7 @@
             </svg>
           </div>
           <div class="drop-label">Click or drag PDF files here</div>
-          <div class="drop-hint">Upload one or more <strong>bulk shipping label PDFs</strong> from <strong>ShipStation</strong>. Each uploaded PDF produces its own output PDF when the run succeeds.</div>
+          <div class="drop-hint">Upload one or more <strong>bulk shipping label PDFs</strong> from <strong>ShipStation</strong>. Each upload produces its own output PDF, while the combined preview adds a named break page between files.</div>
         </div>
         <div class="file-list" id="pdf-file-list"></div>
       </div>
@@ -1000,7 +1000,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-  <script src="/assets/js/app.js?v=20260827-ui-cleanup-2"></script>
+  <script src="/assets/js/app.js?v=20260831-michaels-pdf-boundaries"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
