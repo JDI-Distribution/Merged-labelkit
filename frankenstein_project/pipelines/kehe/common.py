@@ -816,20 +816,79 @@ def wrap_text(text: str, font_name: str, font_size: float, max_width: float, max
     lines: List[str] = []
     cur = ""
     for word in words:
-        test = (cur + " " + word).strip()
-        if pdfmetrics.stringWidth(test, font_name, font_size) <= max_width:
-            cur = test
-        else:
-            if cur:
+        pieces = [word]
+        if pdfmetrics.stringWidth(word, font_name, font_size) > max_width:
+            pieces = []
+            piece = ""
+            for char in word:
+                test_piece = piece + char
+                if piece and pdfmetrics.stringWidth(test_piece, font_name, font_size) > max_width:
+                    pieces.append(piece)
+                    piece = char
+                else:
+                    piece = test_piece
+            if piece:
+                pieces.append(piece)
+        for piece in pieces:
+            test = (cur + " " + piece).strip()
+            if not cur or pdfmetrics.stringWidth(test, font_name, font_size) <= max_width:
+                cur = test
+            else:
                 lines.append(cur)
-            cur = word
-        if len(lines) >= max_lines:
-            break
+                cur = piece
+            if len(lines) >= max_lines:
+                return lines[:max_lines]
     if cur and len(lines) < max_lines:
         lines.append(cur)
     if len(lines) > max_lines:
         lines = lines[:max_lines]
     return lines
+
+
+def fit_text_lines(
+    text: Any,
+    font_name: str,
+    font_size: float,
+    max_width: float,
+    max_lines: int,
+    min_font_size: float = 3.5,
+) -> Tuple[List[str], float]:
+    """Shrink text until every character fits in the requested line box."""
+    clean = re.sub(r"\s+", " ", str(text or "").strip())
+    if not clean:
+        return [], font_size
+    fitted_size = font_size
+    while fitted_size > min_font_size:
+        lines = wrap_text(clean, font_name, fitted_size, max_width, max_lines=9999)
+        if len(lines) <= max_lines:
+            return lines, fitted_size
+        fitted_size = max(min_font_size, fitted_size - 0.5)
+    return wrap_text(clean, font_name, fitted_size, max_width, max_lines=9999), fitted_size
+
+
+def _draw_fitted_line(
+    c: canvas.Canvas,
+    text: Any,
+    x: float,
+    y: float,
+    max_width: float,
+    font_name: str,
+    font_size: float,
+    *,
+    min_font_size: float = 3.5,
+    align: str = "left",
+) -> None:
+    value = str(text or "").strip()
+    fitted_size = font_size
+    while fitted_size > min_font_size and pdfmetrics.stringWidth(value, font_name, fitted_size) > max_width:
+        fitted_size = max(min_font_size, fitted_size - 0.5)
+    c.setFont(font_name, fitted_size)
+    if align == "center":
+        c.drawCentredString(x, y, value)
+    elif align == "right":
+        c.drawRightString(x, y, value)
+    else:
+        c.drawString(x, y, value)
 
 
 def normalize_sscc(sscc_raw: str) -> str:
@@ -939,21 +998,13 @@ def _draw_value_lines(
     leading: float = 9,
     max_lines: int = 4,
 ) -> float:
-    c.setFont("Helvetica", size)
-    rendered_lines = 0
-    for line in lines:
-        if rendered_lines >= max_lines:
-            break
-        for wrapped in wrap_text(
-            line,
-            "Helvetica",
-            size,
-            width,
-            max_lines=max_lines - rendered_lines,
-        ):
-            c.drawString(x, y, wrapped)
-            y -= leading
-            rendered_lines += 1
+    source = " | ".join(str(line or "").strip() for line in lines if str(line or "").strip())
+    wrapped, fitted_size = fit_text_lines(source, "Helvetica", size, width, max_lines, min_font_size=5.0)
+    fitted_leading = leading * (fitted_size / size)
+    c.setFont("Helvetica", fitted_size)
+    for line in wrapped:
+        c.drawString(x, y, line)
+        y -= fitted_leading
     return y
 
 
@@ -1030,14 +1081,25 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
         label_size: float = 10.2,
         value_size: float = 10.0,
         label_width: float = 0.76 * inch,
-    ) -> None:
+        max_lines: int = 1,
+    ) -> float:
         if not value:
-            return
+            return 0.19 * inch
         _draw_label(c, x, y, label, label_size)
-        c.setFont("Helvetica", value_size)
-        wrapped = wrap_text(value, "Helvetica", value_size, max_width - label_width, max_lines=1)
-        if wrapped:
-            c.drawString(x + label_width, y, wrapped[0])
+        lines, fitted_size = fit_text_lines(
+            value,
+            "Helvetica",
+            value_size,
+            max_width - label_width,
+            max_lines,
+            min_font_size=2.5,
+        )
+        c.setFont("Helvetica", fitted_size)
+        value_y = y
+        for line in lines:
+            c.drawString(x + label_width, value_y, line)
+            value_y -= fitted_size * 1.05
+        return max(0.19 * inch, len(lines) * fitted_size * 1.05 + 1.5)
 
     # Zone A: Ship From.
     sf = pack.ship_from
@@ -1104,20 +1166,17 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     y = y_ab - 0.17 * inch
     carrier = pack.carrier_name or pack.scac
 
-    draw_pair("Carrier:", carrier[:26], right_x, y, right_w, label_width=0.72 * inch)
-    y -= 0.19 * inch
+    y -= draw_pair("Carrier:", carrier, right_x, y, right_w, label_width=0.72 * inch, max_lines=2)
 
-    draw_pair("B/L:", pack.bol[:30], right_x, y, right_w, label_width=0.42 * inch)
-    y -= 0.19 * inch
+    y -= draw_pair("B/L:", pack.bol, right_x, y, right_w, label_width=0.42 * inch)
 
-    draw_pair("Pro:", pack.pro[:30], right_x, y, right_w, value_size=9.8, label_width=0.42 * inch)
-    y -= 0.28 * inch
+    y -= draw_pair("Pro:", pack.pro, right_x, y, right_w, value_size=9.8, label_width=0.42 * inch)
 
-    _draw_label(c, right_x, y, f"Number of {package_plural}:", 10.3)
-    y -= 0.20 * inch
+    count_label_y = y_cd + 0.38 * inch
+    _draw_label(c, right_x, count_label_y, f"Number of {package_plural}:", 10.3)
 
     c.setFont("Helvetica-Bold", 10.4)
-    c.drawString(right_x, y, f"{package_singular} {pack.carton_index} Of {pack.total_cartons}")
+    c.drawString(right_x, y_cd + 0.18 * inch, f"{package_singular} {pack.carton_index} Of {pack.total_cartons}")
 
     # Zones E/F: Customer / retailer content.
     # Contents is first. Blank headings are skipped.
@@ -1139,13 +1198,14 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
             continue
 
         _draw_label(c, left_x, y, label, 10.2)
-        c.setFont("Helvetica", 9.8)
+        lines, fitted_size = fit_text_lines(value, "Helvetica", 9.8, value_w, 2, min_font_size=2.5)
+        c.setFont("Helvetica", fitted_size)
+        value_y = y
+        for line in lines:
+            c.drawString(left_x + content_label_w, value_y, line)
+            value_y -= fitted_size * 1.05
 
-        wrapped = wrap_text(value, "Helvetica", 9.8, value_w, max_lines=1)
-        if wrapped:
-            c.drawString(left_x + content_label_w, y, wrapped[0])
-
-        y -= 0.18 * inch
+        y -= max(0.20 * inch, len(lines) * fitted_size * 1.05 + 6.0)
 
     # Zones G/H: Lot and traceability information.
     y = y_ef - 0.18 * inch
@@ -1161,12 +1221,15 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     for label, value in trace_rows:
         _draw_label(c, left_x, y, label, 10.0)
         if value:
-            c.setFont("Helvetica", 9.6)
-            wrapped = wrap_text(value, "Helvetica", 9.6, gx1 - (left_x + trace_label_w) - pad, max_lines=1)
-            if wrapped:
-                c.drawString(left_x + trace_label_w, y, wrapped[0])
+            trace_width = gx1 - (left_x + trace_label_w) - pad
+            lines, fitted_size = fit_text_lines(value, "Helvetica", 9.6, trace_width, 2, min_font_size=2.5)
+            c.setFont("Helvetica", fitted_size)
+            value_y = y
+            for line in lines:
+                c.drawString(left_x + trace_label_w, value_y, line)
+                value_y -= fitted_size * 1.05
 
-        y -= 0.17 * inch
+        y -= max(0.17 * inch, len(lines) * fitted_size * 1.05 + 1.0) if value else 0.17 * inch
 
     # Zone I: SSCC barcode and human-readable text.
     # Reduced vertical height, but barcode is still kept wide.
@@ -2692,8 +2755,21 @@ def _draw_warning_box(
     padding: float = 6,
 ) -> float:
     """Draw a red warning box, return bottom y coordinate."""
-    lines = [ln for ln in text.split("\n") if ln.strip()]
-    leading = font_size + 2
+    source_lines = [ln for ln in text.split("\n") if ln.strip()]
+    lines: List[str] = []
+    fitted_size = font_size
+    for source_line in source_lines:
+        source_wrapped, source_size = fit_text_lines(
+            source_line,
+            "Helvetica-Bold",
+            font_size,
+            w - padding * 2,
+            2,
+            min_font_size=4.0,
+        )
+        lines.extend(source_wrapped)
+        fitted_size = min(fitted_size, source_size)
+    leading = fitted_size + 2
     box_h = padding * 2 + len(lines) * leading
     by = y - box_h
     _draw_rect_with_fill(
@@ -2702,12 +2778,11 @@ def _draw_warning_box(
         _COLOR_NEEDS_REVIEW_BORDER,
         line_width=0.75,
     )
-    ty = y - padding - font_size
-    c.setFont("Helvetica-Bold", font_size)
+    ty = y - padding - fitted_size
+    c.setFont("Helvetica-Bold", fitted_size)
     c.setFillColorRGB(*_COLOR_NEEDS_REVIEW_TEXT)
     for line in lines:
-        wrapped = wrap_text(line, "Helvetica-Bold", font_size, w - padding * 2, max_lines=1)
-        c.drawString(x + padding, ty, wrapped[0] if wrapped else "")
+        c.drawString(x + padding, ty, line)
         ty -= leading
     c.setFillColorRGB(0, 0, 0)
     c.setStrokeColorRGB(0, 0, 0)
@@ -2798,24 +2873,26 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
         max_lines: int = 8,
     ) -> None:
         _draw_box(x, y, w, h)
-        raw_lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
-        wrapped_lines: List[str] = []
-        for ln in raw_lines:
-            wrapped_lines.extend(wrap_text(ln, font_name, font_size, w - 2 * padding, max_lines=max_lines))
-        if not wrapped_lines:
-            wrapped_lines = [""]
+        clean_text = " | ".join(ln.strip() for ln in str(text or "").splitlines() if ln.strip())
+        vertical_line_limit = max(1, min(max_lines, int((h - 2 * padding) // max(leading, 1))))
+        wrapped_lines, fitted_size = fit_text_lines(
+            clean_text,
+            font_name,
+            font_size,
+            w - 2 * padding,
+            vertical_line_limit,
+            min_font_size=4.0,
+        )
+        wrapped_lines = wrapped_lines or [""]
+        fitted_leading = leading * (fitted_size / font_size)
+        total_h = len(wrapped_lines) * fitted_leading
+        ty = y + (h + total_h) / 2 - fitted_leading * 0.82
 
-        if len(wrapped_lines) > max_lines:
-            wrapped_lines = wrapped_lines[:max_lines]
-
-        total_h = len(wrapped_lines) * leading
-        ty = y + (h + total_h) / 2 - leading * 0.82
-
-        c.setFont(font_name, font_size)
+        c.setFont(font_name, fitted_size)
         c.setFillColorRGB(0, 0, 0)
         for line in wrapped_lines:
             c.drawCentredString(x + w / 2, ty, line)
-            ty -= leading
+            ty -= fitted_leading
 
     def _draw_single_line_box(
         x: float,
@@ -2827,9 +2904,18 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
         font_size: float = 11.0,
     ) -> None:
         _draw_box(x, y, w, h)
-        c.setFont(font_name, font_size)
         c.setFillColorRGB(0, 0, 0)
-        c.drawCentredString(x + w / 2, y + h / 2 - font_size * 0.34, text or "")
+        _draw_fitted_line(
+            c,
+            text or "",
+            x + w / 2,
+            y + h / 2 - font_size * 0.34,
+            w - 8,
+            font_name,
+            font_size,
+            min_font_size=4.0,
+            align="center",
+        )
 
     # 1) Title
     _draw_rect_with_fill(c, x0, title_bot, inner_w, title_h, (0, 0, 0), (0, 0, 0), 1.0)
@@ -3383,25 +3469,23 @@ def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
 
     desc = str(label.get("description") or "").upper().strip()
     title_font = 19
-    title_lines = wrap_text(desc, "Helvetica-Bold", title_font, W - 0.22 * inch, max_lines=3)
+    title_lines, fitted_title_font = fit_text_lines(desc, "Helvetica-Bold", title_font, W - 0.22 * inch, 3, min_font_size=7.0)
     y = H - 0.30 * inch
     c.setFillColorRGB(0, 0, 0)
     for line in title_lines:
-        c.setFont("Helvetica-Bold", title_font)
+        c.setFont("Helvetica-Bold", fitted_title_font)
         c.drawCentredString(W / 2, y, line)
-        y -= 0.32 * inch
+        y -= 0.32 * inch * (fitted_title_font / title_font)
 
     lot = str(label.get("lot") or "").strip()
     best_before = _format_label_date_mmddyyyy(str(label.get("best_before") or ""))
     row_y = 3.04 * inch
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(0.34 * inch, row_y, f"LOT# {lot}" if lot else "LOT#")
+    _draw_fitted_line(c, f"LOT# {lot}" if lot else "LOT#", 0.34 * inch, row_y, 1.30 * inch, "Helvetica-Bold", 14, min_font_size=4.0)
 
     c.setFont("Helvetica-Bold", 14)
     c.drawString(1.76 * inch, row_y, "Best Before:")
 
-    c.setFont("Helvetica", 14)
-    c.drawString(3.00 * inch, row_y, best_before)
+    _draw_fitted_line(c, best_before, 3.00 * inch, row_y, W - 3.18 * inch, "Helvetica", 14, min_font_size=7.0)
 
     # `weight_lbs` is retained only as a historical pack-label draft adapter.
     weight = str(label.get("gross_weight_lbs") or label.get("weight_lbs") or "").strip()
@@ -3409,16 +3493,14 @@ def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
     weight_y = 2.58 * inch
     c.setFont("Helvetica-Bold", 23)
     c.drawRightString(2.10 * inch, weight_y, "WEIGHT:")
-    c.setFont("Helvetica", 23)
-    c.drawString(2.20 * inch, weight_y, weight_display or weight)
+    _draw_fitted_line(c, weight_display or weight, 2.20 * inch, weight_y, W - 2.42 * inch, "Helvetica", 23, min_font_size=9.0)
 
     kind = str(label.get("pack_prefix") or _pack_label_kind(label.get("packaging_level"))).upper()
     qty = str(label.get("case_qty") or "").strip()
     qty_y = 2.24 * inch
     c.setFont("Helvetica-Bold", 23)
     c.drawRightString(2.40 * inch, qty_y, f"{kind} Case Qty:")
-    c.setFont("Helvetica", 23)
-    c.drawString(2.50 * inch, qty_y, f"{qty} Units" if qty else "Units")
+    _draw_fitted_line(c, f"{qty} Units" if qty else "Units", 2.50 * inch, qty_y, W - 2.72 * inch, "Helvetica", 23, min_font_size=9.0)
 
     # ITF-14 barcode with bearer bars and continuous human-readable GTIN.
     gtin = _only_digits(label.get("gtin", ""))
@@ -3450,8 +3532,7 @@ def _draw_pack_label_page(c: canvas.Canvas, label: Dict[str, Any]) -> None:
     c.rect(bx, hri_y, bw, hri_strip_h, stroke=0, fill=1)
 
     c.setFillColorRGB(0, 0, 0)
-    c.setFont("Helvetica", 21)
-    c.drawCentredString(W / 2, hri_y + 0.07 * inch, gtin if gtin else "")
+    _draw_fitted_line(c, gtin if gtin else "", W / 2, hri_y + 0.07 * inch, bw - 10, "Helvetica", 21, min_font_size=9.0, align="center")
 
 
 def render_kehe_pack_label_pdf(
@@ -3581,7 +3662,7 @@ def _mpl_template_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
         mpl["title"] = "MASTER PACKING LIST"
         return "kehe"
     requested = _mpl_clean(mpl.get("template_id") or draft.get("template_id") or "standard").lower()
-    template_id = requested if requested in {"kehe", "decopac", "dutch_bros", "standard"} else "standard"
+    template_id = requested if requested in {"kehe", "decopac", "dutch_bros", "fancy", "standard"} else "standard"
     mpl["template_id"] = template_id
     draft["template_id"] = template_id
     current_title = _mpl_clean(mpl.get("title")).upper()
@@ -3590,6 +3671,7 @@ def _mpl_template_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
             "kehe": "MASTER PACKING LIST",
             "decopac": "Pallet Breakdown",
             "dutch_bros": "Pallet Breakdown",
+            "fancy": "Pallet Breakdown",
             "standard": "MASTER PACKING LIST",
         }[template_id]
     return template_id
@@ -3645,7 +3727,7 @@ def _mpl_brand_id(draft: Dict[str, Any], mpl: Dict[str, Any]) -> str:
     requested = _mpl_clean(mpl.get("brand_id") or draft.get("brand_id")).lower()
     if requested not in _MPL_BRAND_THEMES:
         template_id = _mpl_clean(mpl.get("template_id") or draft.get("template_id")).lower()
-        if template_id in {"decopac", "dutch_bros"}:
+        if template_id in {"decopac", "dutch_bros", "fancy"}:
             requested = "bakell"
         else:
             supplier = _mpl_clean(mpl.get("supplier_info")).lower()
@@ -3680,6 +3762,7 @@ def _mpl_template_theme(template_id: str, brand_id: str = "") -> Dict[str, Any]:
     titles = {
         "decopac": "Pallet Breakdown",
         "dutch_bros": "Pallet Breakdown",
+        "fancy": "Pallet Breakdown",
         "standard": "MASTER PACKING LIST",
     }
     palette = _MPL_BRAND_THEMES.get(brand_id) or _MPL_BRAND_THEMES["jdi_distribution"]
@@ -3805,12 +3888,10 @@ def _draw_mpl_snapshot_page(
     c.setFillColorRGB(*_MPL_BLACK)
     c.rect(margin, page_h - margin - 0.34 * inch, max_w, 0.34 * inch, fill=1, stroke=0)
     c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 9.2)
-    c.drawString(margin + 9, page_h - margin - 0.21 * inch, _mpl_clean(title).upper())
+    _draw_fitted_line(c, _mpl_clean(title).upper(), margin + 9, page_h - margin - 0.21 * inch, max_w - 18, "Helvetica-Bold", 9.2, min_font_size=5.0)
     if subtitle:
         c.setFillColorRGB(*_COLOR_LABEL)
-        c.setFont("Helvetica", 6.2)
-        c.drawString(margin + 2, content_top + 0.07 * inch, _mpl_clean(subtitle)[:110])
+        _draw_fitted_line(c, _mpl_clean(subtitle), margin + 2, content_top + 0.07 * inch, max_w - 4, "Helvetica", 6.2, min_font_size=4.0)
 
     c.setStrokeColorRGB(*_MPL_GRID)
     c.setLineWidth(0.7)
@@ -3976,11 +4057,13 @@ def _draw_wrapped_left(
     max_lines: int = 2,
     leading: float = 8,
 ) -> float:
-    c.setFont(font_name, font_size)
-    lines = wrap_text(_mpl_clean(text), font_name, font_size, w, max_lines=max_lines) or [""]
-    for line in lines[:max_lines]:
+    lines, fitted_size = fit_text_lines(_mpl_clean(text), font_name, font_size, w, max_lines)
+    lines = lines or [""]
+    fitted_leading = leading * (fitted_size / font_size)
+    c.setFont(font_name, fitted_size)
+    for line in lines:
         c.drawString(x, y, line)
-        y -= leading
+        y -= fitted_leading
     return y
 
 
@@ -3995,13 +4078,15 @@ def _draw_centered_wrapped(
     max_lines: int = 2,
     leading: float = 7.5,
 ) -> None:
-    lines = wrap_text(_mpl_clean(text), font_name, font_size, w - 5, max_lines=max_lines) or [""]
-    c.setFont(font_name, font_size)
-    total = (len(lines) - 1) * leading
-    ty = y_mid + total / 2 - font_size / 3
+    lines, fitted_size = fit_text_lines(_mpl_clean(text), font_name, font_size, w - 5, max_lines)
+    lines = lines or [""]
+    fitted_leading = leading * (fitted_size / font_size)
+    c.setFont(font_name, fitted_size)
+    total = (len(lines) - 1) * fitted_leading
+    ty = y_mid + total / 2 - fitted_size / 3
     for line in lines:
         c.drawCentredString(x + w / 2, ty, line)
-        ty -= leading
+        ty -= fitted_leading
 
 
 def _draw_info_cell(
@@ -4089,10 +4174,9 @@ def _render_mpl_header(
         c.setFillColorRGB(1, 1, 1)
         c.setFont("Helvetica-Bold", 6.4)
         c.drawString(x0 + 0.10 * inch, y - title_h / 2 - 2.2, theme["brand_label"])
-    c.setFont("Helvetica-Bold", 10)
     c.setFillColorRGB(1, 1, 1)
     title = _mpl_clean(mpl.get("title")) or theme["title"]
-    c.drawCentredString(x0 + inner_w / 2, y - title_h / 2 - 3.0, title)
+    _draw_fitted_line(c, title, x0 + inner_w / 2, y - title_h / 2 - 3.0, inner_w - 12, "Helvetica-Bold", 10, min_font_size=5.0, align="center")
     y -= title_h + (0.07 if compact else 0.12) * inch
 
     if mpl.get("status") == "Needs Review":
@@ -4160,14 +4244,21 @@ def _render_mpl_header(
         c.setFont("Helvetica-Bold", 7)
         c.drawCentredString(cx + col_w / 2, y - header_h / 2 - 2.7, label)
         address_font = 6.2 if compact else 6.8
-        c.setFont("Helvetica", address_font)
-        lines: List[str] = []
-        for raw in _mpl_clean(value).split("\n"):
-            lines.extend(wrap_text(raw, "Helvetica", address_font, col_w - 12, max_lines=2) or [""])
+        max_address_lines = 4 if compact else 5
+        lines, fitted_address_font = fit_text_lines(
+            _mpl_clean(value).replace("\n", " | "),
+            "Helvetica",
+            address_font,
+            col_w - 12,
+            max_address_lines,
+            min_font_size=4.2,
+        )
+        c.setFont("Helvetica", fitted_address_font)
         ty = y - header_h - (0.09 if compact else 0.12) * inch
-        for line in lines[:(4 if compact else 5)]:
+        address_leading = (7 if compact else 8) * (fitted_address_font / address_font)
+        for line in lines:
             c.drawCentredString(cx + col_w / 2, ty, line)
-            ty -= 7 if compact else 8
+            ty -= address_leading
     y -= addr_h + (0.09 if compact else 0.16) * inch
 
     # Customer / Ship Date / Shipping Instructions bar.
@@ -4233,10 +4324,13 @@ def _render_mpl_table_header(
 def _mpl_item_height(item: Dict[str, Any], template_id: str = "kehe") -> float:
     compact = bool(_mpl_template_theme(template_id)["compact"])
     desc = _mpl_clean(item.get("description"))
-    desc_lines = (
-        wrap_text(desc.upper(), "Helvetica-Bold", 7.2 if compact else 7.8, _MPL_INNER_W * 0.39 - 10, max_lines=4)
-        if desc else []
-    )
+    desc_lines, _desc_size = fit_text_lines(
+        desc.upper(),
+        "Helvetica-Bold",
+        7.2 if compact else 7.8,
+        _MPL_INNER_W * 0.39 - 10,
+        4,
+    ) if desc else ([], 7.2 if compact else 7.8)
 
     # A4 has enough height. Use taller rows instead of compressed rows.
     extra = max(0, len(desc_lines) - 1) * (0.10 if compact else 0.13) * inch
@@ -4313,14 +4407,23 @@ def _render_mpl_item_row(
                     if _mpl_clean(value)
                 )
                 if detail_text:
-                    c.drawString(x + 5, ty - 1, detail_text[:110])
+                    _draw_fitted_line(
+                        c,
+                        detail_text,
+                        x + 5,
+                        ty - 1,
+                        w - 10,
+                        "Helvetica",
+                        5.8 if compact else 6.2,
+                        min_font_size=3.5,
+                    )
                     ty -= 7.0 if compact else 7.5
 
             meta_y = max(y - row_h + 0.09 * inch, ty - 0.02 * inch)
             c.setFont("Helvetica-Oblique", 6.6 if compact else 7.2)
 
             if exp:
-                c.drawString(x + 5, meta_y, f"EXP: {exp}")
+                _draw_fitted_line(c, f"EXP: {exp}", x + 5, meta_y, w - 10, "Helvetica-Oblique", 6.6 if compact else 7.2)
 
         else:
             value = item.get(key)
@@ -5404,15 +5507,12 @@ def _render_mpl_tihi_card(
     header_h = 0.21 * inch
     _draw_mpl_cell(c, x, top_y - header_h, w, header_h, _MPL_BLACK, _MPL_BLACK, 0.4)
     c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 6.9)
-    title = f"Pallet {entry['pallet_label']} • Current edited layout"
-    c.drawString(x + 6, top_y - header_h / 2 - 2.2, title[:108])
+    title = f"Pallet {entry['pallet_label']} - Current edited layout"
+    _draw_fitted_line(c, title, x + 6, top_y - header_h / 2 - 2.2, w - 12, "Helvetica-Bold", 6.9, min_font_size=4.0)
     c.setFillColorRGB(0, 0, 0)
 
     info_top = top_y - header_h - 7
-    c.setFont("Helvetica-Bold", 6.0)
-    c.drawString(x + 6, info_top, f"{len(entry.get('groups') or [])} item group(s) on this pallet"[:126])
-    c.setFont("Helvetica", 5.5)
+    _draw_fitted_line(c, f"{len(entry.get('groups') or [])} item group(s) on this pallet", x + 6, info_top, w - 12, "Helvetica-Bold", 6.0, min_font_size=4.0)
     info_rows = [
         f"Assigned: {entry['assigned_cases']} case(s)   Shown: {entry['shown_cases']}   Gross pallet weight: {int(round(entry['gross_weight_lbs']))} lbs",
         f"TI x HI: {entry['ti']} x {entry['hi']}   Visible top surfaces: {entry['top_layer_cases']} case(s)   Used pallet volume: {entry['pallet_fill_pct']:.1f}%",
@@ -5425,7 +5525,7 @@ def _render_mpl_tihi_card(
         info_rows.append(f"MPL lines: {', '.join(entry['lines'])}")
     ty = info_top - 8
     for row in info_rows[:5]:
-        c.drawString(x + 6, ty, row[:145])
+        _draw_fitted_line(c, row, x + 6, ty, w - 12, "Helvetica", 5.5, min_font_size=3.5)
         ty -= 6.4
 
     diagram_top = ty - 1
@@ -5459,9 +5559,8 @@ def _render_mpl_tihi_card(
             c.setFillColorRGB(0, 0, 0)
             c.drawCentredString(px + 7, pattern_y + 15, _mpl_clean(pattern.get("letter"))[:3])
             _mpl_draw_tihi_pattern_mini(c, pattern, constraints, px + 15, pattern_y + 4, min(34, pattern_w - 18), 18)
-            c.setFont("Helvetica", 4.5)
             layers = ", ".join(str(layer) for layer in (pattern.get("layers") or []))
-            c.drawRightString(px + pattern_w - 3, pattern_y + 4, f"L {layers}"[:18])
+            _draw_fitted_line(c, f"L {layers}", px + pattern_w - 3, pattern_y + 4, pattern_w - 20, "Helvetica", 4.5, min_font_size=3.0, align="right")
 
     groups = entry.get("groups") or []
     c.setFont("Helvetica", 5.0)
@@ -5478,7 +5577,8 @@ def _render_mpl_tihi_card(
         c.setStrokeColorRGB(*_MPL_GRID)
         c.rect(lx, ly, 7, 7, fill=1, stroke=1)
         c.setFillColorRGB(0, 0, 0)
-        c.drawString(lx + 10, ly + 1.5, f"{_mpl_clean(group.get('label'))[:24]} • L {', '.join(group.get('lines') or [])[:12]} • {group.get('assigned_cases', 0)} cs")
+        legend_text = f"{_mpl_clean(group.get('label'))} | L {', '.join(group.get('lines') or [])} | {group.get('assigned_cases', 0)} cs"
+        _draw_fitted_line(c, legend_text, lx + 10, ly + 1.5, legend_w - 14, "Helvetica", 5.0, min_font_size=3.0)
 
     return bottom_y
 
@@ -5661,9 +5761,8 @@ def _render_decopac_mpl_pages(
         c.drawString(margin + 4, y, _mpl_clean(customer_heading).upper())
         y -= 0.18 * inch
         c.setFillColorRGB(0.05, 0.05, 0.05)
-        c.setFont("Helvetica-Bold", 18)
         pallet_heading = _mpl_clean(mpl.get("pallet_heading")) or "PALLET 1"
-        c.drawString(margin + 4, y, pallet_heading)
+        _draw_fitted_line(c, pallet_heading, margin + 4, y, inner_w * 0.58, "Helvetica-Bold", 18, min_font_size=7.0)
         c.setFont("Helvetica-Bold", 8.2)
         info_x = margin + 4
         info_y = y - 0.27 * inch
@@ -5679,10 +5778,8 @@ def _render_decopac_mpl_pages(
         for label, value in detail_lines:
             c.setFont("Helvetica-Bold", 7.1)
             c.drawString(info_x, info_y, f"{label}:")
-            c.setFont("Helvetica", 7.1)
             value_x = info_x + 1.02 * inch
-            value_lines = wrap_text(value, "Helvetica", 7.1, inner_w * 0.54, max_lines=1) or [""]
-            c.drawString(value_x, info_y, value_lines[0])
+            _draw_fitted_line(c, value, value_x, info_y, inner_w * 0.54, "Helvetica", 7.1, min_font_size=4.0)
             info_y -= 0.16 * inch
 
         logo_w = 2.55 * inch
@@ -5696,9 +5793,8 @@ def _render_decopac_mpl_pages(
         title_h = 0.28 * inch
         _draw_mpl_cell(c, margin, title_top - title_h, inner_w, title_h, theme["label_fill"], _MPL_GRID, 0.55)
         c.setFillColorRGB(0.08, 0.08, 0.08)
-        c.setFont("Helvetica-Bold", 11.5)
         title = _mpl_clean(mpl.get("title")) or "Pallet Breakdown"
-        c.drawCentredString(margin + inner_w / 2, title_top - title_h / 2 - 3.6, title)
+        _draw_fitted_line(c, title, margin + inner_w / 2, title_top - title_h / 2 - 3.6, inner_w - 12, "Helvetica-Bold", 11.5, min_font_size=5.0, align="center")
 
         table_top = title_top - title_h
         header_h = 0.42 * inch
@@ -5772,8 +5868,7 @@ def _render_decopac_mpl_pages(
                     sw = summary_w * rel
                     _draw_mpl_cell(c, sx, summary_y - cell_h, sw, cell_h, theme["value_fill"], _MPL_GRID, 0.35)
                     c.setFillColorRGB(0, 0, 0)
-                    c.setFont("Helvetica", 5.9)
-                    c.drawCentredString(sx + sw / 2, summary_y - cell_h / 2 - 2, value)
+                    _draw_fitted_line(c, value, sx + sw / 2, summary_y - cell_h / 2 - 2, sw - 4, "Helvetica", 5.9, min_font_size=3.5, align="center")
                     sx += sw
                 summary_y -= cell_h
 
@@ -5816,12 +5911,18 @@ def _render_dutch_bros_mpl_pages(
         c.setFont("Helvetica-Bold", 7.2)
         c.drawString(x0, y - 0.12 * inch, "DELIVERY PACKING LIST")
         c.setFillColorRGB(*theme["primary"])
-        c.setFont("Helvetica-Bold", 18)
         title = _mpl_clean(mpl.get("title")) or "DUTCH BROS PACKING LIST"
-        c.drawString(x0, y - 0.40 * inch, title)
-        c.setFont("Helvetica-Bold", 6.2)
-        c.drawString(x0, y - 0.58 * inch, f"ORDER {_mpl_clean(mpl.get('order_no')) or '-'}")
         logo_w = 2.30 * inch
+        _draw_fitted_line(c, title, x0, y - 0.40 * inch, content_w - logo_w - 8, "Helvetica-Bold", 18)
+        _draw_fitted_line(
+            c,
+            f"ORDER {_mpl_clean(mpl.get('order_no')) or '-'}",
+            x0,
+            y - 0.58 * inch,
+            content_w - logo_w - 8,
+            "Helvetica-Bold",
+            6.2,
+        )
         _draw_mpl_brand_logo(c, brand_id, x0 + content_w - logo_w, y - 0.69 * inch, logo_w, 0.62 * inch)
         c.setStrokeColorRGB(*theme["accent"])
         c.setLineWidth(2.0)
@@ -5853,18 +5954,23 @@ def _render_dutch_bros_mpl_pages(
             c.setFont("Helvetica-Bold", 5.4)
             c.drawString(dx, dy, label.upper())
             c.setFillColorRGB(0.05, 0.05, 0.05)
-            c.setFont("Helvetica", 6.4)
-            c.drawString(dx, dy - 0.09 * inch, value[:38])
+            _draw_fitted_line(c, value, dx, dy - 0.09 * inch, left_w * 0.49 - 10, "Helvetica", 6.4)
         address_x = x0 + left_w + gap + 7
         address_y = card_top - 0.35 * inch
         c.setFillColorRGB(0.05, 0.05, 0.05)
         c.setFont("Helvetica", 6.4)
-        address_lines: List[str] = []
-        for raw_line in _mpl_clean(mpl.get("ship_to")).splitlines():
-            address_lines.extend(wrap_text(raw_line, "Helvetica", 6.4, right_w - 14, max_lines=2) or [""])
-        for line in address_lines[:5]:
+        address_lines, address_size = fit_text_lines(
+            " | ".join(filter(None, _mpl_clean(mpl.get("ship_to")).splitlines())),
+            "Helvetica",
+            6.4,
+            right_w - 14,
+            5,
+        )
+        c.setFont("Helvetica", address_size)
+        address_leading = 0.12 * inch * (address_size / 6.4)
+        for line in address_lines:
             c.drawString(address_x, address_y, line)
-            address_y -= 0.12 * inch
+            address_y -= address_leading
 
         pallet_top = card_top - card_h - 0.18 * inch
         pallet_bar_h = 0.44 * inch
@@ -5873,12 +5979,27 @@ def _render_dutch_bros_mpl_pages(
         c.setFont("Helvetica-Bold", 7.0)
         c.drawString(x0 + 8, pallet_top - 0.17 * inch, "PALLET")
         c.setFillColorRGB(*theme["accent"])
-        c.setFont("Helvetica-Bold", 17)
-        c.drawString(x0 + 0.57 * inch, pallet_top - 0.25 * inch, _mpl_pallet_label(pallet_id))
+        _draw_fitted_line(
+            c,
+            _mpl_pallet_label(pallet_id),
+            x0 + 0.57 * inch,
+            pallet_top - 0.25 * inch,
+            content_w * 0.52,
+            "Helvetica-Bold",
+            17,
+        )
         weights = mpl.get("_pallet_weights") if isinstance(mpl.get("_pallet_weights"), dict) else {}
         c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 6.2)
-        c.drawRightString(x0 + content_w - 8, pallet_top - 0.19 * inch, f"WEIGHT  {_mpl_weight_label(weights.get(pallet_id)) or '-'}")
+        _draw_fitted_line(
+            c,
+            f"WEIGHT  {_mpl_weight_label(weights.get(pallet_id)) or '-'}",
+            x0 + content_w - 8,
+            pallet_top - 0.19 * inch,
+            content_w * 0.36,
+            "Helvetica-Bold",
+            6.2,
+            align="right",
+        )
 
         table_top = pallet_top - pallet_bar_h
         columns = [
@@ -5921,10 +6042,18 @@ def _render_dutch_bros_mpl_pages(
 
         footer_y = margin + 0.16 * inch
         c.setFillColorRGB(*theme["primary"])
-        c.setFont("Helvetica-Bold", 5.9)
         supplier = _mpl_clean(mpl.get("supplier_info")).splitlines()
         supplier_label = supplier[0] if supplier else theme["brand_label"]
-        c.drawString(x0, footer_y, f"SHIP FROM: {supplier_label}")
+        _draw_fitted_line(
+            c,
+            f"SHIP FROM: {supplier_label}",
+            x0,
+            footer_y,
+            content_w * 0.72,
+            "Helvetica-Bold",
+            5.9,
+        )
+        c.setFont("Helvetica-Bold", 5.9)
         c.drawRightString(x0 + content_w, footer_y, f"PAGE {page_index} OF {len(page_payloads)}")
         c.showPage()
     return len(page_payloads)
@@ -5978,6 +6107,10 @@ def render_kehe_master_packing_list_pdf(
             total_pages_all += _render_decopac_mpl_pages(
                 c, mpl, items, brand_id, progress_callback, customer_heading="DUTCH BROS"
             )
+        elif template_id == "fancy":
+            total_pages_all += _render_decopac_mpl_pages(
+                c, mpl, items, brand_id, progress_callback, customer_heading="FANCY SPRINKLES"
+            )
         else:
             units = _mpl_build_units(items, template_id)
             available_h = (6.0 if template_id == "standard" else 6.85) * inch
@@ -6026,11 +6159,19 @@ def render_kehe_master_packing_list_pdf(
                     )
                     if warning_text:
                         warn_y = _MPL_INNER_BOTTOM + 0.07 * inch
-                        c.setFont("Helvetica-Oblique", 5.5)
                         c.setFillColorRGB(*_COLOR_LABEL)
-                        for wline in wrap_text(warning_text, "Helvetica-Oblique", 5.5, _MPL_INNER_W - 0.10 * inch, max_lines=2):
+                        warning_lines, warning_size = fit_text_lines(
+                            warning_text,
+                            "Helvetica-Oblique",
+                            5.5,
+                            _MPL_INNER_W - 0.10 * inch,
+                            2,
+                            min_font_size=3.5,
+                        )
+                        c.setFont("Helvetica-Oblique", warning_size)
+                        for wline in warning_lines:
                             c.drawString(_MPL_MARGIN + 0.05 * inch, warn_y, wline)
-                            warn_y += 6.5
+                            warn_y += 6.5 * (warning_size / 5.5)
                         c.setFillColorRGB(0, 0, 0)
 
                 c.showPage()

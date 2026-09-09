@@ -413,6 +413,7 @@ def health() -> Dict[str, Any]:
             "kehe": "XML-only GS1 label workflow",
             "mpl": "Packing List and Ti-Hi workspace",
             "b2b": "Editable customer case-pack label workflow",
+            "partners": "Automatic DecoPac, Dutch Bros, Fancy Sprinkles, and Total Wine labels and packing-list workflow",
         },
     }
 
@@ -1822,7 +1823,7 @@ async def render_b2b_labels(request: Request, payload: Dict[str, Any]) -> Respon
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    warnings = validate_b2b_job(payload, template)
+    warnings = result.get("warnings") or []
     safe_template = re.sub(r"[^A-Za-z0-9._-]+", "_", str(template.get("template_id") or "b2b_label"))
     headers = {
         "Content-Disposition": f'inline; filename="{safe_template.lower()}.pdf"',
@@ -1831,6 +1832,56 @@ async def render_b2b_labels(request: Request, payload: Dict[str, Any]) -> Respon
         "Access-Control-Expose-Headers": "X-B2B-Page-Count, X-B2B-Warning-Count",
     }
     return Response(content=result["pdf_bytes"], media_type="application/pdf", headers=headers)
+
+
+def _render_b2b_batch_pdf(jobs: List[Dict[str, Any]]) -> tuple[bytes, int, List[str]]:
+    """Render selected B2B jobs into one mixed-size, print-ready PDF."""
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("At least one label job is required.")
+    if len(jobs) > 100:
+        raise ValueError("A label run can contain no more than 100 line items.")
+
+    output = fitz.open()
+    warnings: List[str] = []
+    pages = 0
+    try:
+        for index, raw_job in enumerate(jobs, start=1):
+            if not isinstance(raw_job, dict) or not raw_job.get("print_selected", True):
+                continue
+            template = _find_b2b_label_template(raw_job.get("template_id"))
+            if template is None:
+                raise ValueError(f"Label line {index} does not use a supported template.")
+            result = render_b2b_label_pdf(raw_job, template)
+            source = fitz.open(stream=result["pdf_bytes"], filetype="pdf")
+            try:
+                output.insert_pdf(source)
+            finally:
+                source.close()
+            pages += int(result.get("pages") or 0)
+            label = str(raw_job.get("product", {}).get("sku") or f"line {index}").strip()
+            warnings.extend(f"{label}: {warning}" for warning in result.get("warnings") or [])
+        if pages < 1:
+            raise ValueError("Select at least one label line to print.")
+        return output.tobytes(garbage=3, deflate=True), pages, warnings
+    finally:
+        output.close()
+
+
+@app.post("/api/partner/render-labels")
+async def render_partner_labels(request: Request, payload: Dict[str, Any]) -> Response:
+    """Render every selected combined-customer order label in one PDF."""
+    _require_permission(request, "generate")
+    try:
+        pdf_bytes, pages, warnings = _render_b2b_batch_pdf(payload.get("jobs") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    headers = {
+        "Content-Disposition": 'inline; filename="customer_case_pack_labels.pdf"',
+        "X-B2B-Page-Count": str(pages),
+        "X-B2B-Warning-Count": str(len(warnings)),
+        "Access-Control-Expose-Headers": "X-B2B-Page-Count, X-B2B-Warning-Count",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
 @app.put("/api/mpl/product-master")
@@ -3025,6 +3076,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "storefront": "storefront",
         "store_front": "storefront",
         "store": "storefront",
+        "storefront_customer": "storefront",
         # Transitional legacy headings are converted during normalization and
         # are never persisted or exported.
         "in_packing_list": "legacy_in_packing_list",
@@ -3039,6 +3091,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "upc": "gtin",
         "description": "description",
         "item_description": "description",
+        "product_description": "description",
         "packaging_level": "packaging_level",
         "packging_level": "packaging_level",
         "level": "packaging_level",
@@ -3063,6 +3116,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "labels_to_print_per_unit": "default_copies",
         "sku": "sku",
         "item_number": "sku",
+        "ecomdash_sku": "sku",
         "config_id": "config_id",
         "configuration_id": "config_id",
         "customer_item_number": "customer_item_number",
@@ -3073,10 +3127,15 @@ def _canonical_import_key(header: str, table: str) -> str:
         "barcode_level": "barcode_level",
         "length_in": "length_in",
         "width_in": "width_in",
+        "width_breadth_in": "width_in",
         "breadth_in": "width_in",
         "breadth": "width_in",
         "height_in": "height_in",
         "each_net_weight_g": "each_net_weight_g",
+        "each_net_weight": "each_net_weight",
+        "each_weight_unit": "each_weight_unit",
+        "packaging_tare_weight": "packaging_tare_weight",
+        "packaging_weight_unit": "packaging_weight_unit",
         "package_net_weight_g": "package_net_weight_g",
         "gross_weight_lbs": "gross_weight_lbs",
         "default_copies": "default_copies",
@@ -3084,6 +3143,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "label_enabled": "label_enabled",
         "source_note": "source_note",
         "is_active": "is_active",
+        "active": "is_active",
     }
     directory_aliases = {
         "storefront": "storefront",
@@ -3123,12 +3183,65 @@ def _canonical_import_key(header: str, table: str) -> str:
     return aliases.get(table, {}).get(key, key)
 
 
+def _is_import_usage_guide_row(row: Dict[str, Any]) -> bool:
+    """Recognize the human-readable usage row shipped in Product Master templates."""
+    first_value = next((str(value or "").strip() for value in row.values() if str(value or "").strip()), "")
+    normalized = re.sub(r"[^a-z0-9]+", " ", first_value.lower()).strip()
+    return normalized.startswith("usage guide") or normalized.startswith("guide not imported")
+
+
+def _weight_to_grams(value: Any, unit: Any) -> Optional[float]:
+    parsed = _parse_decimal_value(value)
+    if parsed is None:
+        return None
+    unit_key = str(unit or "g").strip().lower().replace(".", "")
+    factor = {
+        "g": 1.0,
+        "gram": 1.0,
+        "grams": 1.0,
+        "kg": 1000.0,
+        "kilogram": 1000.0,
+        "kilograms": 1000.0,
+        "lb": 453.59237,
+        "lbs": 453.59237,
+        "pound": 453.59237,
+        "pounds": 453.59237,
+        "oz": 28.349523125,
+        "ounce": 28.349523125,
+        "ounces": 28.349523125,
+    }.get(unit_key)
+    return parsed * factor if factor is not None else None
+
+
+def _adapt_product_template_weights(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert the template's unit-aware weights into the app's stored units."""
+    adapted = dict(row)
+    each_grams = _weight_to_grams(adapted.get("each_net_weight"), adapted.get("each_weight_unit"))
+    tare_grams = _weight_to_grams(adapted.get("packaging_tare_weight"), adapted.get("packaging_weight_unit"))
+    eaches = _parse_decimal_value(adapted.get("case_qty"))
+
+    if not str(adapted.get("each_net_weight_g") or "").strip() and each_grams is not None:
+        adapted["each_net_weight_g"] = _format_decimal_string(each_grams)
+    if each_grams is not None and eaches is not None:
+        package_net_grams = each_grams * eaches
+        if not str(adapted.get("package_net_weight_g") or "").strip():
+            adapted["package_net_weight_g"] = _format_decimal_string(package_net_grams)
+        if not str(adapted.get("gross_weight_lbs") or "").strip():
+            gross_grams = package_net_grams + (tare_grams or 0.0)
+            adapted["gross_weight_lbs"] = _format_decimal_string(gross_grams / 453.59237)
+    return adapted
+
+
 def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Dict[str, Any]]:
     canonical_rows: List[Dict[str, Any]] = []
     for row in rows:
+        if table in {"kehe_product_master", "mpl_product_master"} and _is_import_usage_guide_row(row):
+            continue
         next_row: Dict[str, Any] = {}
         for key, value in row.items():
             next_row[_canonical_import_key(key, table)] = value
+        if table in {"kehe_product_master", "mpl_product_master"}:
+            next_row = _adapt_product_template_weights(next_row)
         canonical_rows.append(next_row)
     if table == "kehe_product_master":
         return _kehe_product_master_rows(canonical_rows)

@@ -2,10 +2,13 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
+Current documented release: `2026.09.09-customer-order-documents`
+
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
 - Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
 - B2B Case-Pack Labels: follow a customer-first configuration hierarchy, edit printed values directly on a live label canvas, complete technical product/barcode setup when needed, and render the production PDF for download or printing.
+- DecoPac / Dutch Bros / Fancy / Total Wine: use one shared customer-specific workflow to detect or select the customer, review/edit every required label and packing list, and preview both PDFs before printing or downloading. Total Wine produces KeHE-format documents.
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
@@ -19,7 +22,8 @@ FastAPI routes in server.py
    |-- Michaels pipeline ---- ASN XML + shipping-label PDF --> combined PDF + match report
    |-- KeHE pipeline -------- ASN XML + reference data ------> GS1/pack/pallet/MPL PDFs
    |-- Packing List & Ti-Hi - sales order + Product Master --> editable MPL + optional TI-HI
-   `-- B2B labels ----------- sales order + product/template --> editable label canvas --> case-pack PDF
+   |-- B2B labels ----------- sales order + product/template --> editable label canvas --> case-pack PDF
+   `-- DecoPac / Dutch Bros / Fancy / Total Wine - sales order --> customer selection/config --> editable labels + MPL previews
 ```
 
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
@@ -103,6 +107,7 @@ Landing page options:
 
 - `Michaels DTS`
 - `KeHE GS1`
+- `DecoPac / Dutch Bros / Fancy / Total Wine`
 - `Packing List & Ti-Hi`
 - `B2B Case-Pack Labels`
 
@@ -122,6 +127,7 @@ KeHE and standalone MPL reference table routes:
 - `GET/PUT /api/mpl/directory`
 - `GET /api/b2b/label-templates`
 - `POST /api/b2b/render` render an editable B2B print run as a print-size PDF
+- `POST /api/partner/render-labels` render the selected automatic-order customer labels
 - `POST /api/mpl/orders/lookup` search the connected Zoho Analytics order view and match its SKUs to Product Master
 - `GET/POST/DELETE /api/kehe/mpl-drafts`
 - `GET /api/kehe/audit-log`
@@ -239,17 +245,29 @@ Loading a Sales Order Number preselects matching customer/product data and popul
 
 Supported workbook-derived label types:
 
-- Fancy Sprinkles SRD 3x3 and Master-Pack 3x3, two copies per pack.
-- DecoPac case 4x6.
-- Dutch Bros PFG 3x3 and Dutch Bros Other 3x3.
-- Disney case 3x3.
-- Standard case-pack 4x6.
+- Fancy Sprinkles SRD and Master-Pack dual-panel labels on one 4x6 page, plus a 3x3 pallet label printed twice per pallet.
+- DecoPac A/B panels stacked on one 4x6 page.
+- Dutch Bros PFG and Other duplicated panels side-by-side on one 4x6 page.
+- Total Wine KeHE-compatible Inner Pack 4x4, Master Case 4x4, and Pallet 4x6 labels.
+- Disney case 4x6.
+- Standard case-pack 4x6 in horizontal and vertical dual-panel layouts.
 - Mixed-case strip 3x1.5.
 - Bulk further-processing 4x6.
 
-All nine supported label types have at least one enabled Product Master configuration. The five non-production examples use `SAMPLE-*` configuration/SKU values and `DRAFT` status so they are easy to identify and replace after testing. Fancy SRD, Fancy Master-Pack, Dutch PFG, and Dutch Other share one configurable compact renderer; their titles, copy counts, invoice visibility, and required fields remain template-driven.
+All fourteen supported label types have at least one enabled Product Master configuration. Non-production examples use `SAMPLE-*` configuration/SKU values and `DRAFT` status so they are easy to identify and replace after testing. Fancy SRD, Fancy Master-Pack, Dutch PFG, and Dutch Other share one configurable dual-panel renderer; their titles, copy counts, invoice visibility, and required fields remain template-driven. Standard Case Packs and Disney remain available in B2B only.
 
 Customer-specific fields come from Product Master and Directory. Direct label edits to product text write through to Product Master, while PO/lot/carton/job values remain print-run data. The bundled template registry is `frankenstein_project/data/b2b_label_templates.json`, and the production renderers live under `frankenstein_project/pipelines/b2b_labels/`.
+
+## DecoPac / Dutch Bros / Fancy / Total Wine Order Workflow
+
+1. Open `DecoPac / Dutch Bros / Fancy / Total Wine` and enter the Sales Order Number. If the number exists in more than one order source, choose the correct order instance.
+2. LabelKit identifies DecoPac, Dutch Bros, Fancy Sprinkles, or Total Wine from the order customer/storefront. The user can select a customer before loading or change the selected layout afterward without leaving the workflow.
+3. Choose whether to generate customer labels, the packing list, or both. LabelKit selects the required templates and calculates cartons from ordered quantity and Product Master case quantity when available.
+4. Review each label job before printing. Description, template, carton/pallet count, copies, and template-specific run fields remain editable. Fancy maps Date to ship date and Name to product description; Quantity, Lot Code, and Best-Before Date remain editable. Fancy pallet labels default to two copies per pallet.
+5. Use `Edit Packing List` for the full packing-list editor. Save the changes to return to the module and refresh its PDF preview.
+6. Review the label and packing-list previews independently, then print or download each final PDF.
+
+The four customers share the order loader, Product Master matching, packing-list editor, preview controls, and PDF generation path. Configuration selects the customer-specific label family and packing-list template. Total Wine selects all three KeHE-style label types by default and uses the KeHE packing-list renderer; DecoPac, Dutch Bros, and Fancy use the shared pallet-breakdown packing list with their customer heading. The workflow uses order values when Product Master data is incomplete so the user can still produce a reviewable document. Missing case-pack, GTIN, dimensions, or weight data stays visible as a concise review warning instead of discarding the order line.
 
 ## Master Packing List And TI-HI
 
@@ -364,11 +382,13 @@ Expected signal:
 
 ## Docker Run
 
-Build from repo root:
+Build the current release from the repository root. The dated tag identifies the
+exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-docker build --pull --build-arg APP_VERSION=2026.08.31-michaels-pdf-boundaries -t merged-labelkit:latest .
+$release = "2026.09.09-customer-order-documents"
+docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
 Run locally:
@@ -383,6 +403,22 @@ Verify container status:
 docker ps --filter "name=merged-labelkit-local"
 Invoke-RestMethod "http://127.0.0.1:9000/health"
 ```
+
+Inspect the image release label:
+
+```powershell
+docker image inspect merged-labelkit:latest --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
+```
+
+To remove older LabelKit images after the new image has passed its health check,
+list the repository first and remove only superseded `merged-labelkit` image IDs:
+
+```powershell
+docker image ls merged-labelkit
+docker image rm <old-image-id>
+```
+
+Do not remove the base Python image or images belonging to other applications.
 
 Open:
 
@@ -414,7 +450,8 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-docker build --pull --build-arg APP_VERSION=2026.08.31-michaels-pdf-boundaries -t merged-labelkit:latest .
+$release = "2026.09.09-customer-order-documents"
+docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
 
@@ -826,7 +863,8 @@ catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit
 - [ ] Run Python compile checks.
 - [ ] Run frontend script parse.
 - [ ] Run import and route smoke checks.
-- [ ] Build `docker build -t merged-labelkit:latest .`.
+- [ ] Build the dated release tag and refresh `merged-labelkit:latest` from the same build.
+- [ ] Verify the new image locally before removing superseded LabelKit image IDs.
 - [ ] Deploy with `catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000`.
 - [ ] Health-check `https://mergedlabelkit.development.catalystappsail.com/health`.
 - [ ] Commit the exact source used for the verified image on `main`.

@@ -9,6 +9,7 @@ from pipelines.kehe.common import (
     _normalize_product_master_rows,
 )
 from server import (
+    _canonicalize_import_rows,
     _datastore_save_product_rows,
     _product_to_datastore_row,
     normalize_product_master_row,
@@ -20,6 +21,38 @@ REMOVED_KEYS = {"label_required", "dimensions_in", "weight_lbs", "labels_per_uni
 
 
 class ProductMasterMigrationTests(unittest.TestCase):
+    def test_updated_input_template_is_importable_and_skips_usage_row(self):
+        rows = _canonicalize_import_rows([
+            {
+                "Storefront / Customer": "USAGE GUIDE — not imported",
+                "Ecomdash SKU": "Matches order lines to Product Master.",
+            },
+            {
+                "Storefront / Customer": "KeHE",
+                "Ecomdash SKU": "TW-EXAMPLE",
+                "Product Description": "Example Case Product",
+                "Packaging Level": "Case",
+                "Width/Breadth (in)": 12,
+                "Each Net Weight": 4,
+                "Each Weight Unit": "oz",
+                "Packaging/Tare Weight": 0.5,
+                "Packaging Weight Unit": "lb",
+                "Eaches / Package": 6,
+                "Active": True,
+            },
+        ], "mpl_product_master")
+
+        self.assertEqual(1, len(rows))
+        row = rows[0]
+        self.assertEqual("KeHE", row["storefront"])
+        self.assertEqual("TW-EXAMPLE", row["sku"])
+        self.assertEqual("Example Case Product", row["description"])
+        self.assertEqual("12", row["width_in"])
+        self.assertAlmostEqual(113.3980925, float(row["each_net_weight_g"]), places=6)
+        self.assertAlmostEqual(680.388555, float(row["package_net_weight_g"]), places=6)
+        self.assertAlmostEqual(2.0, float(row["gross_weight_lbs"]), places=6)
+        self.assertTrue(row["is_active"])
+
     def test_legacy_values_convert_without_round_trip_fields(self):
         row = normalize_product_master_row({
             "STOREFRONT": "KeHE",

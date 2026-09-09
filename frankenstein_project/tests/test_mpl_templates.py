@@ -17,6 +17,7 @@ class MplTemplateTests(unittest.TestCase):
         titles = {
             "decopac": "Pallet Breakdown",
             "dutch_bros": "Pallet Breakdown",
+            "fancy": "Pallet Breakdown",
             "standard": "MASTER PACKING LIST",
         }
         suppliers = {
@@ -231,8 +232,18 @@ class MplTemplateTests(unittest.TestCase):
         self.assertIn("Units on this Pallet", text)
         self.assertGreater(width, height)
 
-    def test_decopac_and_dutch_bros_default_to_bakell_when_brand_is_missing(self):
-        for template_id in ("decopac", "dutch_bros"):
+    def test_standalone_fancy_template_reuses_pallet_breakdown_with_customer_title(self):
+        draft = self._draft("fancy", brand_id="bakell")
+        text = self._render_first_page_text(draft)
+        width, height = self._render_first_page_size(draft)
+
+        self.assertIn("FANCY SPRINKLES", text)
+        self.assertIn("Pallet Breakdown", text)
+        self.assertIn("PALLET SUMMARY", text)
+        self.assertGreater(width, height)
+
+    def test_customer_family_templates_default_to_bakell_when_brand_is_missing(self):
+        for template_id in ("decopac", "dutch_bros", "fancy"):
             with self.subTest(template=template_id):
                 draft = self._draft(template_id, brand_id="jdi_distribution")
                 draft.pop("brand_id", None)
@@ -314,6 +325,20 @@ class MplTemplateTests(unittest.TestCase):
 
         self.assertIn("MASTER PACKING LIST", text)
         self.assertNotIn("COMPACT PACKING LIST", text)
+
+    def test_long_packing_list_values_are_preserved(self):
+        draft = self._draft("standard")
+        mpl = draft["packing_lists"][0]
+        long_description = "LONGPRODUCTDESCRIPTION" * 8
+        long_po = "PO" * 24
+        mpl["customer_po_number"] = long_po
+        mpl["items"][0]["description"] = long_description
+        mpl["items"][0]["item_number"] = "ITEM" * 15
+
+        text = self._render_first_page_text(draft).replace(" ", "").replace("\n", "")
+
+        self.assertIn(long_description, text)
+        self.assertIn(long_po, text)
 
     def test_standard_pdf_places_all_tihi_previews_after_pallet_details(self):
         texts = self._render_page_texts(self._add_second_pallet_and_snapshots(self._draft("standard")))

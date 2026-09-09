@@ -487,7 +487,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn('id="b2b-product-gtin"', html)
         self.assertIn('id="b2b-product-barcode-type"', html)
         self.assertIn('id="b2b-run-fields-empty"', html)
-        self.assertEqual(4, html.count("data-b2b-run-wrap="))
+        self.assertEqual(5, html.count("data-b2b-run-wrap="))
         self.assertNotIn('data-b2b-run-field="po_number"', html)
         self.assertIn("function b2bRunFieldNames(template)", javascript)
         self.assertIn("function b2bLabelEditorHtml(template, product, directory)", javascript)
@@ -496,6 +496,36 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function commitB2BRunLabelEdit(element)", javascript)
         self.assertIn("setB2BSelectorVisibility('level', !!selectedGroup)", javascript)
         self.assertIn("b2bRunFieldNames(template).forEach(field =>", javascript)
+
+    def test_combined_customer_order_module_has_selector_and_editable_dual_previews(self):
+        html = serve_frontend_index().body.decode("utf-8")
+        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="partner-workspace-page"', html)
+        self.assertIn('id="partner-sales-order-number"', html)
+        self.assertIn('id="partner-label-editor-list"', html)
+        self.assertIn('id="partner-labels-preview"', html)
+        self.assertIn('id="partner-mpl-preview"', html)
+        self.assertIn('onclick="editPartnerPackingList()"', html)
+        self.assertIn('data-partner-customer="decopac"', html)
+        self.assertIn('data-partner-customer="dutch_bros"', html)
+        self.assertIn('data-partner-customer="fancy"', html)
+        self.assertIn('data-partner-customer="total_wine"', html)
+        self.assertLess(html.index('DecoPac / Dutch Bros / Fancy / Total Wine'), html.index('Packing List &amp; Ti-Hi'))
+        self.assertIn("const PARTNER_WORKFLOW_CONFIG", javascript)
+        self.assertIn("function selectPartnerCustomer(customerId", javascript)
+        self.assertIn("if (/fancy\\s*sprinkles", javascript)
+        self.assertIn("if (/total\\s*wine/", javascript)
+        for template_id in (
+            "TOTAL_WINE_INNER_PACK_4X4",
+            "TOTAL_WINE_MASTER_CASE_4X4",
+            "TOTAL_WINE_PALLET_4X6",
+        ):
+            self.assertIn(template_id, javascript)
+        self.assertIn("palletJob.run.copies = '2'", javascript)
+        self.assertIn("function detectPartnerCustomer(payload)", javascript)
+        self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
+        self.assertIn("async function renderPartnerPreviews()", javascript)
 
 
 if __name__ == "__main__":

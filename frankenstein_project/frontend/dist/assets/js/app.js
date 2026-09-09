@@ -262,6 +262,11 @@
       title: 'Pallet Breakdown',
       description: 'The DecoPac-style pallet breakdown headed for Dutch Bros.'
     },
+    fancy: {
+      label: 'Fancy Sprinkles',
+      title: 'Pallet Breakdown',
+      description: 'The shared pallet-breakdown format headed for Fancy Sprinkles.'
+    },
     standard: {
       label: 'Standard',
       title: 'MASTER PACKING LIST',
@@ -269,7 +274,35 @@
     }
   };
 
-  const MPL_STANDALONE_TEMPLATE_IDS = ['kehe', 'decopac', 'dutch_bros', 'standard'];
+  const MPL_STANDALONE_TEMPLATE_IDS = ['kehe', 'decopac', 'dutch_bros', 'fancy', 'standard'];
+
+  const PARTNER_WORKFLOW_CONFIG = {
+    decopac: {
+      label: 'DecoPac',
+      mplTemplateId: 'decopac',
+      labelTemplateIds: ['DECOPAC_CASE_4X6'],
+      homeAccent: 'green'
+    },
+    dutch_bros: {
+      label: 'Dutch Bros',
+      mplTemplateId: 'dutch_bros',
+      labelTemplateIds: ['DUTCH_PFG_3X3', 'DUTCH_OTHER_3X3'],
+      homeAccent: 'green'
+    },
+    fancy: {
+      label: 'Fancy Sprinkles',
+      mplTemplateId: 'fancy',
+      labelTemplateIds: ['FANCY_SRD_3X3', 'FANCY_MASTER_PACK_3X3', 'FANCY_PALLET_3X3'],
+      homeAccent: 'green'
+    },
+    total_wine: {
+      label: 'Total Wine',
+      mplTemplateId: 'kehe',
+      labelTemplateIds: ['TOTAL_WINE_INNER_PACK_4X4', 'TOTAL_WINE_MASTER_CASE_4X4', 'TOTAL_WINE_PALLET_4X6'],
+      homeAccent: 'green'
+    }
+  };
+  const PARTNER_CUSTOMER_IDS = Object.keys(PARTNER_WORKFLOW_CONFIG);
   const MPL_BRAND_CONFIG = {
     brew_glitter: {
       label: 'Brew Glitter',
@@ -438,17 +471,28 @@
   let b2bCopiesTemplateId = '';
   let b2bSettingsProductIndex = -1;
   let b2bPreviewUrl = null;
+  let partnerOrderPayload = null;
+  let partnerCustomerId = '';
+  let partnerCustomerOverride = '';
+  let partnerLabelJobs = [];
+  let partnerMplDraft = null;
+  let partnerLabelsPreviewUrl = null;
+  let partnerMplPreviewUrl = null;
+  let partnerEditingMpl = false;
   let b2bRunFields = {
     po_number: '',
     order_number: '',
     invoice_number: '',
     lot_number: '',
+    ship_date: '',
+    quantity_label: '',
     expected_delivery_date: '',
     best_before: '',
     carton_total: '1',
     carton_start: '1',
     carton_end: '1',
     copies: '1',
+    print_barcode: 'false',
     project_name: '',
     allergens: '',
     required_statement: ''
@@ -462,7 +506,7 @@
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
   let embeddedAuthMounted = false;
-  const pages = ['home', 'michaels', 'kehe', 'mpl', 'b2b'];
+  const pages = ['home', 'michaels', 'kehe', 'mpl', 'b2b', 'partners'];
 
   fetch('/health').catch(() => {});
 
@@ -728,6 +772,8 @@
       await selectMplWorkspace(false);
     } else if (normalized === 'b2b') {
       await selectB2BWorkspace(false);
+    } else if (normalized === 'partners') {
+      await selectPartnerWorkspace(false);
     } else {
       selectKit(normalized, false);
     }
@@ -803,11 +849,19 @@
       showMplProductMasterView();
       return;
     }
+    if (normalized === 'partners/product-master') {
+      showMplProductMasterView();
+      return;
+    }
     if (normalized === 'mpl/directory') {
       showMplDirectoryView();
       return;
     }
     if (normalized === 'b2b/directory') {
+      showMplDirectoryView();
+      return;
+    }
+    if (normalized === 'partners/directory') {
       showMplDirectoryView();
       return;
     }
@@ -1391,7 +1445,7 @@
   }
 
   function isStandaloneMplReferenceMode() {
-    return selectedKit === 'mpl' || selectedKit === 'b2b' || !!activeKeheDocumentDraft?.standalone_mpl;
+    return selectedKit === 'mpl' || selectedKit === 'b2b' || selectedKit === 'partners' || !!activeKeheDocumentDraft?.standalone_mpl;
   }
 
   function mplTemplateId(mpl) {
@@ -1427,7 +1481,7 @@
   function mplBrandId(mpl) {
     const requested = String(mpl?.brand_id || activeKeheDocumentDraft?.brand_id || '').trim().toLowerCase();
     const inferred = inferMplBrandId(`${mpl?.supplier_info || ''} ${mpl?.storefront || activeKeheDocumentDraft?.storefront || ''}`);
-    const templateDefault = ['decopac', 'dutch_bros'].includes(mplTemplateId(mpl)) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
+    const templateDefault = ['decopac', 'dutch_bros', 'fancy'].includes(mplTemplateId(mpl)) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
     const brandId = MPL_BRAND_IDS.includes(requested)
       ? requested
       : (templateDefault === 'bakell' ? 'bakell' : (inferred || templateDefault));
@@ -1461,7 +1515,7 @@
     if (!mpl || !MPL_STANDALONE_TEMPLATE_IDS.includes(normalized)) return;
     mpl.template_id = normalized;
     mpl.title = MPL_TEMPLATE_CONFIG[normalized].title;
-    if (['decopac', 'dutch_bros'].includes(normalized)) {
+    if (['decopac', 'dutch_bros', 'fancy'].includes(normalized)) {
       mpl.brand_id = 'bakell';
       mpl.supplier_info = mplBrandSupplierInfo('bakell', mpl.supplier_info);
       mpl.delivery_from_name = MPL_BRAND_CONFIG.bakell.supplierName;
@@ -1499,6 +1553,29 @@
           <span class="mpl-template-lock">KeHE only</span>
         </div>`;
     }
+    if (selectedKit === 'partners') {
+      return `
+        <div class="mpl-template-picker partner-customer-template-picker">
+          <div>
+            <div class="mpl-template-picker-kicker">Customer layout</div>
+            <div class="mpl-template-picker-title">DecoPac / Dutch Bros / Fancy / Total Wine</div>
+          </div>
+          <div class="mpl-template-picker-description">The editor and document engine stay shared; only the selected customer's layout rules are applied.</div>
+          <div class="mpl-template-options" role="radiogroup" aria-label="Customer packing-list layout">
+            ${PARTNER_CUSTOMER_IDS.map(id => {
+              const cfg = PARTNER_WORKFLOW_CONFIG[id];
+              const selected = cfg.mplTemplateId === templateId;
+              return `
+                <button class="mpl-template-option partner-customer-option customer-${escapeHtml(id)}${selected ? ' selected' : ''}" type="button" role="radio" aria-checked="${selected ? 'true' : 'false'}" onclick="selectPartnerCustomer('${id}', { fromEditor: true })">
+                  <span>${escapeHtml(cfg.label)}</span>
+                  <small>Customer-specific packing list and labels</small>
+                </button>`;
+            }).join('')}
+          </div>
+        </div>`;
+    }
+    const generalTemplateIds = ['kehe', 'standard'];
+    const partnerTemplateSelected = PARTNER_CUSTOMER_IDS.some(id => id !== 'total_wine' && PARTNER_WORKFLOW_CONFIG[id].mplTemplateId === templateId);
     return `
       <div class="mpl-template-picker">
         <div>
@@ -1506,7 +1583,7 @@
           <div class="mpl-template-picker-title">Choose a layout</div>
         </div>
         <div class="mpl-template-options" role="radiogroup" aria-label="MPL template">
-          ${MPL_STANDALONE_TEMPLATE_IDS.map(id => {
+          ${generalTemplateIds.map(id => {
             const cfg = MPL_TEMPLATE_CONFIG[id];
             const selected = id === templateId;
             return `
@@ -1515,6 +1592,10 @@
                 <small>${escapeHtml(cfg.description)}</small>
               </button>`;
           }).join('')}
+          <button class="mpl-template-option mpl-template-option-family${partnerTemplateSelected ? ' selected' : ''}" type="button" role="radio" aria-checked="${partnerTemplateSelected ? 'true' : 'false'}" onclick="openCombinedPartnerWorkflow()">
+            <span>DecoPac / Dutch Bros / Fancy / Total Wine</span>
+            <small>Open the combined customer workflow to select a customer, load an order, and prepare labels with the packing list.</small>
+          </button>
         </div>
       </div>`;
   }
@@ -2791,7 +2872,7 @@
   }
 
   function buildManualMasterPackingListDraft(options = {}) {
-    const standalone = selectedKit === 'mpl';
+    const standalone = selectedKit === 'mpl' || selectedKit === 'partners';
     const requestedTemplate = String(options.templateId || '').trim().toLowerCase();
     const templateId = standalone && MPL_STANDALONE_TEMPLATE_IDS.includes(requestedTemplate)
       ? requestedTemplate
@@ -2806,7 +2887,7 @@
     const firstItem = blankManualMplItem(1, '1');
     const storefront = normalizeStorefront(requestedStorefront || firstDc.storefront || 'KeHE');
     const requestedBrand = String(options.brandId || '').trim().toLowerCase();
-    const templateDefaultBrand = ['decopac', 'dutch_bros'].includes(templateId) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
+    const templateDefaultBrand = ['decopac', 'dutch_bros', 'fancy'].includes(templateId) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
     const brandId = standalone
       ? (MPL_BRAND_IDS.includes(requestedBrand) ? requestedBrand : (templateDefaultBrand === 'bakell' ? 'bakell' : (inferMplBrandId(storefront) || templateDefaultBrand)))
       : 'bakell';
@@ -5963,6 +6044,7 @@
     document.getElementById('upload-page').classList.remove('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
+    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
 
     document.getElementById('header-app-name').textContent = cfg.headerName;
@@ -6047,6 +6129,7 @@
     document.getElementById('kit-selection').classList.add('hidden');
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
+    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'Packing List & Ti-Hi';
@@ -6102,6 +6185,7 @@
     document.getElementById('kit-selection').classList.add('hidden');
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
+    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'B2B Case-Pack Labels';
@@ -6128,12 +6212,12 @@
 
   async function openB2BProductMaster() {
     if (!b2bLabelTemplates.length) await loadB2BLabelTemplates();
-    await navigateToRoute('b2b/product-master');
+    await navigateToRoute(`${selectedKit === 'partners' ? 'partners' : 'b2b'}/product-master`);
     showMplProductMasterView();
   }
 
   async function openB2BDirectory() {
-    await navigateToRoute('b2b/directory');
+    await navigateToRoute(`${selectedKit === 'partners' ? 'partners' : 'b2b'}/directory`);
     showMplDirectoryView();
   }
 
@@ -6228,6 +6312,20 @@
     return '';
   }
 
+  function b2bBarcodeConfigured(product = getSelectedB2BProduct()) {
+    return !!String(product?.gtin || '').trim()
+      && !['', 'NONE'].includes(String(product?.barcode_type || '').trim().toUpperCase());
+  }
+
+  function b2bPrintBarcodeEnabled(product = getSelectedB2BProduct()) {
+    return parseBooleanLike(b2bRunFields.print_barcode, false) && b2bBarcodeConfigured(product);
+  }
+
+  function b2bBarcodePreviewHtml(product) {
+    if (!b2bPrintBarcodeEnabled(product)) return '';
+    return `<div class="b2b-label-barcode"><div class="b2b-label-bars"></div>${b2bEditableValue(product, 'gtin', 'GTIN / UPC', 'b2b-edit-barcode')}</div>`;
+  }
+
   function b2bProductSettingMap() {
     return {
       description: 'b2b-product-description',
@@ -6282,15 +6380,16 @@
     const barcodeConfigured = !!String(product.gtin || '').trim()
       && !['', 'NONE'].includes(String(product.barcode_type || '').toUpperCase())
       && !['', 'NONE'].includes(String(product.barcode_level || '').toUpperCase());
-    const needsAttention = requiredMissing.length > 0 || (barcodePolicy !== 'NONE' && !barcodeConfigured);
+    const barcodeRequested = parseBooleanLike(b2bRunFields.print_barcode, false);
+    const needsAttention = requiredMissing.length > 0 || (barcodeRequested && !barcodeConfigured);
     if (status) {
       if (isOrderFallback && requiredMissing.length) status.textContent = `Order data loaded · ${requiredMissing.length} field${requiredMissing.length === 1 ? '' : 's'} to review`;
       else if (isOrderFallback) status.textContent = 'Order data loaded for this label';
       else if (requiredMissing.length) status.textContent = `${requiredMissing.length} required field${requiredMissing.length === 1 ? '' : 's'} missing`;
-      else if (barcodePolicy === 'NONE') status.textContent = 'Barcode not printed by this template';
-      else if (!barcodeConfigured) status.textContent = 'Barcode not configured';
+      else if (!barcodeRequested) status.textContent = 'Barcode is optional and currently off';
+      else if (!barcodeConfigured) status.textContent = 'Barcode selected but not configured';
       else status.textContent = 'Setup complete';
-      status.className = `b2b-settings-status ${needsAttention ? 'review' : barcodePolicy === 'NONE' ? 'neutral' : 'ready'}`;
+      status.className = `b2b-settings-status ${needsAttention ? 'review' : barcodeRequested ? 'ready' : 'neutral'}`;
     }
     if (b2bSettingsProductIndex !== b2bSelectedProductIndex) {
       panel.open = needsAttention;
@@ -6343,30 +6442,21 @@
       edit('height_in', 'Height'),
     ].join('<span class="b2b-label-dimension-times">×</span>');
     const options = template?.renderer_options || {};
+    const barcodeVisible = b2bPrintBarcodeEnabled(product);
+    const barcodeHtml = b2bBarcodePreviewHtml(product);
 
     if (renderer === 'decopac_case_4x6') {
       const manufacturer = runValue('manufacturer_name', 'name') || 'DECOPAC, INC';
       const destination = runValue('delivery_address') || 'ANOKA, MN USA';
-      const barcodeVisible = !!String(product?.gtin || '').trim()
-        && !['', 'NONE'].includes(String(product?.barcode_type || '').toUpperCase());
-      return `<div class="b2b-label-sheet b2b-label-decocpac">
-        <div class="b2b-label-topline"><strong>${manufacturer.toUpperCase()}</strong><span>${destination.replace(/\n/g, ' ')}</span></div>
-        <div class="b2b-label-rule"></div>
-        <div class="b2b-label-row"><b>ITEM #:</b>${edit('customer_item_number', 'Customer item number')}</div>
-        <div class="b2b-label-row b2b-label-description"><b>DESCRIPTION:</b>${edit('description', 'Product description', 'b2b-edit-wide')}</div>
-        <div class="b2b-label-row"><b>QTY:</b><span>Master Carton of ${edit('case_qty', 'Quantity')}</span></div>
-        <div class="b2b-label-split"><div><b>PO #:</b> ${runEdit('po_number', 'Enter PO number')}</div><div><b>LOT #:</b> ${runEdit('lot_number', 'Enter lot number')}</div><strong>${box}</strong></div>
-        <div class="b2b-label-details">
-          <div><b>NET ITEM:</b> ${edit('each_net_weight_g', 'Weight')} g</div>
-          <div><b>NET CASE:</b> ${edit('package_net_weight_g', 'Weight')} g</div>
-          <div><b>DIMENSIONS:</b> <span class="b2b-label-dimensions">${dimensions}</span> in</div>
-        </div>
-        ${barcodeVisible ? `<div class="b2b-label-barcode"><div class="b2b-label-bars"></div>${edit('gtin', 'GTIN / UPC', 'b2b-edit-barcode')}</div>` : ''}
+      const common = `<div class="b2b-label-topline"><strong>${manufacturer.toUpperCase()}</strong><span>${destination.replace(/\n/g, ' ')}</span></div><div class="b2b-label-rule"></div><div class="b2b-label-row"><b>ITEM #:</b>${edit('customer_item_number', 'Customer item number')}</div><div class="b2b-label-row b2b-label-description"><b>DESCRIPTION:</b>${edit('description', 'Product description', 'b2b-edit-wide')}</div><div class="b2b-label-row"><b>QTY:</b><span>Master Carton of ${edit('case_qty', 'Quantity')}</span></div>`;
+      return `<div class="b2b-label-sheet b2b-label-dual b2b-label-dual-stacked ${barcodeVisible ? 'has-barcode' : ''}">
+        <div class="b2b-label-panel b2b-label-decocpac">${common}<div class="b2b-label-split"><div><b>PO #:</b> ${runEdit('po_number', 'Enter PO number')}</div><div><b>LOT #:</b> ${runEdit('lot_number', 'Enter lot number')}</div><strong>${box}</strong></div><strong class="b2b-label-origin">MADE IN USA</strong></div>
+        <div class="b2b-label-panel b2b-label-decocpac">${common}<div class="b2b-label-details"><div><b>NET ITEM:</b> ${edit('each_net_weight_g', 'Weight')} g</div><div><b>NET CASE:</b> ${edit('package_net_weight_g', 'Weight')} g</div><div><b>DIMENSIONS:</b> <span class="b2b-label-dimensions">${dimensions}</span> in</div></div><strong class="b2b-label-box-count">${box}</strong></div>
       </div>`;
     }
 
     if (renderer === 'disney_case_3x3') {
-      return `<div class="b2b-label-sheet b2b-label-square b2b-label-disney">
+      return `<div class="b2b-label-sheet b2b-label-square b2b-label-disney ${barcodeVisible ? 'has-barcode' : ''}">
         <strong class="b2b-label-customer">${customer.toUpperCase()}</strong>
         <div class="b2b-label-rule"></div>
         <div class="b2b-label-hero-description">${edit('customer_item_number', 'Customer item')}<span>—</span>${edit('description', 'Product description', 'b2b-edit-wide')}</div>
@@ -6374,13 +6464,14 @@
         <strong class="b2b-label-box-count">${box}</strong>
         <div class="b2b-label-date-caption">EXPECTED DELIVERY BY</div>
         <strong class="b2b-label-date">${runEdit('expected_delivery_date', 'YYYY-MM-DD')}</strong>
+        ${barcodeHtml}
       </div>`;
     }
 
     if (renderer === 'compact_case_3x3') {
       const showInvoice = !!options.show_invoice;
-      const showBarcode = !!options.show_barcode;
-      return `<div class="b2b-label-sheet b2b-label-square b2b-label-compact">
+      const showBarcode = !!options.show_barcode || barcodeVisible;
+      const panel = `<div class="b2b-label-panel b2b-label-square b2b-label-compact ${showBarcode ? 'has-barcode' : ''}">
         <strong class="b2b-label-customer">${customer.toUpperCase()}</strong>
         <div class="b2b-label-rule"></div>
         <div class="b2b-label-hero-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
@@ -6389,35 +6480,84 @@
         ${showInvoice ? `<div class="b2b-label-row"><b>INV:</b>${runEdit('invoice_number', 'Enter invoice number')}</div>` : ''}
         <div class="b2b-label-row"><b>PACK:</b>${edit('case_qty', 'Pack quantity')}</div>
         <strong class="b2b-label-box-count">${box}</strong>
-        ${showBarcode ? `<div class="b2b-label-barcode"><div class="b2b-label-bars"></div>${edit('gtin', 'GTIN / UPC', 'b2b-edit-barcode')}</div>` : ''}
+        ${showBarcode ? barcodeHtml : ''}
+      </div>`;
+      return `<div class="b2b-label-sheet b2b-label-dual b2b-label-dual-side">${panel}${panel}</div>`;
+    }
+
+    if (renderer === 'fancy_pallet_3x3') {
+      return `<div class="b2b-label-sheet b2b-label-square b2b-label-fancy-pallet">
+        <strong class="b2b-label-customer">FANCY SPRINKLES</strong>
+        <div class="b2b-label-rule"></div>
+        <div class="b2b-label-row"><b>DATE:</b>${runEdit('ship_date', 'YYYY-MM-DD')}</div>
+        <div class="b2b-label-row"><b>SKU:</b>${edit(skuField, 'SKU')}</div>
+        <div class="b2b-label-row b2b-label-description"><b>NAME:</b>${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-row"><b>QUANTITY:</b>${runEdit('quantity_label', 'Quantity')}</div>
+        <div class="b2b-label-row"><b>LOT CODE:</b>${runEdit('lot_number', 'Lot code')}</div>
+        <div class="b2b-label-row"><b>BB DATE:</b>${runEdit('best_before', 'Best-before date')}</div>
+        <strong class="b2b-label-box-count">Pallet ${carton} of ${total}</strong>
+      </div>`;
+    }
+
+    if (renderer === 'total_wine_kehe_pack_4x4') {
+      return `<div class="b2b-label-sheet b2b-label-square b2b-label-kehe-pack ${barcodeVisible ? 'has-barcode' : ''}">
+        <strong class="b2b-label-customer">TOTAL WINE</strong>
+        <div class="b2b-label-rule"></div>
+        <strong class="b2b-label-kehe-level">${escapeHtml(String(product?.packaging_level || 'CASE').toUpperCase())}</strong>
+        <div class="b2b-label-hero-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+        <div class="b2b-label-row"><b>GTIN:</b>${edit('gtin', '14-digit GTIN')}</div>
+        <div class="b2b-label-row"><b>PACK:</b>${edit('case_qty', 'Pack quantity')}</div>
+        <div class="b2b-label-row"><b>LOT:</b>${runEdit('lot_number', 'Lot number')}</div>
+        <div class="b2b-label-row"><b>BEST BEFORE:</b>${runEdit('best_before', 'Best-before date')}</div>
+        <strong class="b2b-label-box-count">${box}</strong>${barcodeHtml}
+      </div>`;
+    }
+
+    if (renderer === 'total_wine_kehe_pallet_4x6') {
+      return `<div class="b2b-label-sheet b2b-label-kehe-pallet">
+        <strong class="b2b-label-customer">TOTAL WINE PALLET</strong>
+        <div class="b2b-label-rule"></div>
+        <div class="b2b-label-row"><b>SALES ORDER:</b>${runEdit('order_number', 'Sales order number')}</div>
+        <div class="b2b-label-row"><b>PO:</b>${runEdit('po_number', 'PO number')}</div>
+        <div class="b2b-label-row"><b>SHIP DATE:</b>${runEdit('ship_date', 'YYYY-MM-DD')}</div>
+        <div class="b2b-label-row b2b-label-description"><b>SHIP TO:</b><span>${runValue('delivery_address') || 'Delivery address'}</span></div>
+        <strong class="b2b-label-box-count">Pallet ${carton} of ${total}</strong>
       </div>`;
     }
 
     if (renderer === 'mixed_case_3x1_5') {
-      return `<div class="b2b-label-sheet b2b-label-strip">
+      return `<div class="b2b-label-sheet b2b-label-strip ${barcodeVisible ? 'has-barcode' : ''}">
         <div class="b2b-label-topline"><strong>${customer.toUpperCase()}</strong><strong>${box}</strong></div>
         <div class="b2b-label-hero-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
         <div class="b2b-label-strip-footer"><span>SKU: ${edit(skuField, 'SKU')}</span><span>${edit('case_qty', 'Qty')} units</span></div>
         <div class="b2b-label-strip-po">PO: ${runEdit('po_number', 'Enter PO number')}</div>
+        ${barcodeHtml}
       </div>`;
     }
 
     if (renderer === 'standard_case_4x6') {
-      return `<div class="b2b-label-sheet b2b-label-standard">
+      const panel = `<div class="b2b-label-panel b2b-label-standard ${barcodeVisible ? 'has-barcode' : ''}">
         <strong class="b2b-label-box-count">${box}</strong>
         <div class="b2b-label-rule"></div>
         <strong class="b2b-label-standard-po">PO # ${runEdit('po_number', 'Enter PO number')}</strong>
         <div class="b2b-label-standard-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
         <strong class="b2b-label-standard-pack">${edit('case_qty', 'Quantity')} units per case</strong>
         <div class="b2b-label-standard-sku">SKU: ${edit(skuField, 'SKU')}</div>
+        ${barcodeHtml}
       </div>`;
+      return `<div class="b2b-label-sheet b2b-label-dual b2b-label-dual-side">${panel}${panel}</div>`;
+    }
+
+    if (renderer === 'standard_case_vertical_4x6') {
+      const panel = `<div class="b2b-label-panel b2b-label-standard ${barcodeVisible ? 'has-barcode' : ''}"><strong class="b2b-label-box-count">${box}</strong><div class="b2b-label-rule"></div><strong class="b2b-label-standard-po">PO # ${runEdit('po_number', 'Enter PO number')}</strong><div class="b2b-label-standard-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div><strong class="b2b-label-standard-pack">${edit('case_qty', 'Quantity')} units per case</strong><div class="b2b-label-standard-sku">SKU: ${edit(skuField, 'SKU')}</div>${barcodeHtml}</div>`;
+      return `<div class="b2b-label-sheet b2b-label-dual b2b-label-dual-stacked">${panel}${panel}</div>`;
     }
 
     if (renderer === 'bulk_further_processing_4x6') {
       const manufacturer = [runValue('manufacturer_name'), runValue('manufacturer_address')].filter(Boolean).join('<br>') || 'Manufacturer details';
       const weightField = String(product?.gross_weight_lbs || '').trim() ? 'gross_weight_lbs' : 'package_net_weight_g';
       const weightUnit = weightField === 'gross_weight_lbs' ? 'lb' : 'g';
-      return `<div class="b2b-label-sheet b2b-label-bulk">
+      return `<div class="b2b-label-sheet b2b-label-bulk ${barcodeVisible ? 'has-barcode' : ''}">
         <strong class="b2b-label-customer">${runEdit('project_name', runValue('name') || 'BULK PACKAGED ITEM', 'b2b-run-project')}</strong>
         <div class="b2b-label-row"><b>ORDER #:</b>${runEdit('order_number', 'Enter order number')}</div>
         <div class="b2b-label-row"><b>PO #:</b>${runEdit('po_number', 'Enter PO number')}</div>
@@ -6428,10 +6568,31 @@
         <div class="b2b-label-manufacturer"><b>MANUFACTURED BY:</b><span>${manufacturer}</span></div>
         <div class="b2b-label-statement">${runEdit('required_statement', 'Bulk Packaged Item – Further Processing and / or Labeling Needed for Retail Sale', 'b2b-edit-wide')}</div>
         <strong class="b2b-label-box-count">${box}</strong>
+        ${barcodeHtml}
       </div>`;
     }
 
     return '<div class="b2b-section-empty">This label renderer does not have an editable canvas yet.</div>';
+  }
+
+  function fitB2BLabelPreview(canvas) {
+    const sheet = canvas?.querySelector('.b2b-label-sheet');
+    if (!sheet) return;
+    sheet.style.removeProperty('font-size');
+    let sheetSize = Number.parseFloat(window.getComputedStyle(sheet).fontSize) || 14;
+    while ((sheet.scrollHeight > sheet.clientHeight + 1 || sheet.scrollWidth > sheet.clientWidth + 1) && sheetSize > 8) {
+      sheetSize -= 0.5;
+      sheet.style.fontSize = `${sheetSize}px`;
+    }
+    sheet.querySelectorAll('.b2b-label-editable, .b2b-label-topline > *, .b2b-label-customer, .b2b-label-standard-po, .b2b-label-box-count, .b2b-label-date').forEach(element => {
+      element.style.removeProperty('font-size');
+      let size = Number.parseFloat(window.getComputedStyle(element).fontSize) || sheetSize;
+      const availableWidth = Math.max(24, element.parentElement?.clientWidth || element.clientWidth || 24);
+      while (element.scrollWidth > availableWidth + 1 && size > 7) {
+        size -= 0.5;
+        element.style.fontSize = `${size}px`;
+      }
+    });
   }
 
   function renderB2BLabelEditor(product = getSelectedB2BProduct(), template = getSelectedB2BTemplate()) {
@@ -6454,6 +6615,7 @@
     canvas.style.setProperty('--b2b-label-ratio', `${width} / ${height}`);
     canvas.style.setProperty('--b2b-label-max-width', `${sheetWidth}px`);
     canvas.innerHTML = b2bLabelEditorHtml(template, product, getSelectedB2BDirectory());
+    window.requestAnimationFrame(() => fitB2BLabelPreview(canvas));
     if (meta) {
       const productNote = b2bSelectedProductIndex <= -1000
         ? 'Order-derived product text stays with this job'
@@ -6475,6 +6637,7 @@
     const value = String(element.innerText || '').replace(/\s+/g, ' ').trim();
     element.classList.toggle('is-empty', !value);
     updateB2BProductField(field, value, false);
+    window.requestAnimationFrame(() => fitB2BLabelPreview(document.getElementById('b2b-label-editor-canvas')));
   }
 
   function commitB2BRunLabelEdit(element) {
@@ -6483,6 +6646,7 @@
     const value = String(element.innerText || '').replace(/\s+/g, ' ').trim();
     element.classList.toggle('is-empty', !value);
     updateB2BRunField(field, value, false);
+    window.requestAnimationFrame(() => fitB2BLabelPreview(document.getElementById('b2b-label-editor-canvas')));
   }
 
   function b2bRunFieldNames(template) {
@@ -6491,6 +6655,7 @@
       ...((template.required_run_fields || []).map(String)),
       ...((template.optional_run_fields || []).map(String)),
       'copies',
+      'print_barcode',
     ]);
   }
 
@@ -6659,6 +6824,9 @@
     b2bRunFields.order_number = String(orderNumber || '');
     b2bRunFields.po_number = String(orderDetails?.purchase_order_number || orderDetails?.po_number || '');
     b2bRunFields.invoice_number = String(orderDetails?.invoice_number || '');
+    b2bRunFields.ship_date = String(orderDetails?.ship_date || orderDetails?.expected_delivery_date || '');
+    b2bRunFields.expected_delivery_date = String(orderDetails?.expected_delivery_date || orderDetails?.ship_date || '');
+    b2bRunFields.quantity_label = String(analyticsItems.reduce((sum, item) => sum + (Number(item?.quantity_ordered) || 0), 0) || '');
     clearB2BPreview();
     renderB2BCreator();
     setStatus(
@@ -6810,11 +6978,14 @@
     const template = getSelectedB2BTemplate();
     if (template && b2bCopiesTemplateId !== template.template_id) {
       b2bRunFields.copies = String(template.default_copies || 1);
+      b2bRunFields.print_barcode = String(b2bBarcodeConfigured(product));
       b2bCopiesTemplateId = template.template_id;
     }
     if (!template) b2bCopiesTemplateId = '';
     document.querySelectorAll('[data-b2b-run-field]').forEach(input => {
-      input.value = b2bRunFields[input.dataset.b2bRunField] ?? '';
+      const value = b2bRunFields[input.dataset.b2bRunField] ?? '';
+      if (input.type === 'checkbox') input.checked = parseBooleanLike(value, false);
+      else input.value = value;
     });
     visibleB2BRunFields(template);
     renderB2BProductSettings(product, template);
@@ -6866,6 +7037,7 @@
     b2bSelectedTemplateId = String(value || '');
     const template = getSelectedB2BTemplate();
     b2bRunFields.copies = String(template?.default_copies || 1);
+    b2bRunFields.print_barcode = String(b2bBarcodeConfigured());
     clearB2BPreview();
     renderB2BCreator();
   }
@@ -7075,13 +7247,557 @@
     }, 450);
   }
 
+  function revokePartnerPreviewUrls() {
+    [partnerLabelsPreviewUrl, partnerMplPreviewUrl].filter(Boolean).forEach(url => URL.revokeObjectURL(url));
+    partnerLabelsPreviewUrl = null;
+    partnerMplPreviewUrl = null;
+    ['partner-labels-preview', 'partner-mpl-preview'].forEach(id => document.getElementById(id)?.removeAttribute('src'));
+    document.querySelectorAll('.partner-pdf-frame').forEach(frame => frame.classList.remove('has-preview'));
+    [['partner-labels-download', 'customer_case_pack_labels.pdf'], ['partner-mpl-download', 'customer_packing_list.pdf']].forEach(([id, filename]) => {
+      const link = document.getElementById(id);
+      if (!link) return;
+      link.removeAttribute('href');
+      link.download = filename;
+      link.classList.add('disabled');
+      link.setAttribute('aria-disabled', 'true');
+    });
+  }
+
+  async function selectPartnerWorkspace(updateHistory = true) {
+    selectedKit = 'partners';
+    document.body.dataset.module = 'partners';
+    document.title = 'DecoPac / Dutch Bros / Fancy / Total Wine · LabelKit';
+    document.getElementById('kit-selection').classList.add('hidden');
+    document.getElementById('upload-page').classList.add('hidden');
+    document.getElementById('mpl-workspace-page').classList.add('hidden');
+    document.getElementById('b2b-workspace-page').classList.add('hidden');
+    document.getElementById('partner-workspace-page').classList.remove('hidden');
+    document.getElementById('btn-change-kit').classList.add('visible');
+    document.getElementById('header-app-name').textContent = 'DecoPac / Dutch Bros / Fancy / Total Wine';
+    document.getElementById('header-app-sub').textContent = '';
+    document.getElementById('header-app-sub').classList.add('hidden');
+    hideAllRouteViews();
+    setStatus('', '');
+
+    mplProductMasterRows = loadMplProductMasterFromStorage();
+    mplDirectoryRows = loadMplDirectoryFromStorage();
+    mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
+    mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
+    await Promise.allSettled([mplProductMasterLoadPromise, mplDirectoryLoadPromise, loadB2BLabelTemplates()]);
+    renderPartnerWorkspace();
+
+    if (updateHistory) setHistoryPage('partners');
+  }
+
+  function openCombinedPartnerWorkflow() {
+    closeDocumentEditor();
+    selectPartnerWorkspace();
+  }
+
+  function setPartnerOrderBusy(busy) {
+    const input = document.getElementById('partner-sales-order-number');
+    const button = document.getElementById('btn-load-partner-order');
+    if (input) input.disabled = !!busy;
+    if (button) {
+      button.disabled = !!busy;
+      button.textContent = busy ? 'Loading…' : 'Load Order';
+    }
+  }
+
+  function detectPartnerCustomer(payload) {
+    const candidates = [
+      payload?.order_details?.storefront,
+      payload?.order_details?.billing_customer_name,
+      payload?.order_details?.ship_to_name,
+      ...(payload?.items || []).flatMap(item => [
+        item?.product?.storefront,
+        ...(item?.candidate_storefronts || [])
+      ])
+    ].map(value => normalizeStorefront(value || '').toLowerCase()).filter(Boolean);
+    const joined = candidates.join(' | ').replace(/[^a-z0-9]+/g, ' ');
+    if (/deco\s*pac/.test(joined)) return 'decopac';
+    if (/dutch\s*(bros|brothers)/.test(joined)) return 'dutch_bros';
+    if (/fancy\s*sprinkles|(^|\s)fancy(\s|$)/.test(joined)) return 'fancy';
+    if (/total\s*wine/.test(joined)) return 'total_wine';
+    return '';
+  }
+
+  function partnerCustomerLabel(customerId = partnerCustomerId) {
+    return PARTNER_WORKFLOW_CONFIG[customerId]?.label || 'Unknown';
+  }
+
+  function partnerTemplateForItem(item, customerId) {
+    const configured = String(item?.product?.label_template_id || item?.label_template_id || '').trim();
+    const allowed = PARTNER_WORKFLOW_CONFIG[customerId]?.labelTemplateIds || [];
+    if (allowed.includes(configured)) return configured;
+    const source = `${item?.product?.storefront || ''} ${item?.product?.packaging_level || ''} ${item?.description || ''}`.toLowerCase();
+    if (customerId === 'dutch_bros') return source.includes('pfg') ? allowed[0] : allowed[1];
+    if (customerId === 'fancy') return /master\s*(pack|case)|\bmp\b/.test(source) ? allowed[1] : allowed[0];
+    return allowed[0] || '';
+  }
+
+  function partnerCartonCount(item, product) {
+    const ordered = Number(String(item?.quantity_ordered ?? '').replace(/,/g, ''));
+    const casePack = Number(String(product?.case_qty ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(ordered) || ordered <= 0) return 1;
+    if (Number.isFinite(casePack) && casePack > 0) return Math.max(1, Math.ceil(ordered / casePack));
+    return Math.max(1, Math.ceil(ordered));
+  }
+
+  function partnerBarcodeType(product) {
+    const configured = String(product?.barcode_type || '').trim().toUpperCase().replace(/-/g, '_');
+    if (configured && configured !== 'NONE') return configured;
+    const digits = String(product?.gtin || '').replace(/\D/g, '');
+    if (digits.length === 12) return 'UPC_A';
+    if (digits.length === 13) return 'EAN_13';
+    if (digits.length === 14) return 'GTIN_14';
+    return digits ? 'CODE128' : 'NONE';
+  }
+
+  function buildPartnerLabelJobs(payload, customerId) {
+    const details = payload?.order_details || {};
+    const customer = partnerCustomerLabel(customerId);
+    const shippingAddress = analyticsMplAddress(details, 'shipping');
+    const directory = mplDirectoryRows.map(normalizeDcDirectoryRow).find(row => (
+      normalizeStorefront(row.storefront).toLowerCase().includes(customer.toLowerCase()) && row.is_active !== false
+    )) || {};
+    const makeJob = (item, index, requestedTemplateId = '') => {
+      const product = normalizeProductRow(item?.product || {
+        storefront: customer,
+        packaging_level: 'Case',
+        sku: item?.sku || '',
+        customer_item_number: item?.customer_item_number || item?.item_number || item?.sku || '',
+        description: item?.description || item?.sku || 'Order item',
+        gtin: item?.gtin || '',
+        gross_weight_lbs: item?.unit_weight_lbs || '',
+        case_qty: '',
+        verification_status: 'NEEDS_REVIEW',
+      });
+      const templateId = requestedTemplateId || partnerTemplateForItem(item, customerId);
+      const matchingProduct = mplProductMasterRows.map(normalizeProductRow).find(row => (
+        (
+          String(row.sku || '').trim().toLowerCase() === String(product.sku || '').trim().toLowerCase()
+          || (String(product.config_id || '').trim() && String(row.config_id || '').trim().toLowerCase() === String(product.config_id || '').trim().toLowerCase())
+        )
+        && normalizeStorefront(row.storefront).toLowerCase().includes(customer.toLowerCase())
+        && row.label_template_id === templateId
+        && row.is_active !== false
+      ));
+      const resolvedProduct = { ...(matchingProduct || product) };
+      if (templateId === 'TOTAL_WINE_INNER_PACK_4X4') resolvedProduct.packaging_level = 'Inner Pack';
+      if (templateId === 'TOTAL_WINE_MASTER_CASE_4X4') resolvedProduct.packaging_level = 'Master Case';
+      if (['FANCY_PALLET_3X3', 'TOTAL_WINE_PALLET_4X6'].includes(templateId)) resolvedProduct.packaging_level = 'Pallet';
+      const template = b2bLabelTemplates.find(candidate => candidate.template_id === templateId) || {};
+      const cartons = partnerCartonCount(item, resolvedProduct);
+      resolvedProduct.barcode_type = partnerBarcodeType(resolvedProduct);
+      return {
+        print_selected: true,
+        template_id: templateId,
+        product: { ...resolvedProduct, storefront: customer },
+        directory: {
+          ...directory,
+          name: directory.name || details.ship_to_name || customer,
+          delivery_address: directory.delivery_address || shippingAddress,
+        },
+        run: {
+          order_number: String(payload?.sales_order_number || ''),
+          po_number: String(details.purchase_order_number || details.po_number || payload?.sales_order_number || ''),
+          invoice_number: String(details.invoice_number || ''),
+          lot_number: '',
+          best_before: '',
+          ship_date: String(details.ship_date || details.expected_delivery_date || ''),
+          quantity_label: String(item?.quantity_ordered || ''),
+          expected_delivery_date: String(details.expected_delivery_date || details.ship_date || ''),
+          carton_total: String(cartons),
+          carton_start: '1',
+          carton_end: String(cartons),
+          copies: String(resolvedProduct.default_copies || template.default_copies || 1),
+          print_barcode: !!(resolvedProduct.gtin && resolvedProduct.barcode_type !== 'NONE'),
+        },
+        source_quantity: item?.quantity_ordered ?? '',
+        match_status: item?.match_status || 'unmatched',
+        line_index: index,
+      };
+    };
+
+    const items = payload?.items || [];
+    const jobs = [];
+    items.forEach((item, index) => {
+      if (customerId === 'total_wine') {
+        jobs.push(makeJob(item, index, 'TOTAL_WINE_INNER_PACK_4X4'));
+        jobs.push(makeJob(item, index, 'TOTAL_WINE_MASTER_CASE_4X4'));
+      } else {
+        jobs.push(makeJob(item, index));
+      }
+    });
+
+    const palletCount = Math.max(1, Math.ceil(Number(details.total_pallets || details.pallet_count || 1) || 1));
+    const firstItem = items[0] || {};
+    if (customerId === 'fancy' && items.length) {
+      const palletJob = makeJob(firstItem, 0, 'FANCY_PALLET_3X3');
+      palletJob.product.description = firstItem?.product?.description || firstItem?.description || palletJob.product.description;
+      palletJob.run.carton_total = String(palletCount);
+      palletJob.run.carton_end = String(palletCount);
+      palletJob.run.copies = '2';
+      palletJob.run.quantity_label = String(items.reduce((sum, item) => sum + (Number(item?.quantity_ordered) || 0), 0) || '');
+      palletJob.run.print_barcode = false;
+      palletJob.match_status = firstItem?.match_status || 'unmatched';
+      jobs.push(palletJob);
+    }
+    if (customerId === 'total_wine' && items.length) {
+      const palletJob = makeJob(firstItem, 0, 'TOTAL_WINE_PALLET_4X6');
+      palletJob.run.carton_total = String(palletCount);
+      palletJob.run.carton_end = String(palletCount);
+      palletJob.run.copies = '2';
+      palletJob.run.print_barcode = false;
+      jobs.push(palletJob);
+    }
+    return jobs;
+  }
+
+  function buildPartnerMplDraft(payload, customerId) {
+    const mplTemplateId = PARTNER_WORKFLOW_CONFIG[customerId]?.mplTemplateId || 'standard';
+    const draft = buildAnalyticsOrderMplDraft(payload, mplTemplateId);
+    draft.template_id = mplTemplateId;
+    draft.brand_id = 'bakell';
+    draft.storefront = partnerCustomerLabel(customerId);
+    const mpl = draft.packing_lists?.[0];
+    if (mpl) {
+      mpl.template_id = mplTemplateId;
+      mpl.brand_id = 'bakell';
+      mpl.storefront = partnerCustomerLabel(customerId);
+      (mpl.items || []).forEach((row, index) => {
+        const source = payload?.items?.[index] || {};
+        const product = source?.product || {};
+        const cartons = partnerCartonCount(source, product);
+        row.analytics_quantity_eaches = analyticsOrderQuantity(source?.quantity_ordered);
+        row.eaches_per_case = analyticsOrderQuantity(product?.case_qty);
+        row.qty_on_pallet = String(cartons);
+        row.total_ordered = String(cartons);
+        row.total_shipped = String(cartons);
+        row.quantity_per_case = String(product?.case_qty || row.quantity_per_case || '');
+        row.uom = 'CASES';
+      });
+      ensureMplPalletState(mpl);
+      syncMplLineNumbers(mpl);
+    }
+    return draft;
+  }
+
+  function showPartnerOrderInstances(orderNumber, instances) {
+    const picker = document.getElementById('partner-order-instance-picker');
+    const select = document.getElementById('partner-order-instance-select');
+    if (!picker || !select) return;
+    picker.dataset.salesOrderNumber = orderNumber;
+    select.innerHTML = (instances || []).map(instance => `<option value="${escapeHtml(instance.ecomdash_id || '')}">${escapeHtml(`${instance.ecomdash_id || 'No ID'} · ${instance.storefront || instance.billing_customer_name || 'Unknown customer'} · ${instance.invoice_date || 'No date'} · ${instance.sku_count || 0} SKU(s)`)}</option>`).join('');
+    picker.classList.remove('hidden');
+  }
+
+  function loadSelectedPartnerOrder() {
+    const picker = document.getElementById('partner-order-instance-picker');
+    const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
+    const ecomdashId = String(document.getElementById('partner-order-instance-select')?.value || '').trim();
+    loadPartnerOrder(null, ecomdashId, orderNumber);
+  }
+
+  async function loadPartnerOrder(event, selectedEcomdashId = '', selectedOrderNumber = '') {
+    event?.preventDefault();
+    const input = document.getElementById('partner-sales-order-number');
+    const orderNumber = String(selectedOrderNumber || input?.value || '').trim();
+    if (!orderNumber) {
+      setStatus('Enter a Sales Order Number.', 'error');
+      input?.focus();
+      return;
+    }
+    setPartnerOrderBusy(true);
+    setStatus(`Loading Sales Order ${orderNumber} and detecting the customer…`, 'info');
+    try {
+      const response = await fetch('/api/mpl/orders/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sales_order_number: orderNumber, ecomdash_id: selectedEcomdashId })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || 'The sales order could not be loaded.');
+      if (payload.requires_order_selection) {
+        showPartnerOrderInstances(orderNumber, payload.order_instances || []);
+        setStatus(`Sales Order ${orderNumber} has multiple records. Select the correct customer order.`, 'info');
+        return;
+      }
+      document.getElementById('partner-order-instance-picker')?.classList.add('hidden');
+      const detectedCustomerId = detectPartnerCustomer(payload);
+      const customerId = partnerCustomerOverride || detectedCustomerId;
+      if (!customerId) throw new Error('Customer could not be detected. Select DecoPac, Dutch Bros, Fancy Sprinkles, or Total Wine, then load the order again.');
+      partnerOrderPayload = payload;
+      partnerCustomerId = customerId;
+      partnerCustomerOverride = '';
+      partnerLabelJobs = buildPartnerLabelJobs(payload, customerId);
+      partnerMplDraft = buildPartnerMplDraft(payload, customerId);
+      activeKeheDocumentType = 'masterPackingList';
+      activeKeheDocumentDraft = partnerMplDraft;
+      revokePartnerPreviewUrls();
+      renderPartnerWorkspace();
+      const selectionNote = detectedCustomerId === customerId ? 'detected' : 'selected';
+      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. Preparing ${partnerLabelJobs.length} label line(s) and the packing list…`, 'success');
+      await renderPartnerPreviews();
+    } catch (err) {
+      setStatus(`Order load failed: ${err?.message || 'unknown error'}`, 'error');
+    } finally {
+      setPartnerOrderBusy(false);
+    }
+  }
+
+  function partnerTemplateOptions(selectedId) {
+    const ids = PARTNER_WORKFLOW_CONFIG[partnerCustomerId]?.labelTemplateIds || [];
+    return b2bLabelTemplates.filter(template => ids.includes(template.template_id)).map(template => (
+      `<option value="${escapeHtml(template.template_id)}" ${template.template_id === selectedId ? 'selected' : ''}>${escapeHtml(template.name || template.template_id)}</option>`
+    )).join('');
+  }
+
+  function renderPartnerLabelEditors() {
+    const list = document.getElementById('partner-label-editor-list');
+    if (!list) return;
+    const runFields = (job, index) => {
+      if (job.template_id === 'FANCY_PALLET_3X3') return `<div class="partner-label-barcode-fields"><input type="date" title="Ship date" value="${escapeHtml(job.run?.ship_date || '')}" oninput="updatePartnerLabelJob(${index}, 'run.ship_date', this.value)"><input value="${escapeHtml(job.run?.quantity_label || '')}" placeholder="Quantity" oninput="updatePartnerLabelJob(${index}, 'run.quantity_label', this.value)"><input value="${escapeHtml(job.run?.lot_number || '')}" placeholder="Lot code" oninput="updatePartnerLabelJob(${index}, 'run.lot_number', this.value)"><input value="${escapeHtml(job.run?.best_before || '')}" placeholder="Best-before date" oninput="updatePartnerLabelJob(${index}, 'run.best_before', this.value)"></div>`;
+      if (job.template_id === 'TOTAL_WINE_PALLET_4X6') return `<div class="partner-label-barcode-fields"><input value="${escapeHtml(job.run?.po_number || '')}" placeholder="PO number" oninput="updatePartnerLabelJob(${index}, 'run.po_number', this.value)"><input type="date" title="Ship date" value="${escapeHtml(job.run?.ship_date || '')}" oninput="updatePartnerLabelJob(${index}, 'run.ship_date', this.value)"></div>`;
+      return `<div class="partner-label-barcode-fields"><span><input type="checkbox" ${job.run?.print_barcode ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'run.print_barcode', this.checked)"> Barcode</span><input value="${escapeHtml(job.product?.gtin || '')}" placeholder="GTIN / UPC" oninput="updatePartnerLabelJob(${index}, 'product.gtin', this.value)"><select title="Barcode type" onchange="updatePartnerLabelJob(${index}, 'product.barcode_type', this.value)">${['GTIN_14', 'UPC_A', 'EAN_13', 'CODE128', 'NONE'].map(type => `<option value="${type}" ${job.product?.barcode_type === type ? 'selected' : ''}>${type.replace('_', '-')}</option>`).join('')}</select><input value="${escapeHtml(job.run?.po_number || '')}" placeholder="PO number" oninput="updatePartnerLabelJob(${index}, 'run.po_number', this.value)"><input value="${escapeHtml(job.run?.lot_number || '')}" placeholder="Lot number" oninput="updatePartnerLabelJob(${index}, 'run.lot_number', this.value)"><input value="${escapeHtml(job.run?.best_before || '')}" placeholder="Best-before date" oninput="updatePartnerLabelJob(${index}, 'run.best_before', this.value)"></div>`;
+    };
+    list.innerHTML = partnerLabelJobs.length ? partnerLabelJobs.map((job, index) => `
+      <div class="partner-label-row ${job.print_selected ? '' : 'disabled'}">
+        <label class="partner-label-check" title="Include this order line"><input type="checkbox" ${job.print_selected ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'print_selected', this.checked)"></label>
+        <div class="partner-label-identity"><strong>${escapeHtml(job.product?.sku || `Order line ${index + 1}`)}</strong><small>${escapeHtml(job.product?.customer_item_number || '')}</small><small>${escapeHtml(job.match_status === 'matched' ? 'Product Master matched' : 'Using order data - review')}</small></div>
+        <label>Description<textarea oninput="updatePartnerLabelJob(${index}, 'product.description', this.value)">${escapeHtml(job.product?.description || '')}</textarea></label>
+        <label>Label template<select onchange="updatePartnerLabelJob(${index}, 'template_id', this.value)">${partnerTemplateOptions(job.template_id)}</select></label>
+        <label>Print quantity<div class="partner-label-numbers"><input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_total || '1')}" title="Cartons" oninput="updatePartnerLabelJob(${index}, 'run.carton_total', this.value)"><input type="number" min="1" step="1" value="${escapeHtml(job.run?.copies || '1')}" title="Copies per carton" oninput="updatePartnerLabelJob(${index}, 'run.copies', this.value)"></div><small>Cartons / copies</small></label>
+        <label>Label details${runFields(job, index)}</label>
+      </div>`).join('') : '<div class="partner-empty-state"><strong>No label lines</strong><span>This order did not contain a usable SKU line.</span></div>';
+  }
+
+  function updatePartnerLabelJob(index, path, value) {
+    const job = partnerLabelJobs[index];
+    if (!job) return;
+    const parts = String(path).split('.');
+    let target = job;
+    while (parts.length > 1) {
+      const key = parts.shift();
+      target[key] = target[key] || {};
+      target = target[key];
+    }
+    target[parts[0]] = value;
+    if (path === 'run.carton_total') {
+      const total = Math.max(1, Math.ceil(Number(value) || 1));
+      job.run.carton_total = String(total);
+      job.run.carton_start = '1';
+      job.run.carton_end = String(total);
+    }
+    if (path === 'template_id') {
+      const template = b2bLabelTemplates.find(candidate => candidate.template_id === value);
+      job.run.copies = String(template?.default_copies || job.run.copies || 1);
+    }
+    renderPartnerWorkspace(path === 'print_selected' || path === 'template_id');
+  }
+
+  function renderPartnerSelectionState() {
+    const labelsEnabled = !!document.getElementById('partner-generate-labels')?.checked;
+    const mplEnabled = !!document.getElementById('partner-generate-mpl')?.checked;
+    document.querySelector('.partner-labels-card')?.classList.toggle('disabled', !labelsEnabled);
+    document.querySelectorAll('.partner-preview-card').forEach((card, index) => card.classList.toggle('disabled', index === 0 ? !labelsEnabled : !mplEnabled));
+    const button = document.getElementById('btn-render-partner-previews');
+    if (button) button.disabled = !labelsEnabled && !mplEnabled;
+  }
+
+  function renderPartnerWorkspace(renderEditors = true) {
+    const config = PARTNER_WORKFLOW_CONFIG[partnerCustomerId];
+    document.body.dataset.partnerCustomer = partnerCustomerId || 'unselected';
+    document.querySelectorAll('[data-partner-customer]').forEach(button => {
+      const selected = button.dataset.partnerCustomer === partnerCustomerId;
+      button.classList.toggle('selected', selected);
+      button.setAttribute('aria-checked', selected ? 'true' : 'false');
+    });
+    const selectionHelp = document.getElementById('partner-customer-selection-help');
+    if (selectionHelp) selectionHelp.textContent = config
+      ? `${config.label} is selected. You can change the layout without leaving this workflow.`
+      : 'Load an order for automatic detection, or select its customer now.';
+    document.getElementById('partner-empty-state')?.classList.toggle('hidden', !!partnerOrderPayload);
+    document.getElementById('partner-order-workspace')?.classList.toggle('hidden', !partnerOrderPayload);
+    if (!partnerOrderPayload) return;
+    const summary = partnerOrderPayload.summary || {};
+    const reviewCount = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
+    document.getElementById('partner-detected-customer').textContent = partnerCustomerLabel();
+    document.getElementById('partner-loaded-order').textContent = partnerOrderPayload.sales_order_number || '-';
+    document.getElementById('partner-line-count').textContent = String(partnerOrderPayload.items?.length || 0);
+    document.getElementById('partner-review-status').textContent = reviewCount ? `${reviewCount} line(s) need review` : 'Ready';
+    if (renderEditors) renderPartnerLabelEditors();
+    renderPartnerSelectionState();
+  }
+
+  async function selectPartnerCustomer(customerId, options = {}) {
+    if (!PARTNER_CUSTOMER_IDS.includes(customerId)) return;
+    partnerCustomerId = customerId;
+    if (!partnerOrderPayload) {
+      partnerCustomerOverride = customerId;
+      renderPartnerWorkspace(false);
+      setStatus(`${partnerCustomerLabel(customerId)} selected. Enter a Sales Order Number to continue.`, 'info');
+      return;
+    }
+    partnerCustomerOverride = '';
+    partnerLabelJobs = buildPartnerLabelJobs(partnerOrderPayload, customerId);
+    partnerMplDraft = buildPartnerMplDraft(partnerOrderPayload, customerId);
+    activeKeheDocumentType = 'masterPackingList';
+    activeKeheDocumentDraft = partnerMplDraft;
+    revokePartnerPreviewUrls();
+    renderPartnerWorkspace();
+    if (options.fromEditor) {
+      renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
+      setStatus(`${partnerCustomerLabel(customerId)} layout applied to the packing list and labels.`, 'success');
+      return;
+    }
+    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Refreshing both previews…`, 'info');
+    await renderPartnerPreviews();
+  }
+
+  function setPartnerPreview(linkId, frameId, url, filename) {
+    const frame = document.getElementById(frameId);
+    if (frame) {
+      frame.src = url;
+      frame.closest('.partner-pdf-frame')?.classList.add('has-preview');
+    }
+    const link = document.getElementById(linkId);
+    if (link) {
+      link.href = url;
+      link.download = filename;
+      link.classList.remove('disabled');
+      link.setAttribute('aria-disabled', 'false');
+    }
+  }
+
+  async function renderPartnerLabelsPreview() {
+    if (!partnerOrderPayload || !document.getElementById('partner-generate-labels')?.checked) return true;
+    const selectedJobs = partnerLabelJobs.filter(job => job.print_selected);
+    if (!selectedJobs.length) throw new Error('Select at least one label line.');
+    const response = await fetch('/api/partner/render-labels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobs: selectedJobs })
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.detail || 'Labels could not be rendered.');
+    }
+    if (partnerLabelsPreviewUrl) URL.revokeObjectURL(partnerLabelsPreviewUrl);
+    partnerLabelsPreviewUrl = URL.createObjectURL(await response.blob());
+    setPartnerPreview('partner-labels-download', 'partner-labels-preview', partnerLabelsPreviewUrl, `${partnerCustomerId}_case_pack_labels.pdf`);
+    return true;
+  }
+
+  async function renderPartnerMplPreview(options = {}) {
+    if (!partnerMplDraft || !document.getElementById('partner-generate-mpl')?.checked) return true;
+    activeKeheDocumentType = 'masterPackingList';
+    activeKeheDocumentDraft = partnerMplDraft;
+    activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
+    applyProductMasterToDraft(activeKeheDocumentDraft, true);
+    finalizeMplPalletDraft();
+    await captureCurrentMplTiHiSnapshots(activeKeheDocumentDraft);
+    const response = await fetch('/render/kehe/master-packing-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activeKeheDocumentDraft)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || 'Packing list could not be rendered.');
+    const resultId = response.headers.get('X-Result-Id') || payload.result_id;
+    if (!resultId) throw new Error('Packing-list generation did not return a result ID.');
+    await waitForGeneration(resultId);
+    const fileResponse = await fetch(`/results/${encodeURIComponent(resultId)}/file`);
+    if (!fileResponse.ok) throw new Error('The generated packing-list PDF could not be loaded.');
+    if (partnerMplPreviewUrl) URL.revokeObjectURL(partnerMplPreviewUrl);
+    partnerMplPreviewUrl = URL.createObjectURL(await fileResponse.blob());
+    partnerMplDraft = activeKeheDocumentDraft;
+    setPartnerPreview('partner-mpl-download', 'partner-mpl-preview', partnerMplPreviewUrl, `${partnerCustomerId}_packing_list.pdf`);
+    if (options.closeEditor) closeDocumentEditor(true);
+    return true;
+  }
+
+  async function refreshPartnerLabelsPreview() {
+    setStatus('Refreshing all selected case-label pages…', 'info');
+    try {
+      await renderPartnerLabelsPreview();
+      setStatus('Case-pack label preview is ready.', 'success');
+    } catch (err) {
+      setStatus(`Label preview failed: ${err?.message || 'unknown error'}`, 'error');
+    }
+  }
+
+  async function refreshPartnerMplPreview() {
+    setStatus('Refreshing the packing-list preview…', 'info');
+    try {
+      await renderPartnerMplPreview();
+      setStatus('Packing-list preview is ready.', 'success');
+    } catch (err) {
+      setStatus(`Packing-list preview failed: ${err?.message || 'unknown error'}`, 'error');
+    }
+  }
+
+  async function printPartnerPreview(type) {
+    const labels = type === 'labels';
+    if (labels && !partnerLabelsPreviewUrl) await refreshPartnerLabelsPreview();
+    if (!labels && !partnerMplPreviewUrl) await refreshPartnerMplPreview();
+    const previewUrl = labels ? partnerLabelsPreviewUrl : partnerMplPreviewUrl;
+    if (!previewUrl) return;
+    const frame = document.getElementById(labels ? 'partner-labels-preview' : 'partner-mpl-preview');
+    window.setTimeout(() => {
+      try {
+        frame?.contentWindow?.focus();
+        frame?.contentWindow?.print();
+      } catch (_err) {
+        window.open(previewUrl, '_blank', 'noopener');
+      }
+    }, 350);
+  }
+
+  async function renderPartnerPreviews() {
+    const button = document.getElementById('btn-render-partner-previews');
+    if (button) button.disabled = true;
+    setStatus('Rendering the selected label and packing-list previews…', 'info');
+    try {
+      if (document.getElementById('partner-generate-labels')?.checked) await renderPartnerLabelsPreview();
+      if (document.getElementById('partner-generate-mpl')?.checked) await renderPartnerMplPreview();
+      setStatus('Both document previews are ready. Review, edit, download, or print them.', 'success');
+    } catch (err) {
+      setStatus(`Preview generation failed: ${err?.message || 'unknown error'}`, 'error');
+    } finally {
+      renderPartnerSelectionState();
+    }
+  }
+
+  function editPartnerPackingList() {
+    if (!partnerMplDraft) {
+      setStatus('Load an order before editing the packing list.', 'error');
+      return;
+    }
+    partnerEditingMpl = true;
+    activeKeheDocumentType = 'masterPackingList';
+    activeKeheDocumentDraft = partnerMplDraft;
+    renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
+    openDocumentEditor();
+  }
+
   function resetToSelection(updateHistory = true) {
+    revokePartnerPreviewUrls();
+    partnerOrderPayload = null;
+    partnerCustomerId = '';
+    partnerCustomerOverride = '';
+    partnerLabelJobs = [];
+    partnerMplDraft = null;
+    partnerEditingMpl = false;
+    delete document.body.dataset.partnerCustomer;
     selectedKit = null;
     document.body.dataset.module = 'home';
     document.title = 'JDI Label Kits';
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
+    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('kit-selection').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.remove('visible');
     document.getElementById('header-app-name').textContent = 'LabelKit';
@@ -7255,17 +7971,20 @@
     const defaultEl = document.getElementById('status-bar');
     const mplEl = document.getElementById('mpl-status-bar');
     const b2bEl = document.getElementById('b2b-status-bar');
-    const el = selectedKit === 'b2b' && b2bEl
+    const partnerEl = document.getElementById('partner-status-bar');
+    const el = selectedKit === 'partners' && partnerEl
+      ? partnerEl
+      : selectedKit === 'b2b' && b2bEl
       ? b2bEl
       : (selectedKit === 'mpl' && mplEl ? mplEl : defaultEl);
     if (!msg) {
-      [defaultEl, mplEl, b2bEl].filter(Boolean).forEach(target => {
+      [defaultEl, mplEl, b2bEl, partnerEl].filter(Boolean).forEach(target => {
         target.textContent = '';
         target.className = 'status-bar';
       });
       return;
     }
-    [defaultEl, mplEl, b2bEl].filter(Boolean).forEach(target => {
+    [defaultEl, mplEl, b2bEl, partnerEl].filter(Boolean).forEach(target => {
       if (target !== el) {
         target.textContent = '';
         target.className = 'status-bar';
@@ -8385,12 +9104,14 @@
           ${Array.isArray(mpl.warnings) && mpl.warnings.length
             ? `<div class="editor-warning" style="width:min(100%, 920px)">${mpl.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}
-          <div class="pdf-sheet mpl-sheet${standaloneBranding ? ' mpl-branded' : ''}${['decopac', 'dutch_bros'].includes(templateId) ? ' mpl-breakdown-layout' : ''} mpl-template-${escapeHtml(templateId)}"${standaloneBranding ? ` style="${escapeHtml(mplBrandCssVars(brandId))}"` : ''}>
+          <div class="pdf-sheet mpl-sheet${standaloneBranding ? ' mpl-branded' : ''}${['decopac', 'dutch_bros', 'fancy'].includes(templateId) ? ' mpl-breakdown-layout' : ''} mpl-template-${escapeHtml(templateId)}"${standaloneBranding ? ` style="${escapeHtml(mplBrandCssVars(brandId))}"` : ''}>
             ${templateId === 'decopac'
               ? renderDecopacMplSheet(mpl, index, brand)
               : (templateId === 'dutch_bros'
                 ? renderDutchBrosMplSheet(mpl, index, brand)
-                : renderStandardMplSheet(mpl, index, template, brand, standaloneBranding))}
+                : (templateId === 'fancy'
+                  ? renderDecopacMplSheet(mpl, index, brand, 'FANCY SPRINKLES')
+                  : renderStandardMplSheet(mpl, index, template, brand, standaloneBranding)))}
           </div>
         </div>`;
       }).join('')}
@@ -8542,6 +9263,18 @@
       </div>`;
   }
 
+  function fitPdfEditorInputText(root) {
+    root?.querySelectorAll('input, textarea').forEach(input => {
+      input.style.removeProperty('font-size');
+      let size = Number.parseFloat(window.getComputedStyle(input).fontSize) || 16;
+      const minimum = input.tagName === 'TEXTAREA' ? 10 : 8;
+      while ((input.scrollWidth > input.clientWidth + 2 || input.scrollHeight > input.clientHeight + 2) && size > minimum) {
+        size -= 0.5;
+        input.style.fontSize = `${size}px`;
+      }
+    });
+  }
+
   function togglePackLabelSelection(index, event) {
     if (!activeKeheDocumentDraft || !Array.isArray(activeKeheDocumentDraft.pack_labels)) return;
     if (event && event.target && event.target.closest('input, textarea, select, button, a')) return;
@@ -8685,6 +9418,7 @@
     } else {
       body.innerHTML = renderMasterPackingListEditor(draft);
     }
+    window.requestAnimationFrame(() => fitPdfEditorInputText(body));
     enhanceSearchableSelects(body);
     if (type === 'masterPackingList') {
       scheduleAllMplLiveTiHiRefresh();
@@ -8714,6 +9448,7 @@
     if (packGtinMatch) {
       refreshPackLabelBarcodePreview(Number(packGtinMatch[1]), input.value);
     }
+    window.requestAnimationFrame(() => fitPdfEditorInputText(document.getElementById('document-editor-body')));
     if (activeKeheDocumentType === 'palletLabel' && /^pallets\.\d+\.(pallet_number|total_pallets|customer_po_numbers)$/.test(path)) {
       setPalletLabelManualSource();
       renderKeheUnifiedReport(keheLastMplDraft || activeKeheDocumentDraft);
@@ -9384,6 +10119,22 @@
 
   async function renderEditedKeheDocument(options = {}) {
     if (!activeKeheDocumentType || !activeKeheDocumentDraft) return;
+    if (selectedKit === 'partners' && partnerEditingMpl && activeKeheDocumentType === 'masterPackingList') {
+      const btn = document.getElementById('btn-render-edited-document');
+      if (btn) btn.disabled = true;
+      try {
+        partnerMplDraft = activeKeheDocumentDraft;
+        setStatus('Rendering the packing-list preview from your edited values…', 'info');
+        await renderPartnerMplPreview({ closeEditor: true });
+        setStatus('Edited packing-list preview is ready.', 'success');
+      } catch (err) {
+        setStatus(`Packing-list generation failed: ${err?.message || 'unknown error'}`, 'error');
+      } finally {
+        partnerEditingMpl = false;
+        if (btn) btn.disabled = false;
+      }
+      return;
+    }
     const cfg = KEHE_DOCUMENT_CONFIG[activeKeheDocumentType];
     const btn = document.getElementById('btn-render-edited-document');
     const saveGenerateBtn = document.getElementById('btn-save-mpl-draft');

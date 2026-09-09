@@ -21,6 +21,46 @@ def _one_page_pdf(text: str) -> bytes:
 
 
 class MichaelsOutputOrderTests(unittest.TestCase):
+    def test_long_generated_label_and_packing_list_text_is_preserved(self):
+        description = "LONGMICHAELSDESCRIPTION" * 7
+        vendor_item = "VENDORITEM" * 8
+        michaels_sku = "1234567890" * 4
+        pack = pipeline.Pack(
+            sscc="000000000000000001",
+            tracking="1ZAAAAAAAAAAAAAAAA",
+            po="40000001" * 4,
+            store="123456789012345",
+            ship_from=pipeline.Address(name="LONG SHIP FROM CUSTOMER NAME" * 3, line1="123 VERY LONG ORIGIN STREET NAME" * 2),
+            ship_to=pipeline.Address(name="LONG SHIP TO CUSTOMER NAME" * 3, line1="456 VERY LONG DESTINATION STREET NAME" * 2),
+            items=[pipeline.Item(vendor_item=vendor_item, michaels_sku=michaels_sku, description=description, qty=12)],
+        )
+
+        packing_pdf = pipeline.render_packing_list_pages(pack, 1, 1)
+        packing_document = fitz.open(stream=packing_pdf, filetype="pdf")
+        table_words = [
+            word
+            for page in packing_document
+            for word in page.get_text("words")
+            if word[1] > 130
+        ]
+
+        def column_text(x_min, x_max):
+            words = [word for word in table_words if x_min <= word[0] < x_max]
+            return "".join(word[4] for word in sorted(words, key=lambda word: (word[1], word[0])))
+
+        # Read each table column independently. A plain PDF text extraction can
+        # interleave adjacent columns even though all of their text is present.
+        self.assertEqual(description, column_text(95, 184))
+        self.assertEqual(vendor_item, column_text(0, 60))
+        self.assertEqual(michaels_sku, column_text(60, 95))
+
+        label_pdf = pipeline.render_gs1_label_page(pack, 1, 1)
+        label_text = "".join(
+            page.get_text() for page in fitz.open(stream=label_pdf, filetype="pdf")
+        ).replace(" ", "").replace("\n", "")
+        self.assertIn(pack.po, label_text)
+        self.assertIn(pack.store, label_text)
+
     def _render_with_order(self, tmp_path: Path, group_by_pdf: bool):
         pack_b = pipeline.Pack(
             sscc="000000000000000002",

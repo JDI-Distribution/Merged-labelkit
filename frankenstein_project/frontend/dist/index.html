@@ -9,7 +9,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <link rel="stylesheet" href="/assets/css/app.css?v=20260831-michaels-pdf-boundaries">
+  <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body data-module="home">
 
@@ -86,6 +86,18 @@
               <strong>KeHE</strong>
               <span class="kit-choice-description">Validate ASN files and produce compliant pallet and shipping output.</span>
               <span class="kit-choice-meta"><span>ASN XML</span><span>Validation</span></span>
+            </span>
+            <span class="kit-choice-arrow" aria-hidden="true">&#8594;</span>
+          </button>
+          <button class="kit-choice-btn partner-choice" type="button" onclick="selectPartnerWorkspace()">
+            <span class="kit-choice-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M4 10h16M9 10v9M13 14h4M13 17h3"/></svg>
+            </span>
+            <span class="kit-choice-copy">
+              <span class="kit-choice-eyebrow">Customer-specific operations</span>
+              <strong>DecoPac / Dutch Bros / Fancy / Total Wine</strong>
+              <span class="kit-choice-description">Generate customer-specific packing lists and labels from one combined workflow.</span>
+              <span class="kit-choice-meta"><span>Packing lists</span><span>Customer labels</span><span>Configured SKUs</span></span>
             </span>
             <span class="kit-choice-arrow" aria-hidden="true">&#8594;</span>
           </button>
@@ -591,6 +603,9 @@
               <label data-b2b-run-wrap="carton_start">Start Carton <input data-b2b-run-field="carton_start" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_start', this.value)"></label>
               <label data-b2b-run-wrap="carton_end">End Carton <input data-b2b-run-field="carton_end" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_end', this.value)"></label>
               <label data-b2b-run-wrap="copies">Copies per Carton <input data-b2b-run-field="copies" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('copies', this.value)"></label>
+              <label class="b2b-barcode-toggle" data-b2b-run-wrap="print_barcode">Include Barcode
+                <span><input data-b2b-run-field="print_barcode" type="checkbox" onchange="updateB2BRunField('print_barcode', this.checked)"> Print the configured GTIN / UPC</span>
+              </label>
             </div>
           </section>
           </div>
@@ -627,6 +642,124 @@
       </div>
 
       <div class="status-bar" id="b2b-status-bar"></div>
+    </div>
+  </section>
+
+  <section class="mpl-workspace-page hidden" id="partner-workspace-page">
+    <div class="mpl-workspace-shell partner-workspace-shell">
+      <div class="b2b-page-header partner-page-header">
+        <div class="b2b-page-title">
+          <div class="mpl-order-lookup-kicker">Automatic order documents</div>
+          <h2>DecoPac / Dutch Bros / Fancy / Total Wine</h2>
+          <p>Enter one sales order, confirm the customer layout, and prepare the matching packing list and labels in one editable workflow.</p>
+        </div>
+        <div class="b2b-page-actions">
+          <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Product Master</button>
+          <button class="btn-secondary" type="button" onclick="openB2BDirectory()">Customer Directory</button>
+        </div>
+      </div>
+
+      <div class="mpl-order-lookup-card partner-order-card">
+        <div class="mpl-order-lookup-copy">
+          <div class="mpl-order-lookup-kicker">Step 1 &middot; Sales order</div>
+          <h2>Load an order</h2>
+          <p>LabelKit detects the customer from the order. Choose a customer below when you need to confirm or override the detected layout.</p>
+        </div>
+        <form class="mpl-order-lookup-form" onsubmit="loadPartnerOrder(event)">
+          <label for="partner-sales-order-number">Sales Order Number</label>
+          <div class="mpl-order-lookup-controls">
+            <input id="partner-sales-order-number" type="text" maxlength="120" autocomplete="off" placeholder="Enter order number" required />
+            <button class="btn-generate" id="btn-load-partner-order" type="submit">Load Order</button>
+          </div>
+          <div class="partner-instance-picker hidden" id="partner-order-instance-picker">
+            <label for="partner-order-instance-select">Multiple order records found</label>
+            <div class="mpl-order-lookup-controls">
+              <select id="partner-order-instance-select"></select>
+              <button class="btn-secondary" type="button" onclick="loadSelectedPartnerOrder()">Load Selected</button>
+            </div>
+          </div>
+        </form>
+        <div class="partner-customer-selector" aria-labelledby="partner-customer-selector-title">
+          <div class="partner-customer-selector-copy">
+            <span>Customer layout</span>
+            <strong id="partner-customer-selector-title">DecoPac / Dutch Bros / Fancy / Total Wine</strong>
+            <small id="partner-customer-selection-help">Load an order for automatic detection, or select its customer now.</small>
+          </div>
+          <div class="partner-customer-options" role="radiogroup" aria-label="Customer layout">
+            <button type="button" data-partner-customer="decopac" role="radio" aria-checked="false" onclick="selectPartnerCustomer('decopac')"><span>DecoPac</span><small>4 × 6 case labels</small></button>
+            <button type="button" data-partner-customer="dutch_bros" role="radio" aria-checked="false" onclick="selectPartnerCustomer('dutch_bros')"><span>Dutch Bros</span><small>PFG / other labels</small></button>
+            <button type="button" data-partner-customer="fancy" role="radio" aria-checked="false" onclick="selectPartnerCustomer('fancy')"><span>Fancy Sprinkles</span><small>SRD / master-pack labels</small></button>
+            <button type="button" data-partner-customer="total_wine" role="radio" aria-checked="false" onclick="selectPartnerCustomer('total_wine')"><span>Total Wine</span><small>KeHE-style inner, case &amp; pallet</small></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="partner-empty-state" id="partner-empty-state">
+        <strong>No order loaded</strong>
+        <span>Enter a sales order above to build the editable labels and packing list.</span>
+      </div>
+
+      <div class="partner-order-workspace hidden" id="partner-order-workspace">
+        <section class="partner-order-summary">
+          <div><span>Customer / layout</span><strong id="partner-detected-customer">-</strong></div>
+          <div><span>Sales order</span><strong id="partner-loaded-order">-</strong></div>
+          <div><span>Order lines</span><strong id="partner-line-count">0</strong></div>
+          <div><span>Review status</span><strong id="partner-review-status">Ready</strong></div>
+        </section>
+
+        <section class="b2b-card partner-output-card">
+          <div class="b2b-card-heading">
+            <div class="b2b-heading-with-step">
+              <span class="b2b-step-number">02</span>
+              <div><div class="b2b-card-kicker">Output selection</div><h3>Choose what to generate</h3></div>
+            </div>
+            <button class="btn-generate" id="btn-render-partner-previews" type="button" onclick="renderPartnerPreviews()">Refresh Both Previews</button>
+          </div>
+          <div class="partner-output-toggles">
+            <label><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer labels</strong><small>All required selected label types</small></span></label>
+            <label><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing list &amp; Ti-Hi</strong><small>Customer-specific editable packing list</small></span></label>
+          </div>
+        </section>
+
+        <section class="b2b-card partner-labels-card">
+          <div class="b2b-card-heading">
+            <div class="b2b-heading-with-step">
+              <span class="b2b-step-number">03</span>
+              <div><div class="b2b-card-kicker">Customer labels</div><h3>Edit every generated label</h3></div>
+            </div>
+            <span class="b2b-save-state">Edits apply to this print run</span>
+          </div>
+          <div class="partner-label-editor-list" id="partner-label-editor-list"></div>
+        </section>
+
+        <section class="partner-preview-grid">
+          <article class="b2b-preview-card partner-preview-card">
+            <div class="b2b-card-heading">
+              <div><div class="b2b-card-kicker">Labels preview</div><h3>All selected labels</h3></div>
+              <div class="partner-preview-actions">
+                <button class="btn-secondary" type="button" onclick="refreshPartnerLabelsPreview()">Refresh</button>
+                <button class="btn-secondary" type="button" onclick="printPartnerPreview('labels')">Print</button>
+                <a class="btn-secondary disabled" id="partner-labels-download" download="customer_case_pack_labels.pdf" aria-disabled="true">Download</a>
+              </div>
+            </div>
+            <div class="partner-pdf-frame"><div class="partner-preview-placeholder" id="partner-labels-placeholder">Generate a preview to review every label page.</div><iframe id="partner-labels-preview" title="Case-pack labels PDF preview"></iframe></div>
+          </article>
+          <article class="b2b-preview-card partner-preview-card">
+            <div class="b2b-card-heading">
+              <div><div class="b2b-card-kicker">Packing-list preview</div><h3>Customer packing list &amp; Ti-Hi</h3></div>
+              <div class="partner-preview-actions">
+                <button class="btn-secondary" type="button" onclick="editPartnerPackingList()">Edit</button>
+                <button class="btn-secondary" type="button" onclick="refreshPartnerMplPreview()">Refresh</button>
+                <button class="btn-secondary" type="button" onclick="printPartnerPreview('mpl')">Print</button>
+                <a class="btn-secondary disabled" id="partner-mpl-download" download="partner_packing_list.pdf" aria-disabled="true">Download</a>
+              </div>
+            </div>
+            <div class="partner-pdf-frame"><div class="partner-preview-placeholder" id="partner-mpl-placeholder">Generate a preview, or open the editor to review every packing-list field.</div><iframe id="partner-mpl-preview" title="Packing list PDF preview"></iframe></div>
+          </article>
+        </section>
+      </div>
+
+      <div class="status-bar" id="partner-status-bar"></div>
     </div>
   </section>
 
@@ -1000,7 +1133,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
-  <script src="/assets/js/app.js?v=20260831-michaels-pdf-boundaries"></script>
+  <script src="/assets/js/app.js"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

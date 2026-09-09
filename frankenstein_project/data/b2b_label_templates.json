@@ -2,7 +2,7 @@
   "templates": [
     {
       "template_id": "DECOPAC_CASE_4X6",
-      "name": "DecoPac Case Label",
+      "name": "DecoPac Combined A/B Case Label",
       "customer": "DecoPac",
       "version": 1,
       "status": "ACTIVE",
@@ -39,12 +39,15 @@
       "version": 1,
       "status": "ACTIVE",
       "renderer_key": "disney_case_3x3",
-      "physical_width_in": 3,
-      "physical_height_in": 3,
-      "orientation": "PORTRAIT",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
       "default_copies": 1,
-      "barcode_policy": "NONE",
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -62,7 +65,7 @@
     },
     {
       "template_id": "FANCY_SRD_3X3",
-      "name": "Fancy Sprinkles SRD Label",
+      "name": "Fancy Sprinkles SRD Dual Case Label",
       "customer": "Fancy Sprinkles",
       "version": 1,
       "status": "ACTIVE",
@@ -70,12 +73,15 @@
       "renderer_options": {
         "customer_default": "FANCY SPRINKLES SRD"
       },
-      "physical_width_in": 3,
-      "physical_height_in": 3,
-      "orientation": "PORTRAIT",
-      "default_copies": 2,
-      "barcode_policy": "NONE",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -92,7 +98,7 @@
     },
     {
       "template_id": "FANCY_MASTER_PACK_3X3",
-      "name": "Fancy Sprinkles Master-Pack Label",
+      "name": "Fancy Sprinkles Master-Pack Dual Case Label",
       "customer": "Fancy Sprinkles",
       "version": 1,
       "status": "ACTIVE",
@@ -100,12 +106,15 @@
       "renderer_options": {
         "customer_default": "FANCY SPRINKLES MASTER PACK"
       },
-      "physical_width_in": 3,
-      "physical_height_in": 3,
-      "orientation": "PORTRAIT",
-      "default_copies": 2,
-      "barcode_policy": "NONE",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -121,8 +130,33 @@
       "source": "INFO and Fancy workbook sheets; two direct-thermal labels per master pack"
     },
     {
+      "template_id": "FANCY_PALLET_3X3",
+      "name": "Fancy Sprinkles Pallet Label",
+      "customer": "Fancy Sprinkles",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "fancy_pallet_3x3",
+      "physical_width_in": 3,
+      "physical_height_in": 3,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "OPTIONAL",
+      "allowed_barcode_types": ["NONE"],
+      "required_run_fields": [
+        "ship_date",
+        "quantity_label",
+        "lot_number",
+        "best_before",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "required_product_fields": ["sku", "description"],
+      "source": "LABELS FORMAT.docx Fancy Sprinkles pallet label; two copies per pallet"
+    },
+    {
       "template_id": "DUTCH_PFG_3X3",
-      "name": "Dutch Bros PFG Case Label",
+      "name": "Dutch Bros PFG Dual Case Label",
       "customer": "Dutch Bros",
       "version": 1,
       "status": "ACTIVE",
@@ -131,12 +165,15 @@
         "customer_default": "DUTCH BROS",
         "show_invoice": true
       },
-      "physical_width_in": 3,
-      "physical_height_in": 3,
-      "orientation": "PORTRAIT",
-      "default_copies": 2,
-      "barcode_policy": "NONE",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -157,7 +194,7 @@
     },
     {
       "template_id": "DUTCH_OTHER_3X3",
-      "name": "Dutch Bros Other Case Label",
+      "name": "Dutch Bros Other Dual Case Label",
       "customer": "Dutch Bros",
       "version": 1,
       "status": "ACTIVE",
@@ -165,12 +202,15 @@
       "renderer_options": {
         "customer_default": "DUTCH BROS"
       },
-      "physical_width_in": 3,
-      "physical_height_in": 3,
-      "orientation": "PORTRAIT",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
       "default_copies": 1,
-      "barcode_policy": "NONE",
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -186,6 +226,59 @@
       "source": "INFO workbook row for Dutch Brothers - Others"
     },
     {
+      "template_id": "TOTAL_WINE_INNER_PACK_4X4",
+      "name": "Total Wine KeHE-Style Inner Pack Label",
+      "customer": "Total Wine",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "total_wine_kehe_pack_4x4",
+      "physical_width_in": 4,
+      "physical_height_in": 4,
+      "orientation": "PORTRAIT",
+      "default_copies": 6,
+      "barcode_policy": "OPTIONAL",
+      "allowed_barcode_types": ["GTIN_14", "NONE"],
+      "required_run_fields": ["carton_total", "carton_start", "carton_end"],
+      "optional_run_fields": ["lot_number", "best_before"],
+      "required_product_fields": ["gtin", "description", "case_qty", "gross_weight_lbs"],
+      "source": "KeHE-compatible Total Wine Inner Pack label"
+    },
+    {
+      "template_id": "TOTAL_WINE_MASTER_CASE_4X4",
+      "name": "Total Wine KeHE-Style Master Case Label",
+      "customer": "Total Wine",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "total_wine_kehe_pack_4x4",
+      "physical_width_in": 4,
+      "physical_height_in": 4,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "OPTIONAL",
+      "allowed_barcode_types": ["GTIN_14", "NONE"],
+      "required_run_fields": ["carton_total", "carton_start", "carton_end"],
+      "optional_run_fields": ["lot_number", "best_before"],
+      "required_product_fields": ["gtin", "description", "case_qty", "gross_weight_lbs"],
+      "source": "KeHE-compatible Total Wine Master Case label"
+    },
+    {
+      "template_id": "TOTAL_WINE_PALLET_4X6",
+      "name": "Total Wine KeHE-Style Pallet Label",
+      "customer": "Total Wine",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "total_wine_kehe_pallet_4x6",
+      "physical_width_in": 4,
+      "physical_height_in": 6,
+      "orientation": "PORTRAIT",
+      "default_copies": 2,
+      "barcode_policy": "OPTIONAL",
+      "allowed_barcode_types": ["NONE"],
+      "required_run_fields": ["po_number", "ship_date", "carton_total", "carton_start", "carton_end"],
+      "required_product_fields": [],
+      "source": "KeHE-compatible Total Wine Pallet Placard"
+    },
+    {
       "template_id": "MIXED_CASE_3X1_5",
       "name": "Mixed Case Strip Label",
       "customer": "Generic Wholesale",
@@ -196,8 +289,11 @@
       "physical_height_in": 1.5,
       "orientation": "LANDSCAPE",
       "default_copies": 2,
-      "barcode_policy": "NONE",
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -215,7 +311,7 @@
     },
     {
       "template_id": "STANDARD_CASE_PACK_4X6",
-      "name": "Standard Case-Pack Label",
+      "name": "Standard Case-Pack Horizontal Dual Label",
       "customer": "Standard B2B",
       "version": 1,
       "status": "ACTIVE",
@@ -224,8 +320,11 @@
       "physical_height_in": 4,
       "orientation": "LANDSCAPE",
       "default_copies": 1,
-      "barcode_policy": "NONE",
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [
@@ -238,7 +337,24 @@
         "description",
         "case_qty"
       ],
-      "source": "INFO, St. CP - Horiz., Single CP, and S CP - Vert. workbook sheets"
+      "source": "LABELS FORMAT.docx Standard Case Packs horizontal dual-panel example"
+    },
+    {
+      "template_id": "STANDARD_CASE_PACK_VERTICAL_4X6",
+      "name": "Standard Case-Pack Vertical Dual Label",
+      "customer": "Standard B2B",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "standard_case_vertical_4x6",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "OPTIONAL",
+      "allowed_barcode_types": ["UPC_A", "EAN_13", "GTIN_14", "NONE"],
+      "required_run_fields": ["po_number", "carton_total", "carton_start", "carton_end"],
+      "required_product_fields": ["description", "case_qty"],
+      "source": "LABELS FORMAT.docx Standard Case Packs vertical dual-panel example"
     },
     {
       "template_id": "BULK_FURTHER_PROCESSING_4X6",
@@ -251,8 +367,11 @@
       "physical_height_in": 4,
       "orientation": "LANDSCAPE",
       "default_copies": 1,
-      "barcode_policy": "NONE",
+      "barcode_policy": "OPTIONAL",
       "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14",
         "NONE"
       ],
       "required_run_fields": [

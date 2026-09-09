@@ -605,23 +605,7 @@ def _shipping_page_to_bytes(fitz_doc: fitz.Document, page_idx: int) -> bytes:
 # ===========================================================================
 
 def wrap_text(text: str, font_name: str, font_size: float, max_width: float) -> List[str]:
-    text = (text or "").strip()
-    if not text:
-        return [""]
-    words = text.split()
-    lines: List[str] = []
-    cur = ""
-    for w in words:
-        test = (cur + " " + w).strip()
-        if pdfmetrics.stringWidth(test, font_name, font_size) <= max_width:
-            cur = test
-        else:
-            if cur:
-                lines.append(cur)
-            cur = w
-    if cur:
-        lines.append(cur)
-    return lines
+    return hard_wrap(text, font_name, font_size, max_width)
 
 
 def hard_wrap(text: str, font_name: str, font_size: float, max_width: float) -> List[str]:
@@ -650,6 +634,48 @@ def hard_wrap(text: str, font_name: str, font_size: float, max_width: float) -> 
             if cur:
                 lines.append(cur)
     return lines or [""]
+
+
+def fit_text_lines(
+    text: str,
+    font_name: str,
+    font_size: float,
+    max_width: float,
+    max_lines: int,
+    min_font_size: float = 4.0,
+) -> Tuple[List[str], float]:
+    fitted_size = font_size
+    while fitted_size > min_font_size:
+        lines = hard_wrap(text, font_name, fitted_size, max_width)
+        if len(lines) <= max_lines:
+            return lines, fitted_size
+        fitted_size = max(min_font_size, fitted_size - 0.5)
+    return hard_wrap(text, font_name, fitted_size, max_width), fitted_size
+
+
+def draw_fitted_line(
+    c: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    max_width: float,
+    font_name: str,
+    font_size: float,
+    *,
+    min_font_size: float = 4.0,
+    align: str = "left",
+) -> None:
+    value = str(text or "")
+    fitted_size = font_size
+    while fitted_size > min_font_size and pdfmetrics.stringWidth(value, font_name, fitted_size) > max_width:
+        fitted_size = max(min_font_size, fitted_size - 0.5)
+    c.setFont(font_name, fitted_size)
+    if align == "center":
+        c.drawCentredString(x, y, value)
+    elif align == "right":
+        c.drawRightString(x, y, value)
+    else:
+        c.drawString(x, y, value)
 
 
 def normalize_sscc(sscc_raw: str) -> str:
@@ -718,31 +744,26 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     c.setFont("Helvetica-Bold", FS_ADDR)
     c.drawString(xL, yT, "SHIP FROM:")
     y = yT - 0.18 * inch
-    c.setFont("Helvetica", FS_ADDR)
-    for line in [sf.name, sf.line1, sf.line2, f"{sf.city} {sf.state} {sf.zip}".strip()]:
-        for w in wrap_text(line, "Helvetica", FS_ADDR, left_w):
-            if w.strip():
-                c.drawString(xL, y, w)
-                y -= LH_ADDR
+    from_text = " | ".join(line for line in [sf.name, sf.line1, sf.line2, f"{sf.city} {sf.state} {sf.zip}".strip()] if line.strip())
+    from_lines, from_size = fit_text_lines(from_text, "Helvetica", FS_ADDR, left_w, 6, min_font_size=6.0)
+    c.setFont("Helvetica", from_size)
+    for line in from_lines:
+        c.drawString(xL, y, line)
+        y -= LH_ADDR * (from_size / FS_ADDR)
 
     y = yT
     c.setFont("Helvetica-Bold", FS_ADDR)
     c.drawString(xR, y, "SHIP TO:")
     y -= 0.18 * inch
-    c.setFont("Helvetica", FS_ADDR)
-    for w in wrap_text(st.name, "Helvetica", FS_ADDR, right_w):
-        if w.strip():
-            c.drawString(xR, y, w)
-            y -= LH_ADDR
-    for line in [st.line1, st.line2, f"{st.city} {st.state} {st.zip}".strip()]:
-        for w in wrap_text(line, "Helvetica", FS_ADDR, right_w):
-            if w.strip():
-                c.drawString(xR, y, w)
-                y -= LH_ADDR
+    to_text = " | ".join(line for line in [st.name, st.line1, st.line2, f"{st.city} {st.state} {st.zip}".strip()] if line.strip())
+    to_lines, to_size = fit_text_lines(to_text, "Helvetica", FS_ADDR, right_w, 6, min_font_size=6.0)
+    c.setFont("Helvetica", to_size)
+    for line in to_lines:
+        c.drawString(xR, y, line)
+        y -= LH_ADDR * (to_size / FS_ADDR)
 
     y = top_y0 - 0.25 * inch
-    c.setFont("Helvetica-Bold", FS_INFO)
-    c.drawString(xL, y, f"PO# {pack.po}")
+    draw_fitted_line(c, f"PO# {pack.po}", xL, y, inner_right - xL - pad, "Helvetica-Bold", FS_INFO, min_font_size=7.0)
     y -= LH_INFO
 
     ec = (pack.event_code or "").strip()
@@ -751,20 +772,17 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     c.setFont("Helvetica-Bold", FS_INFO)
     c.drawString(xL, y, "Event Code:")
     if ec:
-        c.setFont("Helvetica", FS_INFO)
         lw = pdfmetrics.stringWidth("Event Code:  ", "Helvetica-Bold", FS_INFO)
-        c.drawString(xL + lw, y, ec)
+        draw_fitted_line(c, ec, xL + lw, y, inner_right - (xL + lw) - pad, "Helvetica", FS_INFO, min_font_size=6.0)
     y -= LH_INFO
 
     tv = (pack.tracking or "").strip()
     c.setFont("Helvetica-Bold", FS_INFO)
     c.drawString(xL, y, "Tracking Code:")
     if tv:
-        c.setFont("Helvetica", FS_INFO)
         lw      = pdfmetrics.stringWidth("Tracking Code: ", "Helvetica-Bold", FS_INFO)
         avail_w = inner_right - margin - (xL + lw)
-        tlines  = wrap_text(tv, "Helvetica", FS_INFO, avail_w)
-        c.drawString(xL + lw, y, tlines[0])
+        draw_fitted_line(c, tv, xL + lw, y, avail_w, "Helvetica", FS_INFO, min_font_size=6.0)
     y -= LH_INFO
 
     store_row_h = 0.92 * inch
@@ -779,8 +797,7 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     store_mid = (store_top + store_bot) / 2
     c.setFont("Helvetica", FS_STORE_LABEL)
     c.drawCentredString(W / 2 + (W / 2 - margin) / 2, store_mid + 0.28 * inch, "STORE")
-    c.setFont("Helvetica-Bold", FS_STORE)
-    c.drawCentredString(W / 2 + (W / 2 - margin) / 2, store_mid - 0.22 * inch, pack.store or "")
+    draw_fitted_line(c, pack.store or "", W / 2 + (W / 2 - margin) / 2, store_mid - 0.22 * inch, right_w, "Helvetica-Bold", FS_STORE, min_font_size=12.0, align="center")
 
     sscc18    = normalize_sscc(pack.sscc)
     gs1_value = "\xf1" + "00" + sscc18
@@ -789,9 +806,7 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     bc_y      = margin + 0.5 * inch
     bc_x      = (W - sscc_bar.width) / 2.0
 
-    c.setFont("Helvetica-Bold", FS_BAR_HR)
-    c.drawCentredString(W / 2, bc_y + bar_h + 0.10 * inch,
-                        f"(00) {format_sscc_groups(sscc18)}")
+    draw_fitted_line(c, f"(00) {format_sscc_groups(sscc18)}", W / 2, bc_y + bar_h + 0.10 * inch, W - 2 * margin - 10, "Helvetica-Bold", FS_BAR_HR, min_font_size=7.0, align="center")
     sscc_bar.drawOn(c, bc_x, bc_y)
 
     c.showPage()
@@ -839,7 +854,8 @@ def render_packing_list_pages(pack: Pack, order_index: int, total_orders: int) -
         for it in items:
             desc_lines = hard_wrap(it.description, "Helvetica", font_desc, w_desc - 4)
             vend_lines = hard_wrap(it.vendor_item,  "Helvetica", font,      w_vendor - 4)
-            row_height = max(len(vend_lines), len(desc_lines), 1) * line_h + 6
+            sku_lines = hard_wrap(format_michaels_item_number(it.michaels_sku), "Helvetica", font, w_sku - 4)
+            row_height = max(len(vend_lines), len(sku_lines), len(desc_lines), 1) * line_h + 6
             if y - row_height < margin + 0.25 * inch:
                 y = H - margin - 0.60 * inch
                 total += 1
@@ -896,33 +912,56 @@ def render_packing_list_pages(pack: Pack, order_index: int, total_orders: int) -
             c.drawString(W / 2 + 4, y, "SHIP TO:")
             y -= 10
 
-            c.setFont("Helvetica", 6.2)
             left_lines  = [l for l in [sf.name, sf.line1, sf.line2,
                             f"{sf.city}, {sf.state} {sf.zip}".strip(", ")] if l.strip()]
             right_lines = [l for l in [st.name, st.line1, st.line2,
                             f"{st.city}, {st.state} {st.zip}".strip(", ")] if l.strip()]
-            for i in range(max(len(left_lines), len(right_lines))):
-                if i < len(left_lines):
-                    c.drawString(margin, y, left_lines[i][:36])
-                if i < len(right_lines):
-                    c.drawString(W / 2 + 4, y, right_lines[i][:36])
-                y -= 9
+            left_fitted, left_size = fit_text_lines(" | ".join(left_lines), "Helvetica", 6.2, W / 2 - margin - 8, 5, min_font_size=4.0)
+            right_fitted, right_size = fit_text_lines(" | ".join(right_lines), "Helvetica", 6.2, W / 2 - margin - 8, 5, min_font_size=4.0)
+            address_size = min(left_size, right_size)
+            left_fitted = hard_wrap(" | ".join(left_lines), "Helvetica", address_size, W / 2 - margin - 8)
+            right_fitted = hard_wrap(" | ".join(right_lines), "Helvetica", address_size, W / 2 - margin - 8)
+            c.setFont("Helvetica", address_size)
+            for i in range(max(len(left_fitted), len(right_fitted))):
+                if i < len(left_fitted):
+                    c.drawString(margin, y, left_fitted[i])
+                if i < len(right_fitted):
+                    c.drawString(W / 2 + 4, y, right_fitted[i])
+                y -= 9 * (address_size / 6.2)
 
             y -= 4
             c.setLineWidth(0.5)
             c.line(margin, y, right, y)
             y -= 10
 
-            c.setFont("Helvetica-Bold", 7)
-            c.drawString(margin, y, f"PO#: {pack.po}")
-            c.drawRightString((margin + right)/2, y, f"Order {order_index} of {total_orders}")
-            c.drawRightString(right, y, f"Ship Date: {pack.ship_date or '________'}")
+            draw_fitted_line(c, f"PO#: {pack.po}", margin, y, usable_w * 0.52, "Helvetica-Bold", 7, min_font_size=3.5)
+            draw_fitted_line(
+                c,
+                f"Order {order_index} of {total_orders}",
+                margin + usable_w * 0.62,
+                y,
+                usable_w * 0.16,
+                "Helvetica-Bold",
+                7,
+                min_font_size=4.5,
+                align="center",
+            )
+            draw_fitted_line(
+                c,
+                f"Ship Date: {pack.ship_date or '________'}",
+                right,
+                y,
+                usable_w * 0.27,
+                "Helvetica-Bold",
+                7,
+                min_font_size=4.5,
+                align="right",
+            )
             y -= 8
 
 
         else:
-            c.setFont("Helvetica-Bold", 7)
-            c.drawString(margin, y - 10, f"PO#: {pack.po} (cont..)")
+            draw_fitted_line(c, f"PO#: {pack.po} (cont..)", margin, y - 10, usable_w, "Helvetica-Bold", 7, min_font_size=4.5)
             y -= 20
 
         y = draw_table_header(y)
@@ -931,9 +970,10 @@ def render_packing_list_pages(pack: Pack, order_index: int, total_orders: int) -
         while idx < len(items):
             it = items[idx]
             vend_lines = hard_wrap(it.vendor_item,  "Helvetica", font,      w_vendor - 4)
-            sku_str    = format_michaels_item_number(it.michaels_sku)[:12]
+            sku_str    = format_michaels_item_number(it.michaels_sku)
+            sku_lines  = hard_wrap(sku_str, "Helvetica", font, w_sku - 4)
             desc_lines = hard_wrap(it.description,  "Helvetica", font_desc, w_desc - 4)
-            row_lines  = max(len(vend_lines), len(desc_lines), 1)
+            row_lines  = max(len(vend_lines), len(sku_lines), len(desc_lines), 1)
             row_height = row_lines * line_h + 6
 
             if y - row_height < bottom_limit:
@@ -950,9 +990,10 @@ def render_packing_list_pages(pack: Pack, order_index: int, total_orders: int) -
                 if li < len(vend_lines):
                     c.setFont("Helvetica", font)
                     c.drawString(x_vendor + 2, y_line, vend_lines[li])
-                if li == 0:
+                if li < len(sku_lines):
                     c.setFont("Helvetica", font)
-                    c.drawString(x_sku + 2, y_line, sku_str)
+                    c.drawString(x_sku + 2, y_line, sku_lines[li])
+                if li == 0:
                     c.setFont("Helvetica-Bold", 7.5)
                     c.drawCentredString(x_qo + w_qo / 2, y_line, str(it.qty))
                     c.setFont("Helvetica", font)
@@ -992,7 +1033,7 @@ def render_no_xml_match_page(pd: PageOcrData) -> bytes:
 
     c.setFillColorRGB(0.2, 0.2, 0.2)
     c.setFont("Helvetica-Bold", 12)
-    c.drawCentredString(W / 2, H / 2 + 0.55 * inch, "⚠  NO XML MATCH FOUND")
+    c.drawCentredString(W / 2, H / 2 + 0.55 * inch, "WARNING - NO XML MATCH FOUND")
 
     c.setFont("Helvetica", 9)
     if pd.tracking:
@@ -1005,7 +1046,7 @@ def render_no_xml_match_page(pd: PageOcrData) -> bytes:
     c.setFont("Helvetica", 7.5)
     c.setFillColorRGB(0.5, 0.5, 0.5)
     c.drawCentredString(W / 2, margin + 0.15 * inch,
-                        "Check XML — no pack matched this shipping label")
+                        "Check XML - no pack matched this shipping label")
     c.showPage()
     c.save()
     return buf.getvalue()
