@@ -7304,7 +7304,20 @@
     }
   }
 
+  function partnerCustomerIdFromText(value) {
+    const normalized = String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (/deco\s*pac/.test(normalized)) return 'decopac';
+    if (/dutch\s*(bros|brothers)/.test(normalized)) return 'dutch_bros';
+    if (/fancy\s*sprinkles|(^|\s)fancy(\s|$)/.test(normalized)) return 'fancy';
+    if (/total\s*wine/.test(normalized)) return 'total_wine';
+    return '';
+  }
+
   function detectPartnerCustomer(payload) {
+    const emailCustomer = partnerCustomerIdFromText(payload?.order_details?.email_id);
+    if (emailCustomer) return emailCustomer;
+    const backendCustomer = String(payload?.detected_partner_customer || '').trim();
+    if (PARTNER_WORKFLOW_CONFIG[backendCustomer]) return backendCustomer;
     const candidates = [
       payload?.order_details?.storefront,
       payload?.order_details?.billing_customer_name,
@@ -7314,12 +7327,7 @@
         ...(item?.candidate_storefronts || [])
       ])
     ].map(value => normalizeStorefront(value || '').toLowerCase()).filter(Boolean);
-    const joined = candidates.join(' | ').replace(/[^a-z0-9]+/g, ' ');
-    if (/deco\s*pac/.test(joined)) return 'decopac';
-    if (/dutch\s*(bros|brothers)/.test(joined)) return 'dutch_bros';
-    if (/fancy\s*sprinkles|(^|\s)fancy(\s|$)/.test(joined)) return 'fancy';
-    if (/total\s*wine/.test(joined)) return 'total_wine';
-    return '';
+    return partnerCustomerIdFromText(candidates.join(' | '));
   }
 
   function partnerCustomerLabel(customerId = partnerCustomerId) {
@@ -7489,7 +7497,7 @@
     const select = document.getElementById('partner-order-instance-select');
     if (!picker || !select) return;
     picker.dataset.salesOrderNumber = orderNumber;
-    select.innerHTML = (instances || []).map(instance => `<option value="${escapeHtml(instance.ecomdash_id || '')}">${escapeHtml(`${instance.ecomdash_id || 'No ID'} · ${instance.storefront || instance.billing_customer_name || 'Unknown customer'} · ${instance.invoice_date || 'No date'} · ${instance.sku_count || 0} SKU(s)`)}</option>`).join('');
+    select.innerHTML = (instances || []).map(instance => `<option value="${escapeHtml(instance.ecomdash_id || '')}">${escapeHtml(`${instance.ecomdash_id || 'No ID'} · ${instance.email_id || instance.storefront || instance.billing_customer_name || 'Unknown customer'} · ${instance.invoice_date || 'No date'} · ${instance.sku_count || 0} SKU(s)`)}</option>`).join('');
     picker.classList.remove('hidden');
   }
 

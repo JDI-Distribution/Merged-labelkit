@@ -220,6 +220,10 @@ ANALYTICS_QUANTITY_COLUMN = str(
     _config_value("ANALYTICS_QUANTITY_COLUMN", "analytics_quantity_column", "Quantity Ordered")
     or "Quantity Ordered"
 ).strip()
+ANALYTICS_CUSTOMER_EMAIL_COLUMN = str(
+    _config_value("ANALYTICS_CUSTOMER_EMAIL_COLUMN", "analytics_customer_email_column", "Email")
+    or "Email"
+).strip()
 ANALYTICS_ITEM_DESCRIPTION_COLUMNS = ("Product Name", "Item Description", "Description")
 ANALYTICS_ITEM_NUMBER_COLUMNS = ("Item Number", "Customer Item Number")
 ANALYTICS_ITEM_GTIN_COLUMNS = ("GTIN", "UPC", "UPC Code", "Barcode")
@@ -236,6 +240,7 @@ ANALYTICS_ORDER_INSTANCE_DATE_COLUMN = "Invoice Date"
 ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN = "Storefront"
 ANALYTICS_ORDER_DETAIL_COLUMNS: Dict[str, str] = {
     "storefront": "Storefront",
+    "email_id": ANALYTICS_CUSTOMER_EMAIL_COLUMN,
     "billing_customer_name": "Billing Customer Name",
     "bill_to_phone": "Bill To Phone",
     "billing_street1": "Billing Street1",
@@ -1769,17 +1774,7 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     if product_rows is None:
         product_rows = _shared_product_master_file_read()
 
-    order_details = {
-        field_name: next(
-            (
-                value
-                for row in analytics_rows
-                if (value := _analytics_row_value(row, column_name))
-            ),
-            "",
-        )
-        for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
-    }
+    order_details = _analytics_order_details(analytics_rows)
     items = _b2b_analytics_order_items_for_products(analytics_rows, product_rows or [])
     summary = {
         "analytics_rows": len(analytics_rows),
@@ -1791,6 +1786,7 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     return JSONResponse(content={
         "sales_order_number": sales_order_number,
         "order_details": order_details,
+        "detected_partner_customer": _partner_customer_id_from_text(order_details.get("email_id")),
         "source": {
             "service": "local_file" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else "zoho_analytics",
             "connection": "" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else ANALYTICS_CONNECTION_LINK_NAME,
@@ -2572,6 +2568,33 @@ def _analytics_first_row_value(row: Dict[str, Any], column_names: Tuple[str, ...
     return ""
 
 
+def _analytics_order_details(rows: List[Dict[str, Any]]) -> Dict[str, str]:
+    return {
+        field_name: next(
+            (
+                value
+                for row in rows
+                if (value := _analytics_row_value(row, column_name))
+            ),
+            "",
+        )
+        for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
+    }
+
+
+def _partner_customer_id_from_text(value: Any) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+    if re.search(r"deco\s*pac", normalized):
+        return "decopac"
+    if re.search(r"dutch\s*(?:bros|brothers)", normalized):
+        return "dutch_bros"
+    if re.search(r"fancy\s*sprinkles|(?:^|\s)fancy(?:\s|$)", normalized):
+        return "fancy"
+    if re.search(r"total\s*wine", normalized):
+        return "total_wine"
+    return ""
+
+
 def _analytics_order_item_fallback(row: Dict[str, Any], sku: str) -> Dict[str, str]:
     """Keep usable line data when Product Master has no matching SKU.
 
@@ -2612,6 +2635,7 @@ def _analytics_order_instance_groups(rows: List[Dict[str, Any]]) -> List[Dict[st
         canonical_ecomdash_id = _canonical_order_number(raw_ecomdash_id)
         invoice_date = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_DATE_COLUMN)
         storefront = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN)
+        email_id = _analytics_row_value(row, ANALYTICS_CUSTOMER_EMAIL_COLUMN)
         billing_customer_name = _analytics_row_value(row, "Billing Customer Name")
         if canonical_ecomdash_id:
             group_key = f"ecomdash:{canonical_ecomdash_id}"
@@ -2619,6 +2643,7 @@ def _analytics_order_instance_groups(rows: List[Dict[str, Any]]) -> List[Dict[st
             group_key = "missing:" + "|".join([
                 invoice_date.casefold(),
                 storefront.casefold(),
+                email_id.casefold(),
                 billing_customer_name.casefold(),
             ])
         if group_key not in groups:
@@ -2626,6 +2651,7 @@ def _analytics_order_instance_groups(rows: List[Dict[str, Any]]) -> List[Dict[st
                 "key": group_key,
                 "ecomdash_id": raw_ecomdash_id,
                 "storefront": storefront,
+                "email_id": email_id,
                 "billing_customer_name": billing_customer_name,
                 "invoice_date": invoice_date,
                 "rows": [],
@@ -2651,6 +2677,7 @@ def _analytics_order_instance_summary(instance: Dict[str, Any]) -> Dict[str, Any
     return {
         "ecomdash_id": instance.get("ecomdash_id", ""),
         "storefront": instance.get("storefront", ""),
+        "email_id": instance.get("email_id", ""),
         "billing_customer_name": instance.get("billing_customer_name", ""),
         "invoice_date": instance.get("invoice_date", ""),
         "line_count": instance.get("line_count", 0),
@@ -2990,22 +3017,13 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             }),
         })
 
-    order_details = {
-        field_name: next(
-            (
-                value
-                for row in analytics_rows
-                if (value := _analytics_row_value(row, column_name))
-            ),
-            "",
-        )
-        for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
-    }
+    order_details = _analytics_order_details(analytics_rows)
 
     local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
     return JSONResponse(content={
         "sales_order_number": sales_order_number,
         "order_details": order_details,
+        "detected_partner_customer": _partner_customer_id_from_text(order_details.get("email_id")),
         "source": {
             "service": "local_file" if local_file_source else "zoho_analytics",
             "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,

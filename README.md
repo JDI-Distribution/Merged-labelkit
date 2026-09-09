@@ -2,7 +2,7 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-Current documented release: `2026.09.09-customer-order-documents`
+Current documented release: `2026.09.09-email-customer-detection`
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
@@ -202,7 +202,7 @@ The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order N
 
 For local testing, the `local` LabelKit profile reads the file configured by `analytics_local_file` instead of the Catalyst Connection. It points to the local fixture at `data/KeHE_Michaels_Storefront_Test_Data.csv`. The fixture contains customer contact and address columns and is explicitly excluded from Git. A Docker image built on this workstation still includes the local file unless it is also added to `.dockerignore`. The `catalyst` profile continues to use `orderdata` and does not read the local file.
 
-Required workbook headers: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`, `Billing Customer Name`, `Bill To Phone`, `Billing Street1`, `Billing Street2`, `Billing Street3`, `Billing City`, `Billing State`, `Billing Zip Code`, `Billing Country`, `Ship To Name`, `Ship To Phone`, `Shipping Street1`, `Shipping Street2`, `Shipping Street3`, `Shipping City`, `Shipping State`, `Shipping Zip Code`, `Shipping Country`, and `Order Notes`. `Product Name` is used as the unmatched-SKU description. Optional item identifiers and weight aliases are accepted when present: `Item Number`, `Customer Item Number`, `GTIN`, `UPC`, `Unit Weight Lbs`, `Unit Weight`, `Item Weight Lbs`, `Item Weight`, `Gross Weight Lbs`, `Pallet Weight Lbs`, and `Pallet Weight`.
+Required workbook headers: `Sales Order Number`, `SKUNumber`, `Quantity Ordered`, `Email`, `Billing Customer Name`, `Bill To Phone`, `Billing Street1`, `Billing Street2`, `Billing Street3`, `Billing City`, `Billing State`, `Billing Zip Code`, `Billing Country`, `Ship To Name`, `Ship To Phone`, `Shipping Street1`, `Shipping Street2`, `Shipping Street3`, `Shipping City`, `Shipping State`, `Shipping Zip Code`, `Shipping Country`, and `Order Notes`. `Product Name` is used as the unmatched-SKU description. Optional item identifiers and weight aliases are accepted when present: `Item Number`, `Customer Item Number`, `GTIN`, `UPC`, `Unit Weight Lbs`, `Unit Weight`, `Item Weight Lbs`, `Item Weight`, `Gross Weight Lbs`, `Pallet Weight Lbs`, and `Pallet Weight`.
 
 KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`. This keeps all storefront data in one place while letting KeHE remain isolated to KeHE rows:
 
@@ -261,7 +261,7 @@ Customer-specific fields come from Product Master and Directory. Direct label ed
 ## DecoPac / Dutch Bros / Fancy / Total Wine Order Workflow
 
 1. Open `DecoPac / Dutch Bros / Fancy / Total Wine` and enter the Sales Order Number. If the number exists in more than one order source, choose the correct order instance.
-2. LabelKit identifies DecoPac, Dutch Bros, Fancy Sprinkles, or Total Wine from the order customer/storefront. The user can select a customer before loading or change the selected layout afterward without leaving the workflow.
+2. LabelKit first checks the loaded order's `Email` value (returned to the UI as `email_id`) for DecoPac, Dutch Bros/Dutch Brothers, Fancy Sprinkles, or Total Wine. Email detection is authoritative. If the email does not identify one of those customers, LabelKit falls back to storefront, billing name, shipping name, and matched Product Master storefronts. The user can still select a customer before loading or change the selected layout afterward without leaving the workflow. The Analytics column is configurable as `analytics_customer_email_column` and defaults to `Email`.
 3. Choose whether to generate customer labels, the packing list, or both. LabelKit selects the required templates and calculates cartons from ordered quantity and Product Master case quantity when available.
 4. Review each label job before printing. Description, template, carton/pallet count, copies, and template-specific run fields remain editable. Fancy maps Date to ship date and Name to product description; Quantity, Lot Code, and Best-Before Date remain editable. Fancy pallet labels default to two copies per pallet.
 5. Use `Edit Packing List` for the full packing-list editor. Save the changes to return to the module and refresh its PDF preview.
@@ -387,7 +387,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.09-customer-order-documents"
+$release = "2026.09.09-email-customer-detection"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -450,7 +450,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.09-customer-order-documents"
+$release = "2026.09.09-email-customer-detection"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```

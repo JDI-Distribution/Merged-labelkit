@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from server import (
     FRONTEND_DIST,
+    _analytics_order_details,
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
     _b2b_analytics_order_items_for_products,
@@ -11,6 +12,7 @@ from server import (
     _datastore_row_to_mpl_draft,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
+    _partner_customer_id_from_text,
     _refresh_mpl_render_product_master,
     normalize_product_master_row,
     serve_frontend_index,
@@ -22,6 +24,25 @@ from pipelines.kehe.common import (
 
 
 class AnalyticsOrderInstanceTests(unittest.TestCase):
+    def test_partner_customer_is_detected_from_order_email_text(self):
+        examples = {
+            "orders@decopac.com": "decopac",
+            "shipping-dutchbros@example.com": "dutch_bros",
+            "Fancy Sprinkles <orders@example.com>": "fancy",
+            "receiving.totalwine@example.com": "total_wine",
+        }
+
+        for email_id, expected in examples.items():
+            with self.subTest(email_id=email_id):
+                self.assertEqual(expected, _partner_customer_id_from_text(email_id))
+
+        self.assertEqual("", _partner_customer_id_from_text("warehouse@example.com"))
+
+    def test_order_email_is_exposed_as_email_id(self):
+        details = _analytics_order_details([{"Email": "orders@decopac.com"}])
+
+        self.assertEqual("orders@decopac.com", details["email_id"])
+
     def test_reused_order_number_is_split_by_ecomdash_id(self):
         rows = [
             {
@@ -524,6 +545,7 @@ class FrontendDeliveryTests(unittest.TestCase):
             self.assertIn(template_id, javascript)
         self.assertIn("palletJob.run.copies = '2'", javascript)
         self.assertIn("function detectPartnerCustomer(payload)", javascript)
+        self.assertIn("partnerCustomerIdFromText(payload?.order_details?.email_id)", javascript)
         self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
         self.assertIn("async function renderPartnerPreviews()", javascript)
 
