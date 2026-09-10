@@ -14,7 +14,7 @@ Iteration order: shipping label pages drive the output.
     3. Emit: shipping page  →  GS1 label  →  packing list
 
 Requirements:
-    pip install PyPDF2 pymupdf reportlab pdf2image pytesseract pillow
+    pip install pymupdf reportlab pdf2image pytesseract pillow
 
     Tesseract OCR (Windows):
         https://github.com/UB-Mannheim/tesseract/wiki
@@ -48,8 +48,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-from PyPDF2 import PdfReader, PdfWriter
-import fitz
+import pymupdf as fitz
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -1219,7 +1218,7 @@ def _render_shipping_label_first(
       2. Look up matching XML pack  (tracking → PO → store)
       3. Emit: shipping page  →  GS1 label  →  packing list
 
-    Uses fitz (PyMuPDF) for final assembly — avoids PyPDF2 resource
+    Uses fitz (PyMuPDF) for final assembly and avoids cross-document resource
     cross-linking bugs that corrupt page ordering when merging mixed sources.
     """
     n_pages = fitz_doc.page_count

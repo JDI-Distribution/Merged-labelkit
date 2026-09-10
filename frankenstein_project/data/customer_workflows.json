@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "workflows": [
+    {
+      "id": "decopac",
+      "label": "DecoPac",
+      "mpl_template_id": "decopac",
+      "label_template_ids": ["DECOPAC_CASE_4X6"],
+      "accent": "green",
+      "selector_hint": "4 × 6 case labels",
+      "detection_aliases": ["decopac", "deco pac"]
+    },
+    {
+      "id": "dutch_bros",
+      "label": "Dutch Bros",
+      "mpl_template_id": "dutch_bros",
+      "label_template_ids": ["DUTCH_PFG_3X3", "DUTCH_OTHER_3X3"],
+      "accent": "green",
+      "selector_hint": "PFG / other labels",
+      "detection_aliases": ["dutch bros", "dutch brothers"]
+    },
+    {
+      "id": "fancy",
+      "label": "Fancy Sprinkles",
+      "mpl_template_id": "fancy",
+      "label_template_ids": [
+        "FANCY_SRD_3X3",
+        "FANCY_MASTER_PACK_3X3",
+        "FANCY_PALLET_3X3"
+      ],
+      "accent": "green",
+      "selector_hint": "SRD / master-pack labels",
+      "detection_aliases": ["fancy sprinkles", "fancy"]
+    }
+  ]
+}

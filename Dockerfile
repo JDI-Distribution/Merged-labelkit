@@ -1,3 +1,12 @@
+FROM python:3.11.9-slim-bookworm AS wheels
+
+WORKDIR /build
+
+COPY frankenstein_project/requirements.txt ./requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade "pip>=25.2,<26" && \
+    python -m pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+
 FROM python:3.11.9-slim-bookworm
 
 ARG APP_VERSION=dev
@@ -15,20 +24,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
     poppler-utils \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system labelkit && useradd --system --gid labelkit --home-dir /app labelkit
 
-COPY frankenstein_project/requirements.txt ./requirements.txt
-RUN python -m pip install --no-cache-dir --upgrade "pip>=25.2,<26" && \
-    python -m pip install --no-cache-dir -r requirements.txt
+COPY --from=wheels /wheels /wheels
+RUN python -m pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
 COPY --chown=labelkit:labelkit frankenstein_project/ ./
 

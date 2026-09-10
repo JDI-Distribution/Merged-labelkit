@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 
 from pipelines.kehe.common import _MPL_BRAND_LOGO_PATHS, _mpl_template_id, render_kehe_master_packing_list_pdf
 

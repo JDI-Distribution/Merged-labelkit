@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 
 import hashlib
 
-import fitz
+import pymupdf as fitz
 from reportlab.graphics.barcode import code128
 from reportlab.lib.pagesizes import LETTER, A4, landscape
 from reportlab.lib.units import inch
@@ -4517,14 +4517,6 @@ def _mpl_paginate_units(units: List[Tuple[str, Dict[str, Any], float]], availabl
     return pages or [[]]
 
 
-def _mpl_parse_dimensions_in(value: Any) -> Optional[Tuple[float, float, float]]:
-    nums = re.findall(r"\d+(?:\.\d+)?", str(value or "").replace(",", ""))
-    if len(nums) < 3:
-        return None
-    dims = tuple(float(n) for n in nums[:3])
-    return dims if all(d > 0 for d in dims) else None
-
-
 def _mpl_tihi_case_qty(item: Dict[str, Any]) -> int:
     qty = _qty_value(item.get("qty_on_pallet") or item.get("total_shipped") or item.get("qty"))
     if qty <= 0:
@@ -5877,186 +5869,6 @@ def _render_decopac_mpl_pages(
         c.rect(margin, margin, inner_w, page_h - 2 * margin)
         c.showPage()
     return len(chunks)
-
-
-def _render_dutch_bros_mpl_pages(
-    c: canvas.Canvas,
-    mpl: Dict[str, Any],
-    items: List[Dict[str, Any]],
-    brand_id: str,
-    progress_callback: Optional[Callable[[str], None]] = None,
-) -> int:
-    """Render a portrait Dutch Bros delivery summary with pallet cards."""
-    page_w, page_h = A4
-    margin = 0.38 * inch
-    inner_w = page_w - 2 * margin
-    theme = _mpl_template_theme("dutch_bros", brand_id)
-    groups = _mpl_group_items(items) or [("1", [])]
-    page_payloads: List[Tuple[str, List[Dict[str, Any]]]] = []
-    for pallet_id, rows in groups:
-        chunks = [rows[i:i + 7] for i in range(0, len(rows), 7)] or [[]]
-        page_payloads.extend((pallet_id, chunk) for chunk in chunks)
-
-    for page_index, (pallet_id, page_items) in enumerate(page_payloads, start=1):
-        if progress_callback:
-            progress_callback(f"Rendering {mpl.get('id', 'MPL')} Dutch Bros page {page_index}/{len(page_payloads)}...")
-        c.setPageSize((page_w, page_h))
-        c.setFillColorRGB(*theme["accent"])
-        c.rect(margin, margin, 0.09 * inch, page_h - 2 * margin, fill=1, stroke=0)
-        x0 = margin + 0.18 * inch
-        content_w = inner_w - 0.18 * inch
-        y = page_h - margin
-
-        c.setFillColorRGB(*theme["accent"])
-        c.setFont("Helvetica-Bold", 7.2)
-        c.drawString(x0, y - 0.12 * inch, "DELIVERY PACKING LIST")
-        c.setFillColorRGB(*theme["primary"])
-        title = _mpl_clean(mpl.get("title")) or "DUTCH BROS PACKING LIST"
-        logo_w = 2.30 * inch
-        _draw_fitted_line(c, title, x0, y - 0.40 * inch, content_w - logo_w - 8, "Helvetica-Bold", 18)
-        _draw_fitted_line(
-            c,
-            f"ORDER {_mpl_clean(mpl.get('order_no')) or '-'}",
-            x0,
-            y - 0.58 * inch,
-            content_w - logo_w - 8,
-            "Helvetica-Bold",
-            6.2,
-        )
-        _draw_mpl_brand_logo(c, brand_id, x0 + content_w - logo_w, y - 0.69 * inch, logo_w, 0.62 * inch)
-        c.setStrokeColorRGB(*theme["accent"])
-        c.setLineWidth(2.0)
-        c.line(x0, y - 0.82 * inch, x0 + content_w, y - 0.82 * inch)
-
-        card_top = y - 0.98 * inch
-        card_h = 1.00 * inch
-        gap = 0.12 * inch
-        left_w = content_w * 0.57
-        right_w = content_w - left_w - gap
-        for cx, cw, heading in [(x0, left_w, "ORDER & DELIVERY DETAILS"), (x0 + left_w + gap, right_w, "SHIP TO")]:
-            _draw_mpl_cell(c, cx, card_top - card_h, cw, card_h, theme["value_fill"], theme["primary"], 0.55)
-            c.setFillColorRGB(*theme["primary"])
-            c.setFont("Helvetica-Bold", 7.0)
-            c.drawString(cx + 7, card_top - 0.16 * inch, heading)
-        detail_rows = [
-            ("Customer PO", _mpl_clean(mpl.get("customer_po_number"))),
-            ("Ship Date", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date")))),
-            ("Carrier", _mpl_clean(mpl.get("ship_via"))),
-            ("BOL / Pro", " / ".join(filter(None, [_mpl_clean(mpl.get("bol_number")), _mpl_clean(mpl.get("pro_number"))]))),
-            ("Total Weight", _mpl_clean(mpl.get("total_weight"))),
-        ]
-        col_x = x0 + 7
-        detail_y = card_top - 0.34 * inch
-        for idx, (label, value) in enumerate(detail_rows):
-            dx = col_x + (idx % 2) * (left_w * 0.49)
-            dy = detail_y - (idx // 2) * 0.20 * inch
-            c.setFillColorRGB(0.35, 0.39, 0.44)
-            c.setFont("Helvetica-Bold", 5.4)
-            c.drawString(dx, dy, label.upper())
-            c.setFillColorRGB(0.05, 0.05, 0.05)
-            _draw_fitted_line(c, value, dx, dy - 0.09 * inch, left_w * 0.49 - 10, "Helvetica", 6.4)
-        address_x = x0 + left_w + gap + 7
-        address_y = card_top - 0.35 * inch
-        c.setFillColorRGB(0.05, 0.05, 0.05)
-        c.setFont("Helvetica", 6.4)
-        address_lines, address_size = fit_text_lines(
-            " | ".join(filter(None, _mpl_clean(mpl.get("ship_to")).splitlines())),
-            "Helvetica",
-            6.4,
-            right_w - 14,
-            5,
-        )
-        c.setFont("Helvetica", address_size)
-        address_leading = 0.12 * inch * (address_size / 6.4)
-        for line in address_lines:
-            c.drawString(address_x, address_y, line)
-            address_y -= address_leading
-
-        pallet_top = card_top - card_h - 0.18 * inch
-        pallet_bar_h = 0.44 * inch
-        _draw_mpl_cell(c, x0, pallet_top - pallet_bar_h, content_w, pallet_bar_h, theme["primary"], theme["primary"], 0.5)
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 7.0)
-        c.drawString(x0 + 8, pallet_top - 0.17 * inch, "PALLET")
-        c.setFillColorRGB(*theme["accent"])
-        _draw_fitted_line(
-            c,
-            _mpl_pallet_label(pallet_id),
-            x0 + 0.57 * inch,
-            pallet_top - 0.25 * inch,
-            content_w * 0.52,
-            "Helvetica-Bold",
-            17,
-        )
-        weights = mpl.get("_pallet_weights") if isinstance(mpl.get("_pallet_weights"), dict) else {}
-        c.setFillColorRGB(1, 1, 1)
-        _draw_fitted_line(
-            c,
-            f"WEIGHT  {_mpl_weight_label(weights.get(pallet_id)) or '-'}",
-            x0 + content_w - 8,
-            pallet_top - 0.19 * inch,
-            content_w * 0.36,
-            "Helvetica-Bold",
-            6.2,
-            align="right",
-        )
-
-        table_top = pallet_top - pallet_bar_h
-        columns = [
-            ("item_number", "ITEM / SKU", 0.16),
-            ("description", "PRODUCT", 0.39),
-            ("lot", "LOT", 0.12),
-            ("qty_on_pallet", "CASES", 0.10),
-            ("quantity_per_case", "UNITS / CASE", 0.11),
-            ("units_on_pallet", "TOTAL UNITS", 0.12),
-        ]
-        header_h = 0.28 * inch
-        x = x0
-        for _key, label, rel in columns:
-            cw = content_w * rel
-            _draw_mpl_cell(c, x, table_top - header_h, cw, header_h, theme["label_fill"], _MPL_GRID, 0.4)
-            c.setFillColorRGB(*theme["primary"])
-            c.setFont("Helvetica-Bold", 6.1)
-            c.drawCentredString(x + cw / 2, table_top - header_h / 2 - 2.2, label)
-            x += cw
-        row_y = table_top - header_h
-        row_h = 0.48 * inch
-        for row_index, item in enumerate(page_items):
-            x = x0
-            row_fill = (1, 1, 1) if row_index % 2 == 0 else theme["row_alt"]
-            for key, _label, rel in columns:
-                cw = content_w * rel
-                _draw_mpl_cell(c, x, row_y - row_h, cw, row_h, row_fill, _MPL_GRID, 0.35)
-                c.setFillColorRGB(0, 0, 0)
-                if key == "units_on_pallet":
-                    value = _mpl_units_on_pallet(item)
-                elif key == "qty_on_pallet":
-                    value = item.get(key) or item.get("total_shipped") or ""
-                elif key == "item_number":
-                    value = _mpl_item_number_display(item)
-                else:
-                    value = item.get(key, "")
-                _draw_centered_wrapped(c, _mpl_clean(value), x, row_y - row_h / 2, cw, "Helvetica", 6.4, max_lines=2, leading=7.0)
-                x += cw
-            row_y -= row_h
-
-        footer_y = margin + 0.16 * inch
-        c.setFillColorRGB(*theme["primary"])
-        supplier = _mpl_clean(mpl.get("supplier_info")).splitlines()
-        supplier_label = supplier[0] if supplier else theme["brand_label"]
-        _draw_fitted_line(
-            c,
-            f"SHIP FROM: {supplier_label}",
-            x0,
-            footer_y,
-            content_w * 0.72,
-            "Helvetica-Bold",
-            5.9,
-        )
-        c.setFont("Helvetica-Bold", 5.9)
-        c.drawRightString(x0 + content_w, footer_y, f"PAGE {page_index} OF {len(page_payloads)}")
-        c.showPage()
-    return len(page_payloads)
 
 
 def render_kehe_master_packing_list_pdf(

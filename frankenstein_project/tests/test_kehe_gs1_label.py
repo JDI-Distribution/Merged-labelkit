@@ -1,7 +1,7 @@
 import re
 import unittest
 
-import fitz
+import pymupdf as fitz
 
 from pipelines.kehe.common import Address, Item, Pack, render_gs1_label_page
 

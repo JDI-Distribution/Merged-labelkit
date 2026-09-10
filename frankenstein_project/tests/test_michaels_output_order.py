@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-import fitz
+import pymupdf as fitz
 
 from pipelines.michaels import pipeline
 from server import split_michaels_output_by_shipping_pdf

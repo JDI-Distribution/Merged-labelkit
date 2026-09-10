@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 
 from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job
 from server import _render_b2b_batch_pdf
@@ -65,7 +65,7 @@ class B2BLabelRendererTests(unittest.TestCase):
         }
 
     def test_registry_has_a_working_renderer_for_every_supported_label(self):
-        self.assertEqual(14, len(self.templates))
+        self.assertEqual(11, len(self.templates))
         for template in self.templates:
             with self.subTest(template=template["template_id"]):
                 job = self._job(template)
@@ -81,9 +81,7 @@ class B2BLabelRendererTests(unittest.TestCase):
                 self.assertAlmostEqual(float(template["physical_height_in"]) * 72, page.rect.height, delta=0.5)
                 text = "\n".join(item.get_text() for item in document)
                 renderer = template.get("renderer_key")
-                if renderer == "total_wine_kehe_pack_4x4":
-                    self.assertIn("BREW GLITTER RED", text)
-                elif renderer in {"fancy_pallet_3x3", "total_wine_kehe_pallet_4x6"}:
+                if renderer == "fancy_pallet_3x3":
                     self.assertIn("2", text)
                     self.assertIn("3", text)
                 elif renderer == "decopac_case_4x6":
@@ -102,9 +100,6 @@ class B2BLabelRendererTests(unittest.TestCase):
                 "FANCY_PALLET_3X3",
                 "DUTCH_PFG_3X3",
                 "DUTCH_OTHER_3X3",
-                "TOTAL_WINE_INNER_PACK_4X4",
-                "TOTAL_WINE_MASTER_CASE_4X4",
-                "TOTAL_WINE_PALLET_4X6",
                 "MIXED_CASE_3X1_5",
                 "STANDARD_CASE_PACK_4X6",
                 "STANDARD_CASE_PACK_VERTICAL_4X6",
@@ -187,7 +182,7 @@ class B2BLabelRendererTests(unittest.TestCase):
         long_sku = "SKU" * 14
         for template in self.templates:
             with self.subTest(template=template["template_id"]):
-                if template.get("renderer_key") in {"fancy_pallet_3x3", "total_wine_kehe_pallet_4x6"}:
+                if template.get("renderer_key") == "fancy_pallet_3x3":
                     continue
                 job = self._job(template)
                 job["product"]["description"] = long_description
@@ -248,22 +243,6 @@ class B2BLabelRendererTests(unittest.TestCase):
         text = "\n".join(page.get_text() for page in fitz.open(stream=result["pdf_bytes"], filetype="pdf"))
         for expected in ("DATE:", "NAME:", "QTY:", "LOT CODE:", "BB DATE:"):
             self.assertIn(expected, text)
-
-    def test_total_wine_reuses_kehe_pack_and_pallet_page_sizes(self):
-        expectations = {
-            "TOTAL_WINE_INNER_PACK_4X4": (4, 4),
-            "TOTAL_WINE_MASTER_CASE_4X4": (4, 4),
-            "TOTAL_WINE_PALLET_4X6": (4, 6),
-        }
-        for template_id, dimensions in expectations.items():
-            template = next(item for item in self.templates if item["template_id"] == template_id)
-            job = self._job(template)
-            job["run"].update({"carton_total": "1", "carton_start": "1", "carton_end": "1", "copies": "1"})
-            result = render_b2b_label_pdf(job, template)
-            with fitz.open(stream=result["pdf_bytes"], filetype="pdf") as document:
-                self.assertAlmostEqual(dimensions[0] * 72, document[0].rect.width, delta=0.5)
-                self.assertAlmostEqual(dimensions[1] * 72, document[0].rect.height, delta=0.5)
-
 
 if __name__ == "__main__":
     unittest.main()

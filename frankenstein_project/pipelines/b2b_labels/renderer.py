@@ -20,9 +20,6 @@ from reportlab.lib.units import inch
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
-from pipelines.kehe.common import _draw_pack_label_page, _render_pallet_label_page
-
-
 SUPPORTED_RENDERERS = {
     "bulk_further_processing_4x6",
     "compact_case_3x3",
@@ -32,8 +29,6 @@ SUPPORTED_RENDERERS = {
     "mixed_case_3x1_5",
     "standard_case_4x6",
     "standard_case_vertical_4x6",
-    "total_wine_kehe_pack_4x4",
-    "total_wine_kehe_pallet_4x6",
 }
 
 
@@ -471,38 +466,6 @@ def _draw_fancy_pallet(c: canvas.Canvas, job: Dict[str, Any], carton: int, total
         _draw_fitted_line(c, f"Pallet {carton} of {total}", width - margin, 0.12 * inch, width * 0.48, font="Helvetica-Bold", size=7.5, align="right")
 
 
-def _draw_total_wine_kehe_pack(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, width: float, height: float) -> None:
-    """Adapt a B2B/order job to the existing KeHE MP/IP renderer."""
-    level = _job_value(job, "packaging_level", default="Case")
-    kind = "IP" if level.strip().lower().startswith("inner") else "MP"
-    label = {
-        "description": _job_value(job, "description"),
-        "gtin": _job_value(job, "gtin") if _barcode_requested(job) else "",
-        "packaging_level": level,
-        "pack_prefix": kind,
-        "lot": _job_value(job, "lot_number"),
-        "best_before": _job_value(job, "best_before"),
-        "gross_weight_lbs": _job_value(job, "gross_weight_lbs", "weight_lbs"),
-        "case_qty": _job_value(job, "case_qty"),
-    }
-    _draw_pack_label_page(c, label)
-
-
-def _draw_total_wine_kehe_pallet(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, width: float, height: float) -> None:
-    """Adapt a B2B/order job to the existing KeHE pallet-placard renderer."""
-    pallet = {
-        "id": f"TW-PALLET-{carton}",
-        "status": "Ready" if _job_value(job, "delivery_address", "ship_to") and _job_value(job, "po_number") else "Needs Review",
-        "expected_delivery_date": _job_value(job, "ship_date", "expected_delivery_date"),
-        "ship_from": _job_value(job, "manufacturer_address", "ship_from"),
-        "ship_to": _job_value(job, "delivery_address", "ship_to"),
-        "pallet_number": str(carton),
-        "total_pallets": str(total),
-        "customer_po_numbers": _job_value(job, "po_number", "order_number"),
-    }
-    _render_pallet_label_page(c, pallet)
-
-
 def _draw_mixed(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, width: float, height: float) -> None:
     _draw_border(c, width, height, inset=0.04 * inch)
     margin = 0.10 * inch
@@ -649,10 +612,6 @@ def _renderer_for(template: Dict[str, Any]) -> Callable[[canvas.Canvas, Dict[str
         return _draw_standard_case
     if key == "standard_case_vertical_4x6":
         return _draw_standard_case_vertical
-    if key == "total_wine_kehe_pack_4x4":
-        return _draw_total_wine_kehe_pack
-    if key == "total_wine_kehe_pallet_4x6":
-        return _draw_total_wine_kehe_pallet
     if key == "bulk_further_processing_4x6":
         return _draw_bulk
     raise ValueError(f"Unsupported B2B label renderer: {key}")

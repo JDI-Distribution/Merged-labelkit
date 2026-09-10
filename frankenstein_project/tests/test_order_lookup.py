@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 from server import (
     FRONTEND_DIST,
     _analytics_order_details,
@@ -10,10 +12,13 @@ from server import (
     _hydrate_saved_mpl_record,
     _product_each_gtin,
     _datastore_row_to_mpl_draft,
+    _datastore_save_mpl_drafts,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
     _partner_customer_id_from_text,
     _refresh_mpl_render_product_master,
+    _select_analytics_order_instance,
+    _validated_sales_order_number,
     normalize_product_master_row,
     serve_frontend_index,
 )
@@ -24,12 +29,25 @@ from pipelines.kehe.common import (
 
 
 class AnalyticsOrderInstanceTests(unittest.TestCase):
+    def test_order_lookup_helpers_validate_and_select_consistently(self):
+        self.assertEqual("SO-101", _validated_sales_order_number({"sales_order_number": " SO-101 "}))
+        with self.assertRaises(HTTPException):
+            _validated_sales_order_number({"sales_order_number": "bad\nnumber"})
+
+        rows = [
+            {"Ecomdash ID": "100", "SKUNumber": "A"},
+            {"Ecomdash ID": "200", "SKUNumber": "B"},
+        ]
+        selected_rows, selected_id, selection = _select_analytics_order_instance(rows, "200", "SO-101")
+        self.assertEqual("200", selected_id)
+        self.assertIsNone(selection)
+        self.assertEqual(["B"], [row["SKUNumber"] for row in selected_rows])
+
     def test_partner_customer_is_detected_from_order_email_text(self):
         examples = {
             "orders@decopac.com": "decopac",
             "shipping-dutchbros@example.com": "dutch_bros",
             "Fancy Sprinkles <orders@example.com>": "fancy",
-            "receiving.totalwine@example.com": "total_wine",
         }
 
         for email_id, expected in examples.items():
@@ -385,6 +403,50 @@ class KeheMplItemNumberTests(unittest.TestCase):
 
 
 class MplDraftStorageTests(unittest.TestCase):
+    def test_existing_datastore_draft_is_updated_without_delete_and_reinsert(self):
+        class FakeDraftTable:
+            def __init__(self, rows):
+                self.rows = rows
+                self.updated = []
+                self.inserted = []
+                self.deleted = []
+
+            def get_paged_rows(self, *args, **kwargs):
+                return {"content": self.rows, "more_records": False}
+
+            def update_rows(self, rows):
+                self.updated.extend(rows)
+
+            def insert_rows(self, rows):
+                self.inserted.extend(rows)
+
+            def delete_rows(self, row_ids):
+                self.deleted.extend(row_ids)
+
+        existing = _mpl_draft_to_datastore_row({
+            "id": "draft-1",
+            "name": "Before",
+            "document_type": "MPL",
+            "draft": {"packing_lists": [{"id": "MPL-1", "items": []}]},
+        })
+        existing["ROWID"] = "9001"
+        table = FakeDraftTable([existing])
+        wanted = [{
+            "id": "draft-1",
+            "name": "After",
+            "document_type": "MPL",
+            "draft": {"packing_lists": [{"id": "MPL-1", "items": [{"sku": "ABC"}]}]},
+        }]
+
+        with patch("server._mpl_drafts_datastore_table", return_value=table):
+            saved = _datastore_save_mpl_drafts(object(), wanted, "MPL")
+
+        self.assertTrue(saved)
+        self.assertEqual("9001", table.updated[0]["ROWID"])
+        self.assertEqual("After", table.updated[0]["NAME"])
+        self.assertFalse(table.inserted)
+        self.assertFalse(table.deleted)
+
     def test_saved_draft_rehydrates_legacy_sku_item_number_from_each_gtin(self):
         record = {
             "id": "saved-39830",
@@ -508,46 +570,59 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn('id="b2b-product-gtin"', html)
         self.assertIn('id="b2b-product-barcode-type"', html)
         self.assertIn('id="b2b-run-fields-empty"', html)
+        self.assertIn('id="b2b-render-button" type="button" onclick="generateB2BPreview(true)"', html)
+        self.assertNotIn('onclick="generateB2BPreview(false)">Render Final PDF', html)
         self.assertEqual(5, html.count("data-b2b-run-wrap="))
         self.assertNotIn('data-b2b-run-field="po_number"', html)
         self.assertIn("function b2bRunFieldNames(template)", javascript)
-        self.assertIn("function b2bLabelEditorHtml(template, product, directory)", javascript)
+        self.assertIn("function b2bLabelEditorHtml(template, product, directory, context = {})", javascript)
         self.assertIn("function renderB2BProductSettings(product", javascript)
         self.assertIn("function commitB2BLabelEdit(element)", javascript)
         self.assertIn("function commitB2BRunLabelEdit(element)", javascript)
         self.assertIn("setB2BSelectorVisibility('level', !!selectedGroup)", javascript)
         self.assertIn("b2bRunFieldNames(template).forEach(field =>", javascript)
 
-    def test_combined_customer_order_module_has_selector_and_editable_dual_previews(self):
+    def test_combined_customer_order_module_uses_kehe_style_editors_and_previews(self):
         html = serve_frontend_index().body.decode("utf-8")
         javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn('id="partner-workspace-page"', html)
         self.assertIn('id="partner-sales-order-number"', html)
-        self.assertIn('id="partner-label-editor-list"', html)
-        self.assertIn('id="partner-labels-preview"', html)
-        self.assertIn('id="partner-mpl-preview"', html)
-        self.assertIn('onclick="editPartnerPackingList()"', html)
-        self.assertIn('data-partner-customer="decopac"', html)
-        self.assertIn('data-partner-customer="dutch_bros"', html)
-        self.assertIn('data-partner-customer="fancy"', html)
-        self.assertIn('data-partner-customer="total_wine"', html)
-        self.assertLess(html.index('DecoPac / Dutch Bros / Fancy / Total Wine'), html.index('Packing List &amp; Ti-Hi'))
-        self.assertIn("const PARTNER_WORKFLOW_CONFIG", javascript)
-        self.assertIn("function selectPartnerCustomer(customerId", javascript)
-        self.assertIn("if (/fancy\\s*sprinkles", javascript)
-        self.assertIn("if (/total\\s*wine/", javascript)
-        for template_id in (
-            "TOTAL_WINE_INNER_PACK_4X4",
-            "TOTAL_WINE_MASTER_CASE_4X4",
-            "TOTAL_WINE_PALLET_4X6",
+        for button_id in (
+            "btn-partner-pack-labels",
+            "btn-partner-pallet-labels",
+            "btn-partner-mpl",
+            "btn-preview-partner-pack-labels",
+            "btn-preview-partner-pallet-labels",
+            "btn-preview-partner-mpl",
         ):
-            self.assertIn(template_id, javascript)
+            self.assertIn(f'id="{button_id}"', html)
+        self.assertNotIn('id="partner-label-editor-list"', html)
+        self.assertNotIn('id="partner-labels-preview"', html)
+        self.assertNotIn('id="partner-mpl-preview"', html)
+        self.assertIn("function openPartnerLabelEditor(kind", javascript)
+        self.assertIn("function openPartnerPreview(kind)", javascript)
+        self.assertIn("function renderPartnerLabelsEditor(kind", javascript)
+        self.assertIn("commitPartnerProductLabelEdit(this)", javascript)
+        self.assertIn("commitPartnerRunLabelEdit(this)", javascript)
+        self.assertIn('onclick="editPartnerPackingList()"', html)
+        self.assertIn('id="partner-customer-options"', html)
+        self.assertNotIn('data-partner-customer="total_wine"', html)
+        self.assertLess(html.index('DecoPac / Dutch Bros / Fancy'), html.index('Packing List &amp; Ti-Hi'))
+        self.assertIn("let PARTNER_WORKFLOW_CONFIG", javascript)
+        self.assertIn("async function loadCustomerWorkflowConfig()", javascript)
+        self.assertIn("renderPartnerCustomerOptions();", javascript)
+        self.assertIn("function selectPartnerCustomer(customerId", javascript)
+        self.assertNotIn("total_wine", javascript)
+        self.assertNotIn("openCombinedPartnerWorkflow", javascript)
+        self.assertIn("Customer-specific manual MPL layouts", javascript)
+        self.assertIn("onclick=\"setMplTemplate(${mplIndex}, '${cfg.mplTemplateId}')\"", javascript)
         self.assertIn("palletJob.run.copies = '2'", javascript)
         self.assertIn("function detectPartnerCustomer(payload)", javascript)
-        self.assertIn("partnerCustomerIdFromText(payload?.order_details?.email_id)", javascript)
+        self.assertIn("payload?.detected_partner_customer", javascript)
         self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
         self.assertIn("async function renderPartnerPreviews()", javascript)
+        self.assertIn("const saveBeforeGenerate = !!options.saveMplDraft;", javascript)
 
 
 if __name__ == "__main__":

@@ -2,13 +2,14 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-Current documented release: `2026.09.09-email-customer-detection`
+Current documented release: `2026.09.10-document-preview-save-fix`
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
 - Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
 - B2B Case-Pack Labels: follow a customer-first configuration hierarchy, edit printed values directly on a live label canvas, complete technical product/barcode setup when needed, and render the production PDF for download or printing.
-- DecoPac / Dutch Bros / Fancy / Total Wine: use one shared customer-specific workflow to detect or select the customer, review/edit every required label and packing list, and preview both PDFs before printing or downloading. Total Wine produces KeHE-format documents.
+- Automatic customer documents: open Pack Labels, Pallet Labels, and Master Packing List through the same edit-and-preview workflow used by KeHE. Partner labels are editable on their print layouts, and saved MPL generation persists the draft before opening the PDF preview.
+- DecoPac / Dutch Bros / Fancy: use one shared customer-specific workflow to detect or select the customer, review/edit every required label and packing list, and preview both PDFs before printing or downloading.
 
 The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
 
@@ -23,7 +24,7 @@ FastAPI routes in server.py
    |-- KeHE pipeline -------- ASN XML + reference data ------> GS1/pack/pallet/MPL PDFs
    |-- Packing List & Ti-Hi - sales order + Product Master --> editable MPL + optional TI-HI
    |-- B2B labels ----------- sales order + product/template --> editable label canvas --> case-pack PDF
-   `-- DecoPac / Dutch Bros / Fancy / Total Wine - sales order --> customer selection/config --> editable labels + MPL previews
+   `-- DecoPac / Dutch Bros / Fancy - sales order --> customer selection/config --> editable labels + MPL previews
 ```
 
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
@@ -32,6 +33,8 @@ FastAPI routes in server.py
 - Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser. The B2B editable canvas mirrors the selected renderer, while Section 4 remains the authoritative production-PDF proof.
 - Packing List and B2B order lookup use the field label `Sales Order Number`. Catalyst reads the Zoho Analytics order view through the `orderdata` connection.
 - Missing Product Master data produces one short review warning instead of blocking output. Packing lists use the order SKU as Item Number, carry the order Product Name into Item Description, and use order-provided weight fields when present. Lines without safe case dimensions or case-pack data remain excluded from TI-HI.
+- `data/customer_workflows.json` is the single customer registry for DecoPac, Dutch Bros, and Fancy. It drives the browser selector, Email aliases, packing-list template, and supported label-template IDs so the frontend and backend do not maintain separate customer lists.
+- B2B and Packing List order lookups share the same sales-order validation, reused-order selection, and Zoho/local source metadata helpers.
 
 ## Release Order
 
@@ -107,7 +110,7 @@ Landing page options:
 
 - `Michaels DTS`
 - `KeHE GS1`
-- `DecoPac / Dutch Bros / Fancy / Total Wine`
+- `DecoPac / Dutch Bros / Fancy`
 - `Packing List & Ti-Hi`
 - `B2B Case-Pack Labels`
 
@@ -125,7 +128,9 @@ KeHE and standalone MPL reference table routes:
 - `GET /api/kehe/dc-directory` read-only KeHE storefront view; `PUT` returns `405`
 - `GET/PUT /api/mpl/product-master`
 - `GET/PUT /api/mpl/directory`
+- `GET /api/customer-workflows` load the shared automatic-order customer registry
 - `GET /api/b2b/label-templates`
+- `POST /api/b2b/orders/lookup` load an order through the shared order-instance selector
 - `POST /api/b2b/render` render an editable B2B print run as a print-size PDF
 - `POST /api/partner/render-labels` render the selected automatic-order customer labels
 - `POST /api/mpl/orders/lookup` search the connected Zoho Analytics order view and match its SKUs to Product Master
@@ -196,7 +201,8 @@ KeHE functionality:
 
 - `frankenstein_project/data/mpl_product_master.json`
 - `frankenstein_project/data/mpl_directory.json`
-- `frankenstein_project/data/kehe_mpl_drafts.json`
+
+Local saved MPL drafts are written to the ignored runtime file `frankenstein_project/data/kehe_mpl_drafts.json`. The file is created automatically and is not source-controlled or copied into the production image.
 
 The workspace can also create an MPL from Zoho Analytics. Enter a `Sales Order Number` in the Order Data search. The backend reads `Data with Product Details` through the Catalyst Connection `orderdata`. If that number is reused, LabelKit lists the distinct `Ecomdash ID` values with Storefront, Billing Customer Name, and Invoice Date so the user can select the intended order instance; every SKU row sharing that Ecomdash ID is retained. Duplicate `SKUNumber` rows within the selected order are grouped. Analytics `Quantity Ordered` values are eaches; matched KeHE products are converted to cases using the explicit `Eaches / Package` value on the Product Master Case row before palletization (for example, 36 eaches per case). When an Inner Pack row is present, LabelKit also derives the packaging breakdown, such as 6 eaches per inner pack × 6 inner packs per case. It never silently assumes 36: a missing or invalid Case package quantity blocks the conversion with a Product Master correction message. A non-full-case remainder is rounded up and marked for review. A unique enabled Case-level SKU match in Product Master fills description, GTIN, dimensions, storefront, and unit weight, then automatically palletizes and recalculates line, pallet, and total weights. Billing name, phone, street, city, state, ZIP, and country fields populate the MPL `BILL TO` box; the corresponding shipping fields populate `SHIP TO`; and `Order Notes` populate `Shipping Instructions`. Missing or cross-storefront ambiguous SKUs remain editable and receive a condensed review warning. Their order SKU fills `Item Number`, `Product Name` fills Item Description, and any recognized order weight field fills the available line/pallet weight. The unconverted quantity remains labeled `EACHES`; without verified case pack and dimensions the line stays unassigned and is omitted from TI-HI. A line missing only its Each GTIN uses its SKU as Item Number and can still use TI-HI when Case dimensions and weight are available. No TI-HI page is added when the order has no valid TI-HI entries.
 
@@ -248,26 +254,25 @@ Supported workbook-derived label types:
 - Fancy Sprinkles SRD and Master-Pack dual-panel labels on one 4x6 page, plus a 3x3 pallet label printed twice per pallet.
 - DecoPac A/B panels stacked on one 4x6 page.
 - Dutch Bros PFG and Other duplicated panels side-by-side on one 4x6 page.
-- Total Wine KeHE-compatible Inner Pack 4x4, Master Case 4x4, and Pallet 4x6 labels.
 - Disney case 4x6.
 - Standard case-pack 4x6 in horizontal and vertical dual-panel layouts.
 - Mixed-case strip 3x1.5.
 - Bulk further-processing 4x6.
 
-All fourteen supported label types have at least one enabled Product Master configuration. Non-production examples use `SAMPLE-*` configuration/SKU values and `DRAFT` status so they are easy to identify and replace after testing. Fancy SRD, Fancy Master-Pack, Dutch PFG, and Dutch Other share one configurable dual-panel renderer; their titles, copy counts, invoice visibility, and required fields remain template-driven. Standard Case Packs and Disney remain available in B2B only.
+All eleven supported label types have at least one enabled Product Master configuration. Non-production examples use `SAMPLE-*` configuration/SKU values and `DRAFT` status so they are easy to identify and replace after testing. Fancy SRD, Fancy Master-Pack, Dutch PFG, and Dutch Other share one configurable dual-panel renderer; their titles, copy counts, invoice visibility, and required fields remain template-driven. Standard Case Packs and Disney remain available in B2B only.
 
 Customer-specific fields come from Product Master and Directory. Direct label edits to product text write through to Product Master, while PO/lot/carton/job values remain print-run data. The bundled template registry is `frankenstein_project/data/b2b_label_templates.json`, and the production renderers live under `frankenstein_project/pipelines/b2b_labels/`.
 
-## DecoPac / Dutch Bros / Fancy / Total Wine Order Workflow
+## DecoPac / Dutch Bros / Fancy Order Workflow
 
-1. Open `DecoPac / Dutch Bros / Fancy / Total Wine` and enter the Sales Order Number. If the number exists in more than one order source, choose the correct order instance.
-2. LabelKit first checks the loaded order's `Email` value (returned to the UI as `email_id`) for DecoPac, Dutch Bros/Dutch Brothers, Fancy Sprinkles, or Total Wine. Email detection is authoritative. If the email does not identify one of those customers, LabelKit falls back to storefront, billing name, shipping name, and matched Product Master storefronts. The user can still select a customer before loading or change the selected layout afterward without leaving the workflow. The Analytics column is configurable as `analytics_customer_email_column` and defaults to `Email`.
+1. Open `DecoPac / Dutch Bros / Fancy` and enter the Sales Order Number. If the number exists in more than one order source, choose the correct order instance.
+2. LabelKit first checks the loaded order's `Email` value (returned to the UI as `email_id`) for DecoPac, Dutch Bros/Dutch Brothers, or Fancy Sprinkles. Email detection is authoritative. If the email does not identify one of those customers, LabelKit falls back to storefront, billing name, shipping name, and matched Product Master storefronts. The user can still select a customer before loading or change the selected layout afterward without leaving the workflow. The Analytics column is configurable as `analytics_customer_email_column` and defaults to `Email`.
 3. Choose whether to generate customer labels, the packing list, or both. LabelKit selects the required templates and calculates cartons from ordered quantity and Product Master case quantity when available.
 4. Review each label job before printing. Description, template, carton/pallet count, copies, and template-specific run fields remain editable. Fancy maps Date to ship date and Name to product description; Quantity, Lot Code, and Best-Before Date remain editable. Fancy pallet labels default to two copies per pallet.
 5. Use `Edit Packing List` for the full packing-list editor. Save the changes to return to the module and refresh its PDF preview.
 6. Review the label and packing-list previews independently, then print or download each final PDF.
 
-The four customers share the order loader, Product Master matching, packing-list editor, preview controls, and PDF generation path. Configuration selects the customer-specific label family and packing-list template. Total Wine selects all three KeHE-style label types by default and uses the KeHE packing-list renderer; DecoPac, Dutch Bros, and Fancy use the shared pallet-breakdown packing list with their customer heading. The workflow uses order values when Product Master data is incomplete so the user can still produce a reviewable document. Missing case-pack, GTIN, dimensions, or weight data stays visible as a concise review warning instead of discarding the order line.
+The three customers share the order loader, Product Master matching, packing-list editor, preview controls, and PDF generation path. Configuration selects the customer-specific label family and packing-list template. DecoPac, Dutch Bros, and Fancy use the shared pallet-breakdown packing list with their customer heading. The workflow uses order values when Product Master data is incomplete so the user can still produce a reviewable document. Missing case-pack, GTIN, dimensions, or weight data stays visible as a concise review warning instead of discarding the order line.
 
 ## Master Packing List And TI-HI
 
@@ -387,9 +392,14 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.09-email-customer-detection"
+$release = "2026.09.10-document-preview-save-fix"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
+
+The Dockerfile uses a disposable wheel-building stage and copies only installed
+runtime packages into the final image. Compilers and Uvicorn development extras
+are intentionally excluded; Poppler and Tesseract remain installed for PDF
+conversion and Michaels OCR.
 
 Run locally:
 
@@ -450,7 +460,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.09-email-customer-detection"
+$release = "2026.09.10-document-preview-save-fix"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
@@ -737,7 +747,7 @@ Tracked app source:
     |-- start.sh
     |-- data
     |   |-- b2b_label_templates.json
-    |   |-- kehe_mpl_drafts.json
+    |   |-- customer_workflows.json
     |   |-- mpl_directory.json
     |   |-- mpl_product_master.json
     |   `-- seeds
@@ -753,8 +763,12 @@ Tracked app source:
     |               `-- app.js
     |-- scripts
     |   `-- migrate_product_master_and_seed_b2b.py
+    |-- labelkit
+    |   |-- __init__.py
+    |   `-- customer_workflows.py
     |-- tests
     |   |-- test_b2b_labels.py
+    |   |-- test_customer_workflows.py
     |   |-- test_kehe_gs1_label.py
     |   |-- test_mpl_templates.py
     |   |-- test_order_lookup.py
@@ -789,7 +803,7 @@ Tracked app source:
 Data table note:
 
 - In local development, `mpl_product_master.json` and `mpl_directory.json` are the shared editable Product Master and Directory fallback sources.
-- In local development, `kehe_mpl_drafts.json` is the saved MPL draft fallback source.
+- In local development, the ignored `kehe_mpl_drafts.json` runtime file is created automatically as the saved MPL draft fallback source.
 - In Catalyst, `labelkit_config.json` points the app to Catalyst Data Store and disables local JSON fallback.
 - KeHE uses rows from those shared tables where `Storefront = KeHE`.
 - The old KeHE-only data files were removed so there is one maintained Product Master and one maintained Directory.

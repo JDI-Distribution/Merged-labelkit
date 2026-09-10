@@ -35,7 +35,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import fitz
+import pymupdf as fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -61,6 +61,7 @@ from pipelines.kehe_pipeline import (  # noqa: E402
     load_kehe_dc_directory,
 )
 from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job  # noqa: E402
+from labelkit.customer_workflows import detect_customer_id, load_customer_workflows  # noqa: E402
 
 MatchFailureErrors = (MichaelsMatchFailureError,)
 
@@ -382,6 +383,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+CUSTOMER_WORKFLOWS_FILE = BASE_DIR / "data" / "customer_workflows.json"
+CUSTOMER_WORKFLOWS = load_customer_workflows(CUSTOMER_WORKFLOWS_FILE)
 
 
 @app.middleware("http")
@@ -418,7 +421,7 @@ def health() -> Dict[str, Any]:
             "kehe": "XML-only GS1 label workflow",
             "mpl": "Packing List and Ti-Hi workspace",
             "b2b": "Editable customer case-pack label workflow",
-            "partners": "Automatic DecoPac, Dutch Bros, Fancy Sprinkles, and Total Wine labels and packing-list workflow",
+            "partners": "Automatic DecoPac, Dutch Bros, and Fancy Sprinkles labels and packing-list workflow",
         },
     }
 
@@ -1716,59 +1719,29 @@ async def get_b2b_label_templates(request: Request) -> JSONResponse:
     return JSONResponse(content=_load_b2b_label_templates())
 
 
+@app.get("/api/customer-workflows")
+async def get_customer_workflows(request: Request) -> JSONResponse:
+    _require_permission(request, "view")
+    return JSONResponse(content={"workflows": CUSTOMER_WORKFLOWS})
+
+
 @app.post("/api/b2b/orders/lookup")
 def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
+    sales_order_number = _validated_sales_order_number(payload)
     requested_ecomdash_id = str(payload.get("ecomdash_id") or "").strip() if isinstance(payload, dict) else ""
-    if not sales_order_number:
-        raise HTTPException(status_code=400, detail="Sales Order Number is required.")
 
     analytics_rows = _analytics_export_order_rows(request, sales_order_number)
     if not analytics_rows:
         raise HTTPException(status_code=404, detail=f"No rows were found for Sales Order Number '{sales_order_number}'.")
 
-    order_instances = _analytics_order_instance_groups(analytics_rows)
-    selected_ecomdash_id = ""
-    if requested_ecomdash_id:
-        wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
-        selected_instance = next(
-            (
-                instance
-                for instance in order_instances
-                if _canonical_order_number(instance.get("ecomdash_id")) == wanted_ecomdash_id
-            ),
-            None,
-        )
-        if selected_instance is None:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    f"ECOMDASH ID '{requested_ecomdash_id}' was not found for Sales Order Number '{sales_order_number}'."
-                ),
-            )
-        analytics_rows = selected_instance["rows"]
-        selected_ecomdash_id = str(selected_instance.get("ecomdash_id") or "")
-    elif len(order_instances) > 1:
-        return JSONResponse(content={
-            "sales_order_number": sales_order_number,
-            "requires_order_selection": True,
-            "order_instances": [
-                _analytics_order_instance_summary(instance)
-                for instance in order_instances
-            ],
-            "source": {
-                "service": "local_file" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else "zoho_analytics",
-                "connection": "" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else ANALYTICS_CONNECTION_LINK_NAME,
-                "local_file": ANALYTICS_LOCAL_FILE.name if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES and ANALYTICS_LOCAL_FILE else "",
-                "workspace_id": ANALYTICS_WORKSPACE_ID,
-                "view_id": ANALYTICS_VIEW_ID,
-                "view_name": ANALYTICS_VIEW_NAME,
-            },
-        })
-    elif order_instances:
-        analytics_rows = order_instances[0]["rows"]
-        selected_ecomdash_id = str(order_instances[0].get("ecomdash_id") or "")
+    analytics_rows, selected_ecomdash_id, selection = _select_analytics_order_instance(
+        analytics_rows,
+        requested_ecomdash_id,
+        sales_order_number,
+    )
+    if selection is not None:
+        return JSONResponse(content=selection)
 
     product_rows = _datastore_load_product_master(request)
     if product_rows is None:
@@ -1787,15 +1760,7 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
         "sales_order_number": sales_order_number,
         "order_details": order_details,
         "detected_partner_customer": _partner_customer_id_from_text(order_details.get("email_id")),
-        "source": {
-            "service": "local_file" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else "zoho_analytics",
-            "connection": "" if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES else ANALYTICS_CONNECTION_LINK_NAME,
-            "local_file": ANALYTICS_LOCAL_FILE.name if ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES and ANALYTICS_LOCAL_FILE else "",
-            "workspace_id": ANALYTICS_WORKSPACE_ID,
-            "view_id": ANALYTICS_VIEW_ID,
-            "view_name": ANALYTICS_VIEW_NAME,
-            "ecomdash_id": selected_ecomdash_id,
-        },
+        "source": _analytics_source_metadata(ecomdash_id=selected_ecomdash_id),
         "summary": summary,
         "items": items,
     })
@@ -2583,16 +2548,7 @@ def _analytics_order_details(rows: List[Dict[str, Any]]) -> Dict[str, str]:
 
 
 def _partner_customer_id_from_text(value: Any) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
-    if re.search(r"deco\s*pac", normalized):
-        return "decopac"
-    if re.search(r"dutch\s*(?:bros|brothers)", normalized):
-        return "dutch_bros"
-    if re.search(r"fancy\s*sprinkles|(?:^|\s)fancy(?:\s|$)", normalized):
-        return "fancy"
-    if re.search(r"total\s*wine", normalized):
-        return "total_wine"
-    return ""
+    return detect_customer_id(value, CUSTOMER_WORKFLOWS)
 
 
 def _analytics_order_item_fallback(row: Dict[str, Any], sku: str) -> Dict[str, str]:
@@ -2683,6 +2639,71 @@ def _analytics_order_instance_summary(instance: Dict[str, Any]) -> Dict[str, Any
         "line_count": instance.get("line_count", 0),
         "sku_count": instance.get("sku_count", 0),
     }
+
+
+def _validated_sales_order_number(payload: Any) -> str:
+    sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
+    if not sales_order_number:
+        raise HTTPException(status_code=400, detail="Sales Order Number is required.")
+    if len(sales_order_number) > 120 or any(ord(char) < 32 for char in sales_order_number):
+        raise HTTPException(status_code=400, detail="Sales Order Number is invalid.")
+    return sales_order_number
+
+
+def _analytics_source_metadata(**extra: Any) -> Dict[str, Any]:
+    local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
+    source = {
+        "service": "local_file" if local_file_source else "zoho_analytics",
+        "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,
+        "local_file": ANALYTICS_LOCAL_FILE.name if local_file_source and ANALYTICS_LOCAL_FILE else "",
+        "workspace_id": ANALYTICS_WORKSPACE_ID,
+        "view_id": ANALYTICS_VIEW_ID,
+        "view_name": ANALYTICS_VIEW_NAME,
+    }
+    source.update(extra)
+    return source
+
+
+def _select_analytics_order_instance(
+    analytics_rows: List[Dict[str, Any]],
+    requested_ecomdash_id: str,
+    sales_order_number: str,
+) -> tuple[List[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
+    """Select one reused sales-order instance or return selector response data."""
+    order_instances = _analytics_order_instance_groups(analytics_rows)
+    if requested_ecomdash_id:
+        wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
+        selected = next(
+            (
+                instance
+                for instance in order_instances
+                if _canonical_order_number(instance.get("ecomdash_id")) == wanted_ecomdash_id
+            ),
+            None,
+        )
+        if selected is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Ecomdash ID '{requested_ecomdash_id}' was not found for "
+                    f"Sales Order Number '{sales_order_number}'."
+                ),
+            )
+        return selected["rows"], str(selected.get("ecomdash_id") or ""), None
+
+    if len(order_instances) > 1:
+        selection = {
+            "sales_order_number": sales_order_number,
+            "requires_order_selection": True,
+            "order_instances": [_analytics_order_instance_summary(instance) for instance in order_instances],
+            "source": _analytics_source_metadata(),
+        }
+        return analytics_rows, "", selection
+
+    if order_instances:
+        selected = order_instances[0]
+        return selected["rows"], str(selected.get("ecomdash_id") or ""), None
+    return analytics_rows, "", None
 
 
 def _analytics_quantity(value: Any) -> Optional[float | int]:
@@ -2854,12 +2875,8 @@ def _product_each_gtin(
 @app.post("/api/mpl/orders/lookup")
 def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
+    sales_order_number = _validated_sales_order_number(payload)
     requested_ecomdash_id = str(payload.get("ecomdash_id") or "").strip() if isinstance(payload, dict) else ""
-    if not sales_order_number:
-        raise HTTPException(status_code=400, detail="Sales Order Number is required.")
-    if len(sales_order_number) > 120 or any(ord(char) < 32 for char in sales_order_number):
-        raise HTTPException(status_code=400, detail="Sales Order Number is invalid.")
 
     analytics_rows = _analytics_export_order_rows(request, sales_order_number)
     if not analytics_rows:
@@ -2868,49 +2885,13 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             detail=f"No rows were found for Sales Order Number '{sales_order_number}'.",
         )
 
-    order_instances = _analytics_order_instance_groups(analytics_rows)
-    selected_ecomdash_id = ""
-    if requested_ecomdash_id:
-        wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
-        selected_instance = next(
-            (
-                instance
-                for instance in order_instances
-                if _canonical_order_number(instance.get("ecomdash_id")) == wanted_ecomdash_id
-            ),
-            None,
-        )
-        if selected_instance is None:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    f"Ecomdash ID '{requested_ecomdash_id}' was not found for "
-                    f"Sales Order Number '{sales_order_number}'."
-                ),
-            )
-        analytics_rows = selected_instance["rows"]
-        selected_ecomdash_id = str(selected_instance.get("ecomdash_id") or "")
-    elif len(order_instances) > 1:
-        local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
-        return JSONResponse(content={
-            "sales_order_number": sales_order_number,
-            "requires_order_selection": True,
-            "order_instances": [
-                _analytics_order_instance_summary(instance)
-                for instance in order_instances
-            ],
-            "source": {
-                "service": "local_file" if local_file_source else "zoho_analytics",
-                "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,
-                "local_file": ANALYTICS_LOCAL_FILE.name if local_file_source and ANALYTICS_LOCAL_FILE else "",
-                "workspace_id": ANALYTICS_WORKSPACE_ID,
-                "view_id": ANALYTICS_VIEW_ID,
-                "view_name": ANALYTICS_VIEW_NAME,
-            },
-        })
-    elif order_instances:
-        analytics_rows = order_instances[0]["rows"]
-        selected_ecomdash_id = str(order_instances[0].get("ecomdash_id") or "")
+    analytics_rows, selected_ecomdash_id, selection = _select_analytics_order_instance(
+        analytics_rows,
+        requested_ecomdash_id,
+        sales_order_number,
+    )
+    if selection is not None:
+        return JSONResponse(content=selection)
 
     aggregated: Dict[str, Dict[str, Any]] = {}
     ignored_rows = 0
@@ -3019,21 +3000,14 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
 
     order_details = _analytics_order_details(analytics_rows)
 
-    local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
     return JSONResponse(content={
         "sales_order_number": sales_order_number,
         "order_details": order_details,
         "detected_partner_customer": _partner_customer_id_from_text(order_details.get("email_id")),
-        "source": {
-            "service": "local_file" if local_file_source else "zoho_analytics",
-            "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,
-            "local_file": ANALYTICS_LOCAL_FILE.name if local_file_source and ANALYTICS_LOCAL_FILE else "",
-            "workspace_id": ANALYTICS_WORKSPACE_ID,
-            "view_id": ANALYTICS_VIEW_ID,
-            "view_name": ANALYTICS_VIEW_NAME,
-            "ecomdash_id": selected_ecomdash_id,
-            "product_master": product_source,
-        },
+        "source": _analytics_source_metadata(
+            ecomdash_id=selected_ecomdash_id,
+            product_master=product_source,
+        ),
         "summary": {
             "analytics_rows": len(analytics_rows),
             "line_items": len(items),
@@ -3583,6 +3557,7 @@ def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str
         }
 
         delete_rowids: List[Any] = []
+        update_rows: List[Dict[str, Any]] = []
         insert_rows: List[Dict[str, Any]] = []
 
         for draft_id, row in existing_by_id.items():
@@ -3606,15 +3581,20 @@ def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str
                 continue
             rowid = existing_rowid_by_id.get(draft_id)
             if rowid:
-                delete_rowids.append(rowid)
-            insert_rows.append(next_row)
+                next_row["ROWID"] = rowid
+                update_rows.append(next_row)
+            else:
+                insert_rows.append(next_row)
 
-        for batch in _chunked(delete_rowids, 200):
+        for batch in _chunked(update_rows, 100):
             if batch:
-                table_service.delete_rows(batch)
+                table_service.update_rows(batch)
         for batch in _chunked(insert_rows, 100):
             if batch:
                 table_service.insert_rows(batch)
+        for batch in _chunked(delete_rowids, 200):
+            if batch:
+                table_service.delete_rows(batch)
         return True
     except Exception as exc:
         if _store_requires_datastore(MPL_DRAFTS_STORE):
