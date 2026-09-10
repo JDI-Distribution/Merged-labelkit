@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -5,6 +6,7 @@ from fastapi import HTTPException
 
 from server import (
     FRONTEND_DIST,
+    _analytics_case_conversion,
     _analytics_order_details,
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
@@ -19,6 +21,7 @@ from server import (
     _refresh_mpl_render_product_master,
     _select_analytics_order_instance,
     _validated_sales_order_number,
+    lookup_mpl_order,
     normalize_product_master_row,
     serve_frontend_index,
 )
@@ -234,6 +237,54 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         })
 
         self.assertIsNone(conversion)
+
+    def test_matched_non_kehe_case_converts_order_eaches_for_packing_list(self):
+        conversion = _analytics_case_conversion(1044, {
+            "storefront": "BAKELL.COM",
+            "packaging_level": "Case",
+            "case_qty": "36",
+            "sku": "MIC_372813082828",
+        })
+
+        self.assertIsNotNone(conversion)
+        self.assertEqual(1044, conversion["quantity_ordered_eaches"])
+        self.assertEqual(29, conversion["quantity_ordered_cases"])
+        self.assertEqual(29, conversion["quantity_ordered"])
+        self.assertTrue(conversion["case_conversion_exact"])
+
+    def test_mpl_lookup_converts_large_b2b_each_quantity_before_tihi(self):
+        order_rows = [{
+            "Sales Order Number": "70913",
+            "Ecomdash ID": "102432595",
+            "Storefront": "BAKELL.COM",
+            "SKUNumber": "MIC_372813082828",
+            "Product Name": "Michaels Mistletoe Magic",
+            "Quantity Ordered": "1044",
+        }]
+        products = [{
+            "storefront": "BAKELL.COM",
+            "packaging_level": "Case",
+            "in_packing_list": True,
+            "case_qty": "36",
+            "sku": "MIC_372813082828",
+            "gtin": "10000000000001",
+            "gross_weight_lbs": "2",
+            "length_in": "11",
+            "width_in": "8",
+            "height_in": "6",
+        }]
+
+        with (
+            patch("server._require_permission"),
+            patch("server._analytics_export_order_rows", return_value=order_rows),
+            patch("server._datastore_load_product_master", return_value=products),
+        ):
+            response = lookup_mpl_order(object(), {"sales_order_number": "70913"})
+
+        payload = json.loads(response.body)
+        self.assertEqual(29, payload["items"][0]["quantity_ordered"])
+        self.assertEqual(1044, payload["items"][0]["quantity_ordered_eaches"])
+        self.assertEqual(1, payload["summary"]["converted_to_cases"])
 
     def test_mpl_item_number_uses_each_gtin_from_same_product_group(self):
         case_product = {
@@ -581,6 +632,8 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function commitB2BRunLabelEdit(element)", javascript)
         self.assertIn("setB2BSelectorVisibility('level', !!selectedGroup)", javascript)
         self.assertIn("b2bRunFieldNames(template).forEach(field =>", javascript)
+        self.assertIn("function calculateOrderCartonCount(item, product)", javascript)
+        self.assertIn("b2bRunFields.carton_total = String(orderCartons)", javascript)
 
     def test_combined_customer_order_module_uses_kehe_style_editors_and_previews(self):
         html = serve_frontend_index().body.decode("utf-8")

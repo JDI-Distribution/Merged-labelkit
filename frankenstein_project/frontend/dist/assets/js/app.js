@@ -6845,6 +6845,12 @@
     b2bRunFields.ship_date = String(orderDetails?.ship_date || orderDetails?.expected_delivery_date || '');
     b2bRunFields.expected_delivery_date = String(orderDetails?.expected_delivery_date || orderDetails?.ship_date || '');
     b2bRunFields.quantity_label = String(analyticsItems.reduce((sum, item) => sum + (Number(item?.quantity_ordered) || 0), 0) || '');
+    const selectedOrderItem = firstMatched || analyticsItems[0] || {};
+    const selectedOrderProduct = matchedProduct || selectedOrderItem?.product || b2bOrderFallbackProducts[0] || {};
+    const orderCartons = calculateOrderCartonCount(selectedOrderItem, selectedOrderProduct);
+    b2bRunFields.carton_total = String(orderCartons);
+    b2bRunFields.carton_start = '1';
+    b2bRunFields.carton_end = String(orderCartons);
     clearB2BPreview();
     renderB2BCreator();
     setStatus(
@@ -7356,7 +7362,7 @@
     return allowed[0] || '';
   }
 
-  function partnerCartonCount(item, product) {
+  function calculateOrderCartonCount(item, product) {
     const ordered = Number(String(item?.quantity_ordered ?? '').replace(/,/g, ''));
     const casePack = Number(String(product?.case_qty ?? '').replace(/,/g, ''));
     if (!Number.isFinite(ordered) || ordered <= 0) return 1;
@@ -7406,7 +7412,7 @@
       const resolvedProduct = { ...(matchingProduct || product) };
       if (templateId === 'FANCY_PALLET_3X3') resolvedProduct.packaging_level = 'Pallet';
       const template = b2bLabelTemplates.find(candidate => candidate.template_id === templateId) || {};
-      const cartons = partnerCartonCount(item, resolvedProduct);
+      const cartons = calculateOrderCartonCount(item, resolvedProduct);
       resolvedProduct.barcode_type = partnerBarcodeType(resolvedProduct);
       return {
         print_selected: true,
@@ -7472,7 +7478,7 @@
       (mpl.items || []).forEach((row, index) => {
         const source = payload?.items?.[index] || {};
         const product = source?.product || {};
-        const cartons = partnerCartonCount(source, product);
+        const cartons = calculateOrderCartonCount(source, product);
         row.analytics_quantity_eaches = analyticsOrderQuantity(source?.quantity_ordered);
         row.eaches_per_case = analyticsOrderQuantity(product?.case_qty);
         row.qty_on_pallet = String(cartons);

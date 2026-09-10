@@ -2779,14 +2779,20 @@ def _b2b_analytics_order_items_for_products(
     return items
 
 
-def _analytics_kehe_case_conversion(
+def _analytics_case_conversion(
     quantity_ordered: Any,
     product: Optional[Dict[str, Any]],
     packaging_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Convert Analytics eaches using an explicit KeHE Product Master case pack."""
+    """Convert Analytics eaches using an explicit Product Master case pack.
+
+    Analytics reports ordered units as eaches. A matched Product Master Case row
+    supplies the number of eaches in one physical case, regardless of customer.
+    Keeping this conversion customer-neutral prevents large B2B orders from being
+    treated as hundreds of already-packed cases by the MPL/Ti-Hi workflow.
+    """
     each_quantity = _analytics_quantity(quantity_ordered)
-    if each_quantity is None or not isinstance(product, dict) or not _is_kehe_storefront(product.get("storefront")):
+    if each_quantity is None or not isinstance(product, dict):
         return None
 
     eaches_per_case = _analytics_quantity(product.get("case_qty"))
@@ -2842,6 +2848,17 @@ def _analytics_kehe_case_conversion(
         "case_conversion_exact": exact_case_multiple,
         "case_conversion_remainder_eaches": remainder_eaches,
     }
+
+
+def _analytics_kehe_case_conversion(
+    quantity_ordered: Any,
+    product: Optional[Dict[str, Any]],
+    packaging_rows: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Backward-compatible KeHE-only conversion helper used by older callers."""
+    if not isinstance(product, dict) or not _is_kehe_storefront(product.get("storefront")):
+        return None
+    return _analytics_case_conversion(quantity_ordered, product, packaging_rows)
 
 
 def _product_each_gtin(
@@ -2973,7 +2990,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                         "converted to cases."
                     ),
                 )
-        conversion = _analytics_kehe_case_conversion(
+        conversion = _analytics_case_conversion(
             order_item.get("quantity_ordered"),
             product,
             normalized_product_rows,
