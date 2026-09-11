@@ -579,6 +579,24 @@ class MplDraftStorageTests(unittest.TestCase):
         self.assertTrue(row["DRAFT_JSON"].startswith("zlib:"))
         self.assertEqual(draft, restored["draft"])
 
+    def test_datastore_draft_uses_deployed_compact_column_schema(self):
+        row = _mpl_draft_to_datastore_row({
+            "id": "draft-1",
+            "name": "70913",
+            "document_type": "MPL",
+            "status": "DRAFT",
+            "customer_code": "KEHE",
+            "po_number": "PO-70913",
+            "created_by": "qa@example.com",
+            "updated_by": "qa@example.com",
+            "draft": {"packing_lists": []},
+        })
+
+        self.assertEqual(
+            {"DRAFT_ID", "NAME", "CREATED_AT", "UPDATED_AT", "DRAFT_JSON", "IS_ACTIVE"},
+            set(row),
+        )
+
     def test_draft_document_type_and_status_round_trip(self):
         record = {
             "id": "run-1",

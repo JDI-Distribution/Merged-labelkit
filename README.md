@@ -392,7 +392,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.10-document-preview-save-fix"
+$release = "2026.09.11-catalyst-mpl-save-fix"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -460,7 +460,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.10-document-preview-save-fix"
+$release = "2026.09.11-catalyst-mpl-save-fix"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
@@ -535,6 +535,19 @@ Catalyst tables and role config:
 - `kehe_audit_log` / table ID `27327000000099814`
 - `role_id_map.27327000000040037=Admin`
 - `role_id_map.27327000000040038=User`
+
+`kehe_mpl_drafts` keeps the deployed compact column schema:
+
+- `DRAFT_ID`
+- `NAME`
+- `CREATED_AT`
+- `UPDATED_AT`
+- `DRAFT_JSON`
+- `IS_ACTIVE`
+
+Document type, status, customer, PO, and saved-by metadata are stored in the
+versioned compressed `DRAFT_JSON` envelope. Do not add those values as Data
+Store row keys unless the Catalyst table is explicitly migrated first.
 
 Zoho Analytics Order Data config:
 

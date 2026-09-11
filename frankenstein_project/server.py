@@ -3448,6 +3448,7 @@ def _normalize_document_type(value: Any, default: str = "MPL") -> str:
 def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
     draft_raw = row.get("DRAFT_JSON") or row.get("draft") or {}
     draft = draft_raw if isinstance(draft_raw, dict) else {}
+    embedded_record: Dict[str, Any] = {}
     if isinstance(draft_raw, str) and draft_raw.strip():
         try:
             encoded = draft_raw.strip()
@@ -3456,7 +3457,18 @@ def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
                 encoded = zlib.decompress(compressed).decode("utf-8")
             parsed = json.loads(encoded)
             if isinstance(parsed, dict):
-                draft = parsed
+                # The deployed Catalyst table intentionally has a compact schema.
+                # Store newer record metadata inside DRAFT_JSON so adding features
+                # never requires an immediate Data Store column migration.
+                if (
+                    parsed.get("_labelkit_storage_version") == 2
+                    and isinstance(parsed.get("record"), dict)
+                    and isinstance(parsed.get("draft"), dict)
+                ):
+                    embedded_record = parsed["record"]
+                    draft = parsed["draft"]
+                else:
+                    draft = parsed
         except Exception:
             draft = {}
     return {
@@ -3464,32 +3476,55 @@ def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
         "name": row.get("NAME") or row.get("name") or "",
         "created_at": row.get("CREATED_AT") or row.get("created_at") or "",
         "updated_at": row.get("UPDATED_AT") or row.get("updated_at") or "",
-        "document_type": _normalize_document_type(row.get("DOCUMENT_TYPE") or row.get("document_type") or "MPL"),
-        "status": str(row.get("STATUS") or row.get("status") or "DRAFT"),
-        "customer_code": str(row.get("CUSTOMER_CODE") or row.get("customer_code") or ""),
-        "po_number": str(row.get("PO_NUMBER") or row.get("po_number") or ""),
-        "created_by": row.get("CREATED_BY") or row.get("created_by") or "",
-        "updated_by": row.get("UPDATED_BY") or row.get("updated_by") or "",
+        "document_type": _normalize_document_type(
+            row.get("DOCUMENT_TYPE")
+            or row.get("document_type")
+            or embedded_record.get("document_type")
+            or "MPL"
+        ),
+        "status": str(row.get("STATUS") or row.get("status") or embedded_record.get("status") or "DRAFT"),
+        "customer_code": str(
+            row.get("CUSTOMER_CODE")
+            or row.get("customer_code")
+            or embedded_record.get("customer_code")
+            or ""
+        ),
+        "po_number": str(
+            row.get("PO_NUMBER")
+            or row.get("po_number")
+            or embedded_record.get("po_number")
+            or ""
+        ),
+        "created_by": row.get("CREATED_BY") or row.get("created_by") or embedded_record.get("created_by") or "",
+        "updated_by": row.get("UPDATED_BY") or row.get("updated_by") or embedded_record.get("updated_by") or "",
         "draft": draft,
     }
 
 
 def _mpl_draft_to_datastore_row(record: Dict[str, Any]) -> Dict[str, Any]:
-    draft_json = json.dumps(record.get("draft") or {}, sort_keys=True, separators=(",", ":"))
+    storage_payload = {
+        "_labelkit_storage_version": 2,
+        "record": {
+            "document_type": _normalize_document_type(record.get("document_type") or "MPL"),
+            "status": str(record.get("status") or "DRAFT"),
+            "customer_code": str(record.get("customer_code") or ""),
+            "po_number": str(record.get("po_number") or ""),
+            "created_by": str(record.get("created_by") or ""),
+            "updated_by": str(record.get("updated_by") or ""),
+        },
+        "draft": record.get("draft") or {},
+    }
+    draft_json = json.dumps(storage_payload, sort_keys=True, separators=(",", ":"))
     compressed_draft = base64.urlsafe_b64encode(
         zlib.compress(draft_json.encode("utf-8"), level=9)
     ).decode("ascii")
+    # These are the six custom columns in the deployed kehe_mpl_drafts
+    # table. Optional metadata lives in the versioned JSON envelope above.
     return {
         "DRAFT_ID": str(record.get("id") or uuid.uuid4().hex),
         "NAME": str(record.get("name") or ""),
         "CREATED_AT": str(record.get("created_at") or _now_iso()),
         "UPDATED_AT": str(record.get("updated_at") or _now_iso()),
-        "DOCUMENT_TYPE": _normalize_document_type(record.get("document_type") or "MPL"),
-        "STATUS": str(record.get("status") or "DRAFT"),
-        "CUSTOMER_CODE": str(record.get("customer_code") or ""),
-        "PO_NUMBER": str(record.get("po_number") or ""),
-        "CREATED_BY": str(record.get("created_by") or ""),
-        "UPDATED_BY": str(record.get("updated_by") or ""),
         "DRAFT_JSON": f"zlib:{compressed_draft}",
         "IS_ACTIVE": True,
     }
