@@ -1,0 +1,281 @@
+/* Shared visual language for all five LabelKit modules.
+   Customer colors remain token-driven; structure, spacing and controls stay consistent. */
+:root {
+  --module-header-radius: 16px;
+  --module-card-radius: 15px;
+  --module-card-border: #d6dde3;
+  --module-card-surface: #fbfcfd;
+  --module-muted-surface: #f3f5f6;
+  --module-card-padding: clamp(16px, 1.35vw, 22px);
+}
+
+.module-header-card {
+  border-radius: var(--module-header-radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.module-surface-card {
+  border-radius: var(--module-card-radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Michaels and KeHE retain one shared workflow and receive the newer module shell. */
+body:is([data-module="michaels"], [data-module="kehe"]) .upload-page {
+  grid-template-columns: minmax(350px, 440px) minmax(0, 1fr);
+  gap: 18px;
+  padding: var(--workspace-block-gutter) var(--workspace-inline-gutter) 44px;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .upload-intro {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  justify-self: stretch;
+  padding: 24px 26px;
+  border: 1px solid rgba(var(--module-rgb), 0.24);
+  border-left-width: 1px;
+  background: linear-gradient(135deg, #ffffff 0%, var(--module-tint) 100%);
+  box-shadow: inset 0 3px 0 rgba(var(--module-rgb), 0.62), var(--shadow-sm);
+  text-align: left;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .upload-intro h2 {
+  margin: 0;
+  color: #123047;
+  font-size: 27px;
+  line-height: 1.18;
+  letter-spacing: -0.45px;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .upload-intro p {
+  max-width: 940px;
+  margin: 6px 0 0;
+  color: #5b6f7f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .upload-note {
+  width: 100%;
+  max-width: none;
+  margin: 14px 0 0;
+  padding: 10px 13px;
+  border-color: rgba(var(--module-rgb), 0.20);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 3px 0 0 rgba(var(--module-rgb), 0.72);
+  color: #4e5d69;
+  text-align: left;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) :is(.step-block, .generate-block, .match-panel) {
+  border: 1px solid var(--module-card-border);
+  border-radius: var(--module-card-radius);
+  background: var(--module-card-surface);
+  box-shadow: inset 0 3px 0 rgba(var(--module-rgb), 0.58), var(--shadow-sm);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .step-block {
+  gap: 14px;
+  padding: var(--module-card-padding);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .generate-block {
+  gap: 14px;
+  padding: var(--module-card-padding);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-panel {
+  min-height: 320px;
+  height: auto;
+  align-self: start;
+  gap: 14px;
+  padding: var(--module-card-padding);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) :is(.step-title, .match-title) {
+  margin: 0;
+  color: var(--module-accent);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  line-height: 1.25;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) #kehe-generate-title {
+  color: #18364d;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.2px;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .kehe-generate-subtitle,
+body:is([data-module="michaels"], [data-module="kehe"]) .match-subtitle {
+  color: #647786;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .optional-badge {
+  border: 1px solid rgba(var(--module-rgb), 0.18);
+  background: var(--module-tint);
+  color: var(--module-accent-deep);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .drop-zone {
+  min-height: 200px;
+  display: grid;
+  align-content: center;
+  padding: 30px 18px;
+  border: 1.5px dashed #c6ced5;
+  border-radius: 10px;
+  background: var(--module-muted-surface);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .drop-icon-wrap {
+  width: 46px;
+  height: 46px;
+  margin-bottom: 12px;
+  border-radius: 11px;
+  background: #e9edef;
+  color: var(--module-accent);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .drop-label {
+  color: #263b4b;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .drop-hint {
+  color: #71818d;
+  font-size: 11.5px;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .generate-block :is(.btn-generate, .btn-document) {
+  min-height: 50px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  justify-content: center;
+}
+
+body[data-module="kehe"] .kehe-reference-actions.visible {
+  justify-content: flex-start;
+  padding: 11px;
+  border: 1px solid #d9e0e4;
+  border-radius: 10px;
+  background: var(--module-muted-surface);
+}
+
+body[data-module="kehe"] .kehe-reference-btn {
+  min-height: 38px;
+  border: 1px solid rgba(var(--module-rgb), 0.28);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--module-accent-deep);
+  box-shadow: none;
+}
+
+body[data-module="kehe"] .kehe-reference-btn:hover {
+  border-color: var(--module-accent);
+  background: var(--module-tint);
+  color: var(--module-accent-deep);
+  box-shadow: none;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-panel-header {
+  gap: 10px;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-actions {
+  gap: 8px;
+  padding-top: 11px;
+  border-top: 1px solid #dce2e6;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-actions .btn-secondary {
+  min-height: 38px;
+  border-color: #d3dbe1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-pill {
+  border-color: #d9e0e4;
+  background: var(--module-muted-surface);
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-table-wrap {
+  flex: 1 1 150px;
+  min-height: 150px;
+  max-height: min(58vh, 620px);
+  border-color: #d6dde3;
+  border-radius: 10px;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-table th {
+  background: #eef1f3;
+  color: #53636e;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-table tbody tr:nth-child(even) {
+  background: #f8f9fa;
+}
+
+body:is([data-module="michaels"], [data-module="kehe"]) .match-table tbody tr:hover {
+  background: var(--module-tint);
+}
+
+@media (max-width: 1100px) {
+  body:is([data-module="michaels"], [data-module="kehe"]) .upload-page {
+    gap: 16px;
+    padding: var(--workspace-block-gutter) var(--workspace-inline-gutter) 36px;
+  }
+
+  body:is([data-module="michaels"], [data-module="kehe"]) .upload-grid {
+    gap: 16px;
+  }
+
+  body:is([data-module="michaels"], [data-module="kehe"]) .match-panel {
+    width: 100%;
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  body:is([data-module="michaels"], [data-module="kehe"]) .upload-intro {
+    padding: 17px;
+  }
+
+  body:is([data-module="michaels"], [data-module="kehe"]) .upload-intro h2 {
+    font-size: 24px;
+  }
+
+  body:is([data-module="michaels"], [data-module="kehe"]) :is(.step-block, .generate-block, .match-panel) {
+    padding: 15px;
+  }
+
+  body:is([data-module="michaels"], [data-module="kehe"]) .drop-zone {
+    min-height: 175px;
+    padding: 24px 14px;
+  }
+
+  body[data-module="kehe"] .kehe-reference-btn,
+  body:is([data-module="michaels"], [data-module="kehe"]) .match-actions .btn-secondary {
+    flex: 1 1 155px;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 440px) {
+  body[data-module="kehe"] .kehe-reference-btn,
+  body:is([data-module="michaels"], [data-module="kehe"]) .match-actions .btn-secondary {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}

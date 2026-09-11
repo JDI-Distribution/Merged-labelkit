@@ -14,11 +14,11 @@ endpoint selected by the user.
 
 from __future__ import annotations
 
-import base64
 import copy
 import json
 import csv
 import io
+import logging
 import math
 import os
 import re
@@ -30,7 +30,6 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
-import zlib
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -62,6 +61,13 @@ from pipelines.kehe_pipeline import (  # noqa: E402
 )
 from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job  # noqa: E402
 from labelkit.customer_workflows import detect_customer_id, load_customer_workflows  # noqa: E402
+from labelkit.draft_storage import (  # noqa: E402
+    bounded_versions,
+    decode_draft_row,
+    encode_draft_row,
+    normalize_document_type as normalize_draft_document_type,
+)
+from labelkit.security import allowed_origins, apply_security_headers  # noqa: E402
 
 MatchFailureErrors = (MichaelsMatchFailureError,)
 
@@ -75,9 +81,11 @@ DEFAULT_PORT = int(os.getenv("X_ZOHO_CATALYST_LISTEN_PORT", os.getenv("PORT", "9
 APP_NAME = "Merged LabelKit"
 APP_ID = "merged-labelkit"
 MAX_CACHED_REPORTS = 25
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 RESULT_REPORTS: Dict[str, Dict[str, Any]] = {}
 RESULT_JOBS: Dict[str, Dict[str, Any]] = {}
+LOGGER = logging.getLogger("labelkit")
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -378,11 +386,20 @@ app = FastAPI(title=f"{APP_NAME} API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins(_config_value(
+        "CORS_ALLOWED_ORIGINS",
+        "cors_allowed_origins",
+        [
+            "http://127.0.0.1:9000",
+            "http://localhost:9000",
+            "https://mergedlabelkit.development.catalystappsail.com",
+        ],
+    )),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "X-Request-ID"],
 )
+app.middleware("http")(apply_security_headers)
 CUSTOMER_WORKFLOWS_FILE = BASE_DIR / "data" / "customer_workflows.json"
 CUSTOMER_WORKFLOWS = load_customer_workflows(CUSTOMER_WORKFLOWS_FILE)
 
@@ -1222,6 +1239,8 @@ def _raise_datastore_unavailable(table_name: str, action: str, exc: Optional[Exc
         "Store mode is 'datastore', so local JSON fallback is disabled."
     )
     if exc is not None:
+        LOGGER.exception("Catalyst Data Store failure table=%s action=%s", table_name, action, exc_info=exc)
+    if exc is not None and APP_ENV != "production":
         detail += f" {exc.__class__.__name__}: {exc}"
     raise HTTPException(status_code=503, detail=detail)
 
@@ -1279,6 +1298,41 @@ def _datastore_get_raw_rows(table_service: Any) -> List[Dict[str, Any]]:
             more_records = False
 
     return rows
+
+
+@app.get("/api/admin/diagnostics")
+async def admin_diagnostics(request: Request) -> JSONResponse:
+    _require_permission(request, "admin")
+    checks: Dict[str, Any] = {
+        "profile": LABELKIT_CONFIG_PROFILE,
+        "app_env": APP_ENV,
+        "frontend": (FRONTEND_DIST / "index.html").exists(),
+        "analytics_source": ANALYTICS_ORDER_SOURCE,
+        "tables": {},
+    }
+    table_configs = {
+        "product_master": (MPL_PRODUCT_MASTER_TABLE, MPL_PRODUCT_MASTER_STORE),
+        "directory": (MPL_DIRECTORY_TABLE, MPL_DIRECTORY_STORE),
+        "mpl_drafts": (MPL_DRAFTS_TABLE, MPL_DRAFTS_STORE),
+        "audit_log": (AUDIT_LOG_TABLE, AUDIT_LOG_STORE),
+    }
+    healthy = bool(checks["frontend"])
+    for label, (table_name, store_mode) in table_configs.items():
+        try:
+            service = _datastore_table_named(request, table_name, store_mode)
+            if service is None:
+                checks["tables"][label] = {"ok": True, "mode": "file"}
+                continue
+            try:
+                service.get_paged_rows(max_rows=1)
+            except TypeError:
+                service.get_paged_rows(None, 1)
+            checks["tables"][label] = {"ok": True, "mode": "datastore", "table": table_name}
+        except Exception:
+            healthy = False
+            checks["tables"][label] = {"ok": False, "mode": store_mode, "table": table_name}
+    checks["ok"] = healthy
+    return JSONResponse(status_code=200 if healthy else 503, content=checks)
 
 
 def _datastore_load_product_rows(request: Request, table_name: str, store_mode: str) -> Optional[List[Dict[str, str]]]:
@@ -3341,8 +3395,10 @@ def _merge_import_rows(current_rows: List[Dict[str, Any]], imported_rows: List[D
 
 async def _preview_excel_import(request: Request, upload: UploadFile, table: str) -> JSONResponse:
     _require_permission(request, "table_crud")
-    data = await upload.read()
+    data = await upload.read(MAX_UPLOAD_BYTES + 1)
     await upload.close()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Import file exceeds the 50 MB upload limit.")
     raw_rows = _read_spreadsheet_bytes(upload.filename or "upload.xlsx", data)
     imported_rows = _canonicalize_import_rows(raw_rows, table)
     if table in {"kehe_product_master", "mpl_product_master"}:
@@ -3441,93 +3497,15 @@ def _mpl_drafts_datastore_table(request: Optional[Request]) -> Any:
 
 
 def _normalize_document_type(value: Any, default: str = "MPL") -> str:
-    raw = str(value or "").strip().upper()
-    return raw or default
+    return normalize_draft_document_type(value, default)
 
 
 def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
-    draft_raw = row.get("DRAFT_JSON") or row.get("draft") or {}
-    draft = draft_raw if isinstance(draft_raw, dict) else {}
-    embedded_record: Dict[str, Any] = {}
-    if isinstance(draft_raw, str) and draft_raw.strip():
-        try:
-            encoded = draft_raw.strip()
-            if encoded.startswith("zlib:"):
-                compressed = base64.urlsafe_b64decode(encoded[5:].encode("ascii"))
-                encoded = zlib.decompress(compressed).decode("utf-8")
-            parsed = json.loads(encoded)
-            if isinstance(parsed, dict):
-                # The deployed Catalyst table intentionally has a compact schema.
-                # Store newer record metadata inside DRAFT_JSON so adding features
-                # never requires an immediate Data Store column migration.
-                if (
-                    parsed.get("_labelkit_storage_version") == 2
-                    and isinstance(parsed.get("record"), dict)
-                    and isinstance(parsed.get("draft"), dict)
-                ):
-                    embedded_record = parsed["record"]
-                    draft = parsed["draft"]
-                else:
-                    draft = parsed
-        except Exception:
-            draft = {}
-    return {
-        "id": row.get("DRAFT_ID") or row.get("id") or row.get("ROWID") or "",
-        "name": row.get("NAME") or row.get("name") or "",
-        "created_at": row.get("CREATED_AT") or row.get("created_at") or "",
-        "updated_at": row.get("UPDATED_AT") or row.get("updated_at") or "",
-        "document_type": _normalize_document_type(
-            row.get("DOCUMENT_TYPE")
-            or row.get("document_type")
-            or embedded_record.get("document_type")
-            or "MPL"
-        ),
-        "status": str(row.get("STATUS") or row.get("status") or embedded_record.get("status") or "DRAFT"),
-        "customer_code": str(
-            row.get("CUSTOMER_CODE")
-            or row.get("customer_code")
-            or embedded_record.get("customer_code")
-            or ""
-        ),
-        "po_number": str(
-            row.get("PO_NUMBER")
-            or row.get("po_number")
-            or embedded_record.get("po_number")
-            or ""
-        ),
-        "created_by": row.get("CREATED_BY") or row.get("created_by") or embedded_record.get("created_by") or "",
-        "updated_by": row.get("UPDATED_BY") or row.get("updated_by") or embedded_record.get("updated_by") or "",
-        "draft": draft,
-    }
+    return decode_draft_row(row)
 
 
 def _mpl_draft_to_datastore_row(record: Dict[str, Any]) -> Dict[str, Any]:
-    storage_payload = {
-        "_labelkit_storage_version": 2,
-        "record": {
-            "document_type": _normalize_document_type(record.get("document_type") or "MPL"),
-            "status": str(record.get("status") or "DRAFT"),
-            "customer_code": str(record.get("customer_code") or ""),
-            "po_number": str(record.get("po_number") or ""),
-            "created_by": str(record.get("created_by") or ""),
-            "updated_by": str(record.get("updated_by") or ""),
-        },
-        "draft": record.get("draft") or {},
-    }
-    draft_json = json.dumps(storage_payload, sort_keys=True, separators=(",", ":"))
-    compressed_draft = base64.urlsafe_b64encode(
-        zlib.compress(draft_json.encode("utf-8"), level=9)
-    ).decode("ascii")
-    # These are the six custom columns in the deployed kehe_mpl_drafts
-    # table. Optional metadata lives in the versioned JSON envelope above.
-    return {
-        "DRAFT_ID": str(record.get("id") or uuid.uuid4().hex),
-        "NAME": str(record.get("name") or ""),
-        "CREATED_AT": str(record.get("created_at") or _now_iso()),
-        "UPDATED_AT": str(record.get("updated_at") or _now_iso()),
-        "DRAFT_JSON": f"zlib:{compressed_draft}",
-        "IS_ACTIVE": True,
-    }
+    return encode_draft_row(record, _now_iso())
 
 
 def _mpl_draft_for_storage(draft: Dict[str, Any]) -> Dict[str, Any]:
@@ -3731,11 +3709,33 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
         "updated_at": record.get("updated_at", ""),
         "created_by": created_by,
         "updated_by": updated_by,
+        "revision": int(record.get("revision") or 0),
         "customer_po_number": mpl.get("customer_po_number", ""),
         "ship_to": str(mpl.get("ship_to", "")).split("\n")[0] if mpl.get("ship_to") else "",
         "total_pallets": mpl.get("total_pallets", ""),
         "item_count": len(items),
     }
+
+
+def _save_mpl_version_snapshot(request: Request, record: Dict[str, Any], reason: str) -> None:
+    parent_id = str(record.get("id") or "")
+    revision = int(record.get("revision") or 0)
+    if not parent_id or revision < 1:
+        return
+    versions = _mpl_drafts_read(request, "MPL_VERSION")
+    snapshot_draft = copy.deepcopy(record.get("draft") or {})
+    snapshot_draft["_version_parent_id"] = parent_id
+    snapshot_draft["_version_reason"] = str(reason or "Explicit save")
+    version_record = {
+        **record,
+        "id": f"{parent_id}-v{revision}",
+        "name": f"{record.get('name') or 'MPL'} · Version {revision}",
+        "document_type": "MPL_VERSION",
+        "draft": snapshot_draft,
+    }
+    versions = [row for row in versions if str(row.get("id")) != version_record["id"]]
+    versions.append(version_record)
+    _mpl_drafts_write(bounded_versions(versions, parent_id), request, "MPL_VERSION")
 
 
 def _hydrate_saved_mpl_record(
@@ -3792,6 +3792,20 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         name = str(first.get("customer_po_number") or first.get("id") or "Untitled MPL").strip()
 
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    current_revision = int((old_record or {}).get("revision") or 0)
+    expected_revision_raw = payload.get("expected_revision")
+    if old_record is not None and expected_revision_raw not in (None, ""):
+        try:
+            expected_revision = int(expected_revision_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Expected revision must be a whole number.")
+        if expected_revision != current_revision:
+            return JSONResponse(status_code=409, content={
+                "detail": "This MPL was updated by another user. Reopen the saved MPL before saving your changes.",
+                "current_revision": current_revision,
+                "updated_at": (old_record or {}).get("updated_at", ""),
+                "updated_by": (old_record or {}).get("updated_by", ""),
+            })
     created_at = old_record.get("created_at") if old_record else now
     actor = _request_actor(request)
     actor_label = str(actor.get("email") or actor.get("name") or "Local user")
@@ -3812,12 +3826,15 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         "po_number": str(payload.get("po_number") or first.get("customer_po_number") or ""),
         "created_by": created_by,
         "updated_by": actor_label,
+        "revision": current_revision + 1,
         "draft": storage_draft,
     }
     next_drafts = [record if str(existing.get("id")) == draft_id else existing for existing in drafts]
     if old_record is None:
         next_drafts.append(record)
     _mpl_drafts_write(next_drafts, request, "MPL")
+    if _boolish(payload.get("create_version"), False):
+        _save_mpl_version_snapshot(request, record, str(payload.get("version_reason") or "Explicit save"))
 
     _audit_log_append([{
         "id": uuid.uuid4().hex,
@@ -3838,6 +3855,58 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
     return JSONResponse(content={"draft": record, "saved": True})
 
 
+@app.get("/api/kehe/mpl-drafts/{draft_id}/versions")
+async def list_kehe_mpl_draft_versions(request: Request, draft_id: str) -> JSONResponse:
+    _require_permission(request, "view")
+    versions = [
+        record for record in _mpl_drafts_read(request, "MPL_VERSION")
+        if str((record.get("draft") or {}).get("_version_parent_id") or "") == draft_id
+    ]
+    versions.sort(key=lambda record: int(record.get("revision") or 0), reverse=True)
+    return JSONResponse(content={"versions": [{
+        "id": record.get("id", ""),
+        "name": record.get("name", ""),
+        "revision": int(record.get("revision") or 0),
+        "updated_at": record.get("updated_at", ""),
+        "updated_by": record.get("updated_by", ""),
+        "reason": str((record.get("draft") or {}).get("_version_reason") or "Explicit save"),
+    } for record in versions]})
+
+
+@app.post("/api/kehe/mpl-drafts/{draft_id}/versions/{version_id}/restore")
+async def restore_kehe_mpl_draft_version(
+    request: Request,
+    draft_id: str,
+    version_id: str,
+    payload: Dict[str, Any],
+) -> JSONResponse:
+    _require_permission(request, "save_mpl")
+    drafts = _mpl_drafts_read(request, "MPL")
+    current = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    version = next((record for record in _mpl_drafts_read(request, "MPL_VERSION") if str(record.get("id")) == version_id), None)
+    if current is None or version is None or str((version.get("draft") or {}).get("_version_parent_id") or "") != draft_id:
+        raise HTTPException(status_code=404, detail="Saved MPL version not found.")
+    expected = payload.get("expected_revision")
+    if expected not in (None, "") and int(expected) != int(current.get("revision") or 0):
+        raise HTTPException(status_code=409, detail="This MPL changed after version history was opened. Reopen it and try again.")
+    restored_draft = copy.deepcopy(version.get("draft") or {})
+    restored_draft.pop("_version_parent_id", None)
+    restored_draft.pop("_version_reason", None)
+    now = _now_iso()
+    actor = _request_actor(request)
+    restored = {
+        **current,
+        "updated_at": now,
+        "updated_by": str(actor.get("email") or actor.get("name") or "Local user"),
+        "revision": int(current.get("revision") or 0) + 1,
+        "draft": restored_draft,
+    }
+    next_drafts = [restored if str(row.get("id")) == draft_id else row for row in drafts]
+    _mpl_drafts_write(next_drafts, request, "MPL")
+    _save_mpl_version_snapshot(request, restored, f"Restored from version {version.get('revision') or ''}")
+    return JSONResponse(content={"draft": restored, "restored": True})
+
+
 @app.post("/api/kehe/mpl-drafts/{draft_id}/delete")
 @app.delete("/api/kehe/mpl-drafts/{draft_id}")
 async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
@@ -3849,6 +3918,13 @@ async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse
 
     next_drafts = [record for record in drafts if str(record.get("id")) != draft_id]
     _mpl_drafts_write(next_drafts, request, "MPL")
+    versions = _mpl_drafts_read(request, "MPL_VERSION")
+    remaining_versions = [
+        record for record in versions
+        if str((record.get("draft") or {}).get("_version_parent_id") or "") != draft_id
+    ]
+    if len(remaining_versions) != len(versions):
+        _mpl_drafts_write(remaining_versions, request, "MPL_VERSION")
 
     now = _now_iso()
     _audit_log_append([{
@@ -4483,11 +4559,17 @@ async def render_kehe_pack_labels_endpoint(request: Request, draft: Dict[str, An
 # BACKEND SECTION 7: utility helpers.
 # ---------------------------------------------------------------------------
 async def save_upload_file(upload: UploadFile, destination: Path) -> None:
+    total_bytes = 0
     with destination.open("wb") as f:
         while True:
             chunk = await upload.read(1024 * 1024)
             if not chunk:
                 break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_UPLOAD_BYTES:
+                await upload.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=f"{upload.filename or 'Upload'} exceeds the 50 MB limit.")
             f.write(chunk)
     await upload.close()
 

@@ -1,0 +1,65 @@
+/* Responsive application shell
+   Keep operational workspaces fluid while retaining compact content inside cards. */
+:root {
+  --workspace-inline-gutter: clamp(14px, 2vw, 38px);
+  --workspace-block-gutter: clamp(18px, 2vw, 32px);
+}
+
+body[data-module] .mpl-workspace-page {
+  width: 100%;
+  max-width: none;
+  padding: var(--workspace-block-gutter) var(--workspace-inline-gutter);
+}
+
+.mpl-workspace-shell,
+.b2b-workspace-shell,
+.partner-workspace-shell {
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+}
+
+.selection-page {
+  padding-inline: var(--workspace-inline-gutter);
+}
+
+.selection-shell {
+  width: 100%;
+  max-width: none;
+}
+
+@media (min-width: 1500px) {
+  .kit-choice-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mpl-tool-grid {
+    grid-template-columns: repeat(4, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .mpl-order-lookup-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .mpl-order-lookup-form {
+    width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  :root {
+    --workspace-inline-gutter: 16px;
+    --workspace-block-gutter: 18px;
+  }
+
+}
+
+@media (max-width: 540px) {
+  :root {
+    --workspace-inline-gutter: 12px;
+    --workspace-block-gutter: 14px;
+  }
+}

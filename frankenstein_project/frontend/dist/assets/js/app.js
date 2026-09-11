@@ -397,6 +397,7 @@
   let currentReport = null;
   let activeKeheDocumentType = null;
   let activeKeheDocumentDraft = null;
+  let mplVersionHistory = [];
   let currentCsvName = null;
   let currentCsvColumns = null;
   let savedMplDrafts = [];
@@ -494,6 +495,23 @@
   const pages = ['home', 'michaels', 'kehe', 'mpl', 'b2b', 'partners'];
 
   fetch('/health').catch(() => {});
+
+  function updateMplSaveState(state = 'unsaved', detail = '') {
+    const badge = document.getElementById('mpl-save-state');
+    if (!badge) return;
+    badge.dataset.state = state;
+    badge.textContent = state === 'saving' ? 'Saving…'
+      : state === 'saved' ? `Saved${detail ? ` · ${detail}` : ''}`
+      : state === 'error' ? 'Save failed'
+      : 'Unsaved changes';
+  }
+
+  const mplDraftSync = window.LabelKitDraftSync?.create({
+    delayMs: 30000,
+    canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft && hasPermission('save_mpl'),
+    save: () => saveActiveMplDraft({ showStatus: false, autoSave: true, createVersion: false }),
+    onState: updateMplSaveState
+  });
 
   function hasPermission(permission) {
     return !!appRuntimeConfig?.permissions?.[permission];
@@ -652,6 +670,9 @@
     const nameWrap = document.getElementById('mpl-draft-name-wrap');
     const nameInput = document.getElementById('mpl-draft-name-input');
     const saveDraft = document.getElementById('btn-save-mpl-draft');
+    const saveOnly = document.getElementById('btn-save-mpl-only');
+    const versions = document.getElementById('btn-mpl-versions');
+    const saveState = document.getElementById('mpl-save-state');
     const isMplEditor = type === 'masterPackingList';
     if (nameWrap) nameWrap.classList.toggle('hidden', !isMplEditor);
     if (isMplEditor && nameInput && activeKeheDocumentDraft && !String(nameInput.value || '').trim()) {
@@ -659,6 +680,9 @@
     }
     if (!saveDraft) return;
     const canSave = hasPermission('save_mpl');
+    [saveOnly, versions, saveState].forEach(element => element?.classList.toggle('hidden', !isMplEditor));
+    if (saveOnly) saveOnly.disabled = !isMplEditor || !canSave;
+    if (versions) versions.disabled = !activeKeheDocumentDraft?._saved_draft_id;
     saveDraft.classList.toggle('hidden', !isMplEditor);
     saveDraft.disabled = !isMplEditor || !canSave;
     saveDraft.textContent = 'Save & Generate PDF';
@@ -696,6 +720,22 @@
     const initialRoute = getRouteFromHash();
     setHistoryRoute(initialRoute, true);
     await applyRouteFromNavigation(initialRoute);
+    const editorBody = document.getElementById('document-editor-body');
+    const markDirty = () => {
+      if (activeKeheDocumentType === 'masterPackingList' && activeKeheDocumentDraft) mplDraftSync?.schedule();
+    };
+    editorBody?.addEventListener('input', markDirty);
+    editorBody?.addEventListener('change', markDirty);
+    editorBody?.addEventListener('click', event => {
+      if (event.target.closest('button') && activeKeheDocumentType === 'masterPackingList') {
+        setTimeout(markDirty, 0);
+      }
+    });
+    window.addEventListener('beforeunload', event => {
+      if (!mplDraftSync?.hasUnsavedChanges()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
   }
 
   async function fetchWithTimeout(resource, options = {}, timeoutMs = 60000) {
@@ -751,6 +791,9 @@
   function setHistoryRoute(route, replace = false) {
     const normalized = normalizeAppRoute(route);
     const nextHash = `#${normalized}`;
+    // Auth is complete before application navigation starts, so keep the
+    // visible URL canonical and independent of the path that served index.html.
+    const nextUrl = `/${nextHash}`;
     const state = {
       page: routePage(normalized),
       route: normalized,
@@ -760,17 +803,17 @@
     const currentHash = window.location.hash || '#home';
 
     if (replace) {
-      history.replaceState(state, '', nextHash);
+      history.replaceState(state, '', nextUrl);
       return;
     }
 
     if (currentHash !== nextHash) {
-      history.pushState(state, '', nextHash);
+      history.pushState(state, '', nextUrl);
       return;
     }
 
     if (!history.state || history.state.route !== normalized) {
-      history.replaceState(state, '', nextHash);
+      history.replaceState(state, '', nextUrl);
     }
   }
 
@@ -3395,6 +3438,7 @@
     } else {
       delete activeKeheDocumentDraft._saved_draft_name;
     }
+    mplDraftSync?.schedule();
   }
 
   async function saveActiveMplDraft(options = {}) {
@@ -3417,6 +3461,9 @@
     const payload = {
       id: activeKeheDocumentDraft._saved_draft_id || '',
       name: trimmedName,
+      expected_revision: Number(activeKeheDocumentDraft._saved_draft_revision || 0),
+      create_version: options.createVersion !== false && !options.autoSave,
+      version_reason: options.versionReason || 'Explicit save',
       draft: activeKeheDocumentDraft
     };
 
@@ -3428,11 +3475,18 @@
         body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        const editor = data.updated_by ? ` by ${data.updated_by}` : '';
+        throw new Error(`${data.detail || 'A newer saved version exists.'}${editor}`);
+      }
       if (!res.ok) throw new Error(data.detail || 'Could not save MPL draft.');
       activeKeheDocumentDraft._saved_draft_id = data.draft?.id || activeKeheDocumentDraft._saved_draft_id;
       activeKeheDocumentDraft._saved_draft_name = data.draft?.name || trimmedName;
+      activeKeheDocumentDraft._saved_draft_revision = Number(data.draft?.revision || activeKeheDocumentDraft._saved_draft_revision || 0);
       const nameInput = document.getElementById('mpl-draft-name-input');
       if (nameInput) nameInput.value = activeKeheDocumentDraft._saved_draft_name;
+      mplDraftSync?.markSaved();
+      updateMplSaveButtonState();
       if (showStatus) setStatus(options.successMessage || 'MPL draft saved.', 'success');
       return true;
     } catch (err) {
@@ -3520,6 +3574,7 @@
       if (!draft || typeof draft !== 'object') throw new Error('Saved MPL draft is empty.');
       draft._saved_draft_id = record.id;
       draft._saved_draft_name = record.name;
+      draft._saved_draft_revision = Number(record.revision || 0);
       activeKeheDocumentType = 'masterPackingList';
       activeKeheDocumentDraft = draft;
       activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
@@ -3530,6 +3585,7 @@
       renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
       openDocumentEditor();
       if (selectedKit === 'kehe') renderKeheUnifiedReport(activeKeheDocumentDraft);
+      mplDraftSync?.markSaved();
       setStatus('Saved MPL draft opened.', 'success');
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not open saved MPL draft.'), 'error');
@@ -6320,6 +6376,63 @@
     return null;
   }
 
+  async function openMplVersionHistory() {
+    const draftId = activeKeheDocumentDraft?._saved_draft_id;
+    if (!draftId) {
+      setStatus('Save the MPL once before opening version history.', 'error');
+      return;
+    }
+    const modal = document.getElementById('mpl-version-modal');
+    const list = document.getElementById('mpl-version-list');
+    if (list) list.innerHTML = '<div class="empty-row">Loading versions…</div>';
+    modal?.classList.add('visible');
+    try {
+      const res = await fetch(`/api/kehe/mpl-drafts/${encodeURIComponent(draftId)}/versions`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not load version history.');
+      mplVersionHistory = Array.isArray(data.versions) ? data.versions : [];
+      if (!list) return;
+      list.innerHTML = mplVersionHistory.length ? mplVersionHistory.map(version => `
+        <div class="mpl-version-row">
+          <strong>Version ${escapeHtml(String(version.revision || '—'))}</strong>
+          <div>${escapeHtml(version.reason || 'Explicit save')}<small>${escapeHtml(formatDateTime(version.updated_at))} · ${escapeHtml(version.updated_by || 'Unknown user')}</small></div>
+          <button class="btn-secondary" type="button" onclick="restoreMplVersion('${jsString(version.id)}')">Restore</button>
+        </div>`).join('') : '<div class="empty-row">No explicit versions have been saved yet.</div>';
+    } catch (err) {
+      if (list) list.innerHTML = `<div class="empty-row">${escapeHtml(err.message || 'Could not load version history.')}</div>`;
+    }
+  }
+
+  function closeMplVersionHistory() {
+    document.getElementById('mpl-version-modal')?.classList.remove('visible');
+  }
+
+  async function restoreMplVersion(versionId) {
+    const draftId = activeKeheDocumentDraft?._saved_draft_id;
+    if (!draftId) return;
+    try {
+      const res = await fetch(`/api/kehe/mpl-drafts/${encodeURIComponent(draftId)}/versions/${encodeURIComponent(versionId)}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expected_revision: Number(activeKeheDocumentDraft._saved_draft_revision || 0) })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not restore this MPL version.');
+      const record = data.draft || {};
+      activeKeheDocumentDraft = record.draft || activeKeheDocumentDraft;
+      activeKeheDocumentDraft._saved_draft_id = record.id;
+      activeKeheDocumentDraft._saved_draft_name = record.name;
+      activeKeheDocumentDraft._saved_draft_revision = Number(record.revision || 0);
+      activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
+      closeMplVersionHistory();
+      renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
+      mplDraftSync?.markSaved();
+      setStatus('Saved MPL version restored.', 'success');
+    } catch (err) {
+      setStatus(`Error: ${err.message || 'Could not restore this MPL version.'}`, 'error');
+    }
+  }
+
   function getSelectedB2BDirectory() {
     return b2bSelectedDirectoryIndex >= 0 ? normalizeDcDirectoryRow(mplDirectoryRows[b2bSelectedDirectoryIndex] || {}) : {};
   }
@@ -8554,6 +8667,10 @@
   }
 
   function closeDocumentEditor(useHistory = false) {
+    if (useHistory && activeKeheDocumentType === 'masterPackingList' && mplDraftSync?.hasUnsavedChanges()) {
+      if (!window.confirm('This MPL has unsaved changes. Close the editor without saving them?')) return;
+      mplDraftSync.discard();
+    }
     if (useHistory) {
       closeCurrentRouteView(getCurrentPage());
       return;
@@ -9415,13 +9532,13 @@
       if (nameInput && String(nameInput.value || '').trim() !== nextName) {
         nameInput.value = nextName;
       }
+      if (!draft?._saved_draft_id) updateMplSaveState('unsaved');
     }
     updateMplSaveButtonState(type);
     const renderBtn = document.getElementById('btn-render-edited-document');
     if (renderBtn) {
-      renderBtn.textContent = type === 'masterPackingList'
-        ? 'Generate PDF Only'
-        : 'Generate PDF';
+      renderBtn.classList.toggle('hidden', type === 'masterPackingList');
+      renderBtn.textContent = 'Generate PDF';
     }
     const body = document.getElementById('document-editor-body');
     const dialog = document.querySelector('#document-editor-panel .editor-dialog');

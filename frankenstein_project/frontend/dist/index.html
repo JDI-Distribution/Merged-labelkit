@@ -10,6 +10,9 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <link rel="stylesheet" href="/assets/css/app.css">
+  <link rel="stylesheet" href="/assets/css/responsive-shell.css">
+  <link rel="stylesheet" href="/assets/css/module-system.css">
+  <link rel="stylesheet" href="/assets/css/mpl-draft-sync.css">
 </head>
 <body data-module="home">
 
@@ -133,7 +136,7 @@
   <!-- FRONTEND: Shared workflow page. Michaels content matches the uploaded design; KeHE uses the same theme. -->
   <section class="upload-page hidden" id="upload-page">
 
-    <div class="upload-intro">
+    <div class="upload-intro module-header-card">
       <h2 id="workflow-title">JDID · <span>LabelKit</span></h2>
       <p id="workflow-description">Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. Multiple PDF uploads produce separate output PDFs and a combined preview with named break pages.</p>
       <div class="upload-note" id="workflow-note"><strong>Note:</strong> Keep US and CAN orders separate. Print shipping labels separately, and use separate XML files for each group.</div>
@@ -141,7 +144,7 @@
 
     <div class="upload-grid">
       <!-- ASN XML upload. Required for both Michaels and KeHE. -->
-      <div class="step-block">
+      <div class="step-block module-surface-card">
         <div class="step-header">
           <div class="step-title" id="xml-step-title">ASN File — XML</div>
           <span class="optional-badge">Required</span>
@@ -164,7 +167,7 @@
       </div>
 
       <!-- Shipping PDF upload. Required only for Michaels. Hidden for KeHE. -->
-      <div class="step-block" id="pdf-step-block">
+      <div class="step-block module-surface-card" id="pdf-step-block">
         <div class="step-header">
           <div class="step-title">Shipping Label — PDF</div>
           <span class="optional-badge">Required</span>
@@ -189,7 +192,7 @@
 
     </div>
 
-    <div class="generate-block">
+    <div class="generate-block module-surface-card">
       <div class="kehe-generate-head">
         <div class="kehe-product-master-title" id="kehe-generate-title">Generate</div>
         <div class="kehe-generate-subtitle" id="generate-subtitle">Create labels and documents from the uploaded files.</div>
@@ -253,7 +256,7 @@
       <div class="refresh-warning" id="refresh-warning">⚠ Do not refresh or close this page while generating.</div>
     </div>
 
-    <div class="match-panel" id="match-panel">
+    <div class="match-panel module-surface-card" id="match-panel">
       <div class="match-panel-header">
         <div>
           <div class="match-title" id="report-title">Matching Report</div>
@@ -325,7 +328,7 @@
   <!-- FRONTEND: Standalone Packing List & Ti-Hi workspace. KeHE upload remains separate. -->
   <section class="mpl-workspace-page hidden" id="mpl-workspace-page">
     <div class="mpl-workspace-shell">
-      <div class="workspace-overview mpl-workspace-overview">
+      <div class="workspace-overview mpl-workspace-overview module-header-card">
         <div class="workspace-overview-copy">
           <div class="workspace-eyebrow">Packing operations</div>
           <h1>Packing List &amp; Ti-Hi</h1>
@@ -333,7 +336,7 @@
         </div>
       </div>
 
-      <div class="mpl-order-lookup-card">
+      <div class="mpl-order-lookup-card module-surface-card">
         <div class="mpl-order-lookup-copy">
           <div class="mpl-order-lookup-kicker">Step 1 &middot; Order data</div>
           <h2>Start with a sales order</h2>
@@ -376,7 +379,7 @@
         </form>
       </div>
 
-      <section class="mpl-tools-panel">
+      <section class="mpl-tools-panel module-surface-card">
         <div class="mpl-tools-heading">
           <div>
             <div class="workspace-eyebrow">Tools &amp; records</div>
@@ -414,7 +417,7 @@
 
   <section class="mpl-workspace-page hidden" id="b2b-workspace-page">
     <div class="mpl-workspace-shell b2b-workspace-shell">
-      <div class="b2b-page-header">
+      <div class="b2b-page-header module-header-card">
         <div class="b2b-page-title">
           <div class="mpl-order-lookup-kicker">B2B Creator</div>
           <h2>B2B Case-Pack Labels</h2>
@@ -434,7 +437,7 @@
         <div class="b2b-workflow-step"><span>03</span><div><strong>Preview &amp; print</strong><small>Validate the final PDF</small></div></div>
       </div>
 
-      <div class="mpl-order-lookup-card b2b-order-lookup-card">
+      <div class="mpl-order-lookup-card b2b-order-lookup-card module-surface-card">
         <div class="mpl-order-lookup-copy">
           <div class="mpl-order-lookup-kicker">Sales order data</div>
           <h2>Start with a sales order</h2>
@@ -646,7 +649,7 @@
 
   <section class="mpl-workspace-page hidden" id="partner-workspace-page">
     <div class="mpl-workspace-shell partner-workspace-shell">
-      <div class="b2b-page-header partner-page-header">
+      <div class="b2b-page-header partner-page-header module-header-card">
         <div class="b2b-page-title">
           <div class="mpl-order-lookup-kicker">Automatic order documents</div>
           <h2>DecoPac / Dutch Bros / Fancy</h2>
@@ -658,7 +661,7 @@
         </div>
       </div>
 
-      <div class="mpl-order-lookup-card partner-order-card">
+      <div class="mpl-order-lookup-card partner-order-card module-surface-card">
         <div class="mpl-order-lookup-copy">
           <div class="mpl-order-lookup-kicker">Step 1 &middot; Sales order</div>
           <h2>Load an order</h2>
@@ -783,10 +786,26 @@
           <span>MPL Name</span>
           <input id="mpl-draft-name-input" type="text" oninput="updateMplDraftNameFromInput(this)" placeholder="Enter saved MPL name">
         </label>
+        <span class="mpl-save-state hidden" id="mpl-save-state" aria-live="polite">Unsaved</span>
+        <button class="btn-secondary hidden" id="btn-mpl-versions" type="button" onclick="openMplVersionHistory()">Version History</button>
+        <button class="btn-secondary hidden" id="btn-save-mpl-only" type="button" onclick="saveActiveMplDraft({ createVersion: true })">Save Now</button>
         <button class="btn-secondary hidden" id="btn-save-mpl-draft" onclick="renderEditedKeheDocument({ saveMplDraft: true })">Save &amp; Generate PDF</button>
         <button class="btn-generate" id="btn-render-edited-document" onclick="renderEditedKeheDocument()">
           Generate PDF from Edited Values
         </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="editor-panel" id="mpl-version-modal">
+    <div class="editor-dialog mpl-version-dialog">
+      <div class="editor-toolbar">
+        <div class="editor-title">MPL Version History</div>
+        <button class="btn-secondary" type="button" onclick="closeMplVersionHistory()">Close</button>
+      </div>
+      <div class="editor-body">
+        <p class="mpl-version-note">Only explicit saves are retained. The five most recent versions are available.</p>
+        <div id="mpl-version-list" class="mpl-version-list"></div>
       </div>
     </div>
   </div>
@@ -1110,6 +1129,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
 <script src="/__catalyst/sdk/init.js"></script>
+  <script src="/assets/js/mpl-draft-sync.js"></script>
   <script src="/assets/js/app.js"></script>
 
 <script>

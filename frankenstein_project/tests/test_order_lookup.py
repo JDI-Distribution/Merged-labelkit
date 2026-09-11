@@ -25,6 +25,7 @@ from server import (
     normalize_product_master_row,
     serve_frontend_index,
 )
+from labelkit.draft_storage import MPL_VERSION_LIMIT, bounded_versions
 from pipelines.kehe.common import (
     _validate_mpl_each_item_numbers,
     apply_product_master_to_mpl_draft,
@@ -454,6 +455,25 @@ class KeheMplItemNumberTests(unittest.TestCase):
 
 
 class MplDraftStorageTests(unittest.TestCase):
+    def test_mpl_version_history_is_bounded_per_parent(self):
+        records = [{
+            "id": f"draft-1-v{revision}",
+            "revision": revision,
+            "draft": {"_version_parent_id": "draft-1"},
+        } for revision in range(1, 9)]
+        records.append({
+            "id": "other-v1",
+            "revision": 1,
+            "draft": {"_version_parent_id": "other"},
+        })
+
+        bounded = bounded_versions(records, "draft-1")
+
+        related = [row for row in bounded if row["draft"]["_version_parent_id"] == "draft-1"]
+        self.assertEqual(MPL_VERSION_LIMIT, len(related))
+        self.assertEqual([8, 7, 6, 5, 4], [row["revision"] for row in related])
+        self.assertTrue(any(row["id"] == "other-v1" for row in bounded))
+
     def test_existing_datastore_draft_is_updated_without_delete_and_reinsert(self):
         class FakeDraftTable:
             def __init__(self, rows):
@@ -617,6 +637,19 @@ class MplDraftStorageTests(unittest.TestCase):
         self.assertEqual("GENERATED", restored["status"])
         self.assertEqual("DECOPAC", restored["customer_code"])
         self.assertEqual("PO-123", restored["po_number"])
+        self.assertEqual(0, restored["revision"])
+
+    def test_draft_revision_round_trips_in_compact_json(self):
+        row = _mpl_draft_to_datastore_row({
+            "id": "draft-1",
+            "name": "Draft",
+            "revision": 7,
+            "draft": {"packing_lists": []},
+        })
+
+        restored = _datastore_row_to_mpl_draft(row)
+
+        self.assertEqual(7, restored["revision"])
 
 
 class FrontendDeliveryTests(unittest.TestCase):
@@ -625,6 +658,43 @@ class FrontendDeliveryTests(unittest.TestCase):
 
         self.assertEqual("no-store, no-cache, must-revalidate, max-age=0", response.headers["cache-control"])
         self.assertEqual("no-cache", response.headers["pragma"])
+
+    def test_mpl_autosave_and_version_controls_are_delivered(self):
+        html = serve_frontend_index().body.decode("utf-8")
+        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('/assets/js/mpl-draft-sync.js', html)
+        self.assertIn('id="mpl-save-state"', html)
+        self.assertIn('id="btn-mpl-versions"', html)
+        self.assertIn('expected_revision:', javascript)
+        self.assertIn('create_version:', javascript)
+        self.assertIn("renderBtn.classList.toggle('hidden', type === 'masterPackingList')", javascript)
+        self.assertNotIn("? 'Generate PDF Only'", javascript)
+
+    def test_frontend_shell_is_fluid_and_routes_are_canonical_hash_urls(self):
+        html = serve_frontend_index().body.decode("utf-8")
+        responsive_css = (FRONTEND_DIST / "assets" / "css" / "responsive-shell.css").read_text(encoding="utf-8")
+        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('/assets/css/responsive-shell.css', html)
+        self.assertIn(".mpl-workspace-shell", responsive_css)
+        self.assertIn(".b2b-workspace-shell", responsive_css)
+        self.assertIn(".partner-workspace-shell", responsive_css)
+        self.assertIn("max-width: none", responsive_css)
+        self.assertIn("@media (max-width: 900px)", responsive_css)
+        self.assertIn('const nextUrl = `/${nextHash}`;', javascript)
+
+    def test_all_modules_receive_the_shared_visual_system(self):
+        html = serve_frontend_index().body.decode("utf-8")
+        module_css = (FRONTEND_DIST / "assets" / "css" / "module-system.css").read_text(encoding="utf-8")
+
+        self.assertIn('/assets/css/module-system.css', html)
+        self.assertGreaterEqual(html.count('module-header-card'), 3)
+        self.assertGreaterEqual(html.count('module-surface-card'), 6)
+        self.assertIn('[data-module="michaels"]', module_css)
+        self.assertIn('[data-module="kehe"]', module_css)
+        self.assertIn('.kehe-reference-btn', module_css)
+        self.assertIn('@media (max-width: 700px)', module_css)
 
     def test_b2b_creator_uses_progressive_hierarchy_and_dynamic_run_fields(self):
         response = serve_frontend_index()

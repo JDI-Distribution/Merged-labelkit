@@ -28,6 +28,7 @@ FastAPI routes in server.py
 ```
 
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
+- All five modules use the same responsive component language through `module-system.css` and `responsive-shell.css`; customer colors remain token-driven accents rather than separate layouts.
 - `labelkit_config.json` selects the local or Catalyst runtime profile. `auto` uses local JSON/CSV sources on a workstation and Catalyst authentication, connections, and Data Store in AppSail.
 - Local master data is stored under `frankenstein_project/data/`. Catalyst uses the configured Data Store tables and does not fall back to bundled JSON in strict cloud mode.
 - Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser. The B2B editable canvas mirrors the selected renderer, while Section 4 remains the authoritative production-PDF proof.
@@ -42,9 +43,9 @@ Use this sequence for a reproducible release:
 
 1. Run the regression and syntax checks.
 2. Build and health-check `merged-labelkit:latest` locally.
-3. Deploy that exact local image to the Catalyst Development AppSail.
-4. Verify the cloud `/health` endpoint and authenticated application behavior.
-5. Commit the validated source and push `main` to GitHub.
+3. Commit the exact tested source and push `main` to GitHub.
+4. Deploy that same local image to the Catalyst Development AppSail.
+5. Verify the cloud `/health` endpoint and authenticated application behavior.
 
 The Docker image and Git commit should therefore describe the same tested source tree.
 
@@ -392,7 +393,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.11-catalyst-mpl-save-fix"
+$release = "2026.09.11-unified-ui-draft-safety"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -460,7 +461,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.11-catalyst-mpl-save-fix"
+$release = "2026.09.11-unified-ui-draft-safety"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
@@ -500,6 +501,8 @@ Current production design:
 - Catalyst Data Store is the production source of truth.
 - Local JSON files are development fallback only.
 - Saved MPL records store the editable draft JSON in `kehe_mpl_drafts`; generated PDF previews remain temporary.
+- MPL editing uses a lightweight 30-second idle autosave. Autosaves update the current draft without creating history; explicit Save Now and Save & Generate actions retain a maximum of five restorable versions.
+- Draft revision checks reject stale saves with HTTP `409`, preventing one editor from silently overwriting another editor's newer changes.
 - Saved MPL summaries expose timestamp and user. User metadata is stored in the saved draft JSON for compatibility with the existing Catalyst table schema.
 - The frontend shows a login gate when `AUTH_REQUIRED=true` and no Catalyst user session is present.
 - Backend endpoints enforce permissions; hiding buttons in the browser is not the security boundary.
@@ -633,6 +636,23 @@ Set-Location ".\frankenstein_project"
 python -m unittest discover -s tests -v
 Set-Location ".."
 ```
+
+Read-only local deployment smoke test:
+
+```powershell
+& ".\.venv\Scripts\python.exe" ".\frankenstein_project\scripts\validate_deployment.py" "http://127.0.0.1:9000"
+```
+
+After deploying to Catalyst, validate the public health/security boundary without
+creating or changing any data:
+
+```powershell
+& ".\.venv\Scripts\python.exe" ".\frankenstein_project\scripts\validate_deployment.py" "https://mergedlabelkit.development.catalystappsail.com" --production
+```
+
+An authenticated Administrator can also open `GET /api/admin/diagnostics` to
+check that all configured Catalyst tables are reachable. The response does not
+include credentials or table contents.
 
 Python compile:
 
@@ -771,14 +791,21 @@ Tracked app source:
     |       |-- index.html
     |       `-- assets
     |           |-- css
-    |           |   `-- app.css
+    |           |   |-- app.css
+    |           |   |-- module-system.css
+    |           |   |-- mpl-draft-sync.css
+    |           |   `-- responsive-shell.css
     |           `-- js
-    |               `-- app.js
+    |               |-- app.js
+    |               `-- mpl-draft-sync.js
     |-- scripts
-    |   `-- migrate_product_master_and_seed_b2b.py
+    |   |-- migrate_product_master_and_seed_b2b.py
+    |   `-- validate_deployment.py
     |-- labelkit
     |   |-- __init__.py
-    |   `-- customer_workflows.py
+    |   |-- customer_workflows.py
+    |   |-- draft_storage.py
+    |   `-- security.py
     |-- tests
     |   |-- test_b2b_labels.py
     |   |-- test_customer_workflows.py
