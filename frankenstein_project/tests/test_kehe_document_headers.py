@@ -3,8 +3,13 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from pipelines.kehe.asn_parser import Item, Pack
+from pipelines.kehe.common import _aggregate_mpl_items_for_editor
 from pipelines.kehe.document_headers import build_document_shipments
-from pipelines.kehe.pallet_labels import build_kehe_pallet_label_draft
+from pipelines.kehe.gs1_labels import run_pipeline
+from pipelines.kehe.mpl import build_kehe_master_packing_list_draft, render_kehe_master_packing_list_pdf
+from pipelines.kehe.pack_labels import build_kehe_pack_label_draft, render_kehe_pack_label_pdf
+from pipelines.kehe.pallet_labels import build_kehe_pallet_label_draft, render_kehe_pallet_label_pdf
 
 
 def _segment(parent: ET.Element, segment_id: str, **values: str) -> ET.Element:
@@ -15,6 +20,29 @@ def _segment(parent: ET.Element, segment_id: str, **values: str) -> ET.Element:
 
 
 class KeheDocumentHeaderTests(unittest.TestCase):
+    def test_mpl_aggregation_combines_duplicate_items_and_po_numbers(self):
+        first = Pack(
+            sscc="001234567890123457",
+            po="PO-ONE",
+            items=[Item(upc="850068684784", description="TEST PRODUCT", qty=12)],
+        )
+        second = Pack(
+            sscc="001234567890123458",
+            po="PO-TWO",
+            items=[Item(upc="850068684784", description="TEST PRODUCT", qty=24)],
+        )
+
+        rows = _aggregate_mpl_items_for_editor(
+            [first, second],
+            [],
+            total_pallets="1",
+            preserve_pack_pallets=False,
+        )
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("36", rows[0]["total_shipped"])
+        self.assertEqual("PO-ONE, PO-TWO", rows[0]["customer_po_number"])
+
     def test_shipment_helpers_are_available_to_pallet_label_preparation(self):
         root = ET.Element("Root")
         transaction = ET.SubElement(root, "Transaction")
@@ -52,15 +80,44 @@ class KeheDocumentHeaderTests(unittest.TestCase):
             ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
 
             shipments = build_document_shipments([str(xml_path)])
-            draft = build_kehe_pallet_label_draft([str(xml_path)])
+            pallet_draft = build_kehe_pallet_label_draft([str(xml_path)])
+            mpl_draft = build_kehe_master_packing_list_draft([str(xml_path)])
+            pack_draft = build_kehe_pack_label_draft(
+                [str(xml_path)],
+                product_master_rows=[{
+                    "is_active": True,
+                    "gtin": "850068684784",
+                    "description": "TEST PRODUCT",
+                    "packaging_level": "Case",
+                    "case_qty": "12",
+                    "default_copies": "2",
+                    "gross_weight_lbs": "5",
+                }],
+            )
+
+            outputs = {
+                "pallet": Path(temp_dir) / "pallet.pdf",
+                "mpl": Path(temp_dir) / "mpl.pdf",
+                "pack": Path(temp_dir) / "pack.pdf",
+                "gs1": Path(temp_dir) / "gs1.pdf",
+            }
+            render_kehe_pallet_label_pdf(pallet_draft, str(outputs["pallet"]))
+            render_kehe_master_packing_list_pdf(mpl_draft, str(outputs["mpl"]))
+            render_kehe_pack_label_pdf(pack_draft, str(outputs["pack"]))
+            run_pipeline([str(xml_path)], str(outputs["gs1"]))
+
+            for output in outputs.values():
+                self.assertGreater(output.stat().st_size, 0, output.name)
 
         header = shipments["shipments"][0]["header"]
         self.assertEqual("PLT", header["td1_package_code"])
         self.assertEqual("1", header["xml_total_pallets"])
         self.assertEqual("UPS", header["carrier"])
         self.assertEqual("PO-TEST", header["customer_po_number"])
-        self.assertEqual(1, draft["summary"]["groups"])
-        self.assertEqual("001234567890123457", draft["pallets"][0]["source_sscc"])
+        self.assertEqual(1, pallet_draft["summary"]["groups"])
+        self.assertEqual("001234567890123457", pallet_draft["pallets"][0]["source_sscc"])
+        self.assertEqual(1, mpl_draft["summary"]["packing_lists"])
+        self.assertEqual(1, pack_draft["summary"]["labels"])
 
 
 if __name__ == "__main__":

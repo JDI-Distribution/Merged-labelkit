@@ -1,6 +1,7 @@
 import unittest
 
 from labelkit import order_intake
+import pipelines.kehe_pipeline as kehe_compat
 from pipelines.kehe import asn_parser as kehe_asn
 from pipelines.kehe import document_headers as kehe_headers
 from pipelines.kehe import gs1_labels as kehe_gs1
@@ -28,6 +29,24 @@ class ModuleBoundaryTests(unittest.TestCase):
         self.assertEqual(kehe_mpl.__name__, kehe_mpl.render_kehe_master_packing_list_pdf.__module__)
         self.assertEqual(kehe_mpl_renderer.__name__, kehe_mpl._mpl_template_id.__module__)
         self.assertEqual(kehe_tihi_layout.__name__, kehe_tihi._mpl_build_tihi_entries.__module__)
+
+    def test_kehe_compatibility_wrapper_preserves_useful_public_api(self):
+        expected_names = (
+            "Address",
+            "Item",
+            "Order",
+            "Pack",
+            "build_document_shipments",
+            "format_sscc_groups",
+            "normalize_sscc",
+            "parse_asn",
+            "parse_kehe_document_header",
+            "parse_kehe_document_headers",
+            "wrap_text",
+        )
+        for name in expected_names:
+            self.assertIn(name, kehe_compat.__all__)
+            self.assertTrue(hasattr(kehe_compat, name), name)
 
     def test_michaels_boundaries_own_their_implementations(self):
         self.assertEqual(michaels_asn.__name__, michaels_asn.parse_asn.__module__)
