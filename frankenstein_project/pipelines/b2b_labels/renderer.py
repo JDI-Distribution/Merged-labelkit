@@ -12,7 +12,7 @@ import io
 import re
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode import createBarcodeDrawing

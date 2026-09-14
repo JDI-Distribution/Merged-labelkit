@@ -32,6 +32,15 @@ from pipelines.kehe.common import (
 )
 
 
+def _frontend_javascript_bundle() -> str:
+    """Return every locally delivered script so feature tests follow modular builds."""
+    scripts_dir = FRONTEND_DIST / "assets" / "js"
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(scripts_dir.glob("*.js"))
+    )
+
+
 class AnalyticsOrderInstanceTests(unittest.TestCase):
     def test_order_lookup_helpers_validate_and_select_consistently(self):
         self.assertEqual("SO-101", _validated_sales_order_number({"sales_order_number": " SO-101 "}))
@@ -653,6 +662,47 @@ class MplDraftStorageTests(unittest.TestCase):
 
 
 class FrontendDeliveryTests(unittest.TestCase):
+    def test_frontend_styles_and_pdf_runtime_are_local_modules(self):
+        html = serve_frontend_index().body.decode("utf-8")
+
+        for filename in (
+            "app.css",
+            "operations.css",
+            "document-editor.css",
+            "preview.css",
+            "b2b.css",
+            "app-responsive.css",
+        ):
+            with self.subTest(filename=filename):
+                self.assertIn(f'/assets/css/{filename}', html)
+                self.assertTrue((FRONTEND_DIST / "assets" / "css" / filename).is_file())
+
+        self.assertIn('/assets/vendor/pdfjs-3.11.174/pdf.min.js', html)
+        self.assertNotIn('cdnjs.cloudflare.com/ajax/libs/pdf.js', html)
+        self.assertTrue(
+            (FRONTEND_DIST / "assets" / "vendor" / "pdfjs-3.11.174" / "pdf.worker.min.js").is_file()
+        )
+
+    def test_feature_scripts_are_delivered_as_separate_modules(self):
+        html = serve_frontend_index().body.decode("utf-8")
+        app_javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+        expected_modules = {
+            "reference-data.js": "function normalizeProductRow",
+            "mpl-tihi.js": "function autoPalletizeMpl",
+            "b2b-workspace.js": "function renderB2BCreator",
+            "partner-workspace.js": "function renderPartnerWorkspace",
+            "document-editor.js": "function renderDocumentEditor",
+        }
+
+        for filename, owned_function in expected_modules.items():
+            with self.subTest(filename=filename):
+                self.assertIn(f'/assets/js/{filename}', html)
+                module_javascript = (
+                    FRONTEND_DIST / "assets" / "js" / filename
+                ).read_text(encoding="utf-8")
+                self.assertIn(owned_function, module_javascript)
+                self.assertNotIn(owned_function, app_javascript)
+
     def test_index_html_is_not_cached(self):
         response = serve_frontend_index()
 
@@ -661,7 +711,7 @@ class FrontendDeliveryTests(unittest.TestCase):
 
     def test_mpl_autosave_and_version_controls_are_delivered(self):
         html = serve_frontend_index().body.decode("utf-8")
-        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+        javascript = _frontend_javascript_bundle()
 
         self.assertIn('/assets/js/mpl-draft-sync.js', html)
         self.assertIn('id="mpl-save-state"', html)
@@ -699,7 +749,7 @@ class FrontendDeliveryTests(unittest.TestCase):
     def test_b2b_creator_uses_progressive_hierarchy_and_dynamic_run_fields(self):
         response = serve_frontend_index()
         html = response.body.decode("utf-8")
-        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+        javascript = _frontend_javascript_bundle()
 
         self.assertIn('data-b2b-selector-wrap="customer"', html)
         for selector in ("product", "level", "template", "directory"):
@@ -725,7 +775,7 @@ class FrontendDeliveryTests(unittest.TestCase):
 
     def test_combined_customer_order_module_uses_kehe_style_editors_and_previews(self):
         html = serve_frontend_index().body.decode("utf-8")
-        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+        javascript = _frontend_javascript_bundle()
 
         self.assertIn('id="partner-workspace-page"', html)
         self.assertIn('id="partner-sales-order-number"', html)

@@ -2,7 +2,7 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-Current documented release: `2026.09.10-document-preview-save-fix`
+Current documented release: `2026.09.14-kehe-modularization`
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
@@ -11,7 +11,7 @@ Current documented release: `2026.09.10-document-preview-save-fix`
 - Automatic customer documents: open Pack Labels, Pallet Labels, and Master Packing List through the same edit-and-preview workflow used by KeHE. Partner labels are editable on their print layouts, and saved MPL generation persists the draft before opening the PDF preview.
 - DecoPac / Dutch Bros / Fancy: use one shared customer-specific workflow to detect or select the customer, review/edit every required label and packing list, and preview both PDFs before printing or downloading.
 
-The app is served by `frankenstein_project/server.py`. The browser UI lives in `frankenstein_project/frontend/dist/`.
+The app is served by `frankenstein_project/server.py`. It remains the FastAPI entry point and delegates document processing and file operations to modules under `pipelines/` and `labelkit/`. The browser UI lives in `frankenstein_project/frontend/dist/`; `app.js` owns shared application state and routing while feature scripts own their workspace logic.
 
 ## How LabelKit Works
 
@@ -28,7 +28,11 @@ FastAPI routes in server.py
 ```
 
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
-- All five modules use the same responsive component language through `module-system.css` and `responsive-shell.css`; customer colors remain token-driven accents rather than separate layouts.
+- Frontend features are split into `reference-data.js`, `mpl-tihi.js`, `b2b-workspace.js`, `partner-workspace.js`, and `document-editor.js`. They are loaded as classic scripts to preserve the established global HTML handlers while keeping implementation ownership separate.
+- Frontend styles retain their original cascade order but are separated into core, operations, document-editor, preview, B2B, responsive, and module-theme files. All five modules use the same responsive component language; customer colors remain token-driven accents rather than separate layouts.
+- PDF.js 3.11.174 is pinned under `frontend/dist/assets/vendor/` so PDF previews do not depend on a public CDN at runtime.
+- Backend upload/PDF file operations live in `labelkit/file_operations.py`, reference-data normalization lives in `labelkit/reference_data.py`, and reusable Analytics order matching/conversion lives in `labelkit/order_intake.py`.
+- The Michaels package owns separate ASN, OCR, matching, rendering, and orchestration implementations. KeHE ASN parsing, document headers, Product Master enrichment, GS1 labels, pallet labels, pack labels, MPL orchestration/rendering, and TI-HI calculation/rendering are implemented in focused modules. `kehe/common.py` now contains only shared models/helpers and lazy compatibility exports for existing callers.
 - `labelkit_config.json` selects the local or Catalyst runtime profile. `auto` uses local JSON/CSV sources on a workstation and Catalyst authentication, connections, and Data Store in AppSail.
 - Local master data is stored under `frankenstein_project/data/`. Catalyst uses the configured Data Store tables and does not fall back to bundled JSON in strict cloud mode.
 - Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser. The B2B editable canvas mirrors the selected renderer, while Section 4 remains the authoritative production-PDF proof.
@@ -393,14 +397,15 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.11-unified-ui-draft-safety"
+$release = "2026.09.14-kehe-modularization"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
 The Dockerfile uses a disposable wheel-building stage and copies only installed
 runtime packages into the final image. Compilers and Uvicorn development extras
 are intentionally excluded; Poppler and Tesseract remain installed for PDF
-conversion and Michaels OCR.
+conversion and Michaels OCR. Tests, maintenance scripts, and migration seed files
+remain in Git but are excluded from the production image.
 
 Run locally:
 
@@ -461,7 +466,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.11-unified-ui-draft-safety"
+$release = "2026.09.14-kehe-modularization"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
@@ -668,12 +673,14 @@ Frontend script parse:
 ```powershell
 @'
 const fs = require('fs');
+const path = require('path');
 const html = fs.readFileSync('frankenstein_project\\frontend\\dist\\index.html','utf8');
 const inlineScripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]).filter(Boolean);
-const app = fs.readFileSync('frankenstein_project\\frontend\\dist\\assets\\js\\app.js','utf8');
+const scriptsDir = 'frankenstein_project\\frontend\\dist\\assets\\js';
+const scripts = fs.readdirSync(scriptsDir).filter(name=>name.endsWith('.js')).map(name=>fs.readFileSync(path.join(scriptsDir,name),'utf8'));
 new Function(inlineScripts.join('\n'));
-new Function(app);
-console.log('frontend-script-parse-ok', inlineScripts.length + 1);
+scripts.forEach(source=>new Function(source));
+console.log('frontend-script-parse-ok', inlineScripts.length + scripts.length);
 '@ | node -
 ```
 
@@ -689,6 +696,8 @@ mods = [
     "pipelines.kehe.tihi",
     "pipelines.michaels_label_pipeline",
     "pipelines.michaels.pipeline",
+    "labelkit.file_operations",
+    "labelkit.reference_data",
 ]
 for mod in mods:
     importlib.import_module(mod)
@@ -777,7 +786,6 @@ Tracked app source:
     |-- labelkit_config.json
     |-- requirements.txt
     |-- server.py
-    |-- start.sh
     |-- data
     |   |-- b2b_label_templates.json
     |   |-- customer_workflows.json
@@ -791,13 +799,28 @@ Tracked app source:
     |       |-- index.html
     |       `-- assets
     |           |-- css
+    |           |   |-- app-responsive.css
     |           |   |-- app.css
+    |           |   |-- b2b.css
+    |           |   |-- document-editor.css
     |           |   |-- module-system.css
     |           |   |-- mpl-draft-sync.css
+    |           |   |-- operations.css
+    |           |   |-- preview.css
     |           |   `-- responsive-shell.css
-    |           `-- js
-    |               |-- app.js
-    |               `-- mpl-draft-sync.js
+    |           |-- js
+    |           |   |-- app.js
+    |           |   |-- b2b-workspace.js
+    |           |   |-- document-editor.js
+    |           |   |-- mpl-draft-sync.js
+    |           |   |-- mpl-tihi.js
+    |           |   |-- partner-workspace.js
+    |           |   `-- reference-data.js
+    |           `-- vendor
+    |               `-- pdfjs-3.11.174
+    |                   |-- LICENSE
+    |                   |-- pdf.min.js
+    |                   `-- pdf.worker.min.js
     |-- scripts
     |   |-- migrate_product_master_and_seed_b2b.py
     |   `-- validate_deployment.py
@@ -805,11 +828,16 @@ Tracked app source:
     |   |-- __init__.py
     |   |-- customer_workflows.py
     |   |-- draft_storage.py
+    |   |-- file_operations.py
+    |   |-- order_intake.py
+    |   |-- reference_data.py
     |   `-- security.py
     |-- tests
     |   |-- test_b2b_labels.py
     |   |-- test_customer_workflows.py
     |   |-- test_kehe_gs1_label.py
+    |   |-- test_michaels_output_order.py
+    |   |-- test_module_boundaries.py
     |   |-- test_mpl_templates.py
     |   |-- test_order_lookup.py
     |   `-- test_product_master_migration.py
@@ -826,10 +854,12 @@ Tracked app source:
         |   |-- document_headers.py
         |   |-- gs1_labels.py
         |   |-- mpl.py
+        |   |-- mpl_renderer.py
         |   |-- pack_labels.py
         |   |-- pallet_labels.py
         |   |-- product_master.py
-        |   `-- tihi.py
+        |   |-- tihi.py
+        |   `-- tihi_layout.py
         `-- michaels
             |-- __init__.py
             |-- asn_parser.py

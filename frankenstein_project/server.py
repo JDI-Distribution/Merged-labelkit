@@ -19,7 +19,6 @@ import json
 import csv
 import io
 import logging
-import math
 import os
 import re
 import shutil
@@ -30,7 +29,6 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -59,15 +57,58 @@ from pipelines.kehe_pipeline import (  # noqa: E402
     render_kehe_pack_label_pdf,
     load_kehe_dc_directory,
 )
-from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job  # noqa: E402
-from labelkit.customer_workflows import detect_customer_id, load_customer_workflows  # noqa: E402
+from pipelines.b2b_labels import render_b2b_label_pdf  # noqa: E402
+from labelkit.customer_workflows import load_customer_workflows  # noqa: E402
 from labelkit.draft_storage import (  # noqa: E402
     bounded_versions,
     decode_draft_row,
     encode_draft_row,
     normalize_document_type as normalize_draft_document_type,
 )
+from labelkit.file_operations import (  # noqa: E402
+    MAX_UPLOAD_BYTES,
+    combine_shipping_pdfs,
+    normalize_kit,
+    sanitize_filename,
+    save_upload_file,
+    split_michaels_output_by_shipping_pdf,
+    unique_upload_destination,
+)
+from labelkit.reference_data import (  # noqa: E402
+    _boolish,
+    _dc_directory_base_key,
+    _dedupe_dc_directory_rows,
+    _dedupe_product_master_rows,
+    _is_kehe_storefront,
+    _kehe_dc_directory_rows,
+    _kehe_product_master_rows,
+    _format_decimal_string,
+    _parse_decimal_value,
+    _product_storefront_level_sku_key,
+    normalize_packaging_level,
+    normalize_dc_directory_row,
+    normalize_product_master_row,
+    parse_product_master_json,
+)
 from labelkit.security import allowed_origins, apply_security_headers  # noqa: E402
+from labelkit.order_intake import (  # noqa: E402
+    _analytics_case_conversion,
+    _analytics_kehe_case_conversion,
+    _analytics_order_details,
+    _analytics_order_instance_groups,
+    _analytics_order_item_fallback,
+    _analytics_quantity,
+    _analytics_row_value,
+    _analytics_source_metadata,
+    _b2b_analytics_order_items_for_products,
+    _canonical_order_number,
+    _canonical_order_sku,
+    _partner_customer_id_from_text,
+    _product_each_gtin,
+    _select_analytics_order_instance,
+    _validated_sales_order_number,
+    configure_order_intake,
+)
 
 MatchFailureErrors = (MichaelsMatchFailureError,)
 
@@ -81,8 +122,6 @@ DEFAULT_PORT = int(os.getenv("X_ZOHO_CATALYST_LISTEN_PORT", os.getenv("PORT", "9
 APP_NAME = "Merged LabelKit"
 APP_ID = "merged-labelkit"
 MAX_CACHED_REPORTS = 25
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-
 RESULT_REPORTS: Dict[str, Dict[str, Any]] = {}
 RESULT_JOBS: Dict[str, Dict[str, Any]] = {}
 LOGGER = logging.getLogger("labelkit")
@@ -317,19 +356,7 @@ MPL_PRODUCT_MASTER_FILE = Path(
     os.getenv("MPL_PRODUCT_MASTER_FILE", str(BASE_DIR / "data" / "mpl_product_master.json"))
 )
 
-# Package quantities must be explicit in Product Master. Older rows remain
-# readable, but Analytics order conversion will not guess a missing case pack.
-DEFAULT_CASE_QTY_BY_LEVEL = {
-    "Case": "",
-    "Inner Pack": "",
-    "Each": "",
-    "Master Case": "",
-    "Pallet": "",
-    "Shipper Contents": "",
-    "Other": "",
-}
-B2B_VERIFICATION_STATUSES = {"DRAFT", "NEEDS_REVIEW", "VERIFIED", "BLOCKED"}
-B2B_DIRECTORY_RECORD_TYPES = {"CUSTOMER_DEFAULT", "DESTINATION", "DISTRIBUTION_CENTER"}
+# Product normalization constants are defined in labelkit.reference_data.
 # Default Ship From used only for manual DC Directory rows when no value exists.
 DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
@@ -402,6 +429,28 @@ app.add_middleware(
 app.middleware("http")(apply_security_headers)
 CUSTOMER_WORKFLOWS_FILE = BASE_DIR / "data" / "customer_workflows.json"
 CUSTOMER_WORKFLOWS = load_customer_workflows(CUSTOMER_WORKFLOWS_FILE)
+configure_order_intake(
+    ANALYTICS_SKU_COLUMN=ANALYTICS_SKU_COLUMN,
+    ANALYTICS_QUANTITY_COLUMN=ANALYTICS_QUANTITY_COLUMN,
+    ANALYTICS_CUSTOMER_EMAIL_COLUMN=ANALYTICS_CUSTOMER_EMAIL_COLUMN,
+    ANALYTICS_ITEM_DESCRIPTION_COLUMNS=ANALYTICS_ITEM_DESCRIPTION_COLUMNS,
+    ANALYTICS_ITEM_NUMBER_COLUMNS=ANALYTICS_ITEM_NUMBER_COLUMNS,
+    ANALYTICS_ITEM_GTIN_COLUMNS=ANALYTICS_ITEM_GTIN_COLUMNS,
+    ANALYTICS_ITEM_UNIT_WEIGHT_COLUMNS=ANALYTICS_ITEM_UNIT_WEIGHT_COLUMNS,
+    ANALYTICS_ITEM_PALLET_WEIGHT_COLUMNS=ANALYTICS_ITEM_PALLET_WEIGHT_COLUMNS,
+    ANALYTICS_ORDER_INSTANCE_ID_COLUMN=ANALYTICS_ORDER_INSTANCE_ID_COLUMN,
+    ANALYTICS_ORDER_INSTANCE_DATE_COLUMN=ANALYTICS_ORDER_INSTANCE_DATE_COLUMN,
+    ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN=ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN,
+    ANALYTICS_ORDER_DETAIL_COLUMNS=ANALYTICS_ORDER_DETAIL_COLUMNS,
+    ANALYTICS_ORDER_SOURCE=ANALYTICS_ORDER_SOURCE,
+    ANALYTICS_LOCAL_SOURCE_VALUES=ANALYTICS_LOCAL_SOURCE_VALUES,
+    ANALYTICS_LOCAL_FILE=ANALYTICS_LOCAL_FILE,
+    ANALYTICS_CONNECTION_LINK_NAME=ANALYTICS_CONNECTION_LINK_NAME,
+    ANALYTICS_WORKSPACE_ID=ANALYTICS_WORKSPACE_ID,
+    ANALYTICS_VIEW_ID=ANALYTICS_VIEW_ID,
+    ANALYTICS_VIEW_NAME=ANALYTICS_VIEW_NAME,
+    CUSTOMER_WORKFLOWS=CUSTOMER_WORKFLOWS,
+)
 
 
 @app.middleware("http")
@@ -604,346 +653,6 @@ def run_kehe_generation_job(result_id: str, xml_paths: List[str]) -> None:
 # Frontend uses these APIs as the primary source for the GTIN / Packaging table.
 # localStorage remains only a browser-side fallback cache.
 # ---------------------------------------------------------------------------
-def normalize_packaging_level(value: Any) -> str:
-    raw = re.sub(r"\s+", " ", str(value or "").strip().lower())
-    compact = raw.replace(" ", "")
-    if raw in {"master case", "master carton"} or compact in {"mastercase", "mastercarton"}:
-        return "Master Case"
-    if raw in {"pallet", "plt"}:
-        return "Pallet"
-    if raw in {"case", "cases", "master pack", "master packs", "mp", "case pack", "case packs"} or compact == "casepack":
-        return "Case"
-    if raw in {"inner pack", "inner packs", "inner", "ip"} or compact in {"innerpack", "innerpacks"}:
-        return "Inner Pack"
-    if raw in {"each", "ea"}:
-        return "Each"
-    if raw in {"shipper contents", "shipper content", "shipper", "display shipper"}:
-        return "Shipper Contents"
-    if raw == "other":
-        return "Other"
-    return "Other"
-
-
-def _normalize_verification_status(value: Any) -> str:
-    raw = re.sub(r"\s+", "_", str(value or "").strip().upper())
-    if raw in {"APPROVED", "READY"}:
-        return "VERIFIED"
-    if raw in B2B_VERIFICATION_STATUSES:
-        return raw
-    return "NEEDS_REVIEW" if raw else "DRAFT"
-
-
-def _normalize_directory_record_type(value: Any) -> str:
-    raw = re.sub(r"\s+", "_", str(value or "").strip().upper())
-    return raw if raw in B2B_DIRECTORY_RECORD_TYPES else "DESTINATION"
-
-
-def _first_value(row: Dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        if key in row and row.get(key) is not None:
-            return str(row.get(key)).strip()
-    return ""
-
-
-def _boolish(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    raw = str(value).strip().lower()
-    if not raw:
-        return default
-    if raw in {"1", "true", "yes", "y", "on", "checked", "✅", "x"}:
-        return True
-    if raw in {"0", "false", "no", "n", "off", "unchecked", "barcode on product"}:
-        return False
-    if "barcode" in raw and "product" in raw:
-        return False
-    return default
-
-
-def _product_in_packing_list(row: Dict[str, Any], packaging_level: str) -> bool:
-    """Derive MPL inclusion; it is intentionally not stored in Product Master."""
-    is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
-    return is_active and normalize_packaging_level(packaging_level) == "Case"
-
-
-def _normalize_storefront(value: Any) -> str:
-    clean = str(value or "").strip()
-    return clean or "KeHE"
-
-
-def _is_kehe_storefront(value: Any) -> bool:
-    return _normalize_storefront(value).lower() == "kehe"
-
-
-def _parse_decimal_value(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        parsed = float(value)
-        return parsed if parsed > 0 else None
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    raw = raw.replace(",", "")
-    mixed_fraction = re.match(r"^(-?\d+)\s+(\d+)/(\d+)$", raw)
-    if mixed_fraction:
-        whole = float(mixed_fraction.group(1))
-        numerator = float(mixed_fraction.group(2))
-        denominator = float(mixed_fraction.group(3))
-        if denominator == 0:
-            return None
-        parsed = whole + (numerator / denominator)
-        return parsed if parsed > 0 else None
-    simple_fraction = re.match(r"^(\d+)/(\d+)$", raw)
-    if simple_fraction:
-        numerator = float(simple_fraction.group(1))
-        denominator = float(simple_fraction.group(2))
-        if denominator == 0:
-            return None
-        parsed = numerator / denominator
-        return parsed if parsed > 0 else None
-    match = re.search(r"-?\d+(?:\.\d+)?", raw)
-    if not match:
-        return None
-    parsed = float(match.group(0))
-    return parsed if parsed > 0 else None
-
-
-def _format_decimal_string(value: Optional[float]) -> str:
-    if value is None:
-        return ""
-    if abs(value - round(value)) < 0.000001:
-        return str(int(round(value)))
-    return f"{value:.6f}".rstrip("0").rstrip(".")
-
-
-def _parse_legacy_dimensions(value: Any) -> Optional[tuple[float, float, float]]:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    fraction_map = {
-        "¼": ".25",
-        "½": ".5",
-        "¾": ".75",
-        "⅛": ".125",
-        "⅜": ".375",
-        "⅝": ".625",
-        "⅞": ".875",
-    }
-    for symbol, replacement in fraction_map.items():
-        raw = raw.replace(symbol, replacement)
-    raw = re.sub(r"(\d+)\s+(\d+)/(\d+)", lambda m: str(float(m.group(1)) + (float(m.group(2)) / float(m.group(3)))), raw)
-    raw = re.sub(r"\((?:l|w|b|h)\)", "", raw)
-    raw = raw.replace("×", "x")
-    numbers = re.findall(r"-?\d+(?:\.\d+)?", raw)
-    if len(numbers) < 3:
-        return None
-    length = _parse_decimal_value(numbers[0])
-    width = _parse_decimal_value(numbers[1])
-    height = _parse_decimal_value(numbers[2])
-    if length is None or width is None or height is None:
-        return None
-    return (length, width, height)
-
-
-def _resolve_dimensions(row: Dict[str, Any]) -> tuple[str, str, str, str, bool]:
-    dimensions_in_raw = _first_value(row, "dimensions_in", "DIMENSIONS_IN", "L_X_W_X_H_IN", "L × W × H (in)")
-    length = _parse_decimal_value(_first_value(row, "length_in", "LENGTH_IN", "length", "Length"))
-    width = _parse_decimal_value(_first_value(row, "width_in", "WIDTH_IN", "breadth_in", "BREADTH_IN", "width", "breadth", "Width / Breadth"))
-    height = _parse_decimal_value(_first_value(row, "height_in", "HEIGHT_IN", "height", "Height"))
-
-    parsed_from_legacy = False
-    if (length is None or width is None or height is None) and dimensions_in_raw:
-        parsed = _parse_legacy_dimensions(dimensions_in_raw)
-        if parsed is not None:
-            parsed_from_legacy = True
-            if length is None:
-                length = parsed[0]
-            if width is None:
-                width = parsed[1]
-            if height is None:
-                height = parsed[2]
-
-    length_s = _format_decimal_string(length)
-    width_s = _format_decimal_string(width)
-    height_s = _format_decimal_string(height)
-    if length_s and width_s and height_s:
-        dimensions_in = f"{length_s} x {width_s} x {height_s}"
-    else:
-        dimensions_in = dimensions_in_raw
-    return length_s, width_s, height_s, dimensions_in, parsed_from_legacy
-
-
-def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
-    gtin = _first_value(row, "gtin", "GTIN", "case_upc", "CASE_UPC", "upc", "UPC")
-    config_id = _first_value(row, "config_id", "CONFIG_ID", "config", "configuration_id")
-    packaging_level = normalize_packaging_level(
-        _first_value(row, "packaging_level", "packging_level", "PACKAGING_LEVEL", "PACKGING LEVEL", "Packaging Level")
-    )
-    in_packing_list = _product_in_packing_list(row, packaging_level)
-    case_qty = _first_value(
-        row,
-        "case_qty",
-        "CASE_QTY",
-        "Case Qty",
-        "Eaches / Package",
-        "eaches_per_package",
-        "eaches_per_case",
-        "eaches_per_inner_pack",
-    )
-    sku = _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER")
-    customer_item_number = _first_value(row, "customer_item_number", "CUSTOMER_ITEM_NUMBER", "customer_item", "item_number_customer")
-    label_template_id = _first_value(row, "label_template_id", "LABEL_TEMPLATE_ID", "template_id")
-    barcode_type = _first_value(row, "barcode_type", "BARCODE_TYPE")
-    barcode_level = _first_value(row, "barcode_level", "BARCODE_LEVEL")
-    each_net_weight_g = _first_value(row, "each_net_weight_g", "EACH_NET_WEIGHT_G")
-    package_net_weight_g = _first_value(row, "package_net_weight_g", "PACKAGE_NET_WEIGHT_G")
-    gross_weight_lbs = _first_value(
-        row,
-        "gross_weight_lbs",
-        "GROSS_WEIGHT_LBS",
-        # One-transition import/read adapter. This value is never written back.
-        "weight_lbs",
-        "WEIGHT_LBS",
-        "Weight (lbs)",
-    )
-    default_copies = _first_value(
-        row,
-        "default_copies",
-        "DEFAULT_COPIES",
-        # One-transition import/read adapter. This value is never written back.
-        "labels_per_unit",
-        "LABELS_PER_UNIT",
-        "Labels / Unit",
-    )
-    verification_status = _normalize_verification_status(
-        _first_value(row, "verification_status", "VERIFICATION_STATUS")
-    )
-    source_note = _first_value(row, "source_note", "SOURCE_NOTE")
-
-    length_in, width_in, height_in, legacy_dimension_display, parsed_legacy_dimensions = _resolve_dimensions(row)
-    if not case_qty:
-        case_qty = _default_case_qty_for_product(packaging_level)
-    label_enabled_raw = _first_value(row, "label_enabled", "LABEL_ENABLED")
-    label_enabled = _boolish(label_enabled_raw, False)
-    is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
-
-    return {
-        "id": _first_value(row, "id", "ROWID", "rowid"),
-        "storefront": storefront,
-        "in_packing_list": in_packing_list,
-        "gtin": gtin,
-        "description": _first_value(row, "description", "DESCRIPTION", "Description"),
-        "packaging_level": packaging_level,
-        "length_in": length_in,
-        "width_in": width_in,
-        "height_in": height_in,
-        "each_net_weight_g": each_net_weight_g,
-        "package_net_weight_g": package_net_weight_g,
-        "gross_weight_lbs": gross_weight_lbs,
-        "case_qty": case_qty,
-        "sku": sku,
-        "config_id": config_id,
-        "customer_item_number": customer_item_number,
-        "label_template_id": label_template_id,
-        "barcode_type": barcode_type,
-        "barcode_level": barcode_level,
-        "default_copies": default_copies,
-        "verification_status": verification_status,
-        "label_enabled": label_enabled,
-        "source_note": source_note,
-        "is_active": is_active,
-        "unique_key": _product_master_unique_key(gtin, packaging_level, storefront, sku, config_id=config_id),
-    }
-
-
-def _product_master_unique_key(
-    gtin: str,
-    packaging_level: str,
-    storefront: str = "",
-    sku: str = "",
-    config_id: str = "",
-) -> str:
-    store = _normalize_storefront(storefront)
-    if str(config_id or "").strip():
-        return "|".join([
-            store.strip().lower(),
-            str(config_id or "").strip().lower(),
-            normalize_packaging_level(packaging_level).strip().lower(),
-        ])
-    return "|".join([
-        store.strip().lower(),
-        normalize_packaging_level(packaging_level).strip().lower(),
-        str(sku or "").strip().lower(),
-    ])
-
-
-def _product_storefront_level_sku_key(row: Dict[str, Any]) -> str:
-    normalized = normalize_product_master_row(row)
-    return _product_master_unique_key(
-        normalized.get("gtin", ""),
-        normalized.get("packaging_level", ""),
-        normalized.get("storefront", ""),
-        normalized.get("sku", ""),
-        normalized.get("config_id", ""),
-    )
-
-
-def _default_case_qty_for_product(packaging_level: str) -> str:
-    return DEFAULT_CASE_QTY_BY_LEVEL.get(normalize_packaging_level(packaging_level), "")
-
-
-def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, Any]]:
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [normalize_product_master_row(r) for r in data if isinstance(r, dict)]
-
-
-def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    deduped: Dict[str, Dict[str, Any]] = {}
-    fallback_index = 0
-    for raw in rows:
-        row = normalize_product_master_row(raw)
-        has_data = any(
-            row.get(k)
-            for k in (
-                "gtin",
-                "description",
-                "length_in",
-                "width_in",
-                "height_in",
-                "gross_weight_lbs",
-                "case_qty",
-                "default_copies",
-                "sku",
-                "config_id",
-                "customer_item_number",
-                "label_template_id",
-            )
-        )
-        if not has_data:
-            continue
-        key = row.get("unique_key") or ""
-        if not str(key).strip() or str(key).strip("|") in {"other", "kehe|other"}:
-            fallback_index += 1
-            key = f"row-{fallback_index}"
-        deduped[key] = row
-    return list(deduped.values())
-
-
-def _kehe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    return [row for row in _dedupe_product_master_rows(rows) if _is_kehe_storefront(row.get("storefront"))]
-
-
 def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     path = file_path or MPL_PRODUCT_MASTER_FILE
     try:
@@ -1938,122 +1647,6 @@ async def save_mpl_product_master(request: Request, payload: Dict[str, Any]) -> 
 # BACKEND SECTION 4D: KeHE DC Directory persistence.
 # Frontend uses these APIs for the editable DC Directory modal.
 # ---------------------------------------------------------------------------
-def _parse_match_values(value: Any) -> List[str]:
-    if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
-
-    raw = str(value or "").strip()
-    if not raw:
-        return []
-
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [str(v).strip() for v in parsed if str(v).strip()]
-    except Exception:
-        pass
-
-    return [v.strip() for v in re.split(r"[\n,]+", raw) if v.strip()]
-
-
-def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
-    dc = _first_value(row, "dc", "DC")
-    name = _first_value(row, "name", "NAME")
-    ship_from = _first_value(row, "ship_from", "SHIP_FROM", "ship_from_address", "SHIP_FROM_ADDRESS", "Ship From")
-    delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
-    billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
-    match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
-    record_type = _normalize_directory_record_type(
-        _first_value(row, "record_type", "RECORD_TYPE")
-    )
-    default_label_template_id = _first_value(row, "default_label_template_id", "DEFAULT_LABEL_TEMPLATE_ID")
-    manufacturer_name = _first_value(row, "manufacturer_name", "MANUFACTURER_NAME")
-    manufacturer_address = _first_value(row, "manufacturer_address", "MANUFACTURER_ADDRESS")
-    receiving_email = _first_value(row, "receiving_email", "RECEIVING_EMAIL")
-    docking_instructions = _first_value(row, "docking_instructions", "DOCKING_INSTRUCTIONS")
-    verification_status = _normalize_verification_status(
-        _first_value(row, "verification_status", "VERIFICATION_STATUS")
-    )
-    source_note = _first_value(row, "source_note", "SOURCE_NOTE")
-    is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
-    return {
-        "id": _first_value(row, "id", "ROWID", "rowid"),
-        "storefront": storefront,
-        "dc": dc,
-        "name": name,
-        "ship_from": ship_from,
-        "delivery_address": delivery_address,
-        "billing_address": billing_address,
-        "match_values": match_values,
-        "record_type": record_type,
-        "default_label_template_id": default_label_template_id,
-        "manufacturer_name": manufacturer_name,
-        "manufacturer_address": manufacturer_address,
-        "receiving_email": receiving_email,
-        "docking_instructions": docking_instructions,
-        "verification_status": verification_status,
-        "source_note": source_note,
-        "is_active": is_active,
-        "unique_key": _dc_directory_unique_key(
-            dc,
-            storefront,
-            name,
-            delivery_address,
-            billing_address,
-            match_values,
-        ),
-    }
-
-
-def _dc_directory_base_key(dc: str, storefront: str = "") -> str:
-    store = _normalize_storefront(storefront)
-    return f"{store.strip().lower()}|{str(dc or '').strip().lower()}"
-
-
-def _dc_directory_unique_key(
-    dc: str,
-    storefront: str = "",
-    name: str = "",
-    delivery_address: str = "",
-    billing_address: str = "",
-    match_values: Optional[List[str]] = None,
-) -> str:
-    return _dc_directory_base_key(dc, storefront)
-
-
-def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    deduped: Dict[str, Dict[str, Any]] = {}
-    fallback_index = 0
-
-    for raw in rows:
-        row = normalize_dc_directory_row(raw)
-        if not any([
-            row.get("dc"),
-            row.get("name"),
-            row.get("ship_from"),
-            row.get("delivery_address"),
-            row.get("billing_address"),
-            row.get("match_values"),
-            row.get("default_label_template_id"),
-            row.get("manufacturer_name"),
-        ]):
-            continue
-
-        key = str(row.get("unique_key") or row.get("dc") or "").strip()
-        if not key:
-            fallback_index += 1
-            key = f"row-{fallback_index}"
-
-        deduped[key] = row
-
-    return list(deduped.values())
-
-
-def _kehe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [row for row in _dedupe_dc_directory_rows(rows) if _is_kehe_storefront(row.get("storefront"))]
-
-
 def _dc_directory_file_read(file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     path = file_path or MPL_DIRECTORY_FILE
     try:
@@ -2569,379 +2162,6 @@ def _analytics_export_order_rows(request: Request, sales_order_number: str) -> L
             f"'{ANALYTICS_CONNECTION_LINK_NAME}'. {error_detail}"
         ),
     )
-
-
-def _analytics_row_value(row: Dict[str, Any], column_name: str) -> str:
-    wanted = str(column_name or "").strip().lower()
-    for key, value in row.items():
-        if str(key or "").strip().lower() == wanted:
-            return str(value or "").strip()
-    return ""
-
-
-def _analytics_first_row_value(row: Dict[str, Any], column_names: Tuple[str, ...]) -> str:
-    for column_name in column_names:
-        value = _analytics_row_value(row, column_name)
-        if value:
-            return value
-    return ""
-
-
-def _analytics_order_details(rows: List[Dict[str, Any]]) -> Dict[str, str]:
-    return {
-        field_name: next(
-            (
-                value
-                for row in rows
-                if (value := _analytics_row_value(row, column_name))
-            ),
-            "",
-        )
-        for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
-    }
-
-
-def _partner_customer_id_from_text(value: Any) -> str:
-    return detect_customer_id(value, CUSTOMER_WORKFLOWS)
-
-
-def _analytics_order_item_fallback(row: Dict[str, Any], sku: str) -> Dict[str, str]:
-    """Keep usable line data when Product Master has no matching SKU.
-
-    Values come only from the order export. SKU is the visible Item Number
-    fallback; identifiers, weights, and descriptions are never guessed.
-    """
-    order_item_number = _analytics_first_row_value(row, ANALYTICS_ITEM_NUMBER_COLUMNS)
-    return {
-        "item_number": order_item_number or str(sku or "").strip(),
-        "customer_item_number": order_item_number or str(sku or "").strip(),
-        "description": _analytics_first_row_value(row, ANALYTICS_ITEM_DESCRIPTION_COLUMNS),
-        "gtin": _analytics_first_row_value(row, ANALYTICS_ITEM_GTIN_COLUMNS),
-        "unit_weight_lbs": _analytics_first_row_value(row, ANALYTICS_ITEM_UNIT_WEIGHT_COLUMNS),
-        "pallet_weight": _analytics_first_row_value(row, ANALYTICS_ITEM_PALLET_WEIGHT_COLUMNS),
-        "storefront": _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN),
-    }
-
-
-def _canonical_order_sku(value: Any) -> str:
-    raw = str(value or "").strip().lower()
-    if re.fullmatch(r"\d+(?:\.0+)?", raw):
-        raw = raw.split(".", 1)[0].lstrip("0") or "0"
-    return re.sub(r"[\s_-]+", "", raw)
-
-
-def _canonical_order_number(value: Any) -> str:
-    raw = str(value or "").strip()
-    if re.fullmatch(r"\d+\.0+", raw):
-        raw = raw.split(".", 1)[0]
-    return raw.casefold()
-
-
-def _analytics_order_instance_groups(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    groups: Dict[str, Dict[str, Any]] = {}
-    group_order: List[str] = []
-    for row in rows:
-        raw_ecomdash_id = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_ID_COLUMN)
-        canonical_ecomdash_id = _canonical_order_number(raw_ecomdash_id)
-        invoice_date = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_DATE_COLUMN)
-        storefront = _analytics_row_value(row, ANALYTICS_ORDER_INSTANCE_STOREFRONT_COLUMN)
-        email_id = _analytics_row_value(row, ANALYTICS_CUSTOMER_EMAIL_COLUMN)
-        billing_customer_name = _analytics_row_value(row, "Billing Customer Name")
-        if canonical_ecomdash_id:
-            group_key = f"ecomdash:{canonical_ecomdash_id}"
-        else:
-            group_key = "missing:" + "|".join([
-                invoice_date.casefold(),
-                storefront.casefold(),
-                email_id.casefold(),
-                billing_customer_name.casefold(),
-            ])
-        if group_key not in groups:
-            groups[group_key] = {
-                "key": group_key,
-                "ecomdash_id": raw_ecomdash_id,
-                "storefront": storefront,
-                "email_id": email_id,
-                "billing_customer_name": billing_customer_name,
-                "invoice_date": invoice_date,
-                "rows": [],
-            }
-            group_order.append(group_key)
-        groups[group_key]["rows"].append(row)
-
-    instances: List[Dict[str, Any]] = []
-    for group_key in group_order:
-        group = groups[group_key]
-        sku_keys = {
-            _canonical_order_sku(_analytics_row_value(row, ANALYTICS_SKU_COLUMN))
-            for row in group["rows"]
-            if _canonical_order_sku(_analytics_row_value(row, ANALYTICS_SKU_COLUMN))
-        }
-        group["line_count"] = len(group["rows"])
-        group["sku_count"] = len(sku_keys)
-        instances.append(group)
-    return instances
-
-
-def _analytics_order_instance_summary(instance: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "ecomdash_id": instance.get("ecomdash_id", ""),
-        "storefront": instance.get("storefront", ""),
-        "email_id": instance.get("email_id", ""),
-        "billing_customer_name": instance.get("billing_customer_name", ""),
-        "invoice_date": instance.get("invoice_date", ""),
-        "line_count": instance.get("line_count", 0),
-        "sku_count": instance.get("sku_count", 0),
-    }
-
-
-def _validated_sales_order_number(payload: Any) -> str:
-    sales_order_number = str(payload.get("sales_order_number") or "").strip() if isinstance(payload, dict) else ""
-    if not sales_order_number:
-        raise HTTPException(status_code=400, detail="Sales Order Number is required.")
-    if len(sales_order_number) > 120 or any(ord(char) < 32 for char in sales_order_number):
-        raise HTTPException(status_code=400, detail="Sales Order Number is invalid.")
-    return sales_order_number
-
-
-def _analytics_source_metadata(**extra: Any) -> Dict[str, Any]:
-    local_file_source = ANALYTICS_ORDER_SOURCE in ANALYTICS_LOCAL_SOURCE_VALUES
-    source = {
-        "service": "local_file" if local_file_source else "zoho_analytics",
-        "connection": "" if local_file_source else ANALYTICS_CONNECTION_LINK_NAME,
-        "local_file": ANALYTICS_LOCAL_FILE.name if local_file_source and ANALYTICS_LOCAL_FILE else "",
-        "workspace_id": ANALYTICS_WORKSPACE_ID,
-        "view_id": ANALYTICS_VIEW_ID,
-        "view_name": ANALYTICS_VIEW_NAME,
-    }
-    source.update(extra)
-    return source
-
-
-def _select_analytics_order_instance(
-    analytics_rows: List[Dict[str, Any]],
-    requested_ecomdash_id: str,
-    sales_order_number: str,
-) -> tuple[List[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
-    """Select one reused sales-order instance or return selector response data."""
-    order_instances = _analytics_order_instance_groups(analytics_rows)
-    if requested_ecomdash_id:
-        wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
-        selected = next(
-            (
-                instance
-                for instance in order_instances
-                if _canonical_order_number(instance.get("ecomdash_id")) == wanted_ecomdash_id
-            ),
-            None,
-        )
-        if selected is None:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    f"Ecomdash ID '{requested_ecomdash_id}' was not found for "
-                    f"Sales Order Number '{sales_order_number}'."
-                ),
-            )
-        return selected["rows"], str(selected.get("ecomdash_id") or ""), None
-
-    if len(order_instances) > 1:
-        selection = {
-            "sales_order_number": sales_order_number,
-            "requires_order_selection": True,
-            "order_instances": [_analytics_order_instance_summary(instance) for instance in order_instances],
-            "source": _analytics_source_metadata(),
-        }
-        return analytics_rows, "", selection
-
-    if order_instances:
-        selected = order_instances[0]
-        return selected["rows"], str(selected.get("ecomdash_id") or ""), None
-    return analytics_rows, "", None
-
-
-def _analytics_quantity(value: Any) -> Optional[float | int]:
-    raw = str(value or "").strip().replace(",", "")
-    if not raw:
-        return None
-    try:
-        quantity = float(raw)
-    except (TypeError, ValueError):
-        return None
-    if quantity <= 0 or quantity != quantity:
-        return None
-    return int(quantity) if quantity.is_integer() else round(quantity, 6)
-
-
-def _b2b_analytics_order_items_for_products(
-    analytics_rows: List[Dict[str, Any]],
-    product_rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    aggregated: Dict[str, Dict[str, Any]] = {}
-    for row in analytics_rows:
-        sku = _analytics_row_value(row, ANALYTICS_SKU_COLUMN)
-        quantity = _analytics_quantity(_analytics_row_value(row, ANALYTICS_QUANTITY_COLUMN))
-        sku_key = _canonical_order_sku(sku)
-        if not sku_key or quantity is None:
-            continue
-        if sku_key not in aggregated:
-            aggregated[sku_key] = {
-                "sku": sku,
-                "quantity_ordered": quantity,
-                **_analytics_order_item_fallback(row, sku),
-            }
-        else:
-            aggregated[sku_key]["quantity_ordered"] = float(aggregated[sku_key]["quantity_ordered"]) + float(quantity)
-            fallback = _analytics_order_item_fallback(row, sku)
-            for field, value in fallback.items():
-                if value and not aggregated[sku_key].get(field):
-                    aggregated[sku_key][field] = value
-
-    normalized_product_rows = _dedupe_product_master_rows(product_rows)
-    products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
-    for product in normalized_product_rows:
-        if normalize_packaging_level(product.get("packaging_level")) != "Case":
-            continue
-        if not bool(product.get("in_packing_list")):
-            continue
-        sku_key = _canonical_order_sku(product.get("sku"))
-        if sku_key:
-            products_by_sku.setdefault(sku_key, []).append(product)
-
-    items: List[Dict[str, Any]] = []
-    for sku_key, order_item in aggregated.items():
-        candidates = products_by_sku.get(sku_key, [])
-        if len(candidates) > 1:
-            match_status = "ambiguous"
-            product = None
-        elif len(candidates) == 1:
-            match_status = "matched"
-            product = candidates[0]
-        else:
-            match_status = "unmatched"
-            product = None
-
-        item = {
-            **order_item,
-            "quantity_ordered": int(order_item["quantity_ordered"]) if float(order_item["quantity_ordered"]).is_integer() else round(float(order_item["quantity_ordered"]), 6),
-            "match_status": match_status,
-            "product": product,
-        }
-        if product is not None:
-            item["label_template_id"] = str(product.get("label_template_id") or "")
-        items.append(item)
-    return items
-
-
-def _analytics_case_conversion(
-    quantity_ordered: Any,
-    product: Optional[Dict[str, Any]],
-    packaging_rows: Optional[List[Dict[str, Any]]] = None,
-) -> Optional[Dict[str, Any]]:
-    """Convert Analytics eaches using an explicit Product Master case pack.
-
-    Analytics reports ordered units as eaches. A matched Product Master Case row
-    supplies the number of eaches in one physical case, regardless of customer.
-    Keeping this conversion customer-neutral prevents large B2B orders from being
-    treated as hundreds of already-packed cases by the MPL/Ti-Hi workflow.
-    """
-    each_quantity = _analytics_quantity(quantity_ordered)
-    if each_quantity is None or not isinstance(product, dict):
-        return None
-
-    eaches_per_case = _analytics_quantity(product.get("case_qty"))
-    if eaches_per_case is None or float(eaches_per_case) <= 1:
-        return None
-
-    eaches_per_inner_pack: Optional[float | int] = None
-    inner_packs_per_case: Optional[float | int] = None
-    wanted_sku = _canonical_order_sku(product.get("sku"))
-    wanted_storefront = _normalize_storefront(product.get("storefront")).lower()
-    for raw_row in packaging_rows or []:
-        row = normalize_product_master_row(raw_row)
-        if normalize_packaging_level(row.get("packaging_level")) != "Inner Pack":
-            continue
-        if _canonical_order_sku(row.get("sku")) != wanted_sku:
-            continue
-        if _normalize_storefront(row.get("storefront")).lower() != wanted_storefront:
-            continue
-        configured_inner_pack = _analytics_quantity(row.get("case_qty"))
-        if configured_inner_pack is None or float(configured_inner_pack) <= 1:
-            break
-        eaches_per_inner_pack = configured_inner_pack
-        calculated_inner_packs = float(eaches_per_case) / float(configured_inner_pack)
-        nearest_inner_pack = round(calculated_inner_packs)
-        inner_packs_per_case = (
-            int(nearest_inner_pack)
-            if abs(calculated_inner_packs - nearest_inner_pack) < 1e-9
-            else round(calculated_inner_packs, 6)
-        )
-        break
-
-    raw_case_quantity = float(each_quantity) / float(eaches_per_case)
-    nearest_whole_case = round(raw_case_quantity)
-    exact_case_multiple = abs(raw_case_quantity - nearest_whole_case) < 1e-9
-    case_quantity = int(nearest_whole_case if exact_case_multiple else math.ceil(raw_case_quantity))
-    full_cases = math.floor(raw_case_quantity)
-    remainder_eaches_value = 0.0 if exact_case_multiple else float(each_quantity) - (full_cases * float(eaches_per_case))
-    remainder_eaches: float | int = (
-        int(round(remainder_eaches_value))
-        if abs(remainder_eaches_value - round(remainder_eaches_value)) < 1e-9
-        else round(remainder_eaches_value, 6)
-    )
-
-    return {
-        "quantity_ordered_eaches": each_quantity,
-        "quantity_ordered_cases": case_quantity,
-        "quantity_ordered": case_quantity,
-        "quantity_uom": "CASES",
-        "eaches_per_inner_pack": eaches_per_inner_pack,
-        "inner_packs_per_case": inner_packs_per_case,
-        "eaches_per_case": eaches_per_case,
-        "case_pack_source": "product_master",
-        "case_conversion_exact": exact_case_multiple,
-        "case_conversion_remainder_eaches": remainder_eaches,
-    }
-
-
-def _analytics_kehe_case_conversion(
-    quantity_ordered: Any,
-    product: Optional[Dict[str, Any]],
-    packaging_rows: Optional[List[Dict[str, Any]]] = None,
-) -> Optional[Dict[str, Any]]:
-    """Backward-compatible KeHE-only conversion helper used by older callers."""
-    if not isinstance(product, dict) or not _is_kehe_storefront(product.get("storefront")):
-        return None
-    return _analytics_case_conversion(quantity_ordered, product, packaging_rows)
-
-
-def _product_each_gtin(
-    product: Optional[Dict[str, Any]],
-    packaging_rows: Optional[List[Dict[str, Any]]],
-) -> str:
-    """Return the unique Each GTIN in the Case row's Storefront + SKU group."""
-    if not isinstance(product, dict):
-        return ""
-    normalized_product = normalize_product_master_row(product)
-    wanted_sku = _canonical_order_sku(normalized_product.get("sku"))
-    wanted_storefront = _normalize_storefront(normalized_product.get("storefront")).lower()
-    if not wanted_sku:
-        return ""
-
-    matches: Dict[str, str] = {}
-    for raw_row in packaging_rows or []:
-        row = normalize_product_master_row(raw_row)
-        if normalize_packaging_level(row.get("packaging_level")) != "Each":
-            continue
-        if _canonical_order_sku(row.get("sku")) != wanted_sku:
-            continue
-        if _normalize_storefront(row.get("storefront")).lower() != wanted_storefront:
-            continue
-        gtin = str(row.get("gtin") or "").strip()
-        if gtin:
-            matches.setdefault(re.sub(r"\D", "", gtin).lstrip("0") or gtin.lower(), gtin)
-    return next(iter(matches.values())) if len(matches) == 1 else ""
-
 
 @app.post("/api/mpl/orders/lookup")
 def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
@@ -4555,259 +3775,7 @@ async def render_kehe_pack_labels_endpoint(request: Request, draft: Dict[str, An
     )
 
 
-# ---------------------------------------------------------------------------
-# BACKEND SECTION 7: utility helpers.
-# ---------------------------------------------------------------------------
-async def save_upload_file(upload: UploadFile, destination: Path) -> None:
-    total_bytes = 0
-    with destination.open("wb") as f:
-        while True:
-            chunk = await upload.read(1024 * 1024)
-            if not chunk:
-                break
-            total_bytes += len(chunk)
-            if total_bytes > MAX_UPLOAD_BYTES:
-                await upload.close()
-                destination.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail=f"{upload.filename or 'Upload'} exceeds the 50 MB limit.")
-            f.write(chunk)
-    await upload.close()
-
-
-def combine_shipping_pdfs(pdf_paths: List[Path], combined_path: Path) -> Path:
-    if len(pdf_paths) == 1:
-        return pdf_paths[0]
-
-    merged = fitz.open()
-    try:
-        for pdf_path in pdf_paths:
-            src = fitz.open(pdf_path)
-            try:
-                merged.insert_pdf(src)
-            finally:
-                src.close()
-        merged.save(combined_path)
-    finally:
-        merged.close()
-    return combined_path
-
-
-def split_michaels_output_by_shipping_pdf(
-    combined_output_path: Path,
-    shipping_pdf_paths: List[Path],
-    report: Dict[str, Any],
-    temp_dir: Path,
-    shipping_pdf_names: Optional[List[str]] = None,
-) -> tuple[Path, List[str], Path]:
-    """Create separate downloads plus a combined preview with PDF boundary pages."""
-    rows = list(report.get("rows") or [])
-    source_output = fitz.open(combined_output_path)
-    output_dir = temp_dir / "separate_michaels_outputs"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    generated: List[tuple[Path, str]] = []
-    used_names: Dict[str, int] = {}
-    first_label_page = 1
-    display_names = (
-        list(shipping_pdf_names)
-        if shipping_pdf_names and len(shipping_pdf_names) == len(shipping_pdf_paths)
-        else [path.name for path in shipping_pdf_paths]
-    )
-
-    try:
-        for shipping_path in shipping_pdf_paths:
-            shipping_doc = fitz.open(shipping_path)
-            try:
-                shipping_page_count = shipping_doc.page_count
-            finally:
-                shipping_doc.close()
-
-            last_label_page = first_label_page + shipping_page_count - 1
-            source_rows = [
-                row
-                for row in rows
-                if first_label_page <= int(row.get("label_page") or 0) <= last_label_page
-            ]
-            source_rows.sort(key=lambda row: int(row.get("output_start_page") or 0))
-            if len(source_rows) != shipping_page_count or any(
-                not row.get("output_start_page") or not row.get("output_end_page")
-                for row in source_rows
-            ):
-                raise RuntimeError(
-                    f"Could not preserve output boundaries for {shipping_path.name}."
-                )
-
-            split_doc = fitz.open()
-            try:
-                for row in source_rows:
-                    split_doc.insert_pdf(
-                        source_output,
-                        from_page=int(row["output_start_page"]) - 1,
-                        to_page=int(row["output_end_page"]) - 1,
-                    )
-
-                base_stem = sanitize_filename(shipping_path.stem).strip(" ._") or "shipping_labels"
-                occurrence = used_names.get(base_stem.lower(), 0) + 1
-                used_names[base_stem.lower()] = occurrence
-                suffix = f"_{occurrence}" if occurrence > 1 else ""
-                output_name = f"{base_stem}{suffix}_michaels_output.pdf"
-                output_path = output_dir / output_name
-                split_doc.save(output_path, garbage=4, deflate=True)
-            finally:
-                split_doc.close()
-
-            generated.append((output_path, output_name))
-            first_label_page = last_label_page + 1
-    finally:
-        source_output.close()
-
-    zip_path = temp_dir / "michaels_separate_outputs.zip"
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for output_path, output_name in generated:
-            archive.write(output_path, arcname=output_name)
-
-    preview_path = temp_dir / "michaels_combined_preview_with_breaks.pdf"
-    preview_doc = fitz.open()
-    try:
-        for index, (output_path, _output_name) in enumerate(generated):
-            output_doc = fitz.open(output_path)
-            try:
-                preview_doc.insert_pdf(output_doc)
-            finally:
-                output_doc.close()
-
-            if index < len(generated) - 1:
-                append_michaels_pdf_boundary_page(
-                    preview_doc,
-                    ending_pdf_name=display_names[index],
-                    starting_pdf_name=display_names[index + 1],
-                    ending_pdf_number=index + 1,
-                    starting_pdf_number=index + 2,
-                    total_pdfs=len(generated),
-                )
-        preview_doc.save(preview_path, garbage=4, deflate=True)
-    finally:
-        preview_doc.close()
-
-    return (
-        zip_path,
-        [output_name for _output_path, output_name in generated],
-        preview_path,
-    )
-
-
-def append_michaels_pdf_boundary_page(
-    document: fitz.Document,
-    ending_pdf_name: str,
-    starting_pdf_name: str,
-    ending_pdf_number: int,
-    starting_pdf_number: int,
-    total_pdfs: int,
-) -> None:
-    """Append a high-visibility letter-size boundary page between source PDFs."""
-    page = document.new_page(width=612, height=792)
-    navy = (0.10, 0.15, 0.22)
-    muted = (0.37, 0.43, 0.51)
-    end_color = (0.73, 0.14, 0.16)
-    start_color = (0.08, 0.48, 0.32)
-    light_fill = (0.96, 0.97, 0.98)
-
-    page.draw_rect(page.rect, color=navy, fill=(1, 1, 1), width=3)
-    page.insert_textbox(
-        fitz.Rect(48, 42, 564, 82),
-        "PDF BOUNDARY",
-        fontname="helv",
-        fontsize=14,
-        color=muted,
-        align=fitz.TEXT_ALIGN_CENTER,
-    )
-
-    page.draw_rect(fitz.Rect(48, 105, 564, 330), color=end_color, fill=light_fill, width=3)
-    page.insert_textbox(
-        fitz.Rect(72, 132, 540, 174),
-        f'PDF {ending_pdf_number} OF {total_pdfs} - END',
-        fontname="hebo",
-        fontsize=22,
-        color=end_color,
-        align=fitz.TEXT_ALIGN_CENTER,
-    )
-    page.insert_textbox(
-        fitz.Rect(76, 190, 536, 292),
-        f'PDF "{ending_pdf_name}" END',
-        fontname="hebo",
-        fontsize=20,
-        color=navy,
-        align=fitz.TEXT_ALIGN_CENTER,
-    )
-
-    page.insert_textbox(
-        fitz.Rect(48, 365, 564, 427),
-        "NEXT UPLOADED PDF BEGINS AFTER THIS PAGE",
-        fontname="helv",
-        fontsize=14,
-        color=muted,
-        align=fitz.TEXT_ALIGN_CENTER,
-    )
-
-    page.draw_rect(fitz.Rect(48, 462, 564, 687), color=start_color, fill=light_fill, width=3)
-    page.insert_textbox(
-        fitz.Rect(72, 489, 540, 531),
-        f'PDF {starting_pdf_number} OF {total_pdfs} - START',
-        fontname="hebo",
-        fontsize=22,
-        color=start_color,
-        align=fitz.TEXT_ALIGN_CENTER,
-    )
-    page.insert_textbox(
-        fitz.Rect(76, 547, 536, 649),
-        f'PDF "{starting_pdf_name}" START',
-        fontname="hebo",
-        fontsize=20,
-        color=navy,
-        align=fitz.TEXT_ALIGN_CENTER,
-    )
-
-
-def sanitize_filename(name: str) -> str:
-    keep = []
-    for ch in name:
-        if ch.isalnum() or ch in ("-", "_", ".", " "):
-            keep.append(ch)
-        else:
-            keep.append("_")
-    return "".join(keep)
-
-
-def unique_upload_destination(
-    directory: Path,
-    filename: str,
-    reserved_names: set[str],
-) -> Path:
-    safe_name = sanitize_filename(filename).strip(" .") or "upload"
-    candidate = Path(safe_name)
-    stem = candidate.stem or "upload"
-    suffix = candidate.suffix
-    occurrence = 1
-    while candidate.name.lower() in reserved_names or (directory / candidate.name).exists():
-        occurrence += 1
-        candidate = Path(f"{stem}_{occurrence}{suffix}")
-    reserved_names.add(candidate.name.lower())
-    return directory / candidate.name
-
-
-def normalize_kit(value: str) -> str:
-    normalized = (value or "").strip().lower().replace("_", "-")
-    aliases = {
-        "michael": "michaels",
-        "michaels-label-kit": "michaels",
-        "michaels-labelkit": "michaels",
-        "michaels-dts": "michaels",
-        "kehe-label-kit": "kehe",
-        "kehe-labelkit": "kehe",
-        "kehe-gs1": "kehe",
-    }
-    return aliases.get(normalized, normalized)
-
-
+# File upload and Michaels multi-PDF helpers live in labelkit.file_operations.
 def serve_frontend_index() -> HTMLResponse:
     index_path = FRONTEND_DIST / "index.html"
     if not index_path.exists():

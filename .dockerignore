@@ -12,6 +12,8 @@ frankenstein_project/.catalystrc
 frankenstein_project/.local/
 frankenstein_project/appsail-nodejs/
 frankenstein_project/tests/
+frankenstein_project/scripts/
+frankenstein_project/data/seeds/
 frankenstein_project/data/kehe_audit_log.json
 frankenstein_project/data/kehe_mpl_drafts.json
 frankenstein_project/data/KeHE_Michaels_Storefront_Test_Data.csv
