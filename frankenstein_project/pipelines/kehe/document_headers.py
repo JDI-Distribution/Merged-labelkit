@@ -10,16 +10,23 @@ import xml.etree.ElementTree as ET
 
 from .asn_parser import (
     Pack,
+    _carrier_from_td5,
     _extract_bsn_hl_groups,
+    _extract_man_identifiers,
     _first_ref,
     _get_elem,
+    _merge_duplicate_physical_packs,
+    _parse_lin_pairs,
     _parse_shipment_group,
     _scan_dates,
     _scan_ref_values,
     _segment_refs,
+    _td1_quantity_summary,
     find_kehe_dc,
     parse_asn,
 )
+
+
 def _format_date(value: str) -> str:
     """Convert various EDI date formats to MM/DD/YYYY for PDF consistency."""
     value = (value or "").strip()
