@@ -4,6 +4,7 @@
     partnerLabelsPreviewUrl = null;
     partnerPalletLabelsPreviewUrl = null;
     partnerMplPreviewUrl = null;
+    window.clearGeneratedOutputs?.('partners-packLabels', 'partners-palletLabel', 'partners-mpl');
     renderPartnerSelectionState();
   }
 
@@ -248,6 +249,7 @@
     }
     setPartnerOrderBusy(true);
     setStatus(`Loading Sales Order ${orderNumber} and detecting the customer…`, 'info');
+    showWorkflowProgress(0, `Loading Sales Order ${orderNumber}…`);
     try {
       const response = await fetch('/api/mpl/orders/lookup', {
         method: 'POST',
@@ -257,11 +259,13 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.detail || 'The sales order could not be loaded.');
       if (payload.requires_order_selection) {
+        closeWorkflowProgress();
         showPartnerOrderInstances(orderNumber, payload.order_instances || []);
         setStatus(`Sales Order ${orderNumber} has multiple records. Select the correct customer order.`, 'info');
         return;
       }
       document.getElementById('partner-order-instance-picker')?.classList.add('hidden');
+      updateWorkflowProgress('Matching SKUs', 'Matching order lines to Product Master…');
       const detectedCustomerId = detectPartnerCustomer(payload);
       const customerId = partnerCustomerOverride || detectedCustomerId;
       if (!customerId) throw new Error('Customer could not be detected. Select DecoPac, Dutch Bros, or Fancy Sprinkles, then load the order again.');
@@ -269,15 +273,17 @@
       partnerCustomerId = customerId;
       partnerCustomerOverride = '';
       partnerLabelJobs = buildPartnerLabelJobs(payload, customerId);
+      updateWorkflowProgress('Calculating cartons', 'Calculating label quantities and pallet details…');
       partnerMplDraft = buildPartnerMplDraft(payload, customerId);
       activeKeheDocumentType = 'masterPackingList';
       activeKeheDocumentDraft = partnerMplDraft;
       revokePartnerPreviewUrls();
       renderPartnerWorkspace();
       const selectionNote = detectedCustomerId === customerId ? 'detected' : 'selected';
-      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. Preparing ${partnerLabelJobs.length} label line(s) and the packing list…`, 'success');
-      await renderPartnerPreviews();
+      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. Review the documents, then generate the selected PDFs.`, 'success');
+      closeWorkflowProgress();
     } catch (err) {
+      closeWorkflowProgress();
       setStatus(`Order load failed: ${err?.message || 'unknown error'}`, 'error');
     } finally {
       setPartnerOrderBusy(false);
@@ -320,7 +326,15 @@
     if (!jobs.length) {
       return '<div class="partner-empty-state"><strong>No labels in this group</strong><span>This order does not require this label type.</span></div>';
     }
-    return `<div class="partner-label-editor-stack">${jobs.map(({ job, index }, position) => {
+    const stale = partnerPreviewIsStale(kind);
+    return `<div class="partner-label-batch-tools">
+        <div>${stale ? '<span class="preview-stale-warning">Preview changed since the PDF was last rendered.</span>' : '<span>Choose labels and copies for this batch.</span>'}</div>
+        <div class="workflow-compact-actions">
+          <button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(true, '${jsString(kind)}'); renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft)">Select all</button>
+          <button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(false, '${jsString(kind)}'); renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft)">Clear all</button>
+          <button class="btn-secondary" type="button" onclick="resetPartnerLabelCopies('${jsString(kind)}'); renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft)">Reset copies</button>
+        </div>
+      </div><div class="partner-label-editor-stack">${jobs.map(({ job, index }, position) => {
       const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
       const width = Number(template.physical_width_in || 4);
       const height = Number(template.physical_height_in || 6);
@@ -338,6 +352,7 @@
             <label>Cartons<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_total || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_total', this.value, true)"></label>
             <label>Copies<input type="number" min="1" step="1" value="${escapeHtml(job.run?.copies || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.copies', this.value, false)"></label>
             ${barcodeControls}
+            <button class="btn-secondary" type="button" onclick="regeneratePartnerLabel(${index})">Regenerate this label</button>
           </div>
         </div>
         <div class="b2b-label-editor-stage partner-label-editor-stage">
@@ -388,6 +403,7 @@
       const template = b2bLabelTemplates.find(candidate => candidate.template_id === value);
       job.run.copies = String(template?.default_copies || job.run.copies || 1);
     }
+    markPartnerPreviewStale(isPartnerPalletLabelJob(job) ? 'palletLabel' : 'packLabels');
     if (rerenderEditor && String(activeKeheDocumentType || '').startsWith('partner')) {
       renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     }
@@ -410,8 +426,27 @@
     setDisabled('btn-preview-partner-pack-labels', !labelsEnabled || !partnerLabelsPreviewUrl);
     setDisabled('btn-preview-partner-pallet-labels', !labelsEnabled || !partnerPalletLabelsPreviewUrl);
     setDisabled('btn-preview-partner-mpl', !mplEnabled || !partnerMplPreviewUrl);
+    document.getElementById('btn-partner-pack-labels')?.classList.toggle('hidden', loaded && !hasPackLabels);
+    document.getElementById('btn-partner-pallet-labels')?.classList.toggle('hidden', !loaded || !hasPalletLabels);
+    document.getElementById('btn-preview-partner-pack-labels')?.classList.toggle('hidden', !labelsEnabled || !partnerLabelsPreviewUrl);
+    document.getElementById('btn-preview-partner-pallet-labels')?.classList.toggle('hidden', !labelsEnabled || !partnerPalletLabelsPreviewUrl);
+    document.getElementById('btn-preview-partner-mpl')?.classList.toggle('hidden', !mplEnabled || !partnerMplPreviewUrl);
+    const previewActions = document.querySelector('.partner-generated-preview-actions');
+    if (previewActions) previewActions.classList.toggle('hidden', !previewActions.querySelector('button:not(.hidden)'));
+    [['packLabels', 'btn-preview-partner-pack-labels', 'Open Pack Labels PDF'], ['palletLabel', 'btn-preview-partner-pallet-labels', 'Open Pallet Labels PDF'], ['masterPackingList', 'btn-preview-partner-mpl', 'Open Packing List PDF']].forEach(([kind, id, label]) => {
+      const previewButton = document.getElementById(id);
+      if (!previewButton) return;
+      const stale = partnerPreviewIsStale(kind);
+      previewButton.textContent = stale ? `${label} · Refresh needed` : label;
+      previewButton.classList.toggle('preview-stale', stale);
+    });
     const button = document.getElementById('btn-render-partner-previews');
-    if (button) button.disabled = !loaded || (!labelsEnabled && !mplEnabled);
+    if (button) {
+      button.disabled = !loaded || (!labelsEnabled && !mplEnabled);
+      button.textContent = partnerLabelsPreviewUrl || partnerPalletLabelsPreviewUrl || partnerMplPreviewUrl
+        ? 'Regenerate Selected PDFs'
+        : 'Generate Selected PDFs';
+    }
   }
 
   function renderPartnerWorkspace() {
@@ -459,8 +494,7 @@
       setStatus(`${partnerCustomerLabel(customerId)} layout applied to the packing list and labels.`, 'success');
       return;
     }
-    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Refreshing both previews…`, 'info');
-    await renderPartnerPreviews();
+    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Review the documents, then generate the selected PDFs.`, 'success');
   }
 
   async function renderPartnerLabelsPreview(kind = 'packLabels') {
@@ -478,7 +512,17 @@
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.detail || 'Labels could not be rendered.');
     }
-    setPartnerLabelPreviewUrl(kind, URL.createObjectURL(await response.blob()));
+    const pdf = await response.blob();
+    setPartnerLabelPreviewUrl(kind, URL.createObjectURL(pdf));
+    clearPartnerPreviewStale(kind);
+    await recordGeneratedOutput(`partners-${kind}`, {
+      scope: 'partners',
+      name: partnerLabelFilename(kind),
+      labelType: partnerLabelKindName(kind),
+      labels: selectedJobs.reduce((total, job) => total + Math.max(1, Number(job.run?.copies || 1)) * Math.max(1, Number(job.run?.carton_total || 1)), 0),
+      pallets: kind === 'palletLabel' ? Math.max(1, Number(partnerMplDraft?.packing_lists?.[0]?.total_pallets || 1)) : 0,
+      blob: pdf,
+    });
     renderPartnerSelectionState();
     return true;
   }
@@ -504,7 +548,16 @@
     const fileResponse = await fetch(`/results/${encodeURIComponent(resultId)}/file`);
     if (!fileResponse.ok) throw new Error('The generated packing-list PDF could not be loaded.');
     if (partnerMplPreviewUrl) URL.revokeObjectURL(partnerMplPreviewUrl);
-    partnerMplPreviewUrl = URL.createObjectURL(await fileResponse.blob());
+    const pdf = await fileResponse.blob();
+    partnerMplPreviewUrl = URL.createObjectURL(pdf);
+    clearPartnerPreviewStale('masterPackingList');
+    await recordGeneratedOutput('partners-mpl', {
+      scope: 'partners',
+      name: `${partnerCustomerId || 'customer'}_packing_list.pdf`,
+      labelType: 'Master Packing List',
+      pallets: Math.max(1, Number(activeKeheDocumentDraft.packing_lists?.[0]?.total_pallets || 1)),
+      blob: pdf,
+    });
     partnerMplDraft = activeKeheDocumentDraft;
     renderPartnerSelectionState();
     return true;
@@ -513,8 +566,11 @@
   async function openPartnerPreview(kind) {
     let previewUrl = kind === 'masterPackingList' ? partnerMplPreviewUrl : partnerLabelPreviewUrl(kind);
     if (!previewUrl) {
+      if (!(await confirmDocumentReadiness('partners'))) return;
+      showWorkflowProgress(kind === 'masterPackingList' ? 4 : 3, `Preparing ${kind === 'masterPackingList' ? 'packing list' : partnerLabelKindName(kind).toLowerCase()}…`);
       if (kind === 'masterPackingList') await renderPartnerMplPreview();
       else await renderPartnerLabelsPreview(kind);
+      closeWorkflowProgress();
       previewUrl = kind === 'masterPackingList' ? partnerMplPreviewUrl : partnerLabelPreviewUrl(kind);
     }
     if (!previewUrl) return;
@@ -528,17 +584,27 @@
   }
 
   async function renderPartnerPreviews() {
+    const options = arguments[0] || {};
     const button = document.getElementById('btn-render-partner-previews');
     if (button) button.disabled = true;
     setStatus('Rendering the selected label and packing-list previews…', 'info');
     try {
+      if (!options.skipReadiness && !(await confirmDocumentReadiness('partners'))) return;
+      showWorkflowProgress(3, 'Preparing customer labels…');
       if (document.getElementById('partner-generate-labels')?.checked) {
         await renderPartnerLabelsPreview('packLabels');
         await renderPartnerLabelsPreview('palletLabel');
-      }
-      if (document.getElementById('partner-generate-mpl')?.checked) await renderPartnerMplPreview();
-      setStatus('Both document previews are ready. Review, edit, download, or print them.', 'success');
+      } else window.clearGeneratedOutputs?.('partners-packLabels', 'partners-palletLabel');
+      if (document.getElementById('partner-generate-mpl')?.checked) {
+        updateWorkflowProgress('Rendering packing list', 'Rendering the packing list and Ti-Hi…');
+        await renderPartnerMplPreview();
+      } else window.clearGeneratedOutputs?.('partners-mpl');
+      updateWorkflowProgress('Opening preview', 'Finalizing document previews…');
+      closeWorkflowProgress();
+      setStatus('Selected PDFs are ready. Open a document below to review, save, or print it.', 'success');
+      showPrintSummary('partners');
     } catch (err) {
+      closeWorkflowProgress();
       setStatus(`Preview generation failed: ${err?.message || 'unknown error'}`, 'error');
     } finally {
       renderPartnerSelectionState();

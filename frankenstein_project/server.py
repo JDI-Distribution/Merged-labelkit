@@ -90,6 +90,7 @@ from labelkit.reference_data import (  # noqa: E402
     normalize_product_master_row,
     parse_product_master_json,
 )
+from labelkit.product_quality import analyze_product_master_rows  # noqa: E402
 from labelkit.security import allowed_origins, apply_security_headers  # noqa: E402
 from labelkit.order_intake import (  # noqa: E402
     _analytics_case_conversion,
@@ -1473,7 +1474,11 @@ async def get_mpl_product_master(request: Request) -> JSONResponse:
         source = "file"
         if rows and not MPL_PRODUCT_MASTER_FILE.exists():
             rows = _product_master_file_write(rows, MPL_PRODUCT_MASTER_FILE)
-    return JSONResponse(content={"rows": rows, "source": source})
+    return JSONResponse(content={
+        "rows": rows,
+        "source": source,
+        "quality": analyze_product_master_rows(rows),
+    })
 
 
 @app.get("/api/b2b/label-templates")
@@ -2360,6 +2365,8 @@ def _canonical_import_key(header: str, table: str) -> str:
         "store_front": "storefront",
         "store": "storefront",
         "storefront_customer": "storefront",
+        "customer": "storefront",
+        "customer_storefront": "storefront",
         # Transitional legacy headings are converted during normalization and
         # are never persisted or exported.
         "in_packing_list": "legacy_in_packing_list",
@@ -2375,6 +2382,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "description": "description",
         "item_description": "description",
         "product_description": "description",
+        "product_status": "verification_status",
         "packaging_level": "packaging_level",
         "packging_level": "packaging_level",
         "level": "packaging_level",
@@ -2394,6 +2402,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "eaches_per_case": "case_qty",
         "eaches_inner_pack": "case_qty",
         "eaches_per_inner_pack": "case_qty",
+        "eaches_contained": "case_qty",
         "labels_unit": "default_copies",
         "labels_per_unit": "default_copies",
         "labels_to_print_per_unit": "default_copies",
@@ -2415,18 +2424,22 @@ def _canonical_import_key(header: str, table: str) -> str:
         "breadth": "width_in",
         "height_in": "height_in",
         "each_net_weight_g": "each_net_weight_g",
+        "each_net_weight_g_product_only": "each_net_weight_g",
         "each_net_weight": "each_net_weight",
         "each_weight_unit": "each_weight_unit",
         "packaging_tare_weight": "packaging_tare_weight",
         "packaging_weight_unit": "packaging_weight_unit",
         "package_net_weight_g": "package_net_weight_g",
+        "package_net_weight_g_product_only": "package_net_weight_g",
         "gross_weight_lbs": "gross_weight_lbs",
+        "gross_weight_lbs_product_packaging": "gross_weight_lbs",
         "default_copies": "default_copies",
         "verification_status": "verification_status",
         "label_enabled": "label_enabled",
         "source_note": "source_note",
         "is_active": "is_active",
         "active": "is_active",
+        "level_active": "is_active",
     }
     directory_aliases = {
         "storefront": "storefront",
@@ -2620,7 +2633,20 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Import file exceeds the 50 MB upload limit.")
     raw_rows = _read_spreadsheet_bytes(upload.filename or "upload.xlsx", data)
-    imported_rows = _canonicalize_import_rows(raw_rows, table)
+    # Normalize one row at a time so duplicate upload rows remain visible in
+    # the preview and can be deselected instead of disappearing silently.
+    imported_rows: List[Dict[str, Any]] = []
+    import_quality_rows: List[Dict[str, Any]] = []
+    for raw_row in raw_rows:
+        if table in {"kehe_product_master", "mpl_product_master"} and _is_import_usage_guide_row(raw_row):
+            continue
+        if table == "mpl_product_master":
+            quality_row = {
+                _canonical_import_key(key, table): value
+                for key, value in raw_row.items()
+            }
+            import_quality_rows.append(_adapt_product_template_weights(quality_row))
+        imported_rows.extend(_canonicalize_import_rows([raw_row], table))
     if table in {"kehe_product_master", "mpl_product_master"}:
         current_rows = _datastore_load_product_master(request)
         if current_rows is None:
@@ -2646,12 +2672,20 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
         imported_rows=imported_rows,
         key_fn=key_fn,
     )
+    quality = analyze_product_master_rows(import_quality_rows) if table == "mpl_product_master" else None
+    if quality:
+        preview["summary"].update({
+            "duplicate_rows": quality["summary"]["duplicate_rows"],
+            "invalid_rows": quality["summary"]["invalid_rows"],
+            "needs_review_rows": quality["summary"]["needs_review_rows"],
+        })
     batch_id = uuid.uuid4().hex
     return JSONResponse(content={
         "batch_id": batch_id,
         "filename": upload.filename,
         "table": table,
         "rows": imported_rows,
+        "quality": quality,
         **preview,
     })
 
@@ -2925,12 +2959,15 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": record.get("id", ""),
         "name": record.get("name", ""),
+        "status": record.get("status", "DRAFT"),
+        "customer_code": record.get("customer_code", "") or draft.get("storefront", ""),
         "created_at": record.get("created_at", ""),
         "updated_at": record.get("updated_at", ""),
         "created_by": created_by,
         "updated_by": updated_by,
         "revision": int(record.get("revision") or 0),
         "customer_po_number": mpl.get("customer_po_number", ""),
+        "order_number": mpl.get("order_no", ""),
         "ship_to": str(mpl.get("ship_to", "")).split("\n")[0] if mpl.get("ship_to") else "",
         "total_pallets": mpl.get("total_pallets", ""),
         "item_count": len(items),
@@ -3091,6 +3128,19 @@ async def list_kehe_mpl_draft_versions(request: Request, draft_id: str) -> JSONR
         "updated_by": record.get("updated_by", ""),
         "reason": str((record.get("draft") or {}).get("_version_reason") or "Explicit save"),
     } for record in versions]})
+
+
+@app.get("/api/kehe/mpl-drafts/{draft_id}/versions/{version_id}")
+async def get_kehe_mpl_draft_version(request: Request, draft_id: str, version_id: str) -> JSONResponse:
+    _require_permission(request, "view")
+    version = next((
+        record for record in _mpl_drafts_read(request, "MPL_VERSION")
+        if str(record.get("id")) == version_id
+        and str((record.get("draft") or {}).get("_version_parent_id") or "") == draft_id
+    ), None)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Saved MPL version not found.")
+    return JSONResponse(content={"version": version})
 
 
 @app.post("/api/kehe/mpl-drafts/{draft_id}/versions/{version_id}/restore")

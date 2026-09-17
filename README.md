@@ -2,11 +2,11 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-Current documented release: `2026.09.14-kehe-mpl-import-fix`
+Current documented release: `2026.09.17-product-hierarchy`
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
-- Packing List & Ti-Hi: standalone MPL/TI-HI workspace and the shared Product Master / Directory maintenance area for all storefronts.
+- Packing List & Ti-Hi: standalone MPL/TI-HI workspace backed by the shared Product Master and Customer Directory.
 - B2B Case-Pack Labels: follow a customer-first configuration hierarchy, edit printed values directly on a live label canvas, complete technical product/barcode setup when needed, and render the production PDF for download or printing.
 - Automatic customer documents: open Pack Labels, Pallet Labels, and Master Packing List through the same edit-and-preview workflow used by KeHE. Partner labels are editable on their print layouts, and saved MPL generation persists the draft before opening the PDF preview.
 - DecoPac / Dutch Bros / Fancy: use one shared customer-specific workflow to detect or select the customer, review/edit every required label and packing list, and preview both PDFs before printing or downloading.
@@ -30,6 +30,7 @@ FastAPI routes in server.py
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
 - Frontend features are split into `reference-data.js`, `mpl-tihi.js`, `b2b-workspace.js`, `partner-workspace.js`, and `document-editor.js`. They are loaded as classic scripts to preserve the established global HTML handlers while keeping implementation ownership separate.
 - Frontend styles retain their original cascade order but are separated into core, operations, document-editor, preview, B2B, responsive, and module-theme files. All five modules use the same responsive component language; customer colors remain token-driven accents rather than separate layouts.
+- Product Master and Customer Directory are global header actions beside the signed-in user controls. They are available from every workflow without duplicating maintenance cards inside each module.
 - PDF.js 3.11.174 is pinned under `frontend/dist/assets/vendor/` so PDF previews do not depend on a public CDN at runtime.
 - Backend upload/PDF file operations live in `labelkit/file_operations.py`, reference-data normalization lives in `labelkit/reference_data.py`, and reusable Analytics order matching/conversion lives in `labelkit/order_intake.py`.
 - The Michaels package owns separate ASN, OCR, matching, rendering, and orchestration implementations. KeHE ASN parsing, document headers, Product Master enrichment, GS1 labels, pallet labels, pack labels, MPL orchestration/rendering, and TI-HI calculation/rendering are implemented in focused modules. `kehe/common.py` now contains only shared models/helpers and lazy compatibility exports for existing callers.
@@ -187,7 +188,7 @@ KeHE functionality:
 - DC Directory read-only view for `Storefront = KeHE` rows.
 - GTIN / Packaging Master Table read-only view for `Storefront = KeHE` rows.
 - KeHE generation only uses rows marked with `Storefront = KeHE`; missing storefront values default to `KeHE`.
-- Product Master and Directory add/edit/delete/import operations are done from `Packing List & Ti-Hi` only.
+- Product Master and Directory open from the global application header. KeHE's embedded reference views remain read-only.
 - Product Master uniqueness is `Storefront + Config ID + Packaging Level` when a Config ID exists; older rows fall back to `Storefront + Packaging Level + SKU`.
 - Directory uniqueness is `Storefront + Code`; matching rows merge/update.
 - Case rows feed MPL dropdowns and auto palletization automatically.
@@ -223,7 +224,9 @@ KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`
 - Mixed storefront SKUs in one standalone MPL are blocked.
 - A storefront can be typed freely.
 
-The standalone Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Each saved row is unique by packaging level, so one configuration can safely contain Each, Inner Pack, Case, Master Case, Pallet, and Shipper Contents rows. Expand a product to edit its labeled identity, template, barcode, dimensions, weights, and pack values; the `Add Level` control appears on that expanded SKU. Dimensions are stored only as separate `Length`, `Width/Breadth`, and `Height` values; gross shipping weight is stored in `Gross Weight`; and generated copy count is stored in `Default Copies`. `Eaches / Package` stores the number of sellable eaches in that packaging level, and the UI derives the readable pack breakdown. Packing-list inclusion is derived from an active Case row instead of a stored flag.
+The shared Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Each saved row is unique by packaging level, so one configuration can safely contain Each, Inner Pack, Case, Master Case, Pallet, and Shipper Contents rows. Expand a product to edit shared identity fields once: Customer, Config ID, SKU, Description, Each Gross Weight, Status, and Customer Item Number. Shared edits propagate to every packaging-level row in that configuration.
+
+Packaging levels are displayed as separate Case, Inner Pack, Each, Master Case, Pallet, and Shipper Contents cards. Each card stores its GTIN, number of eaches contained, dimensions, full gross weight, and label-enabled state. `Each` always contains one each. The shared `Each Gross Weight` is the total sellable-each weight, including the product and its immediate packaging. A Case, Inner Pack, Master Case, or Pallet `Gross Weight` is the full weight of all product and packaging contained at that level. Dimensions are stored as separate `Length`, `Width/Breadth`, and `Height` values, and generated copy count is stored in `Default Copies`. The UI derives the readable pack breakdown; packing-list inclusion is derived from an active Case row instead of a stored flag.
 
 KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B uses `Available in Label Creator` and `Active` to control general-user availability. `Data Status` is limited to `DRAFT`, `NEEDS_REVIEW`, `VERIFIED`, or `BLOCKED`; it never changes printed label content. `BLOCKED` hides a configuration from general users, while Admin/Editor roles can still inspect, correct, preview, and print it. Missing business values appear as review warnings instead of turning the label creator into a dead end.
 
@@ -232,6 +235,7 @@ The standalone Directory uses searchable customer/destination cards with a persi
 Table maintenance tools:
 
 - `Download Product Template` and `Download Directory Template` download import-ready CSV templates.
+- The Product Master template uses the same shared-product plus packaging-level hierarchy shown in the UI. Its guide row explains where every column is used, and its example product contains Case, Inner Pack, and Each rows.
 - `Upload Excel/CSV` opens an import preview with each row selected by default; unchecked rows are skipped.
 - `Import Selected Rows` saves only the checked rows and records change history.
 - `Export Product CSV` exports the full standalone Product Master table.
@@ -319,6 +323,8 @@ Current Product Master package fields are:
 - `CASE_QTY`, `EACH_NET_WEIGHT_G`, `PACKAGE_NET_WEIGHT_G`, `GROSS_WEIGHT_LBS`
 - `DEFAULT_COPIES`, `PACK_STATEMENT`, `VERIFICATION_STATUS`, `LABEL_ENABLED`, `IS_ACTIVE`, `SOURCE_NOTE`
 
+Storage remains one row per packaging level. No Catalyst table migration is required for the grouped editor: shared product values are synchronized across the configuration's rows, and `GROSS_WEIGHT_LBS` stores the complete product-plus-packaging weight for that row's packaging level. The Each row supplies the shared Each Gross Weight shown in the UI. New templates and exports use the clearer headings `Eaches Contained` and `Gross Weight (lbs product + packaging)` while import aliases continue to accept the stored field names.
+
 The former `DIMENSIONS_IN`, `WEIGHT_LBS`, `LABELS_PER_UNIT`, and `LABEL_REQUIRED` columns are obsolete. Legacy headings are accepted for one transition import and converted immediately, but they are never written to JSON or Catalyst and are not included in new templates or exports. TI-HI reads the three numeric dimension fields directly. Product Master writes reconcile rows by key and Catalyst `ROWID`; they do not clear and recreate the table.
 
 Reviewed seed sources are versioned at:
@@ -397,7 +403,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.14-kehe-mpl-import-fix"
+$release = "2026.09.17-product-hierarchy"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -466,7 +472,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.14-kehe-mpl-import-fix"
+$release = "2026.09.17-product-hierarchy"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
@@ -511,6 +517,7 @@ Current production design:
 - Saved MPL summaries expose timestamp and user. User metadata is stored in the saved draft JSON for compatibility with the existing Catalyst table schema.
 - The frontend shows a login gate when `AUTH_REQUIRED=true` and no Catalyst user session is present.
 - Backend endpoints enforce permissions; hiding buttons in the browser is not the security boundary.
+- All authenticated roles can open Product Master and Customer Directory from the global header. Admin and Editor roles can add, edit, delete, and import; User remains view-only.
 
 Cloud source-of-truth rule:
 

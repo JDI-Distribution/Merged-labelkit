@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 DEFAULT_CASE_QTY_BY_LEVEL = {
     "Case": "",
     "Inner Pack": "",
-    "Each": "",
+    "Each": "1",
     "Master Case": "",
     "Pallet": "",
     "Shipper Contents": "",

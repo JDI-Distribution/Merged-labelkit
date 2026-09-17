@@ -435,6 +435,11 @@ def _render_mpl_header(
     c.setFillColorRGB(1, 1, 1)
     title = _mpl_clean(mpl.get("title")) or theme["title"]
     _draw_fitted_line(c, title, x0 + inner_w / 2, y - title_h / 2 - 3.0, inner_w - 12, "Helvetica-Bold", 10, min_font_size=5.0, align="center")
+    review_status = _mpl_clean(mpl.get("review_status") or "DRAFT").upper()
+    if review_status in {"DRAFT", "REVIEWED", "APPROVED"}:
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 5.5)
+        c.drawRightString(x0 + inner_w - 5, y - title_h / 2 - 2.0, review_status)
     y -= title_h + (0.07 if compact else 0.12) * inch
 
     if mpl.get("status") == "Needs Review":

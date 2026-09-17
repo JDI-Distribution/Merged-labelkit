@@ -19,6 +19,14 @@
   box-shadow: var(--shadow-sm);
 }
 
+.module-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.module-header-copy { min-width: 0; flex: 1; }
 /* Michaels and KeHE retain one shared workflow and receive the newer module shell. */
 body:is([data-module="michaels"], [data-module="kehe"]) .upload-page {
   grid-template-columns: minmax(350px, 440px) minmax(0, 1fr);
@@ -248,6 +256,7 @@ body:is([data-module="michaels"], [data-module="kehe"]) .match-table tbody tr:ho
 }
 
 @media (max-width: 700px) {
+  .module-header-row { flex-direction: column; gap: 14px; }
   body:is([data-module="michaels"], [data-module="kehe"]) .upload-intro {
     padding: 17px;
   }

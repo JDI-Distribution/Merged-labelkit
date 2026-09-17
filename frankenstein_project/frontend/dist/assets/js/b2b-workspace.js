@@ -86,6 +86,7 @@
         <div class="mpl-version-row">
           <strong>Version ${escapeHtml(String(version.revision || '—'))}</strong>
           <div>${escapeHtml(version.reason || 'Explicit save')}<small>${escapeHtml(formatDateTime(version.updated_at))} · ${escapeHtml(version.updated_by || 'Unknown user')}</small></div>
+          <button class="btn-secondary" type="button" onclick="compareMplVersion('${jsString(version.id)}')">Compare</button>
           <button class="btn-secondary" type="button" onclick="restoreMplVersion('${jsString(version.id)}')">Restore</button>
         </div>`).join('') : '<div class="empty-row">No explicit versions have been saved yet.</div>';
     } catch (err) {
@@ -699,7 +700,7 @@
     const summary = document.getElementById('b2b-coverage-summary');
     if (!body) return;
     const entries = getB2BProductEntries('');
-    const rows = b2bLabelTemplates.map(template => {
+    const allRows = b2bLabelTemplates.map(template => {
       const templateEntries = entries.filter(entry => entry.row.label_template_id === template.template_id);
       const configurations = new Set(templateEntries.map(entry => mplProductGroupKey(entry.row, entry.index)));
       const levels = uniqueTextValues(templateEntries.map(entry => entry.row.packaging_level));
@@ -711,6 +712,13 @@
         customer: customers.join(', ') || template.customer || 'Generic B2B',
       };
     });
+    const search = String(document.getElementById('b2b-coverage-search')?.value || '').trim().toLowerCase();
+    const status = String(document.getElementById('b2b-coverage-status-filter')?.value || '').trim().toLowerCase();
+    const rows = allRows.filter(({ template, configurations, levels, customer }) => {
+      const haystack = [customer, template.name, template.template_id, template.physical_width_in, template.physical_height_in, levels].join(' ').toLowerCase();
+      return (!search || haystack.includes(search))
+        && (!status || (status === 'configured' ? configurations > 0 : configurations === 0));
+    });
     body.innerHTML = rows.length
       ? rows.map(({ template, configurations, levels, customer }) => `
           <tr>
@@ -720,11 +728,13 @@
             <td><span class="b2b-coverage-count">${configurations}</span></td>
             <td>${escapeHtml(levels.join(', ') || 'No SKU configured yet')}</td>
           </tr>`).join('')
-      : '<tr><td colspan="5">No B2B label templates are configured.</td></tr>';
+      : `<tr><td colspan="5">${allRows.length ? 'No label templates match these filters.' : 'No B2B label templates are configured.'}</td></tr>`;
+    const count = document.getElementById('b2b-coverage-filter-count');
+    if (count) count.textContent = `${rows.length} of ${allRows.length} labels`;
     if (summary) {
-      const configured = rows.filter(row => row.configurations > 0).length;
-      const configurationCount = rows.reduce((total, row) => total + row.configurations, 0);
-      summary.textContent = `${rows.length} label types · ${configured} with product data · ${configurationCount} SKU configurations`;
+      const configured = allRows.filter(row => row.configurations > 0).length;
+      const configurationCount = allRows.reduce((total, row) => total + row.configurations, 0);
+      summary.textContent = `${allRows.length} label types · ${configured} with product data · ${configurationCount} SKU configurations`;
     }
   }
 
@@ -827,7 +837,7 @@
       else summary.textContent = `${template.name || template.template_id} · ${template.physical_width_in} × ${template.physical_height_in} in · ${template.default_copies || 1} default cop${Number(template.default_copies || 1) === 1 ? 'y' : 'ies'} per carton. Only applicable print-run fields are shown below.`;
     }
     const title = document.getElementById('b2b-preview-title');
-    if (title) title.textContent = template?.name || 'Select a label';
+    if (title) title.textContent = template ? `Generate ${template.name || 'label'}` : 'Generate print-ready PDF';
     renderB2BValidation();
   }
 
@@ -963,6 +973,7 @@
 
   function renderB2BValidation() {
     const warnings = getB2BValidationWarnings();
+    const hasTechnicalSelection = !!getSelectedB2BProduct() && !!getSelectedB2BTemplate();
     const selectionPrompt = !b2bSelectedCustomer
       ? 'Select customer'
       : !b2bSelectedGroupKey
@@ -977,15 +988,15 @@
       validation.innerHTML = warnings.length
         ? warnings.map(warning => `<div class="warning">${escapeHtml(warning)}</div>`).join('')
         : '<div class="ready">Configuration is ready to print.</div>';
+      if (!b2bPreviewUrl && hasTechnicalSelection) {
+        validation.insertAdjacentHTML('beforeend', '<div class="preview-stale-warning">Preview has changed or has not been rendered. Generate the PDF before printing.</div>');
+      }
     }
     const badge = document.getElementById('b2b-configuration-status');
     if (badge) {
       badge.textContent = selectionPrompt || (warnings.length ? `${warnings.length} review item${warnings.length === 1 ? '' : 's'}` : 'Ready to print');
       badge.className = `b2b-state-badge ${selectionPrompt ? '' : warnings.length ? 'review' : 'ready'}`;
     }
-    const hasTechnicalSelection = !!getSelectedB2BProduct() && !!getSelectedB2BTemplate();
-    const printButton = document.getElementById('b2b-print-button');
-    if (printButton) printButton.disabled = !hasTechnicalSelection;
     const renderButton = document.getElementById('b2b-render-button');
     if (renderButton) renderButton.disabled = !hasTechnicalSelection;
   }
@@ -996,12 +1007,8 @@
       URL.revokeObjectURL(b2bPreviewUrl);
     }
     b2bPreviewUrl = null;
-    const frame = document.getElementById('b2b-inline-preview');
-    if (frame) frame.removeAttribute('src');
-    document.getElementById('b2b-inline-preview-wrap')?.classList.remove('has-preview');
-    const download = document.getElementById('b2b-download-button');
-    if (download) download.disabled = true;
     setDownloadReady(false);
+    renderB2BValidation();
   }
 
   async function generateB2BPreview(openFullPreview = false) {
@@ -1011,14 +1018,17 @@
       setStatus('Select a product configuration and label template first.', 'error');
       return false;
     }
-    const button = document.getElementById('b2b-print-button');
+    if (!(await confirmDocumentReadiness('b2b'))) return false;
+    const job = buildB2BPayload();
+    const button = document.getElementById('b2b-render-button');
     if (button) button.disabled = true;
     setStatus('Rendering B2B label PDF…', 'info');
+    showWorkflowProgress(3, 'Preparing the selected label job…');
     try {
       const response = await fetch('/api/b2b/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildB2BPayload()),
+        body: JSON.stringify(job),
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
@@ -1028,22 +1038,31 @@
       clearB2BPreview();
       b2bPreviewUrl = URL.createObjectURL(pdf);
       blobUrl = b2bPreviewUrl;
-      const frame = document.getElementById('b2b-inline-preview');
-      if (frame) frame.src = b2bPreviewUrl;
-      document.getElementById('b2b-inline-preview-wrap')?.classList.add('has-preview');
-      const download = document.getElementById('b2b-download-button');
-      if (download) download.disabled = false;
       document.getElementById('btn-download').download = `${b2bSelectedTemplateId.toLowerCase()}.pdf`;
+      document.getElementById('btn-download-label').textContent = 'Save PDF';
       setDownloadReady(true, b2bPreviewUrl);
       setActivePreviewFormat('rollo');
       const pages = response.headers.get('X-B2B-Page-Count') || '';
+      await recordGeneratedOutput('b2b-labels', {
+        scope: 'b2b',
+        name: `${b2bSelectedTemplateId.toLowerCase()}.pdf`,
+        labelType: template.name || b2bSelectedTemplateId,
+        labels: Math.max(1, Number(job.run?.copies || 1)) * Math.max(1, Number(job.run?.carton_total || 1)),
+        pages,
+        blob: pdf,
+      });
+      updateWorkflowProgress('Opening preview', 'Opening the completed label preview…');
+      renderB2BValidation();
       setStatus(`B2B label PDF ready${pages ? ` · ${pages} page${pages === '1' ? '' : 's'}` : ''}. Review warnings are advisory for Admin printing.`, 'success');
       if (openFullPreview) {
         resetPreviewSurface();
         await openPreview();
       }
+      closeWorkflowProgress();
+      showPrintSummary('b2b');
       return true;
     } catch (err) {
+      closeWorkflowProgress();
       setStatus(`B2B label generation failed: ${err.message || 'unknown error'}`, 'error');
       return false;
     } finally {
@@ -1063,13 +1082,5 @@
 
   async function printB2BLabels() {
     if (!b2bPreviewUrl && !(await generateB2BPreview(false))) return;
-    const frame = document.getElementById('b2b-inline-preview');
-    window.setTimeout(() => {
-      try {
-        frame?.contentWindow?.focus();
-        frame?.contentWindow?.print();
-      } catch (_err) {
-        window.open(b2bPreviewUrl, '_blank', 'noopener');
-      }
-    }, 450);
+    printActivePreview();
   }

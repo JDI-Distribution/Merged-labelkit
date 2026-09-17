@@ -402,6 +402,7 @@
   let currentCsvColumns = null;
   let savedMplDrafts = [];
   let activeExcelImportPreview = null;
+  let activeKeheAuditEntries = [];
   let activePreviewFormat = 'rollo';
   let kehePreviewUrls = { labels: null, palletLabel: null, masterPackingList: null, packLabels: null };
   let keheCurrentExtractedSource = null;
@@ -594,6 +595,7 @@
     const userName = document.getElementById('auth-user-name');
     const userRole = document.getElementById('auth-user-role');
     const logoutButton = document.getElementById('auth-logout-btn');
+    const dataNav = document.getElementById('header-data-nav');
     const loginHint = document.getElementById('auth-login-hint');
     const needsLogin = !!appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated;
 
@@ -605,6 +607,7 @@
     if (userName) userName.textContent = authUserLabel();
     if (userRole) userRole.textContent = appRuntimeConfig?.user?.role_name || appRuntimeConfig?.user?.role || 'User';
     if (logoutButton) logoutButton.classList.toggle('hidden', !appRuntimeConfig.authenticated);
+    if (dataNav) dataNav.classList.toggle('hidden', !appRuntimeConfig.authenticated);
     if (loginHint) {
       loginHint.textContent = needsLogin
         ? 'Use your invited Catalyst account below.'
@@ -924,6 +927,14 @@
       showMplDirectoryView();
       return;
     }
+    if (subpath === 'shared-product-master') {
+      showMplProductMasterView();
+      return;
+    }
+    if (subpath === 'shared-directory') {
+      showMplDirectoryView();
+      return;
+    }
     if (normalized === 'mpl/saved') {
       await showSavedMplView();
       return;
@@ -961,6 +972,42 @@
   function uniqueTextValues(values) {
     return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))]
       .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true }));
+  }
+
+  function syncTableFilterOptions(selectId, values, allLabel = 'All') {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const current = String(select.value || '');
+    const options = uniqueTextValues(values);
+    select.replaceChildren();
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = allLabel;
+    select.appendChild(allOption);
+    options.forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    });
+    select.value = options.includes(current) ? current : '';
+  }
+
+  function clearTableFilters(renderer, ...controlIds) {
+    controlIds.forEach(id => {
+      const control = document.getElementById(id);
+      if (!control) return;
+      if (control.tagName === 'SELECT') {
+        control.selectedIndex = 0;
+      } else if (control.type === 'checkbox' || control.type === 'radio') {
+        control.checked = false;
+      } else {
+        control.value = '';
+      }
+    });
+    if (typeof renderer === 'function') renderer();
+    const firstControl = document.getElementById(controlIds[0]);
+    if (firstControl && !firstControl.disabled) firstControl.focus({ preventScroll: true });
   }
 
   function selectOptionsHtml(values, currentValue = '', blankLabel = '') {
@@ -1840,8 +1887,10 @@
     setMplOrderLookupBusy(true);
     if (!ecomdashId) hideMplOrderInstancePicker();
     setStatus(`Searching order data for Sales Order ${orderNumber}…`, 'info');
+    showWorkflowProgress(0, `Loading Sales Order ${orderNumber}…`);
     try {
       await ensureKeheReferenceDataLoaded();
+      updateWorkflowProgress('Matching SKUs', 'Loading Product Master and matching order SKUs…');
       const response = await fetch('/api/mpl/orders/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1855,13 +1904,17 @@
         throw new Error(payload.detail || 'The sales order could not be loaded.');
       }
       if (payload.requires_order_selection) {
+        closeWorkflowProgress();
         showMplOrderInstancePicker(orderNumber, payload.order_instances);
         setStatus(`Sales Order ${orderNumber} matches multiple ECOMDASH IDs. Select the correct storefront/customer order.`, 'info');
         return;
       }
       hideMplOrderInstancePicker();
+      updateWorkflowProgress('Calculating cartons', 'Calculating cartons, weights, and palletization…');
       completeMplOrderLoad(payload, orderNumber, 'standard');
+      closeWorkflowProgress();
     } catch (err) {
+      closeWorkflowProgress();
       setStatus('Error: ' + (err?.message || 'The sales order could not be loaded.'), 'error');
     } finally {
       setMplOrderLookupBusy(false);
@@ -1965,6 +2018,9 @@
     const name = options.name || currentMplDraftName() || existingName;
     const trimmedName = String(name || '').trim() || existingName || 'Untitled MPL';
     activeKeheDocumentDraft._saved_draft_name = trimmedName;
+    const firstMpl = activeKeheDocumentDraft.packing_lists?.[0] || {};
+    const reviewStatus = String(activeKeheDocumentDraft.review_status || firstMpl.review_status || 'DRAFT').toUpperCase();
+    activeKeheDocumentDraft.review_status = ['DRAFT', 'REVIEWED', 'APPROVED'].includes(reviewStatus) ? reviewStatus : 'DRAFT';
 
     const payload = {
       id: activeKeheDocumentDraft._saved_draft_id || '',
@@ -1972,6 +2028,9 @@
       expected_revision: Number(activeKeheDocumentDraft._saved_draft_revision || 0),
       create_version: options.createVersion !== false && !options.autoSave,
       version_reason: options.versionReason || 'Explicit save',
+      status: activeKeheDocumentDraft.review_status,
+      customer_code: activeKeheDocumentDraft.storefront || firstMpl.customer_name || firstMpl.ship_to_name || '',
+      po_number: firstMpl.customer_po_number || '',
       draft: activeKeheDocumentDraft
     };
 
@@ -2024,20 +2083,43 @@
     const body = document.getElementById('saved-mpl-body');
     if (!body) return;
     const canDelete = hasPermission('delete_mpl');
+    const search = String(document.getElementById('saved-mpl-search')?.value || '').trim().toLowerCase();
+    const status = String(document.getElementById('saved-mpl-status-filter')?.value || '').trim().toUpperCase();
+    const creator = String(document.getElementById('saved-mpl-created-by-filter')?.value || '').trim().toLowerCase();
+    const date = String(document.getElementById('saved-mpl-date-filter')?.value || '').trim();
+    const filtered = savedMplDrafts.filter(draft => {
+      const haystack = [draft.name, draft.customer_code, draft.order_number, draft.customer_po_number, draft.ship_to].join(' ').toLowerCase();
+      const user = savedMplCreatedByLabel(draft).toLowerCase();
+      const createdDate = String(draft.created_at || draft.updated_at || '').slice(0, 10);
+      return (!search || haystack.includes(search))
+        && (!status || String(draft.status || 'DRAFT').toUpperCase() === status)
+        && (!creator || user.includes(creator))
+        && (!date || createdDate === date);
+    });
+    const count = document.getElementById('saved-mpl-filter-count');
+    if (count) count.textContent = `${filtered.length} of ${savedMplDrafts.length}`;
     if (!savedMplDrafts.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="9">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="13">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
       return;
     }
-    body.innerHTML = savedMplDrafts.map(draft => `
+    if (!filtered.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="13">No saved MPL drafts match these filters.</td></tr>';
+      return;
+    }
+    body.innerHTML = filtered.map(draft => `
       <tr>
         <td>${escapeHtml(draft.name || 'Untitled MPL')}</td>
+        <td>${escapeHtml(draft.customer_code || '—')}</td>
+        <td>${escapeHtml(draft.order_number || '—')}</td>
         <td>${escapeHtml(draft.customer_po_number || '—')}</td>
         <td>${escapeHtml(draft.ship_to || '—')}</td>
         <td>${escapeHtml(draft.total_pallets || '—')}</td>
         <td>${escapeHtml(draft.item_count || '0')}</td>
         <td>${escapeHtml(formatDateTime(draft.updated_at))}</td>
-        <td>${escapeHtml(savedMplUserLabel(draft))}</td>
+        <td>${escapeHtml(savedMplCreatedByLabel(draft))}</td>
+        <td><span class="status-tag ${String(draft.status || 'DRAFT').toUpperCase() === 'APPROVED' ? 'success' : 'needs-review'}">${escapeHtml(String(draft.status || 'DRAFT'))}</span></td>
         <td><button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button></td>
+        <td><button class="btn-secondary table-action-btn" type="button" onclick="duplicateSavedMplDraft('${jsString(draft.id)}')">Copy</button></td>
         <td>${canDelete ? `<button class="btn-mini-danger table-action-btn" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : '—'}</td>
       </tr>
     `).join('');
@@ -2045,6 +2127,10 @@
 
   function savedMplUserLabel(draft = {}) {
     return draft.updated_by || draft.created_by || draft.user || draft.saved_by || '—';
+  }
+
+  function savedMplCreatedByLabel(draft = {}) {
+    return draft.created_by || draft.user || draft.saved_by || draft.updated_by || '—';
   }
 
   async function deleteSavedMplDraft(draftId, draftName = '') {
@@ -2128,40 +2214,30 @@
     URL.revokeObjectURL(url);
   }
 
+  function productMasterCsvHeader() {
+    return [
+      'Customer / Storefront', 'Config ID', 'SKU', 'Customer Item Number', 'Product Description', 'Product Status',
+      'Packaging Level', 'GTIN', 'Eaches Contained', 'Length (in)', 'Width/Breadth (in)', 'Height (in)',
+      'Gross Weight (lbs, product + packaging)', 'Each Net Weight (g, product only)', 'Package Net Weight (g, product only)',
+      'Label Template ID', 'Barcode Type', 'Barcode Level', 'Default Copies', 'Label Enabled', 'Level Active', 'Source Note'
+    ];
+  }
+
+  function productMasterCsvRow(row = {}) {
+    return [
+      row.storefront, row.config_id, row.sku, row.customer_item_number, row.description, row.verification_status,
+      row.packaging_level, row.gtin, row.packaging_level === 'Each' ? '1' : row.case_qty,
+      row.length_in, row.width_in, row.height_in, row.gross_weight_lbs, row.each_net_weight_g, row.package_net_weight_g,
+      row.label_template_id, row.barcode_type, row.barcode_level, row.default_copies,
+      row.label_enabled, row.is_active, row.source_note,
+    ];
+  }
+
   function exportMplProductMasterTable() {
     const rows = getAllMplProductMasterRows();
     downloadCsvRows('labelkit_product_master_export.csv', [
-      [
-        'Storefront', 'Config ID', 'SKU', 'Customer Item Number', 'GTIN', 'Description', 'Packaging Level',
-        'Length (in)', 'Width/Breadth (in)', 'Height (in)',
-        'Each Net Weight (g)', 'Package Net Weight (g)', 'Gross Weight (lbs)',
-        'Eaches / Package', 'Label Template ID', 'Barcode Type', 'Barcode Level',
-        'Default Copies', 'Pack Statement', 'Verification Status', 'Label Enabled', 'Source Note', 'Active'
-      ],
-      ...rows.map(row => [
-        row.storefront,
-        row.config_id,
-        row.sku,
-        row.customer_item_number,
-        row.gtin,
-        row.description,
-        row.packaging_level,
-        row.length_in,
-        row.width_in,
-        row.height_in,
-        row.each_net_weight_g,
-        row.package_net_weight_g,
-        row.gross_weight_lbs,
-        row.case_qty,
-        row.label_template_id,
-        row.barcode_type,
-        row.barcode_level,
-        row.default_copies,
-        row.verification_status,
-        row.label_enabled,
-        row.source_note,
-        row.is_active,
-      ])
+      productMasterCsvHeader(),
+      ...rows.map(productMasterCsvRow)
     ]);
     setStatus(`Exported ${rows.length} Product Master row${rows.length === 1 ? '' : 's'}.`, 'success');
   }
@@ -2212,20 +2288,17 @@
           ]
         ]
       : [
+          productMasterCsvHeader(),
           [
-            'Storefront', 'Config ID', 'SKU', 'Customer Item Number', 'GTIN', 'Description', 'Packaging Level',
-            'Length (in)', 'Width/Breadth (in)', 'Height (in)',
-            'Each Net Weight (g)', 'Package Net Weight (g)', 'Gross Weight (lbs)',
-            'Eaches / Package', 'Label Template ID', 'Barcode Type', 'Barcode Level',
-            'Default Copies', 'Pack Statement', 'Verification Status', 'Label Enabled', 'Source Note', 'Active'
+            'USAGE GUIDE — not imported', 'Repeat one Config ID for every packaging level of a product.',
+            'Shared product SKU', 'Optional customer item', 'Shared description', 'Shared status',
+            'One row per level', 'Level barcode', 'Total sellable eaches at this level', 'Level length', 'Level width', 'Level height',
+            'Full product + packaging weight at this level', 'Optional product-only each weight', 'Optional product-only package weight',
+            'Level label template', 'Level barcode type', 'Level barcode level', 'Copies per unit', 'true/false', 'true/false', 'Optional notes'
           ],
-          [
-            'KeHE', '', 'TW-EXAMPLE', '', '10850068684998', 'Example Case Product', 'Case',
-            '24', '12', '6',
-            '', '', '2',
-            '36', '', '', '',
-            '', '', '', 'true', '', 'true'
-          ]
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '16', default_copies: '2', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', length_in: '7', width_in: '6.25', height_in: '5.25', gross_weight_lbs: '2.667', default_copies: '6', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', gross_weight_lbs: '0.444', is_active: true }))
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
     setStatus(`${isDirectory ? 'Directory' : 'Product Master'} import template downloaded.`, 'success');
@@ -2264,7 +2337,14 @@
       ? 'Directory Table Excel Import Preview'
       : 'Product Master Table Excel Import Preview';
     document.getElementById('excel-import-summary').textContent =
-      `${preview.filename || 'Excel file'} • ${summary.added_rows || 0} added • ${summary.updated_rows || 0} updated • ${summary.unchanged_rows || 0} unchanged`;
+      `${preview.filename || 'Excel file'} • ${summary.added_rows || 0} added • ${summary.updated_rows || 0} updated • ${summary.unchanged_rows || 0} unchanged • ${summary.duplicate_rows || 0} duplicate • ${summary.invalid_rows || 0} invalid`;
+    const resultSummary = document.getElementById('excel-import-result-summary');
+    if (resultSummary) {
+      resultSummary.innerHTML = '';
+      resultSummary.classList.remove('visible');
+    }
+    const confirmButton = document.getElementById('btn-confirm-excel-import');
+    if (confirmButton) confirmButton.onclick = confirmExcelImport;
     const rowModeLabel = document.getElementById('excel-import-row-mode-label');
     if (rowModeLabel) {
       rowModeLabel.textContent = preview.target === 'dc-directory'
@@ -2276,25 +2356,55 @@
     const rows = Array.isArray(preview.rows) ? preview.rows : [];
     if (!rows.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="5">No rows were found in this upload.</td></tr>';
+      const count = document.getElementById('excel-import-filter-count');
+      if (count) count.textContent = '0 rows';
       document.getElementById('btn-confirm-excel-import').disabled = true;
       return;
     }
     document.getElementById('btn-confirm-excel-import').disabled = false;
+    const qualityRows = Array.isArray(preview.quality?.rows) ? preview.quality.rows : [];
     body.innerHTML = rows.map((row, index) => {
       const rowKey = importPreviewRowKey(row, index);
       const rowChanges = changes.filter(change => String(change.record_key || '') === rowKey);
       const action = importPreviewRowAction(rowChanges);
       const changeText = importPreviewChangeText(rowChanges);
+      const quality = qualityRows.find(result => Number(result.index) === index);
+      const requiresReview = ['invalid', 'duplicate'].includes(String(quality?.status || ''));
+      const qualityText = quality
+        ? `${quality.score}% complete${quality.issues?.length ? ` · ${quality.issues.map(issue => issue.message).join('; ')}` : ''}`
+        : '';
+      const importQuality = requiresReview ? 'review' : 'ready';
+      const filterText = [importPreviewRowLabel(row, index), importPreviewRowDetails(row), changeText, action, qualityText].join(' ').toLowerCase();
       return `
-      <tr>
-        <td><input type="checkbox" class="excel-import-row-check" data-row-index="${index}" checked onchange="updateExcelImportSelectionState()"></td>
+      <tr class="${requiresReview ? 'import-row-review' : ''}" data-import-action="${escapeHtml(action)}" data-import-quality="${importQuality}" data-import-search="${escapeHtml(filterText)}">
+        <td><input type="checkbox" class="excel-import-row-check" data-row-index="${index}" ${requiresReview ? '' : 'checked'} onchange="updateExcelImportSelectionState()"></td>
         <td>${escapeHtml(action)}</td>
         <td>${escapeHtml(importPreviewRowLabel(row, index))}</td>
-        <td>${escapeHtml(importPreviewRowDetails(row))}</td>
+        <td>${escapeHtml(importPreviewRowDetails(row))}${qualityText ? `<small class="import-quality-note">${escapeHtml(qualityText)}</small>` : ''}</td>
         <td>${escapeHtml(changeText)}</td>
       </tr>`;
     }).join('');
+    filterExcelImportRows();
     updateExcelImportSelectionState();
+  }
+
+  function filterExcelImportRows() {
+    const body = document.getElementById('excel-import-body');
+    if (!body) return;
+    const search = String(document.getElementById('excel-import-search')?.value || '').trim().toLowerCase();
+    const action = String(document.getElementById('excel-import-action-filter')?.value || '').trim().toLowerCase();
+    const quality = String(document.getElementById('excel-import-quality-filter')?.value || '').trim().toLowerCase();
+    const rows = Array.from(body.querySelectorAll('tr[data-import-search]'));
+    let visibleCount = 0;
+    rows.forEach(row => {
+      const visible = (!search || String(row.dataset.importSearch || '').includes(search))
+        && (!action || row.dataset.importAction === action)
+        && (!quality || row.dataset.importQuality === quality);
+      row.classList.toggle('hidden', !visible);
+      if (visible) visibleCount += 1;
+    });
+    const count = document.getElementById('excel-import-filter-count');
+    if (count) count.textContent = `${visibleCount} of ${rows.length} rows`;
   }
 
   function importPreviewRowKey(row, index) {
@@ -2399,7 +2509,15 @@
         renderMplProductMasterTable();
         renderKeheProductMasterTable();
       }
-      closeExcelImportModal(true);
+      showImportResultReport(activeExcelImportPreview, selectedRows);
+      document.querySelectorAll('.excel-import-row-check').forEach(input => { input.disabled = true; });
+      const confirmButton = document.getElementById('btn-confirm-excel-import');
+      if (confirmButton) {
+        confirmButton.disabled = false;
+        confirmButton.textContent = 'Done';
+        confirmButton.onclick = () => closeExcelImportModal(true);
+      }
+      document.getElementById('excel-import-summary').textContent = 'Import complete · review the result report or download missing information.';
       setStatus('Excel import confirmed and change history saved.', 'success');
     } catch (err) {
       document.getElementById('btn-confirm-excel-import').disabled = false;
@@ -2429,14 +2547,35 @@
     navigateToRoute(`${getCurrentPage()}/audit/${encodeURIComponent(table || 'all')}`);
   }
 
-  function renderKeheAuditHistory(entries) {
+  function renderKeheAuditHistory(entries = null) {
     const body = document.getElementById('audit-history-body');
     if (!body) return;
-    if (!entries.length) {
+    if (Array.isArray(entries)) activeKeheAuditEntries = entries;
+    const allEntries = activeKeheAuditEntries;
+    syncTableFilterOptions('audit-history-action-filter', allEntries.map(entry => auditActionLabel(entry.action)), 'All change types');
+    const search = String(document.getElementById('audit-history-search')?.value || '').trim().toLowerCase();
+    const action = String(document.getElementById('audit-history-action-filter')?.value || '').trim().toLowerCase();
+    const date = String(document.getElementById('audit-history-date-filter')?.value || '').trim();
+    const filtered = allEntries.filter(entry => {
+      const actor = entry.actor || {};
+      const actionLabel = auditActionLabel(entry.action);
+      const haystack = [actor.email, actor.name, actionLabel, entry.record_label, entry.record_key, auditFieldLabel(entry.field), entry.old_value, entry.new_value].join(' ').toLowerCase();
+      const entryDate = String(entry.timestamp || '').slice(0, 10);
+      return (!search || haystack.includes(search))
+        && (!action || actionLabel.toLowerCase() === action)
+        && (!date || entryDate === date);
+    });
+    const count = document.getElementById('audit-history-filter-count');
+    if (count) count.textContent = `${filtered.length} of ${allEntries.length} changes`;
+    if (!allEntries.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="7">No change history yet.</td></tr>';
       return;
     }
-    body.innerHTML = entries.map(entry => {
+    if (!filtered.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="7">No changes match these filters.</td></tr>';
+      return;
+    }
+    body.innerHTML = filtered.map(entry => {
       const actor = entry.actor || {};
       const who = actor.email || actor.name || 'Local user';
       return `
@@ -3084,6 +3223,17 @@
     showMplDirectoryView();
   }
 
+  async function openSharedProductMaster() {
+    if (!b2bLabelTemplates.length) await loadB2BLabelTemplates();
+    await loadMplProductMasterFromBackend();
+    await navigateToRoute(`${getCurrentPage()}/shared-product-master`);
+  }
+
+  async function openSharedCustomerDirectory() {
+    await loadMplDirectoryFromBackend();
+    await navigateToRoute(`${getCurrentPage()}/shared-directory`);
+  }
+
   /* B2B and partner feature logic lives in their workspace scripts. */
 
   function resetToSelection(updateHistory = true) {
@@ -3601,6 +3751,35 @@
   async function openPreview() {
     if (!blobUrl) return;
     await navigateToRoute(`${getCurrentPage()}/preview`);
+  }
+
+  function printActivePreview() {
+    if (!blobUrl) {
+      setStatus('Generate the PDF before printing.', 'error');
+      return;
+    }
+    const printFrame = document.createElement('iframe');
+    printFrame.setAttribute('aria-hidden', 'true');
+    printFrame.style.position = 'fixed';
+    printFrame.style.width = '1px';
+    printFrame.style.height = '1px';
+    printFrame.style.opacity = '0';
+    printFrame.style.pointerEvents = 'none';
+    printFrame.src = blobUrl;
+    printFrame.onload = () => {
+      window.setTimeout(() => {
+        const cleanup = () => printFrame.remove();
+        try {
+          printFrame.contentWindow?.focus();
+          printFrame.contentWindow?.addEventListener('afterprint', cleanup, { once: true });
+          printFrame.contentWindow?.print();
+        } catch (_err) {
+          window.open(blobUrl, '_blank', 'noopener');
+        }
+        window.setTimeout(cleanup, 60000);
+      }, 350);
+    };
+    document.body.appendChild(printFrame);
   }
 
   async function openKehePreview(key) {

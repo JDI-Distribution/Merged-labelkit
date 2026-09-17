@@ -120,7 +120,7 @@
   }
 
   function defaultCaseQtyForLevel(level) {
-    return '';
+    return normalizePackagingLevel(level) === 'Each' ? '1' : '';
   }
 
   function normalizeDefaultCopies(value, level) {
@@ -650,17 +650,81 @@
     renderMplProductMasterTable();
   }
 
+  function mplProductEntriesForGroup(groupKey) {
+    return mplProductMasterRows
+      .map((row, index) => ({ row: normalizeProductRow(row), index }))
+      .filter(entry => mplProductGroupKey(entry.row, entry.index) === groupKey);
+  }
+
+  function updateMplProductGroupField(groupKey, key, value) {
+    if (!hasPermission('table_crud')) return;
+    const entries = mplProductEntriesForGroup(groupKey);
+    if (!entries.length) return;
+    let normalizedValue = value;
+    if (key === 'storefront') normalizedValue = normalizeStorefront(value);
+    if (key === 'verification_status') normalizedValue = normalizeB2BVerificationStatus(value);
+    entries.forEach(({ index }) => { mplProductMasterRows[index][key] = normalizedValue; });
+    const nextKey = mplProductGroupKey(mplProductMasterRows[entries[0].index], entries[0].index);
+    mplExpandedProductGroups.delete(groupKey);
+    mplExpandedProductGroups.add(nextKey);
+    saveMplProductMasterToStorage();
+    saveMplProductMasterToBackendDebounced();
+    renderMplProductMasterTable();
+  }
+
+  function updateMplProductEachGrossWeight(groupKey, value) {
+    if (!hasPermission('table_crud')) return;
+    const normalizedWeight = formatNumberString(parsePositiveNumber(value));
+    let entries = mplProductEntriesForGroup(groupKey);
+    if (!entries.length) return;
+    let eachEntry = entries.find(entry => entry.row.packaging_level === 'Each');
+    if (!eachEntry && normalizedWeight) {
+      const primary = entries.find(entry => entry.row.packaging_level === 'Case')?.row || entries[0].row;
+      const eachRow = normalizeProductRow({
+        ...primary,
+        packaging_level: 'Each',
+        gtin: '',
+        barcode_level: 'EACH',
+        length_in: '',
+        width_in: '',
+        height_in: '',
+        each_net_weight_g: '',
+        package_net_weight_g: '',
+        gross_weight_lbs: normalizedWeight,
+        case_qty: '1',
+        default_copies: '',
+        label_template_id: '',
+        verification_status: primary.verification_status || 'DRAFT',
+        source_note: '',
+        label_enabled: false,
+        is_active: true,
+      });
+      mplProductMasterRows.push(eachRow);
+      eachEntry = { row: eachRow, index: mplProductMasterRows.length - 1 };
+      setStatus(`Each packaging level added to ${primary.config_id || primary.sku || 'the configuration'}.`, 'success');
+    }
+    if (!eachEntry) return;
+    mplProductMasterRows[eachEntry.index].gross_weight_lbs = normalizedWeight;
+    mplProductMasterRows[eachEntry.index].case_qty = '1';
+    saveMplProductMasterToStorage();
+    saveMplProductMasterToBackendDebounced();
+    renderMplProductMasterTable();
+  }
+
   function renderMplProductMasterTable() {
     const body = document.getElementById('mpl-product-master-body');
     if (!body) return;
     const canEdit = hasPermission('table_crud');
+    const quality = window.LabelKitWorkflow?.productQualitySnapshot?.();
     const rows = mplProductMasterRows
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }));
     if (!rows.length) {
+      const countEl = document.getElementById('mpl-product-filter-count');
+      if (countEl) countEl.textContent = '0 configurations';
       body.innerHTML = '<tr><td class="empty-row" colspan="2">No product rows yet. Add manually or upload data.</td></tr>';
       return;
     }
-    const levelOptions = [...B2B_PACKAGING_LEVELS, 'Other'];
+    const levelOptions = ['Case', 'Inner Pack', 'Each', 'Master Case', 'Pallet', 'Shipper Contents', 'Other'];
     const levelOrder = new Map(levelOptions.map((level, index) => [level, index]));
     const groupsByKey = new Map();
     rows.forEach(entry => {
@@ -668,7 +732,7 @@
       if (!groupsByKey.has(key)) groupsByKey.set(key, { key, entries: [] });
       groupsByKey.get(key).entries.push(entry);
     });
-    const groups = [...groupsByKey.values()].sort((left, right) => {
+    let groups = [...groupsByKey.values()].sort((left, right) => {
       const leftRow = left.entries[0]?.row || {};
       const rightRow = right.entries[0]?.row || {};
       return `${leftRow.storefront}|${leftRow.sku}|${leftRow.description}`.localeCompare(
@@ -677,62 +741,70 @@
         { sensitivity: 'base', numeric: true }
       );
     });
+    syncTableFilterOptions(
+      'mpl-product-storefront-filter',
+      groups.map(group => group.entries[0]?.row?.storefront),
+      'All customers'
+    );
+    const search = String(document.getElementById('mpl-product-search')?.value || '').trim();
+    const storefrontFilter = String(document.getElementById('mpl-product-storefront-filter')?.value || '').trim().toLowerCase();
+    const qualityFilter = String(document.getElementById('mpl-product-quality-filter')?.value || 'all');
+    if (storefrontFilter) {
+      groups = groups.filter(group => group.entries.some(entry => String(entry.row.storefront || '').trim().toLowerCase() === storefrontFilter));
+    }
+    if (quality) {
+      groups = groups.filter(group => window.LabelKitWorkflow.productGroupPassesFilter(group, qualityFilter, search));
+      window.LabelKitWorkflow.renderProductQualitySummary(quality, groups.length);
+    } else if (search) {
+      const needle = search.toLowerCase();
+      groups = groups.filter(group => group.entries.some(entry => Object.values(entry.row || {}).some(value => String(value || '').toLowerCase().includes(needle))));
+    }
+    const countEl = document.getElementById('mpl-product-filter-count');
+    if (countEl) countEl.textContent = `${groups.length} of ${groupsByKey.size} configurations`;
+    if (!groups.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="2">No configurations match the selected Product Master filters.</td></tr>';
+      return;
+    }
 
-    const renderDetailRow = ({ row, index }, groupEntries) => {
+    const renderLevelCard = ({ row, index }, groupEntries) => {
       const printable = canPrintProductMasterLabel(row);
-      const disabledReason = !isPackLabelLevel(row) ? 'Only Case/MP and Inner Pack/IP labels can be printed here.' : 'GTIN is required.';
       const editDisabled = canEdit ? '' : 'disabled';
       const packagePlaceholder = row.packaging_level === 'Case'
         ? 'e.g. 36'
-        : (row.packaging_level === 'Inner Pack' ? 'e.g. 6' : 'optional');
-      return `
-      <tr class="mpl-product-unified-row" data-product-row-index="${index}">
-        <td>
-          <div class="mpl-unified-fields-grid">
-            <div class="mpl-field-group-label">Product identity</div>
-            <label>Storefront / Customer <select ${editDisabled} onchange="updateMplProductRow(${index}, 'storefront', this.value); refreshMplProductGrouping(${index})">
-              ${selectOptionsHtml(b2bCustomerOptions(row.storefront), row.storefront, 'Select customer')}
-            </select></label>
-            <label>Packaging Level <select ${editDisabled} onchange="updateMplProductRow(${index}, 'packaging_level', this.value)">
-              ${levelOptions.map(opt => `<option value="${escapeHtml(opt)}" ${row.packaging_level === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
-            </select></label>
-            <label>SKU <input ${editDisabled} value="${escapeHtml(row.sku)}" oninput="updateMplProductRow(${index}, 'sku', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
-            <label>Config ID <input ${editDisabled} value="${escapeHtml(row.config_id || '')}" placeholder="DECOPAC-62924-CASE" oninput="updateMplProductRow(${index}, 'config_id', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
-            <label>GTIN <input ${editDisabled} value="${escapeHtml(row.gtin)}" oninput="updateMplProductRow(${index}, 'gtin', this.value)"></label>
-            <label>Customer Item <input ${editDisabled} value="${escapeHtml(row.customer_item_number || '')}" oninput="updateMplProductRow(${index}, 'customer_item_number', this.value)"></label>
-            <label>Description <input ${editDisabled} value="${escapeHtml(row.description)}" oninput="updateMplProductRow(${index}, 'description', this.value)" onchange="refreshMplProductGrouping(${index})"></label>
-            <div class="mpl-field-group-label">Label setup</div>
-            <label>Template <select ${editDisabled} onchange="updateMplProductRow(${index}, 'label_template_id', this.value)">
-              ${selectOptionsHtml(b2bTemplateIdOptions(row.label_template_id), row.label_template_id, 'No template')}
-            </select></label>
-            <label>Barcode Type <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_type', this.value)">
-              ${selectOptionsHtml(B2B_BARCODE_TYPES, row.barcode_type, 'Select type')}
-            </select></label>
-            <label>Barcode Level <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_level', this.value)">
-              ${selectOptionsHtml(B2B_BARCODE_LEVELS, row.barcode_level, 'Select level')}
-            </select></label>
-            <div class="mpl-field-group-label">Package measurements</div>
-            <label>Length in <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.length_in || '')}" oninput="updateMplProductRow(${index}, 'length_in', this.value)"></label>
-            <label>Width/Breadth in <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.width_in || '')}" oninput="updateMplProductRow(${index}, 'width_in', this.value)"></label>
-            <label>Height in <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.height_in || '')}" oninput="updateMplProductRow(${index}, 'height_in', this.value)"></label>
-            <label>Gross Weight (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.gross_weight_lbs || '')}" oninput="updateMplProductRow(${index}, 'gross_weight_lbs', this.value)"></label>
-            <label>Each Net g <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.each_net_weight_g || '')}" oninput="updateMplProductRow(${index}, 'each_net_weight_g', this.value)"></label>
-            <label>Package Net g <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.package_net_weight_g || '')}" oninput="updateMplProductRow(${index}, 'package_net_weight_g', this.value)"></label>
-            <label>Eaches / Package <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.case_qty)}" placeholder="${escapeHtml(packagePlaceholder)}" title="Number of sellable eaches contained in this packaging level." oninput="updateMplProductRow(${index}, 'case_qty', this.value)"></label>
-            <label>Pack Breakdown <input disabled value="${escapeHtml(mplProductPackageBreakdown(row, groupEntries))}"></label>
-            <label>Default Copies <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.default_copies || '')}" oninput="updateMplProductRow(${index}, 'default_copies', this.value)"></label>
-            <label title="Tracks review without changing label content; Blocked hides the configuration from general users.">Data Status <select ${editDisabled} onchange="updateMplProductRow(${index}, 'verification_status', this.value)">
-              ${selectOptionsHtml(B2B_VERIFICATION_STATUSES, row.verification_status, 'Select status')}
-            </select></label>
-            <label class="mpl-toggle-field">Available in Label Creator <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
-            <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
+        : (row.packaging_level === 'Inner Pack' ? 'e.g. 6' : (row.packaging_level === 'Each' ? '1' : 'optional'));
+      const quantityValue = row.packaging_level === 'Each' ? '1' : row.case_qty;
+      const measurementFields = row.packaging_level === 'Each' ? '' : `
+          <label>Length (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.length_in || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'length_in', this.value)"></label>
+          <label>Width (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.width_in || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'width_in', this.value)"></label>
+          <label>Height (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.height_in || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'height_in', this.value)"></label>
+          <label title="Full weight of the product and all packaging at this level.">Gross Weight (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.gross_weight_lbs || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'gross_weight_lbs', this.value)"></label>`;
+      return `<article class="mpl-packaging-level-card" data-product-row-index="${index}">
+        <header class="mpl-packaging-level-header">
+          <div><strong>${escapeHtml(row.packaging_level)}</strong><span>${escapeHtml(mplProductPackageBreakdown({ ...row, case_qty: quantityValue }, groupEntries))}</span></div>
+          <div class="mpl-packaging-level-actions">
+            ${printable ? `<button class="btn-table-preview" type="button" title="Open editable pack-label preview." onclick="openManualMplProductPackLabel(${index})">Preview label</button>` : ''}
+            ${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete level</button>` : ''}
           </div>
-        </td>
-        <td class="table-inline-actions">
-          <button class="btn-table-preview" type="button" ${printable ? '' : 'disabled'} title="${escapeHtml(printable ? 'Open editable pack-label preview.' : disabledReason)}" onclick="openManualMplProductPackLabel(${index})">Preview</button>
-          ${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Delete</button>` : ''}
-        </td>
-      </tr>`;
+        </header>
+        <div class="mpl-packaging-primary-grid">
+          <label>GTIN <input ${editDisabled} value="${escapeHtml(row.gtin)}" onchange="updateMplProductRow(${index}, 'gtin', this.value)"></label>
+          <label>Eaches Contained <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(quantityValue)}" placeholder="${escapeHtml(packagePlaceholder)}" title="Number of sellable eaches contained at this packaging level." ${row.packaging_level === 'Each' ? 'disabled' : ''} onchange="validateProductNumericInput(this, true); updateMplProductRow(${index}, 'case_qty', this.value)"></label>
+          ${measurementFields}
+          <label class="mpl-toggle-field">Label enabled <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
+        </div>
+        <details class="mpl-packaging-advanced">
+          <summary>Label and weight details</summary>
+          <div class="mpl-unified-fields-grid">
+            <label>Template <select ${editDisabled} onchange="updateMplProductRow(${index}, 'label_template_id', this.value)">${selectOptionsHtml(b2bTemplateIdOptions(row.label_template_id), row.label_template_id, 'No template')}</select></label>
+            <label>Barcode Type <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_type', this.value)">${selectOptionsHtml(B2B_BARCODE_TYPES, row.barcode_type, 'Select type')}</select></label>
+            <label>Barcode Level <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_level', this.value)">${selectOptionsHtml(B2B_BARCODE_LEVELS, row.barcode_level, 'Select level')}</select></label>
+            <label>Default Copies <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.default_copies || '')}" onchange="updateMplProductRow(${index}, 'default_copies', this.value)"></label>
+            <label title="Product contents only, excluding packaging.">Each Net Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.each_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'each_net_weight_g', this.value)"></label>
+            <label title="Combined net product contents at this packaging level, excluding packaging.">Package Net Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.package_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'package_net_weight_g', this.value)"></label>
+            <label class="mpl-toggle-field">Level active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
+          </div>
+        </details>
+      </article>`;
     };
 
     body.innerHTML = groups.map(group => {
@@ -748,6 +820,10 @@
       const groupSummary = mplProductPackageBreakdown(primaryRow, group.entries);
       const verification = primaryRow.verification_status || 'UNSET';
       const configLabel = primaryRow.config_id ? `Config ${primaryRow.config_id}` : 'No Config ID';
+      const groupQuality = quality?.groups?.get(group.key) || { score: 0, issues: [] };
+      const qualityState = groupQuality.score === 100 ? 'ready' : groupQuality.issues?.some(issue => issue.severity === 'invalid') ? 'invalid' : 'review';
+      const eachEntry = group.entries.find(entry => entry.row.packaging_level === 'Each');
+      const editDisabled = canEdit ? '' : 'disabled';
       return `
         <tr class="mpl-product-group-row ${expanded ? 'is-expanded' : ''}">
           <td colspan="2">
@@ -758,17 +834,31 @@
                   <strong>${escapeHtml(primaryRow.sku || primaryRow.customer_item_number || 'SKU not set')}</strong>
                   <span>${escapeHtml(primaryRow.description || 'Description not set')}</span>
                 </span>
-                <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · ${escapeHtml(configLabel)} · ${uniqueLevels.length} packaging level${uniqueLevels.length === 1 ? '' : 's'} · ${escapeHtml(verification)}</span>
+                <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · ${escapeHtml(configLabel)} · ${uniqueLevels.length} packaging level${uniqueLevels.length === 1 ? '' : 's'} · ${escapeHtml(verification)} <span class="product-quality-badge ${qualityState}" title="${escapeHtml((groupQuality.issues || []).map(issue => issue.message).join(' · ') || 'Complete')}">${groupQuality.score}% complete</span></span>
                 <span class="mpl-product-group-summary">${escapeHtml(groupSummary)}</span>
               </button>
-              ${canEdit && expanded ? `<select class="mpl-product-level-add" data-no-search data-group-key="${escapeHtml(group.key)}" aria-label="Add packaging level" onchange="addMplProductLevel(this.dataset.groupKey, this.value); this.value=''">
-                <option value="">+ Add Level</option>
-                ${levelOptions.filter(level => level !== 'Other' && !uniqueLevels.includes(level)).map(level => `<option value="${escapeHtml(level)}">${escapeHtml(level)}</option>`).join('')}
-              </select>` : ''}
             </div>
           </td>
         </tr>
-        ${expanded ? group.entries.map(entry => renderDetailRow(entry, group.entries)).join('') : ''}`;
+        ${expanded ? `<tr class="mpl-product-config-row"><td colspan="2"><div class="mpl-product-config-editor">
+          <section class="mpl-product-shared-card">
+            <header><div><span>Shared Product Details</span><h3>Product: ${escapeHtml(primaryRow.sku || primaryRow.config_id || 'New configuration')}</h3></div><span class="product-quality-badge ${qualityState}">${groupQuality.score}% complete</span></header>
+            <div class="mpl-product-shared-grid">
+              <label>Customer <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(group.key)}', 'storefront', this.value)">${selectOptionsHtml(b2bCustomerOptions(primaryRow.storefront), primaryRow.storefront, 'Select customer')}</select></label>
+              <label>Config ID <input ${editDisabled} value="${escapeHtml(primaryRow.config_id || '')}" placeholder="CUSTOMER-PRODUCT" onchange="updateMplProductGroupField('${jsString(group.key)}', 'config_id', this.value)"></label>
+              <label>SKU <input ${editDisabled} value="${escapeHtml(primaryRow.sku || '')}" onchange="updateMplProductGroupField('${jsString(group.key)}', 'sku', this.value)"></label>
+              <label class="mpl-product-description-field">Description <input ${editDisabled} value="${escapeHtml(primaryRow.description || '')}" onchange="updateMplProductGroupField('${jsString(group.key)}', 'description', this.value)"></label>
+              <label title="Full sellable-each weight including the product and its immediate packaging.">Each Gross Weight (lb) <input ${editDisabled} type="number" min="0" step="0.001" value="${escapeHtml(eachEntry?.row?.gross_weight_lbs || '')}" placeholder="Creates Each level if needed" onchange="validateProductNumericInput(this); updateMplProductEachGrossWeight('${jsString(group.key)}', this.value)"></label>
+              <label>Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(group.key)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, primaryRow.verification_status, 'Select status')}</select></label>
+              <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(primaryRow.customer_item_number || '')}" onchange="updateMplProductGroupField('${jsString(group.key)}', 'customer_item_number', this.value)"></label>
+            </div>
+            <p>Each Gross Weight includes the individual product and immediate packaging. Every packaging-level Gross Weight below includes all product and packaging contained at that level.</p>
+          </section>
+          <section class="mpl-product-levels-card">
+            <header><div><span>Packaging Levels</span><strong>Case, inner pack, each, master case, and pallet data</strong></div>${canEdit ? `<select class="mpl-product-level-add" data-no-search data-group-key="${escapeHtml(group.key)}" aria-label="Add packaging level" onchange="addMplProductLevel(this.dataset.groupKey, this.value); this.value=''"><option value="">+ Add Level</option>${levelOptions.filter(level => level !== 'Other' && !uniqueLevels.includes(level)).map(level => `<option value="${escapeHtml(level)}">${escapeHtml(level)}</option>`).join('')}</select>` : ''}</header>
+            <div class="mpl-packaging-level-list">${group.entries.map(entry => renderLevelCard(entry, group.entries)).join('')}</div>
+          </section>
+        </div></td></tr>` : ''}`;
     }).join('');
     applyPermissionUi();
     enhanceSearchableSelects(body);
@@ -888,11 +978,28 @@
   function renderKeheProductMasterTable() {
     const body = document.getElementById('kehe-product-master-body');
     if (!body) return;
-    const rows = keheProductMasterRows
+    const allRows = keheProductMasterRows
       .map((raw, index) => ({ row: normalizeProductRow(raw), index }))
       .filter(entry => isKeheStorefront(entry.row.storefront));
-    if (!rows.length) {
+    syncTableFilterOptions('kehe-product-level-filter', allRows.map(entry => entry.row.packaging_level), 'All levels');
+    const search = String(document.getElementById('kehe-product-search')?.value || '').trim().toLowerCase();
+    const level = String(document.getElementById('kehe-product-level-filter')?.value || '').trim().toLowerCase();
+    const status = String(document.getElementById('kehe-product-status-filter')?.value || '').trim();
+    const rows = allRows.filter(({ row }) => {
+      const printable = canPrintProductMasterLabel(row);
+      const haystack = [row.storefront, row.gtin, row.description, row.packaging_level, row.dimensions_display, row.sku, row.config_id].join(' ').toLowerCase();
+      return (!search || haystack.includes(search))
+        && (!level || String(row.packaging_level || '').trim().toLowerCase() === level)
+        && (!status || (status === 'ready' ? printable : !printable));
+    });
+    const countEl = document.getElementById('kehe-product-filter-count');
+    if (countEl) countEl.textContent = `${rows.length} of ${allRows.length} rows`;
+    if (!allRows.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="11">No KeHE rows yet. Add Storefront = KeHE rows from Packing List & Ti-Hi.</td></tr>';
+      return;
+    }
+    if (!rows.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="11">No KeHE products match these filters.</td></tr>';
       return;
     }
     body.innerHTML = rows.map(({ row, index }) => {
@@ -1220,20 +1327,36 @@
     const canEdit = hasPermission('table_crud');
     const editDisabled = canEdit ? '' : 'disabled';
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
+    syncTableFilterOptions('mpl-directory-storefront-filter', rows.map(row => row.storefront), 'All customers');
+    syncTableFilterOptions('mpl-directory-type-filter', rows.map(row => row.record_type), 'All record types');
     const search = String(document.getElementById('mpl-directory-search')?.value || '').trim().toLowerCase();
+    const storefront = String(document.getElementById('mpl-directory-storefront-filter')?.value || '').trim().toLowerCase();
+    const recordType = String(document.getElementById('mpl-directory-type-filter')?.value || '').trim().toLowerCase();
+    const status = String(document.getElementById('mpl-directory-status-filter')?.value || '').trim().toLowerCase();
     const filtered = rows
       .map((row, index) => ({ row, index }))
-      .filter(({ row }) => !search || [
-        row.storefront,
-        row.dc,
-        row.name,
-        row.record_type,
-        row.default_label_template_id,
-        row.delivery_address,
-        row.billing_address,
-        row.receiving_email,
-        row.manufacturer_name,
-      ].some(value => String(value || '').toLowerCase().includes(search)));
+      .filter(({ row }) => {
+        const verification = String(row.verification_status || '').trim().toLowerCase();
+        const statusMatches = !status
+          || (status === 'active' && row.is_active !== false)
+          || (status === 'inactive' && row.is_active === false)
+          || (status === 'draft' && ['draft', 'needs_review', 'needs review', 'blocked'].includes(verification));
+        return (!search || [
+          row.storefront,
+          row.dc,
+          row.name,
+          row.record_type,
+          row.default_label_template_id,
+          row.delivery_address,
+          row.billing_address,
+          row.receiving_email,
+          row.manufacturer_name,
+          row.match_values,
+        ].some(value => String(value || '').toLowerCase().includes(search)))
+          && (!storefront || String(row.storefront || '').trim().toLowerCase() === storefront)
+          && (!recordType || String(row.record_type || '').trim().toLowerCase() === recordType)
+          && statusMatches;
+      });
     const countEl = document.getElementById('mpl-directory-count');
     if (countEl) countEl.textContent = `${filtered.length} of ${rows.length} records`;
     if (!filtered.length) {
@@ -1412,12 +1535,25 @@
     const body = document.getElementById('kehe-dc-directory-body');
     if (!body) return;
 
-    const rows = keheDcDirectoryRows
+    const allRows = keheDcDirectoryRows
       .map((raw, index) => ({ row: normalizeDcDirectoryRow(raw), index }))
       .filter(entry => isKeheStorefront(entry.row.storefront));
+    const search = String(document.getElementById('kehe-directory-search')?.value || '').trim().toLowerCase();
+    const status = String(document.getElementById('kehe-directory-status-filter')?.value || '').trim().toLowerCase();
+    const rows = allRows.filter(({ row }) => {
+      const haystack = [row.storefront, row.dc, row.name, row.ship_from, row.delivery_address, row.billing_address, row.match_values].join(' ').toLowerCase();
+      return (!search || haystack.includes(search))
+        && (!status || (status === 'active' ? row.is_active !== false : row.is_active === false));
+    });
+    const countEl = document.getElementById('kehe-directory-filter-count');
+    if (countEl) countEl.textContent = `${rows.length} of ${allRows.length} records`;
 
-    if (!rows.length) {
+    if (!allRows.length) {
       body.innerHTML = '<tr><td class="empty-row" colspan="8">No KeHE directory rows yet. Add Storefront = KeHE rows from Packing List & Ti-Hi.</td></tr>';
+      return;
+    }
+    if (!rows.length) {
+      body.innerHTML = '<tr><td class="empty-row" colspan="8">No KeHE directory records match these filters.</td></tr>';
       return;
     }
 

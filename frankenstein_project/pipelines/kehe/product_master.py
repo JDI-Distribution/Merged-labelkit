@@ -166,7 +166,9 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
         gross_weight_lbs = _format_number(_parse_float(row.get("gross_weight_lbs") or row.get("GROSS_WEIGHT_LBS")))
         sku = str(row.get("sku") or row.get("SKU") or "").strip()
         in_packing_list = _product_in_packing_list(row, packaging_level)
-        default_case_qty = "6" if packaging_level == "Inner Pack" else ("1" if packaging_level == "Case" else "")
+        # Only the Each level has an inherent quantity. Case and Inner Pack
+        # quantities must come from Product Master and are never guessed.
+        default_case_qty = "1" if packaging_level == "Each" else ""
         case_qty = str(
             row.get("case_qty")
             or row.get("Case Qty")

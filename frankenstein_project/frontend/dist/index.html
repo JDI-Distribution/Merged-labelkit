@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/assets/css/responsive-shell.css">
   <link rel="stylesheet" href="/assets/css/module-system.css">
   <link rel="stylesheet" href="/assets/css/mpl-draft-sync.css">
+  <link rel="stylesheet" href="/assets/css/workflow-enhancements.css">
 </head>
 <body data-module="home">
 
@@ -35,6 +36,10 @@
     <div class="header-app-sub" id="header-app-sub">Select a workflow</div>
   </div>
   <div class="header-spacer"></div>
+  <nav class="header-data-nav hidden" id="header-data-nav" aria-label="Shared data">
+    <button type="button" onclick="openSharedProductMaster()">Product Master</button>
+    <button type="button" onclick="openSharedCustomerDirectory()">Customer Directory</button>
+  </nav>
   <div class="auth-user-chip hidden" id="auth-user-chip">
     <div>
       <div class="auth-user-name" id="auth-user-name">Signed in</div>
@@ -142,8 +147,12 @@
   <section class="upload-page hidden" id="upload-page">
 
     <div class="upload-intro module-header-card">
-      <h2 id="workflow-title">JDID · <span>LabelKit</span></h2>
-      <p id="workflow-description">Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. Multiple PDF uploads produce separate output PDFs and a combined preview with named break pages.</p>
+      <div class="module-header-row">
+        <div class="module-header-copy">
+          <h2 id="workflow-title">JDID · <span>LabelKit</span></h2>
+          <p id="workflow-description">Upload your ASN XML from Infocon and one or more ShipStation shipping-label PDFs. Multiple PDF uploads produce separate output PDFs and a combined preview with named break pages.</p>
+        </div>
+      </div>
       <div class="upload-note" id="workflow-note"><strong>Note:</strong> Keep US and CAN orders separate. Print shipping labels separately, and use separate XML files for each group.</div>
     </div>
 
@@ -268,22 +277,6 @@
           <div class="match-subtitle" id="match-rules">Matching order: Tracking → Store. The results for each shipping label page appear here after every run.</div>
         </div>
         <div class="kehe-reference-actions" id="kehe-reference-actions">
-          <button class="kehe-reference-btn" type="button" onclick="openKeheProductMasterModal()">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 5.75A2.75 2.75 0 015.75 3h12.5A2.75 2.75 0 0121 5.75v12.5A2.75 2.75 0 0118.25 21H5.75A2.75 2.75 0 013 18.25V5.75z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M3 15h18M9 3v18M15 3v18"/>
-            </svg>
-            GTIN / Packaging Master Table
-          </button>
-
-          <button class="kehe-reference-btn" type="button" onclick="openKeheDcDirectoryModal()">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75h11M9 12h11M9 17.25h11"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6.75h.01M4 12h.01M4 17.25h.01"/>
-            </svg>
-            DC Directory
-          </button>
-
           <button class="kehe-reference-btn" type="button" onclick="openManualMasterPackingList()">
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 5.5h16M4 12h16M4 18.5h10"/>
@@ -388,21 +381,11 @@
         <div class="mpl-tools-heading">
           <div>
             <div class="workspace-eyebrow">Tools &amp; records</div>
-            <h2>Manage source data or work manually</h2>
+            <h2>Create or reopen a packing list</h2>
           </div>
-          <p>Reference data is shared across packing-list workflows.</p>
+          <p>Product Master and Customer Directory are available in the header.</p>
         </div>
         <div class="mpl-tool-grid">
-          <button class="mpl-tool-card" type="button" onclick="openMplProductMasterModal()">
-            <span class="mpl-tool-icon" aria-hidden="true">PM</span>
-            <span><small>Source data</small><strong>Product Master</strong><em>SKUs, case packs, dimensions, and weight</em></span>
-            <b aria-hidden="true">&#8594;</b>
-          </button>
-          <button class="mpl-tool-card" type="button" onclick="openMplDirectoryModal()">
-            <span class="mpl-tool-icon" aria-hidden="true">DR</span>
-            <span><small>Shipping data</small><strong>Customer Directory</strong><em>Addresses and consignee details</em></span>
-            <b aria-hidden="true">&#8594;</b>
-          </button>
           <button class="mpl-tool-card mpl-tool-card-primary" type="button" onclick="openManualMasterPackingList()">
             <span class="mpl-tool-icon" aria-hidden="true">+</span>
             <span><small>Manual workflow</small><strong>Create an MPL</strong><em>Build a packing list without an order lookup</em></span>
@@ -428,10 +411,6 @@
           <h2>B2B Case-Pack Labels</h2>
           <p>Select a saved configuration, edit this run, preview the actual customer label, and print.</p>
         </div>
-        <div class="b2b-page-actions">
-          <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Manage Product Configurations</button>
-          <button class="btn-secondary" type="button" onclick="openB2BDirectory()">Manage Customer Directory</button>
-        </div>
       </div>
 
       <div class="b2b-workflow-strip" aria-label="B2B label workflow">
@@ -439,7 +418,7 @@
         <div class="b2b-workflow-connector" aria-hidden="true"></div>
         <div class="b2b-workflow-step"><span>02</span><div><strong>Complete run details</strong><small>Order and carton values</small></div></div>
         <div class="b2b-workflow-connector" aria-hidden="true"></div>
-        <div class="b2b-workflow-step"><span>03</span><div><strong>Preview &amp; print</strong><small>Validate the final PDF</small></div></div>
+              <div class="b2b-workflow-step"><span>03</span><div><strong>Generate &amp; print</strong><small>Create the production PDF</small></div></div>
       </div>
 
       <div class="mpl-order-lookup-card b2b-order-lookup-card module-surface-card">
@@ -496,6 +475,22 @@
             <span class="b2b-coverage-toggle" aria-hidden="true">View catalog</span>
           </div>
         </summary>
+        <div class="table-filter-toolbar table-filter-toolbar--embedded" aria-label="B2B label catalog filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search catalog</span>
+            <input id="b2b-coverage-search" type="search" placeholder="Customer, label, template, or level" oninput="renderB2BLabelCoverage()">
+          </label>
+          <label class="table-filter-control">
+            <span>Configuration</span>
+            <select id="b2b-coverage-status-filter" onchange="renderB2BLabelCoverage()">
+              <option value="">All labels</option>
+              <option value="configured">Configured SKUs</option>
+              <option value="unconfigured">Missing SKU setup</option>
+            </select>
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderB2BLabelCoverage, 'b2b-coverage-search', 'b2b-coverage-status-filter')">Clear filters</button>
+          <span class="table-filter-count" id="b2b-coverage-filter-count" aria-live="polite"></span>
+        </div>
         <div class="b2b-coverage-scroll">
           <table class="b2b-coverage-table">
             <thead>
@@ -553,8 +548,8 @@
               <div class="b2b-heading-with-step">
                 <span class="b2b-step-number">02</span>
                 <div>
-                  <div class="b2b-card-kicker">Editable label</div>
-                  <h3>Edit what will print</h3>
+                  <div class="b2b-card-kicker">Live label editor</div>
+                  <h3>Edit the label</h3>
                 </div>
               </div>
               <span class="b2b-save-state" id="b2b-product-save-state">Changes save to Product Master</span>
@@ -595,6 +590,7 @@
             </details>
           </section>
 
+          <div class="b2b-run-column">
           <section class="b2b-card">
             <div class="b2b-card-heading">
               <div class="b2b-heading-with-step">
@@ -616,35 +612,27 @@
               </label>
             </div>
           </section>
-          </div>
 
-        <section class="b2b-preview-card">
+          <section class="b2b-preview-card b2b-output-card">
           <div class="b2b-card-heading">
             <div class="b2b-heading-with-step">
               <span class="b2b-step-number">04</span>
               <div>
-                <div class="b2b-card-kicker">Final PDF proof</div>
-                <h3 id="b2b-preview-title">Select a label</h3>
+                <div class="b2b-card-kicker">Production PDF</div>
+                <h3 id="b2b-preview-title">Generate print-ready PDF</h3>
               </div>
             </div>
-            <span class="b2b-proof-note">Rendered by the production print engine</span>
+            <span class="b2b-proof-note">Final render</span>
           </div>
-          <div class="b2b-proof-layout">
-            <div class="b2b-inline-preview" id="b2b-inline-preview-wrap">
-              <div class="b2b-preview-placeholder" id="b2b-preview-placeholder">Render the final PDF after completing Sections 1–3.</div>
-              <iframe id="b2b-inline-preview" title="B2B label PDF preview"></iframe>
+          <div class="b2b-output-row">
+            <div class="b2b-output-copy">
+              <span>Creates the production PDF from the editable label shown here.</span>
             </div>
-            <div class="b2b-proof-sidebar">
-              <div class="b2b-proof-sidebar-heading">Preflight check</div>
-              <div class="b2b-validation" id="b2b-validation"></div>
-              <div class="b2b-print-actions">
-                <button class="btn-secondary" id="b2b-render-button" type="button" onclick="generateB2BPreview(true)">Generate &amp; Open PDF Preview</button>
-                <button class="btn-secondary" id="b2b-download-button" type="button" onclick="downloadB2BLabels()" disabled>Download PDF</button>
-                <button class="btn-generate" id="b2b-print-button" type="button" onclick="printB2BLabels()">Print Labels</button>
-              </div>
-            </div>
+            <button class="btn-generate" id="b2b-render-button" type="button" onclick="generateB2BPreview(true)">Generate &amp; Open PDF</button>
           </div>
-        </section>
+          </section>
+          </div>
+          </div>
         </div>
       </div>
 
@@ -659,10 +647,6 @@
           <div class="mpl-order-lookup-kicker">Automatic order documents</div>
           <h2>DecoPac / Dutch Bros / Fancy</h2>
           <p>Enter one sales order, confirm the customer layout, and prepare the matching packing list and labels in one editable workflow.</p>
-        </div>
-        <div class="b2b-page-actions">
-          <button class="btn-secondary" type="button" onclick="openB2BProductMaster()">Product Master</button>
-          <button class="btn-secondary" type="button" onclick="openB2BDirectory()">Customer Directory</button>
         </div>
       </div>
 
@@ -709,37 +693,41 @@
           <div><span>Review status</span><strong id="partner-review-status">Ready</strong></div>
         </section>
 
-        <section class="b2b-card partner-output-card">
-          <div class="b2b-card-heading">
-            <div class="b2b-heading-with-step">
-              <span class="b2b-step-number">02</span>
-              <div><div class="b2b-card-kicker">Output selection</div><h3>Choose what to generate</h3></div>
-            </div>
-            <button class="btn-generate" id="btn-render-partner-previews" type="button" onclick="renderPartnerPreviews()">Refresh Both Previews</button>
-          </div>
-          <div class="partner-output-toggles">
-            <label><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer labels</strong><small>All required selected label types</small></span></label>
-            <label><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing list &amp; Ti-Hi</strong><small>Customer-specific editable packing list</small></span></label>
-          </div>
-        </section>
-
         <section class="b2b-card partner-documents-card">
           <div class="b2b-card-heading">
             <div class="b2b-heading-with-step">
-              <span class="b2b-step-number">03</span>
-              <div><div class="b2b-card-kicker">Review &amp; edit</div><h3>Open each document before printing</h3></div>
+              <span class="b2b-step-number">02</span>
+              <div><div class="b2b-card-kicker">Review &amp; edit</div><h3>Prepare the documents</h3></div>
             </div>
-            <span class="b2b-save-state">Same review flow as KeHE</span>
+            <span class="b2b-save-state">Changes stay with this order</span>
           </div>
-          <div class="kehe-document-actions partner-document-actions">
-            <button class="btn-document" id="btn-partner-pack-labels" type="button" onclick="openPartnerLabelEditor('packLabels')" disabled><span>Pack Labels</span><small>Edit labels on the print layout</small></button>
-            <button class="btn-document" id="btn-partner-pallet-labels" type="button" onclick="openPartnerLabelEditor('palletLabel')" disabled><span>Pallet Labels</span><small>Edit pallet labels on the print layout</small></button>
-            <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Master Packing List</span><small>Edit MPL and pallet details</small></button>
+          <div class="partner-output-toggles">
+            <label><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Labels</strong><small>Include the applicable customer labels</small></span></label>
+            <label><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing list &amp; Ti-Hi</strong><small>Include the customer packing list</small></span></label>
+          </div>
+          <div class="partner-document-actions" id="partner-document-actions">
+            <button class="btn-document" id="btn-partner-pack-labels" type="button" onclick="openPartnerLabelEditor('packLabels')" disabled><span>Pack Labels</span><small>Review and edit label content</small></button>
+            <button class="btn-document hidden" id="btn-partner-pallet-labels" type="button" onclick="openPartnerLabelEditor('palletLabel')" disabled><span>Pallet Labels</span><small>Review and edit pallet labels</small></button>
+            <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Master Packing List</span><small>Review MPL and pallet details</small></button>
           </div>
           <div class="kehe-preview-actions partner-generated-preview-actions">
-            <button class="btn-secondary" id="btn-preview-partner-pack-labels" type="button" onclick="openPartnerPreview('packLabels')" disabled>Preview Pack Labels PDF</button>
-            <button class="btn-secondary" id="btn-preview-partner-pallet-labels" type="button" onclick="openPartnerPreview('palletLabel')" disabled>Preview Pallet Labels PDF</button>
-            <button class="btn-secondary" id="btn-preview-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')" disabled>Preview Master Packing List PDF</button>
+            <button class="btn-secondary hidden" id="btn-preview-partner-pack-labels" type="button" onclick="openPartnerPreview('packLabels')" disabled>Open Pack Labels PDF</button>
+            <button class="btn-secondary hidden" id="btn-preview-partner-pallet-labels" type="button" onclick="openPartnerPreview('palletLabel')" disabled>Open Pallet Labels PDF</button>
+            <button class="btn-secondary hidden" id="btn-preview-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')" disabled>Open Packing List PDF</button>
+          </div>
+        </section>
+
+        <section class="b2b-preview-card partner-generate-card">
+          <div class="b2b-card-heading">
+            <div class="b2b-heading-with-step">
+              <span class="b2b-step-number">03</span>
+              <div><div class="b2b-card-kicker">Production PDFs</div><h3>Generate selected documents</h3></div>
+            </div>
+            <span class="b2b-proof-note">Final render</span>
+          </div>
+          <div class="partner-generate-row">
+            <span>Run one final check, then create the selected PDFs for review, saving, or printing.</span>
+            <button class="btn-generate" id="btn-render-partner-previews" type="button" onclick="renderPartnerPreviews()">Generate Selected PDFs</button>
           </div>
         </section>
       </div>
@@ -764,6 +752,12 @@
           </svg>
           <span id="btn-download-label">Download PDF</span>
         </a>
+        <button class="btn-preview-print" id="btn-print-preview" type="button" onclick="printActivePreview()" title="Open printer settings for this PDF">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 9V3h12v6M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v7H6z"/>
+          </svg>
+          Print PDF
+        </button>
         <button class="btn-close-preview" onclick="closePreview(true)">
           <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -792,6 +786,17 @@
           <input id="mpl-draft-name-input" type="text" oninput="updateMplDraftNameFromInput(this)" placeholder="Enter saved MPL name">
         </label>
         <span class="mpl-save-state hidden" id="mpl-save-state" aria-live="polite">Unsaved</span>
+        <div class="mpl-history-actions hidden" id="mpl-history-actions">
+          <button class="btn-secondary" id="btn-mpl-undo" type="button" onclick="undoMplEdit()" disabled>Undo</button>
+          <button class="btn-secondary" id="btn-mpl-redo" type="button" onclick="redoMplEdit()" disabled>Redo</button>
+        </div>
+        <label class="mpl-review-status hidden" id="mpl-review-status-wrap">Review Status
+          <select id="mpl-review-status" onchange="setMplReviewStatus(this.value)">
+            <option value="DRAFT">Draft</option>
+            <option value="REVIEWED">Reviewed</option>
+            <option value="APPROVED">Approved</option>
+          </select>
+        </label>
         <button class="btn-secondary hidden" id="btn-mpl-versions" type="button" onclick="openMplVersionHistory()">Version History</button>
         <button class="btn-secondary hidden" id="btn-save-mpl-only" type="button" onclick="saveActiveMplDraft({ createVersion: true })">Save Now</button>
         <button class="btn-secondary hidden" id="btn-save-mpl-draft" onclick="renderEditedKeheDocument({ saveMplDraft: true })">Save &amp; Generate PDF</button>
@@ -834,6 +839,29 @@
             <div class="kehe-product-master-subtitle">KeHE-only view of shared Product Master rows. Add or edit products in Packing List &amp; Ti-Hi. Change History is available for audit review.</div>
           </div>
           <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change History</button>
+        </div>
+
+        <div class="table-filter-toolbar" aria-label="KeHE Product Master filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search products</span>
+            <input id="kehe-product-search" type="search" placeholder="SKU, GTIN, description, or packaging" oninput="renderKeheProductMasterTable()">
+          </label>
+          <label class="table-filter-control">
+            <span>Packaging level</span>
+            <select id="kehe-product-level-filter" onchange="renderKeheProductMasterTable()">
+              <option value="">All levels</option>
+            </select>
+          </label>
+          <label class="table-filter-control">
+            <span>Print readiness</span>
+            <select id="kehe-product-status-filter" onchange="renderKeheProductMasterTable()">
+              <option value="">All rows</option>
+              <option value="ready">Ready to print</option>
+              <option value="review">Needs review</option>
+            </select>
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderKeheProductMasterTable, 'kehe-product-search', 'kehe-product-level-filter', 'kehe-product-status-filter')">Clear filters</button>
+          <span class="table-filter-count" id="kehe-product-filter-count" aria-live="polite"></span>
         </div>
 
         <div class="kehe-product-master-scroll">
@@ -887,6 +915,23 @@
           <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
         </div>
 
+        <div class="table-filter-toolbar" aria-label="KeHE directory filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search directory</span>
+            <input id="kehe-directory-search" type="search" placeholder="DC, name, address, or match value" oninput="renderKeheDcDirectoryTable()">
+          </label>
+          <label class="table-filter-control">
+            <span>Record status</span>
+            <select id="kehe-directory-status-filter" onchange="renderKeheDcDirectoryTable()">
+              <option value="">All records</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderKeheDcDirectoryTable, 'kehe-directory-search', 'kehe-directory-status-filter')">Clear filters</button>
+          <span class="table-filter-count" id="kehe-directory-filter-count" aria-live="polite"></span>
+        </div>
+
         <div class="kehe-product-master-scroll">
           <table class="kehe-dc-directory-table">
             <thead>
@@ -921,7 +966,7 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Product Master Table</div>
-          <div class="kehe-product-master-subtitle">Products are grouped by Storefront + Config ID when provided, otherwise Storefront + SKU. Expand a product to edit Case, Inner Pack, Each, and B2B fields.</div>
+          <div class="kehe-product-master-subtitle">Each product has one shared identity and separate packaging levels. Expand a product to edit Case, Inner Pack, Each, and label settings.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
       </div>
@@ -930,7 +975,7 @@
         <div class="kehe-product-master-toolbar">
           <div>
             <div class="kehe-product-master-title">Editable Product Data</div>
-            <div class="kehe-product-master-subtitle">Enter the number of sellable eaches in each package. Analytics conversion requires Eaches / Package on the Case row.</div>
+            <div class="kehe-product-master-subtitle">Gross weight includes the product and packaging at that level. Analytics conversion requires Eaches Contained on the Case level.</div>
           </div>
           <div class="kehe-product-master-actions">
             <button class="btn-secondary" type="button" onclick="downloadImportTemplate('product-master')">Download Product Template</button>
@@ -940,6 +985,43 @@
             <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Configuration</button>
           </div>
           <input class="hidden" id="product-master-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('product-master', this)">
+        </div>
+
+        <div class="product-quality-toolbar">
+          <div class="table-filter-summary-row">
+            <div class="product-quality-summary" id="product-quality-summary">Calculating Product Master completeness…</div>
+            <button class="btn-secondary" type="button" onclick="downloadMissingProductInformation()">Download Missing Information</button>
+          </div>
+          <div class="table-filter-toolbar table-filter-toolbar--flush" role="group" aria-label="Product Master filters">
+            <label class="table-filter-control table-filter-control--search">
+              <span>Search products</span>
+              <input id="mpl-product-search" type="search" placeholder="SKU, customer, GTIN, or configuration" oninput="renderMplProductMasterTable()">
+            </label>
+            <label class="table-filter-control">
+              <span>Customer</span>
+              <select id="mpl-product-storefront-filter" onchange="renderMplProductMasterTable()">
+                <option value="">All customers</option>
+              </select>
+            </label>
+            <label class="table-filter-control">
+              <span>Completeness</span>
+              <select id="mpl-product-quality-filter" onchange="renderMplProductMasterTable()">
+              <option value="all">All configurations</option>
+              <option value="missing_gtin">Missing GTIN</option>
+              <option value="missing_each_gtin">Missing Each GTIN</option>
+              <option value="missing_dimensions">Missing dimensions</option>
+              <option value="missing_weight">Missing weight</option>
+              <option value="missing_case_quantity">Missing case quantity</option>
+              <option value="missing_label_template">Missing label template</option>
+              <option value="needs_review">Draft / needs review</option>
+              <option value="invalid_gtin">Invalid GTIN check digit</option>
+              <option value="duplicate_row">Duplicates</option>
+              <option value="hierarchy_conflict">Packaging conflicts</option>
+              </select>
+            </label>
+            <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderMplProductMasterTable, 'mpl-product-search', 'mpl-product-storefront-filter', 'mpl-product-quality-filter')">Clear filters</button>
+            <span class="table-filter-count" id="mpl-product-filter-count" aria-live="polite"></span>
+          </div>
         </div>
 
         <div class="kehe-product-master-scroll">
@@ -1000,9 +1082,34 @@
           </div>
         </div>
 
-        <div class="directory-filter-bar">
-          <input id="mpl-directory-search" type="search" placeholder="Search customer, destination, code, address, or template" oninput="renderMplDirectoryTable()">
-          <span id="mpl-directory-count"></span>
+        <div class="table-filter-toolbar" aria-label="Customer directory filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search directory</span>
+            <input id="mpl-directory-search" type="search" placeholder="Customer, destination, code, address, or template" oninput="renderMplDirectoryTable()">
+          </label>
+          <label class="table-filter-control">
+            <span>Customer</span>
+            <select id="mpl-directory-storefront-filter" onchange="renderMplDirectoryTable()">
+              <option value="">All customers</option>
+            </select>
+          </label>
+          <label class="table-filter-control">
+            <span>Record type</span>
+            <select id="mpl-directory-type-filter" onchange="renderMplDirectoryTable()">
+              <option value="">All record types</option>
+            </select>
+          </label>
+          <label class="table-filter-control">
+            <span>Status</span>
+            <select id="mpl-directory-status-filter" onchange="renderMplDirectoryTable()">
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="draft">Draft / needs review</option>
+            </select>
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderMplDirectoryTable, 'mpl-directory-search', 'mpl-directory-storefront-filter', 'mpl-directory-type-filter', 'mpl-directory-status-filter')">Clear filters</button>
+          <span class="table-filter-count" id="mpl-directory-count" aria-live="polite"></span>
         </div>
         <div class="mpl-directory-card-list" id="mpl-directory-body">
           <div class="empty-row">No directory rows yet.</div>
@@ -1027,23 +1134,52 @@
         <button class="btn-secondary" onclick="closeSavedMplModal()">Close</button>
       </div>
       <div class="editor-body">
+        <div class="table-filter-toolbar table-filter-toolbar--wide" aria-label="Saved MPL filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search saved MPLs</span>
+            <input id="saved-mpl-search" type="search" placeholder="Name, customer, order, PO, or ship-to" oninput="renderSavedMplList()">
+          </label>
+          <label class="table-filter-control">
+            <span>Status</span>
+            <select id="saved-mpl-status-filter" onchange="renderSavedMplList()">
+              <option value="">All statuses</option>
+              <option value="DRAFT">Draft</option>
+              <option value="REVIEWED">Reviewed</option>
+              <option value="APPROVED">Approved</option>
+            </select>
+          </label>
+          <label class="table-filter-control">
+            <span>Created by</span>
+            <input id="saved-mpl-created-by-filter" type="search" placeholder="Name or email" oninput="renderSavedMplList()">
+          </label>
+          <label class="table-filter-control">
+            <span>Created date</span>
+            <input id="saved-mpl-date-filter" type="date" onchange="renderSavedMplList()">
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderSavedMplList, 'saved-mpl-search', 'saved-mpl-status-filter', 'saved-mpl-created-by-filter', 'saved-mpl-date-filter')">Clear filters</button>
+          <span class="table-filter-count" id="saved-mpl-filter-count" aria-live="polite"></span>
+        </div>
         <div class="kehe-product-master-scroll">
           <table class="kehe-product-master-table saved-mpl-table">
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Customer</th>
+                <th>Order</th>
                 <th>PO</th>
                 <th>Ship To</th>
                 <th>Pallets</th>
                 <th>Items</th>
                 <th>Timestamp</th>
-                <th>User</th>
+                <th>Created By</th>
+                <th>Status</th>
                 <th>Open</th>
+                <th>Copy</th>
                 <th>Delete</th>
               </tr>
             </thead>
             <tbody id="saved-mpl-body">
-              <tr><td class="empty-row" colspan="9">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
+              <tr><td class="empty-row" colspan="13">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1066,8 +1202,38 @@
         <button class="btn-secondary" onclick="closeExcelImportModal()">Close</button>
       </div>
       <div class="editor-body">
+        <div class="import-result-summary" id="excel-import-result-summary"></div>
+        <div class="workflow-compact-actions">
+          <button class="btn-secondary" id="btn-download-import-missing" type="button" onclick="downloadImportMissingInformation()">Download Missing Information</button>
+        </div>
         <div class="excel-import-option" id="excel-import-row-mode-option">
           <span id="excel-import-row-mode-label">Rows with the same table key update the existing record.</span>
+        </div>
+        <div class="table-filter-toolbar" aria-label="Import preview filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search import rows</span>
+            <input id="excel-import-search" type="search" placeholder="Record, SKU, GTIN, customer, or change" oninput="filterExcelImportRows()">
+          </label>
+          <label class="table-filter-control">
+            <span>Import action</span>
+            <select id="excel-import-action-filter" onchange="filterExcelImportRows()">
+              <option value="">All actions</option>
+              <option value="add">Add</option>
+              <option value="update">Update</option>
+              <option value="unchanged">Unchanged</option>
+              <option value="delete">Delete</option>
+            </select>
+          </label>
+          <label class="table-filter-control">
+            <span>Data quality</span>
+            <select id="excel-import-quality-filter" onchange="filterExcelImportRows()">
+              <option value="">All rows</option>
+              <option value="ready">Ready</option>
+              <option value="review">Requires review</option>
+            </select>
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(filterExcelImportRows, 'excel-import-search', 'excel-import-action-filter', 'excel-import-quality-filter')">Clear filters</button>
+          <span class="table-filter-count" id="excel-import-filter-count" aria-live="polite"></span>
         </div>
         <div class="kehe-product-master-scroll">
           <table class="kehe-product-master-table">
@@ -1104,6 +1270,24 @@
         <button class="btn-secondary" onclick="closeKeheAuditModal()">Close</button>
       </div>
       <div class="editor-body">
+        <div class="table-filter-toolbar" aria-label="Change history filters">
+          <label class="table-filter-control table-filter-control--search">
+            <span>Search changes</span>
+            <input id="audit-history-search" type="search" placeholder="User, record, field, or value" oninput="renderKeheAuditHistory()">
+          </label>
+          <label class="table-filter-control">
+            <span>Change type</span>
+            <select id="audit-history-action-filter" onchange="renderKeheAuditHistory()">
+              <option value="">All change types</option>
+            </select>
+          </label>
+          <label class="table-filter-control">
+            <span>Date</span>
+            <input id="audit-history-date-filter" type="date" onchange="renderKeheAuditHistory()">
+          </label>
+          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderKeheAuditHistory, 'audit-history-search', 'audit-history-action-filter', 'audit-history-date-filter')">Clear filters</button>
+          <span class="table-filter-count" id="audit-history-filter-count" aria-live="polite"></span>
+        </div>
         <div class="kehe-product-master-scroll">
           <table class="kehe-product-master-table audit-history-table">
             <thead>
@@ -1129,6 +1313,55 @@
     </div>
   </div>
 
+  <!-- Reusable professional workflow popups -->
+  <div class="editor-panel workflow-popup-panel" id="workflow-readiness-modal">
+    <div class="editor-dialog workflow-popup-dialog">
+      <div class="editor-toolbar">
+        <div><div class="editor-title" id="workflow-readiness-title">Document Readiness</div><div class="kehe-product-master-subtitle">Review only the items that need attention, or continue with warnings.</div></div>
+        <button class="btn-secondary" type="button" onclick="closeWorkflowReadiness(false)">Close</button>
+      </div>
+      <div class="editor-body" id="workflow-readiness-body"></div>
+      <div class="editor-footer">
+        <button class="btn-secondary" type="button" onclick="closeWorkflowReadiness(false)">Return to editing</button>
+        <button class="btn-generate" id="workflow-readiness-continue" type="button">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="editor-panel workflow-popup-panel" id="workflow-progress-modal">
+    <div class="editor-dialog workflow-popup-dialog workflow-progress-dialog">
+      <div class="editor-toolbar"><div><div class="editor-title">Preparing Documents</div><div class="kehe-product-master-subtitle" id="workflow-progress-message">Starting…</div></div></div>
+      <div class="editor-body"><div class="workflow-progress-list" id="workflow-progress-list"></div></div>
+    </div>
+  </div>
+
+  <div class="editor-panel workflow-popup-panel" id="workflow-print-summary-modal">
+    <div class="editor-dialog workflow-popup-dialog">
+      <div class="editor-toolbar">
+        <div><div class="editor-title" id="workflow-print-summary-title">Final Print Summary</div><div class="kehe-product-master-subtitle" id="workflow-print-summary-subtitle">Final generated output and remaining review items.</div></div>
+        <button class="btn-secondary" type="button" onclick="closePrintSummary()">Close</button>
+      </div>
+      <div class="editor-body" id="workflow-print-summary-body"></div>
+      <div class="editor-footer"><button class="btn-generate" id="workflow-print-summary-done" type="button" onclick="closePrintSummary()">Done</button></div>
+    </div>
+  </div>
+
+  <div class="editor-panel workflow-popup-panel" id="workflow-label-summary-modal">
+    <div class="editor-dialog workflow-popup-dialog">
+      <div class="editor-toolbar"><div><div class="editor-title">Label Job Summary</div><div class="kehe-product-master-subtitle">Labels grouped by SKU and label type.</div></div><button class="btn-secondary" type="button" onclick="closeLabelJobSummary()">Close</button></div>
+      <div class="editor-body" id="workflow-label-summary-body"></div>
+      <div class="editor-footer"><span id="workflow-label-batch-actions" class="workflow-inline-actions"><button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(true)">Select All</button><button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(false)">Clear All</button><button class="btn-secondary" type="button" onclick="resetPartnerLabelCopies()">Reset Copies</button></span><button class="btn-generate" type="button" onclick="closeLabelJobSummary()">Done</button></div>
+    </div>
+  </div>
+
+  <div class="editor-panel workflow-popup-panel" id="mpl-version-compare-modal">
+    <div class="editor-dialog workflow-popup-dialog">
+      <div class="editor-toolbar"><div><div class="editor-title">Version Comparison</div><div class="kehe-product-master-subtitle">Changes between the selected saved version and the current MPL.</div></div><button class="btn-secondary" type="button" onclick="closeMplVersionComparison()">Close</button></div>
+      <div class="editor-body" id="mpl-version-compare-body"></div>
+      <div class="editor-footer"><button class="btn-secondary" type="button" onclick="closeMplVersionComparison()">Close</button></div>
+    </div>
+  </div>
+
 </div>
 
 <script src="/assets/vendor/pdfjs-3.11.174/pdf.min.js"></script>
@@ -1141,6 +1374,7 @@
   <script src="/assets/js/partner-workspace.js"></script>
   <script src="/assets/js/document-editor.js"></script>
   <script src="/assets/js/app.js"></script>
+  <script src="/assets/js/workflow-enhancements.js"></script>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {

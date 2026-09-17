@@ -1225,17 +1225,14 @@
     #kehe-product-master-modal .editor-body,
     #kehe-dc-directory-modal .editor-body,
     #mpl-product-master-modal .editor-body,
-    #mpl-directory-modal .editor-body {
-      grid-template-rows: auto minmax(0, 1fr);
-    }
-
+    #mpl-directory-modal .editor-body,
     #saved-mpl-modal .editor-body,
-    #audit-history-modal .editor-body {
-      grid-template-rows: minmax(0, 1fr);
-    }
-
+    #audit-history-modal .editor-body,
     #excel-import-modal .editor-body {
-      grid-template-rows: auto minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
     }
 
     .kehe-product-master-toolbar {
@@ -1576,6 +1573,187 @@
       font-size: 10.5px;
       font-weight: 700;
       vertical-align: middle !important;
+    }
+
+    .kehe-product-master-table .mpl-product-config-row > td {
+      padding: 0;
+      border-top: 0;
+      background: #f4f7f9;
+    }
+
+    .mpl-product-config-editor {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .mpl-product-shared-card,
+    .mpl-product-levels-card {
+      overflow: hidden;
+      border: 1px solid #d7e0e6;
+      border-radius: 12px;
+      background: #ffffff;
+    }
+
+    .mpl-product-shared-card > header,
+    .mpl-product-levels-card > header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 14px;
+      border-bottom: 1px solid #e1e7ec;
+      background: #f4f7f8;
+    }
+
+    .mpl-product-shared-card > header > div,
+    .mpl-product-levels-card > header > div {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .mpl-product-shared-card > header span:first-child,
+    .mpl-product-levels-card > header span {
+      color: #587080;
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: .55px;
+      text-transform: uppercase;
+    }
+
+    .mpl-product-shared-card h3,
+    .mpl-product-levels-card > header strong {
+      margin: 0;
+      color: #18354c;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .mpl-product-shared-grid,
+    .mpl-packaging-primary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .mpl-product-shared-grid label,
+    .mpl-packaging-primary-grid label,
+    .mpl-packaging-advanced label {
+      display: grid;
+      align-content: end;
+      gap: 5px;
+      color: #526779;
+      font-size: 9.5px;
+      font-weight: 800;
+      letter-spacing: .25px;
+      text-transform: uppercase;
+    }
+
+    .mpl-product-shared-grid input,
+    .mpl-product-shared-grid select,
+    .mpl-packaging-primary-grid input,
+    .mpl-packaging-primary-grid select,
+    .mpl-packaging-advanced input,
+    .mpl-packaging-advanced select {
+      min-height: 36px;
+      border: 1px solid #d6dee5;
+      border-radius: 7px;
+      padding: 7px 9px;
+      background: #ffffff;
+      color: #172f45;
+      font: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .mpl-product-description-field { grid-column: span 2; }
+    .mpl-product-shared-card > p {
+      margin: 0;
+      padding: 0 14px 13px;
+      color: #647686;
+      font-size: 10.5px;
+      line-height: 1.45;
+    }
+
+    .mpl-product-level-add {
+      width: auto;
+      min-width: 150px;
+      min-height: 36px;
+      border: 1px solid #cdd8df;
+      border-radius: 8px;
+      padding: 7px 10px;
+      background: #ffffff;
+      color: #24485f;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .mpl-packaging-level-list { display: grid; gap: 10px; padding: 12px; }
+    .mpl-packaging-level-card {
+      overflow: hidden;
+      border: 1px solid #dce4e9;
+      border-radius: 10px;
+      background: #fbfcfd;
+    }
+
+    .mpl-packaging-level-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #e2e8ec;
+      background: #f5f7f8;
+    }
+
+    .mpl-packaging-level-header > div:first-child { display: grid; gap: 2px; min-width: 0; }
+    .mpl-packaging-level-header strong { color: var(--module-accent-deep, #24485f); font-size: 13px; }
+    .mpl-packaging-level-header span { color: #667887; font-size: 10.5px; }
+    .mpl-packaging-level-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .mpl-packaging-level-actions button { width: auto; min-height: 31px; }
+
+    .mpl-packaging-primary-grid { grid-template-columns: repeat(7, minmax(115px, 1fr)); padding: 12px; }
+    .mpl-packaging-primary-grid .mpl-toggle-field,
+    .mpl-packaging-advanced .mpl-toggle-field { align-content: center; justify-items: start; }
+    .mpl-packaging-primary-grid input[type="checkbox"],
+    .mpl-packaging-advanced input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      min-height: 17px;
+      margin: 2px 0;
+    }
+
+    .mpl-packaging-advanced { border-top: 1px solid #e2e8ec; background: #ffffff; }
+    .mpl-packaging-advanced summary {
+      padding: 9px 12px;
+      color: #4d6374;
+      font-size: 10.5px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .mpl-packaging-advanced .mpl-unified-fields-grid { padding: 0 12px 12px; }
+
+    @media (max-width: 1250px) {
+      .mpl-packaging-primary-grid { grid-template-columns: repeat(4, minmax(135px, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      .mpl-product-shared-card > header,
+      .mpl-product-levels-card > header,
+      .mpl-packaging-level-header { align-items: stretch; flex-direction: column; }
+      .mpl-product-level-add { width: 100%; }
+      .mpl-product-description-field { grid-column: auto; }
+      .mpl-packaging-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mpl-packaging-level-actions { justify-content: flex-start; }
+    }
+
+    @media (max-width: 460px) {
+      .mpl-product-shared-grid,
+      .mpl-packaging-primary-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 980px) {

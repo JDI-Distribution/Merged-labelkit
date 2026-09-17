@@ -53,6 +53,44 @@ class ProductMasterMigrationTests(unittest.TestCase):
         self.assertAlmostEqual(2.0, float(row["gross_weight_lbs"]), places=6)
         self.assertTrue(row["is_active"])
 
+    def test_hierarchical_template_headings_import_level_gross_weight(self):
+        rows = _canonicalize_import_rows([{
+            "Customer / Storefront": "KeHE",
+            "Config ID": "TW-CRS109-4OZ",
+            "SKU": "TW-CRS109-4OZ",
+            "Product Description": "Gold Brew Glitter",
+            "Product Status": "VERIFIED",
+            "Packaging Level": "Each",
+            "GTIN": "850068684656",
+            "Eaches Contained": 1,
+            "Gross Weight (lbs, product + packaging)": 0.444,
+            "Level Active": True,
+        }], "mpl_product_master")
+
+        self.assertEqual(1, len(rows))
+        row = rows[0]
+        self.assertEqual("TW-CRS109-4OZ", row["config_id"])
+        self.assertEqual("Each", row["packaging_level"])
+        self.assertEqual("1", row["case_qty"])
+        self.assertEqual("0.444", row["gross_weight_lbs"])
+        self.assertEqual("VERIFIED", row["verification_status"])
+        self.assertTrue(row["is_active"])
+
+    def test_only_each_level_receives_an_inherent_quantity(self):
+        each = normalize_product_master_row({"packaging_level": "Each", "sku": "A"})
+        inner = normalize_product_master_row({"packaging_level": "Inner Pack", "sku": "A"})
+        case = normalize_product_master_row({"packaging_level": "Case", "sku": "A"})
+        self.assertEqual("1", each["case_qty"])
+        self.assertEqual("", inner["case_qty"])
+        self.assertEqual("", case["case_qty"])
+
+        pipeline_rows = _normalize_product_master_rows([
+            {"packaging_level": "Each", "sku": "A"},
+            {"packaging_level": "Inner Pack", "sku": "A"},
+            {"packaging_level": "Case", "sku": "A"},
+        ])
+        self.assertEqual(["1", "", ""], [row["case_qty"] for row in pipeline_rows])
+
     def test_legacy_values_convert_without_round_trip_fields(self):
         row = normalize_product_master_row({
             "STOREFRONT": "KeHE",
