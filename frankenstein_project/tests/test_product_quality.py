@@ -34,6 +34,8 @@ class ProductQualityTests(unittest.TestCase):
                 "width_in": "8",
                 "height_in": "6",
                 "gross_weight_lbs": "4.5",
+                "each_net_weight_g": "170",
+                "package_net_weight_g": "2040",
                 "label_enabled": True,
                 "label_template_id": "GENERIC_CASE_4X6",
                 "verification_status": "VERIFIED",

@@ -672,26 +672,24 @@
     renderMplProductMasterTable();
   }
 
-  function updateMplProductEachGrossWeight(groupKey, value) {
+  function updateMplProductFinalField(groupKey, key, value) {
     if (!hasPermission('table_crud')) return;
-    const normalizedWeight = formatNumberString(parsePositiveNumber(value));
     let entries = mplProductEntriesForGroup(groupKey);
     if (!entries.length) return;
-    let eachEntry = entries.find(entry => entry.row.packaging_level === 'Each');
-    if (!eachEntry && normalizedWeight) {
-      const primary = entries.find(entry => entry.row.packaging_level === 'Case')?.row || entries[0].row;
-      const eachRow = normalizeProductRow({
+    let caseEntry = entries.find(entry => entry.row.packaging_level === 'Case');
+    if (!caseEntry && String(value || '').trim()) {
+      const primary = entries[0].row;
+      const caseRow = normalizeProductRow({
         ...primary,
-        packaging_level: 'Each',
+        packaging_level: 'Case',
         gtin: '',
-        barcode_level: 'EACH',
+        barcode_level: 'CASE',
         length_in: '',
         width_in: '',
         height_in: '',
-        each_net_weight_g: '',
         package_net_weight_g: '',
-        gross_weight_lbs: normalizedWeight,
-        case_qty: '1',
+        gross_weight_lbs: '',
+        case_qty: '',
         default_copies: '',
         label_template_id: '',
         verification_status: primary.verification_status || 'DRAFT',
@@ -699,13 +697,12 @@
         label_enabled: false,
         is_active: true,
       });
-      mplProductMasterRows.push(eachRow);
-      eachEntry = { row: eachRow, index: mplProductMasterRows.length - 1 };
-      setStatus(`Each packaging level added to ${primary.config_id || primary.sku || 'the configuration'}.`, 'success');
+      mplProductMasterRows.push(caseRow);
+      caseEntry = { row: caseRow, index: mplProductMasterRows.length - 1 };
+      setStatus(`Case packaging level added to ${primary.config_id || primary.sku || 'the configuration'}.`, 'success');
     }
-    if (!eachEntry) return;
-    mplProductMasterRows[eachEntry.index].gross_weight_lbs = normalizedWeight;
-    mplProductMasterRows[eachEntry.index].case_qty = '1';
+    if (!caseEntry) return;
+    mplProductMasterRows[caseEntry.index][key] = value;
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
     renderMplProductMasterTable();
@@ -773,11 +770,6 @@
         ? 'e.g. 36'
         : (row.packaging_level === 'Inner Pack' ? 'e.g. 6' : (row.packaging_level === 'Each' ? '1' : 'optional'));
       const quantityValue = row.packaging_level === 'Each' ? '1' : row.case_qty;
-      const measurementFields = row.packaging_level === 'Each' ? '' : `
-          <label>Length (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.length_in || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'length_in', this.value)"></label>
-          <label>Width (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.width_in || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'width_in', this.value)"></label>
-          <label>Height (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.height_in || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'height_in', this.value)"></label>
-          <label title="Full weight of the product and all packaging at this level.">Gross Weight (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.gross_weight_lbs || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'gross_weight_lbs', this.value)"></label>`;
       return `<article class="mpl-packaging-level-card" data-product-row-index="${index}">
         <header class="mpl-packaging-level-header">
           <div><strong>${escapeHtml(row.packaging_level)}</strong><span>${escapeHtml(mplProductPackageBreakdown({ ...row, case_qty: quantityValue }, groupEntries))}</span></div>
@@ -789,18 +781,15 @@
         <div class="mpl-packaging-primary-grid">
           <label>GTIN <input ${editDisabled} value="${escapeHtml(row.gtin)}" onchange="updateMplProductRow(${index}, 'gtin', this.value)"></label>
           <label>Eaches Contained <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(quantityValue)}" placeholder="${escapeHtml(packagePlaceholder)}" title="Number of sellable eaches contained at this packaging level." ${row.packaging_level === 'Each' ? 'disabled' : ''} onchange="validateProductNumericInput(this, true); updateMplProductRow(${index}, 'case_qty', this.value)"></label>
-          ${measurementFields}
           <label class="mpl-toggle-field">Label enabled <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
         </div>
         <details class="mpl-packaging-advanced">
-          <summary>Label and weight details</summary>
+          <summary>Label settings</summary>
           <div class="mpl-unified-fields-grid">
             <label>Template <select ${editDisabled} onchange="updateMplProductRow(${index}, 'label_template_id', this.value)">${selectOptionsHtml(b2bTemplateIdOptions(row.label_template_id), row.label_template_id, 'No template')}</select></label>
             <label>Barcode Type <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_type', this.value)">${selectOptionsHtml(B2B_BARCODE_TYPES, row.barcode_type, 'Select type')}</select></label>
             <label>Barcode Level <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_level', this.value)">${selectOptionsHtml(B2B_BARCODE_LEVELS, row.barcode_level, 'Select level')}</select></label>
             <label>Default Copies <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.default_copies || '')}" onchange="updateMplProductRow(${index}, 'default_copies', this.value)"></label>
-            <label title="Product contents only, excluding packaging.">Each Net Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.each_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'each_net_weight_g', this.value)"></label>
-            <label title="Combined net product contents at this packaging level, excluding packaging.">Package Net Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.package_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'package_net_weight_g', this.value)"></label>
             <label class="mpl-toggle-field">Level active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
           </div>
         </details>
@@ -822,7 +811,6 @@
       const configLabel = primaryRow.config_id ? `Config ${primaryRow.config_id}` : 'No Config ID';
       const groupQuality = quality?.groups?.get(group.key) || { score: 0, issues: [] };
       const qualityState = groupQuality.score === 100 ? 'ready' : groupQuality.issues?.some(issue => issue.severity === 'invalid') ? 'invalid' : 'review';
-      const eachEntry = group.entries.find(entry => entry.row.packaging_level === 'Each');
       const editDisabled = canEdit ? '' : 'disabled';
       return `
         <tr class="mpl-product-group-row ${expanded ? 'is-expanded' : ''}">
@@ -848,11 +836,20 @@
               <label>Config ID <input ${editDisabled} value="${escapeHtml(primaryRow.config_id || '')}" placeholder="CUSTOMER-PRODUCT" onchange="updateMplProductGroupField('${jsString(group.key)}', 'config_id', this.value)"></label>
               <label>SKU <input ${editDisabled} value="${escapeHtml(primaryRow.sku || '')}" onchange="updateMplProductGroupField('${jsString(group.key)}', 'sku', this.value)"></label>
               <label class="mpl-product-description-field">Description <input ${editDisabled} value="${escapeHtml(primaryRow.description || '')}" onchange="updateMplProductGroupField('${jsString(group.key)}', 'description', this.value)"></label>
-              <label title="Full sellable-each weight including the product and its immediate packaging.">Each Gross Weight (lb) <input ${editDisabled} type="number" min="0" step="0.001" value="${escapeHtml(eachEntry?.row?.gross_weight_lbs || '')}" placeholder="Creates Each level if needed" onchange="validateProductNumericInput(this); updateMplProductEachGrossWeight('${jsString(group.key)}', this.value)"></label>
+              <label title="Product weight of one sellable each, excluding final case packaging.">Each Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(primaryRow.each_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(group.key)}', 'each_net_weight_g', this.value)"></label>
               <label>Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(group.key)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, primaryRow.verification_status, 'Select status')}</select></label>
               <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(primaryRow.customer_item_number || '')}" onchange="updateMplProductGroupField('${jsString(group.key)}', 'customer_item_number', this.value)"></label>
             </div>
-            <p>Each Gross Weight includes the individual product and immediate packaging. Every packaging-level Gross Weight below includes all product and packaging contained at that level.</p>
+            <div class="mpl-product-final-details">
+              <div class="mpl-product-final-heading"><span>Final Shipping Case</span><strong>Enter the completed case measurements once</strong></div>
+              <div class="mpl-product-final-grid">
+                <label title="Combined product contents in the final case, excluding outer packaging.">Total Product Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(primaryRow.package_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(group.key)}', 'package_net_weight_g', this.value)"></label>
+                <label title="Complete shipping weight including the product and all case packaging.">Total Weight with Packaging (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(primaryRow.gross_weight_lbs || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(group.key)}', 'gross_weight_lbs', this.value)"></label>
+                <label>Length (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(primaryRow.length_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(group.key)}', 'length_in', this.value)"></label>
+                <label>Width (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(primaryRow.width_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(group.key)}', 'width_in', this.value)"></label>
+                <label>Height (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(primaryRow.height_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(group.key)}', 'height_in', this.value)"></label>
+              </div>
+            </div>
           </section>
           <section class="mpl-product-levels-card">
             <header><div><span>Packaging Levels</span><strong>Case, inner pack, each, master case, and pallet data</strong></div>${canEdit ? `<select class="mpl-product-level-add" data-no-search data-group-key="${escapeHtml(group.key)}" aria-label="Add packaging level" onchange="addMplProductLevel(this.dataset.groupKey, this.value); this.value=''"><option value="">+ Add Level</option>${levelOptions.filter(level => level !== 'Other' && !uniqueLevels.includes(level)).map(level => `<option value="${escapeHtml(level)}">${escapeHtml(level)}</option>`).join('')}</select>` : ''}</header>
@@ -1321,6 +1318,51 @@
     }
   }
 
+  const MPL_DIRECTORY_ADDRESS_FIELDS = ['ship_from', 'delivery_address', 'billing_address'];
+
+  function directoryRecordTypeLabel(value) {
+    return ({
+      CUSTOMER_DEFAULT: 'Customer Default',
+      DESTINATION: 'Ship-To Destination',
+      DISTRIBUTION_CENTER: 'Distribution Center',
+    })[normalizeB2BDirectoryRecordType(value)] || 'Ship-To Destination';
+  }
+
+  function directoryRecordTypeOptionsHtml(selected) {
+    const normalized = normalizeB2BDirectoryRecordType(selected);
+    return B2B_DIRECTORY_RECORD_TYPES.map(value => (
+      `<option value="${escapeHtml(value)}" ${value === normalized ? 'selected' : ''}>${escapeHtml(directoryRecordTypeLabel(value))}</option>`
+    )).join('');
+  }
+
+  function directoryAddressLabel(field) {
+    return ({ ship_from: 'Ship From', delivery_address: 'Ship To', billing_address: 'Bill To' })[field] || 'Ship To';
+  }
+
+  function directoryAddressFieldForRow(index, row) {
+    const saved = mplDirectoryAddressTabs.get(index);
+    if (MPL_DIRECTORY_ADDRESS_FIELDS.includes(saved)) return saved;
+    if (row.delivery_address) return 'delivery_address';
+    if (row.ship_from) return 'ship_from';
+    if (row.billing_address) return 'billing_address';
+    return row.record_type === 'CUSTOMER_DEFAULT' ? 'ship_from' : 'delivery_address';
+  }
+
+  function directoryAddressCoverage(row) {
+    return MPL_DIRECTORY_ADDRESS_FIELDS
+      .filter(field => String(row[field] || '').trim())
+      .map(directoryAddressLabel);
+  }
+
+  function setMplDirectoryAddressTab(index, field) {
+    if (!MPL_DIRECTORY_ADDRESS_FIELDS.includes(field)) return;
+    mplDirectoryAddressTabs.set(index, field);
+    renderMplDirectoryTable();
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-directory-row-index="${index}"] [data-directory-address="${field}"]`)?.focus();
+    });
+  }
+
   function renderMplDirectoryTable() {
     const body = document.getElementById('mpl-directory-body');
     if (!body) return;
@@ -1329,6 +1371,9 @@
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
     syncTableFilterOptions('mpl-directory-storefront-filter', rows.map(row => row.storefront), 'All customers');
     syncTableFilterOptions('mpl-directory-type-filter', rows.map(row => row.record_type), 'All record types');
+    document.querySelectorAll('#mpl-directory-type-filter option').forEach(option => {
+      if (option.value) option.textContent = directoryRecordTypeLabel(option.value);
+    });
     const search = String(document.getElementById('mpl-directory-search')?.value || '').trim().toLowerCase();
     const storefront = String(document.getElementById('mpl-directory-storefront-filter')?.value || '').trim().toLowerCase();
     const recordType = String(document.getElementById('mpl-directory-type-filter')?.value || '').trim().toLowerCase();
@@ -1366,11 +1411,14 @@
     if (!filtered.some(({ index }) => index === mplDirectoryExpandedIndex)) {
       mplDirectoryExpandedIndex = filtered[0].index;
     }
-    body.innerHTML = filtered.map(({ row, index }) => `
+    body.innerHTML = filtered.map(({ row, index }) => {
+      const addressField = directoryAddressFieldForRow(index, row);
+      const addressCoverage = directoryAddressCoverage(row);
+      return `
       <details class="mpl-directory-card" data-directory-row-index="${index}" ${index === mplDirectoryExpandedIndex ? 'open' : ''}>
         <summary onclick="selectMplDirectoryCard(${index}, event)">
           <span class="directory-card-title">${escapeHtml(row.name || row.storefront || 'Unnamed record')}<small>${escapeHtml(row.storefront || 'No customer')} · ${escapeHtml(row.dc || 'No code')}</small></span>
-          <span class="directory-card-meta">${escapeHtml(row.record_type || 'DESTINATION')} · ${escapeHtml(row.default_label_template_id || 'No template')}</span>
+          <span class="directory-card-meta">${escapeHtml(directoryRecordTypeLabel(row.record_type))}<small>${escapeHtml(addressCoverage.length ? addressCoverage.join(' · ') : 'No address saved')}</small></span>
           <span class="directory-card-status">${escapeHtml(row.verification_status || (row.is_active ? 'ACTIVE' : 'INACTIVE'))}</span>
           <span class="directory-card-toggle" aria-hidden="true"><span class="directory-card-toggle-edit">Edit details</span><span class="directory-card-toggle-hide">Editing</span></span>
         </summary>
@@ -1383,37 +1431,57 @@
               ${canEdit ? `<button class="btn-mini-danger directory-delete-button" type="button" onclick="deleteMplDirectoryRow(${index})">Delete record</button>` : ''}
             </div>
           </div>
-          <div class="mpl-unified-fields-grid">
-            <div class="mpl-field-group-label">Destination identity</div>
+          <div class="mpl-unified-fields-grid directory-identity-grid">
+            <div class="mpl-field-group-label">Record identity</div>
             <label>Customer / Storefront <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'storefront', this.value)">
               ${selectOptionsHtml(b2bCustomerOptions(row.storefront), row.storefront, 'Select customer')}
             </select></label>
             <label>Code <input ${editDisabled} value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></label>
             <label>Name <input ${editDisabled} value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></label>
             <label>Record Type <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'record_type', this.value)">
-              ${selectOptionsHtml(B2B_DIRECTORY_RECORD_TYPES, row.record_type, 'Select type')}
+              ${directoryRecordTypeOptionsHtml(row.record_type)}
             </select></label>
-            <label>Default Template <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'default_label_template_id', this.value)">
-              ${selectOptionsHtml(b2bTemplateIdOptions(row.default_label_template_id), row.default_label_template_id, 'No default template')}
-            </select></label>
-            <div class="mpl-field-group-label">Receiving and label details</div>
-            <label>Receiving Email <input ${editDisabled} value="${escapeHtml(row.receiving_email || '')}" oninput="updateMplDirectoryRow(${index}, 'receiving_email', this.value)"></label>
-            <label>Manufacturer Name <input ${editDisabled} value="${escapeHtml(row.manufacturer_name || '')}" oninput="updateMplDirectoryRow(${index}, 'manufacturer_name', this.value)"></label>
-            <label class="mpl-field-wide">Manufacturer Address <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'manufacturer_address', this.value)">${escapeHtml(row.manufacturer_address || '')}</textarea></label>
-            <label class="mpl-field-wide">Docking Instructions <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'docking_instructions', this.value)">${escapeHtml(row.docking_instructions || '')}</textarea></label>
             <label title="Tracks review without changing label content; Blocked hides the configuration from general users.">Data Status <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'verification_status', this.value)">
               ${selectOptionsHtml(B2B_VERIFICATION_STATUSES, row.verification_status, 'Select status')}
             </select></label>
-            <div class="mpl-field-group-label">Addresses and matching</div>
-            <label class="mpl-field-wide">Ship From <textarea rows="3" ${editDisabled} placeholder="Ship from address" oninput="updateMplDirectoryRow(${index}, 'ship_from', this.value)">${escapeHtml(row.ship_from)}</textarea></label>
-            <label class="mpl-field-wide">Ship To <textarea rows="3" ${editDisabled} placeholder="Ship to / delivery address" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address)}</textarea></label>
-            <label class="mpl-field-wide">Bill To <textarea rows="3" ${editDisabled} placeholder="Bill to address" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address)}</textarea></label>
-            <label class="mpl-field-wide">Match Values <textarea rows="3" ${editDisabled} placeholder="One GLN/address/city/zip per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></label>
             <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
           </div>
+          <section class="directory-address-workbench">
+            <div class="directory-address-heading">
+              <div><span>Addresses</span><strong>Edit one address role at a time</strong></div>
+              <label>Address to edit
+                <select onchange="setMplDirectoryAddressTab(${index}, this.value)">
+                  ${MPL_DIRECTORY_ADDRESS_FIELDS.map(field => `<option value="${field}" ${field === addressField ? 'selected' : ''}>${directoryAddressLabel(field)}</option>`).join('')}
+                </select>
+              </label>
+            </div>
+            <div class="directory-address-grid">
+              <label class="directory-address-field">${directoryAddressLabel(addressField)} Address
+                <textarea data-directory-address="${addressField}" rows="4" ${editDisabled} placeholder="Enter the ${directoryAddressLabel(addressField).toLowerCase()} address" oninput="updateMplDirectoryRow(${index}, '${addressField}', this.value)">${escapeHtml(row[addressField] || '')}</textarea>
+              </label>
+              <label>Match Values
+                <textarea rows="4" ${editDisabled} placeholder="One GLN, address fragment, city, or ZIP per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea>
+              </label>
+            </div>
+            <div class="directory-address-coverage">${MPL_DIRECTORY_ADDRESS_FIELDS.map(field => `<button type="button" class="directory-address-chip ${field === addressField ? 'selected' : ''} ${String(row[field] || '').trim() ? 'complete' : ''}" onclick="setMplDirectoryAddressTab(${index}, '${field}')"><span>${directoryAddressLabel(field)}</span><small>${String(row[field] || '').trim() ? 'Saved' : 'Missing'}</small></button>`).join('')}</div>
+          </section>
+          <details class="directory-optional-details" ${row.default_label_template_id || row.receiving_email || row.manufacturer_name || row.manufacturer_address || row.docking_instructions || row.source_note ? 'open' : ''}>
+            <summary><span><strong>Label, receiving, and notes</strong><small>Optional operational defaults for this record</small></span><span>Show details</span></summary>
+            <div class="mpl-unified-fields-grid">
+              <label>Default Template <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'default_label_template_id', this.value)">
+                ${selectOptionsHtml(b2bTemplateIdOptions(row.default_label_template_id), row.default_label_template_id, 'No default template')}
+              </select></label>
+              <label>Receiving Email <input ${editDisabled} value="${escapeHtml(row.receiving_email || '')}" oninput="updateMplDirectoryRow(${index}, 'receiving_email', this.value)"></label>
+              <label>Manufacturer Name <input ${editDisabled} value="${escapeHtml(row.manufacturer_name || '')}" oninput="updateMplDirectoryRow(${index}, 'manufacturer_name', this.value)"></label>
+              <label class="mpl-field-wide">Manufacturer Address <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'manufacturer_address', this.value)">${escapeHtml(row.manufacturer_address || '')}</textarea></label>
+              <label class="mpl-field-wide">Docking Instructions <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'docking_instructions', this.value)">${escapeHtml(row.docking_instructions || '')}</textarea></label>
+              <label class="mpl-field-wide">Source Note <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'source_note', this.value)">${escapeHtml(row.source_note || '')}</textarea></label>
+            </div>
+          </details>
         </div>
       </details>
-    `).join('');
+    `;
+    }).join('');
     applyPermissionUi();
     enhanceSearchableSelects(body);
   }

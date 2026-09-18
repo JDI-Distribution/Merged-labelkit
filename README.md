@@ -2,7 +2,7 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-Current documented release: `2026.09.17-product-hierarchy`
+Current documented release: `2026.09.18-directory-partner-flow`
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
@@ -224,18 +224,18 @@ KeHE reads the same shared tables and filters to rows marked `Storefront = KeHE`
 - Mixed storefront SKUs in one standalone MPL are blocked.
 - A storefront can be typed freely.
 
-The shared Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Each saved row is unique by packaging level, so one configuration can safely contain Each, Inner Pack, Case, Master Case, Pallet, and Shipper Contents rows. Expand a product to edit shared identity fields once: Customer, Config ID, SKU, Description, Each Gross Weight, Status, and Customer Item Number. Shared edits propagate to every packaging-level row in that configuration.
+The shared Product Master groups rows by `Storefront + Config ID` when present, otherwise by the legacy storefront/SKU identity. Each saved row is unique by packaging level, so one configuration can safely contain Each, Inner Pack, Case, Master Case, Pallet, and Shipper Contents rows. Expand a product to edit Customer, Config ID, SKU, Description, Each Weight, Status, and Customer Item Number once. Shared identity edits propagate to every packaging-level row; Each Weight is stored once with the final Case data.
 
-Packaging levels are displayed as separate Case, Inner Pack, Each, Master Case, Pallet, and Shipper Contents cards. Each card stores its GTIN, number of eaches contained, dimensions, full gross weight, and label-enabled state. `Each` always contains one each. The shared `Each Gross Weight` is the total sellable-each weight, including the product and its immediate packaging. A Case, Inner Pack, Master Case, or Pallet `Gross Weight` is the full weight of all product and packaging contained at that level. Dimensions are stored as separate `Length`, `Width/Breadth`, and `Height` values, and generated copy count is stored in `Default Copies`. The UI derives the readable pack breakdown; packing-list inclusion is derived from an active Case row instead of a stored flag.
+Final shipping-case data is entered once instead of being repeated at every packaging level. The `Final Shipping Case` section stores Total Product Weight, Total Weight with Packaging, and final Length, Width/Breadth, and Height. Packaging-level cards store only the hierarchy and label configuration: GTIN, number of eaches contained, label-enabled state, template, barcode settings, copies, and active state. `Each` always contains one each. For KeHE, an Inner Pack label weight is calculated from `Each Weight × Inner Pack each quantity`; a Case label uses the final Total Weight with Packaging. The UI derives the readable pack breakdown, and packing-list inclusion is derived from an active Case row instead of a stored flag.
 
 KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B uses `Available in Label Creator` and `Active` to control general-user availability. `Data Status` is limited to `DRAFT`, `NEEDS_REVIEW`, `VERIFIED`, or `BLOCKED`; it never changes printed label content. `BLOCKED` hides a configuration from general users, while Admin/Editor roles can still inspect, correct, preview, and print it. Missing business values appear as review warnings instead of turning the label creator into a dead end.
 
-The standalone Directory uses searchable customer/destination cards with a persistent editor. The first matching record opens automatically, and selecting `Edit details` moves the full entry form to that record. The responsive two-column editor groups identity, template defaults, receiving details, manufacturer details, addresses, match values, Data Status, and Active state; changes save automatically. `Add Customer / Destination` creates a draft and immediately opens its entry fields. Preview/Label Creator and `Delete record` actions remain visible in the sticky editor header while the fields scroll. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work.
+The standalone Directory uses searchable customer/destination cards with a persistent editor. The first matching record opens automatically, and selecting `Edit details` moves the entry form to that record. Identity and status stay visible at the top. A single `Address to edit` control switches between `Ship From`, `Ship To`, and `Bill To`, while compact Saved/Missing indicators show the completeness of all three roles without displaying three large address fields at once. Template, receiving, manufacturer, docking, and source-note fields remain available in the optional details panel. Changes save automatically. `Add Record` creates a draft and immediately opens its fields. Preview/Label Creator and `Delete record` actions remain visible in the editor header. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work. This is a UI simplification only: the existing address fields and Catalyst Directory schema remain unchanged.
 
 Table maintenance tools:
 
 - `Download Product Template` and `Download Directory Template` download import-ready CSV templates.
-- The Product Master template uses the same shared-product plus packaging-level hierarchy shown in the UI. Its guide row explains where every column is used, and its example product contains Case, Inner Pack, and Each rows.
+- The Product Master template uses the same shared-product plus packaging-level hierarchy shown in the UI. Its guide row explains where every column is used, and its example product contains Case, Inner Pack, and Each rows. Each Weight and final shipping-case weights and dimensions are entered once; the remaining level rows contain their GTIN, each quantity, and label settings.
 - `Upload Excel/CSV` opens an import preview with each row selected by default; unchecked rows are skipped.
 - `Import Selected Rows` saves only the checked rows and records change history.
 - `Export Product CSV` exports the full standalone Product Master table.
@@ -276,10 +276,10 @@ Customer-specific fields come from Product Master and Directory. Direct label ed
 
 1. Open `DecoPac / Dutch Bros / Fancy` and enter the Sales Order Number. If the number exists in more than one order source, choose the correct order instance.
 2. LabelKit first checks the loaded order's `Email` value (returned to the UI as `email_id`) for DecoPac, Dutch Bros/Dutch Brothers, or Fancy Sprinkles. Email detection is authoritative. If the email does not identify one of those customers, LabelKit falls back to storefront, billing name, shipping name, and matched Product Master storefronts. The user can still select a customer before loading or change the selected layout afterward without leaving the workflow. The Analytics column is configurable as `analytics_customer_email_column` and defaults to `Email`.
-3. Choose whether to generate customer labels, the packing list, or both. LabelKit selects the required templates and calculates cartons from ordered quantity and Product Master case quantity when available.
-4. Review each label job before printing. Description, template, carton/pallet count, copies, and template-specific run fields remain editable. Fancy maps Date to ship date and Name to product description; Quantity, Lot Code, and Best-Before Date remain editable. Fancy pallet labels default to two copies per pallet.
-5. Use `Edit Packing List` for the full packing-list editor. Save the changes to return to the module and refresh its PDF preview.
-6. Review the label and packing-list previews independently, then print or download each final PDF.
+3. In the single `Order documents` card, choose whether to include customer labels, the packing list, or both. LabelKit selects the required templates and calculates cartons from ordered quantity and Product Master case quantity when available.
+4. The Customer Labels section follows the B2B production flow. Choose Pack Labels or Pallet Labels when both apply, select the SKU/label job, edit the actual label in the live canvas, then set the carton range, copies, and barcode controls for that print run. The section's `Production PDF` action generates or reopens only that label group. Fancy maps Date to ship date and Name to product description; Quantity, Lot Code, and Best-Before Date remain editable. Fancy pallet labels default to two copies per pallet.
+5. The Packing List & Ti-Hi section has its own `Review & Edit Master Packing List` action and production-PDF control. The full editor covers items, pallets, weights, addresses, and TI-HI. Saving changes returns to the combined workflow and marks the previous PDF as needing regeneration.
+6. Generate either document from its own section, or use `Generate Selected PDFs` to render every checked document in one pass. Generated PDFs open in the common preview window for review, downloading, and printing.
 
 The three customers share the order loader, Product Master matching, packing-list editor, preview controls, and PDF generation path. Configuration selects the customer-specific label family and packing-list template. DecoPac, Dutch Bros, and Fancy use the shared pallet-breakdown packing list with their customer heading. The workflow uses order values when Product Master data is incomplete so the user can still produce a reviewable document. Missing case-pack, GTIN, dimensions, or weight data stays visible as a concise review warning instead of discarding the order line.
 
@@ -323,7 +323,7 @@ Current Product Master package fields are:
 - `CASE_QTY`, `EACH_NET_WEIGHT_G`, `PACKAGE_NET_WEIGHT_G`, `GROSS_WEIGHT_LBS`
 - `DEFAULT_COPIES`, `PACK_STATEMENT`, `VERIFICATION_STATUS`, `LABEL_ENABLED`, `IS_ACTIVE`, `SOURCE_NOTE`
 
-Storage remains one row per packaging level. No Catalyst table migration is required for the grouped editor: shared product values are synchronized across the configuration's rows, and `GROSS_WEIGHT_LBS` stores the complete product-plus-packaging weight for that row's packaging level. The Each row supplies the shared Each Gross Weight shown in the UI. New templates and exports use the clearer headings `Eaches Contained` and `Gross Weight (lbs product + packaging)` while import aliases continue to accept the stored field names.
+Storage remains one row per packaging level, so no Catalyst table migration is required for the grouped editor. The Case row is the canonical storage row for the once-per-product physical data shown in the UI: `EACH_NET_WEIGHT_G` is Each Weight, `PACKAGE_NET_WEIGHT_G` is Total Product Weight, `GROSS_WEIGHT_LBS` is Total Weight with Packaging, and `LENGTH_IN` / `WIDTH_IN` / `HEIGHT_IN` are the final shipping-case dimensions. Inner Pack and other packaging rows retain their GTIN, each quantity, and label configuration without asking users to repeat weights or dimensions. New templates and exports use the clearer headings while import aliases continue to accept the stored field names.
 
 The former `DIMENSIONS_IN`, `WEIGHT_LBS`, `LABELS_PER_UNIT`, and `LABEL_REQUIRED` columns are obsolete. Legacy headings are accepted for one transition import and converted immediately, but they are never written to JSON or Catalyst and are not included in new templates or exports. TI-HI reads the three numeric dimension fields directly. Product Master writes reconcile rows by key and Catalyst `ROWID`; they do not clear and recreate the table.
 
@@ -403,7 +403,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.17-product-hierarchy"
+$release = "2026.09.18-directory-partner-flow"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -472,7 +472,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.17-product-hierarchy"
+$release = "2026.09.18-directory-partner-flow"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```

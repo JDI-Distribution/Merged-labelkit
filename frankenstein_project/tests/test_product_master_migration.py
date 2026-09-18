@@ -8,6 +8,7 @@ from pipelines.kehe.common import (
     _mpl_build_tihi_entries,
     _normalize_product_master_rows,
 )
+from pipelines.kehe.pack_labels import _label_weight_lbs
 from server import (
     _canonicalize_import_rows,
     _datastore_save_product_rows,
@@ -53,26 +54,34 @@ class ProductMasterMigrationTests(unittest.TestCase):
         self.assertAlmostEqual(2.0, float(row["gross_weight_lbs"]), places=6)
         self.assertTrue(row["is_active"])
 
-    def test_hierarchical_template_headings_import_level_gross_weight(self):
+    def test_hierarchical_template_headings_import_final_product_weights(self):
         rows = _canonicalize_import_rows([{
             "Customer / Storefront": "KeHE",
             "Config ID": "TW-CRS109-4OZ",
             "SKU": "TW-CRS109-4OZ",
             "Product Description": "Gold Brew Glitter",
             "Product Status": "VERIFIED",
-            "Packaging Level": "Each",
-            "GTIN": "850068684656",
-            "Eaches Contained": 1,
-            "Gross Weight (lbs, product + packaging)": 0.444,
+            "Packaging Level": "Case",
+            "GTIN": "40850068684654",
+            "Eaches Contained": 36,
+            "Each Weight (g)": 113,
+            "Total Product Weight (g)": 4068,
+            "Total Weight with Packaging (lb)": 10,
+            "Final Length (in)": 18,
+            "Final Width/Breadth (in)": 12,
+            "Final Height (in)": 8,
             "Level Active": True,
         }], "mpl_product_master")
 
         self.assertEqual(1, len(rows))
         row = rows[0]
         self.assertEqual("TW-CRS109-4OZ", row["config_id"])
-        self.assertEqual("Each", row["packaging_level"])
-        self.assertEqual("1", row["case_qty"])
-        self.assertEqual("0.444", row["gross_weight_lbs"])
+        self.assertEqual("Case", row["packaging_level"])
+        self.assertEqual("36", row["case_qty"])
+        self.assertEqual("113", row["each_net_weight_g"])
+        self.assertEqual("4068", row["package_net_weight_g"])
+        self.assertEqual("10", row["gross_weight_lbs"])
+        self.assertEqual(("18", "12", "8"), (row["length_in"], row["width_in"], row["height_in"]))
         self.assertEqual("VERIFIED", row["verification_status"])
         self.assertTrue(row["is_active"])
 
@@ -128,6 +137,12 @@ class ProductMasterMigrationTests(unittest.TestCase):
         self.assertEqual(6, _default_copies(inner))
         self.assertEqual(4, _default_copies(case))
         self.assertFalse(_is_kehe_pack_label_eligible(disabled))
+
+    def test_kehe_inner_pack_weight_is_derived_from_each_weight_and_quantity(self):
+        case = {"packaging_level": "Case", "each_net_weight_g": "113", "gross_weight_lbs": "10"}
+        inner = {"packaging_level": "Inner Pack", "case_qty": "6"}
+        self.assertAlmostEqual((113 * 6) / 453.59237, float(_label_weight_lbs(inner, case)), places=3)
+        self.assertEqual("10", _label_weight_lbs(case, case))
 
     def test_mpl_weight_comes_from_gross_weight(self):
         item = {"qty_on_pallet": "2"}

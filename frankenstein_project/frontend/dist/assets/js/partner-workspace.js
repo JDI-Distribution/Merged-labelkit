@@ -109,6 +109,19 @@
     return digits ? 'CODE128' : 'NONE';
   }
 
+  function partnerFinalCaseProduct(product, customer) {
+    const configId = String(product?.config_id || '').trim().toLowerCase();
+    const sku = String(product?.sku || '').trim().toLowerCase();
+    return mplProductMasterRows.map(normalizeProductRow).find(row => (
+      normalizePackagingLevel(row.packaging_level) === 'Case'
+      && normalizeStorefront(row.storefront).toLowerCase().includes(String(customer || '').toLowerCase())
+      && (
+        (configId && String(row.config_id || '').trim().toLowerCase() === configId)
+        || (!configId && sku && String(row.sku || '').trim().toLowerCase() === sku)
+      )
+    )) || null;
+  }
+
   function buildPartnerLabelJobs(payload, customerId) {
     const details = payload?.order_details || {};
     const customer = partnerCustomerLabel(customerId);
@@ -139,6 +152,10 @@
         && row.is_active !== false
       ));
       const resolvedProduct = { ...(matchingProduct || product) };
+      const finalCaseProduct = partnerFinalCaseProduct(resolvedProduct, customer);
+      ['each_net_weight_g', 'package_net_weight_g', 'gross_weight_lbs', 'length_in', 'width_in', 'height_in'].forEach(field => {
+        if (String(finalCaseProduct?.[field] ?? '').trim()) resolvedProduct[field] = finalCaseProduct[field];
+      });
       if (templateId === 'FANCY_PALLET_3X3') resolvedProduct.packaging_level = 'Pallet';
       const template = b2bLabelTemplates.find(candidate => candidate.template_id === templateId) || {};
       const cartons = calculateOrderCartonCount(item, resolvedProduct);
@@ -362,6 +379,83 @@
     }).join('')}</div>`;
   }
 
+  function setPartnerInlineLabelKind(kind) {
+    if (!partnerJobsForKind(kind).length) return;
+    partnerInlineLabelKind = kind;
+    partnerInlineLabelIndex = -1;
+    renderPartnerInlineEditors();
+  }
+
+  function setPartnerInlineLabelIndex(index) {
+    const parsed = Number(index);
+    if (!partnerLabelJobs[parsed]) return;
+    partnerInlineLabelIndex = parsed;
+    partnerInlineLabelKind = isPartnerPalletLabelJob(partnerLabelJobs[parsed]) ? 'palletLabel' : 'packLabels';
+    renderPartnerInlineEditors();
+  }
+
+  function renderPartnerInlineEditors() {
+    const container = document.getElementById('partner-inline-label-editor');
+    if (!container) return;
+    const availableKinds = ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length);
+    if (!availableKinds.length) {
+      container.innerHTML = '<div class="partner-empty-state"><strong>No customer labels configured</strong><span>This order has no matching label jobs.</span></div>';
+      return;
+    }
+    if (!availableKinds.includes(partnerInlineLabelKind)) partnerInlineLabelKind = availableKinds[0];
+    const entries = partnerJobsForKind(partnerInlineLabelKind);
+    if (!entries.some(entry => entry.index === partnerInlineLabelIndex)) partnerInlineLabelIndex = entries[0].index;
+    const entry = entries.find(candidate => candidate.index === partnerInlineLabelIndex) || entries[0];
+    const { job, index } = entry;
+    const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
+    const width = Number(template.physical_width_in || 4);
+    const height = Number(template.physical_height_in || 6);
+    const sheetWidth = width <= 3 && height >= 3 ? 440 : width <= 3 ? 640 : 720;
+    const labelsEnabled = !!document.getElementById('partner-generate-labels')?.checked;
+    const stale = partnerPreviewIsStale(partnerInlineLabelKind);
+    const hasBarcode = !isPartnerPalletLabelJob(job);
+    const productStatus = job.match_status === 'matched' ? 'Product Master matched' : 'Using order data — review before printing';
+    const jobLabel = current => `${current.job.product?.sku || `Order line ${current.index + 1}`} — ${b2bLabelTemplates.find(candidate => candidate.template_id === current.job.template_id)?.name || current.job.template_id}`;
+    container.innerHTML = `
+      <div class="partner-inline-label-toolbar">
+        <div class="partner-label-kind-tabs">${availableKinds.map(kind => `<button type="button" class="${kind === partnerInlineLabelKind ? 'selected' : ''}" onclick="setPartnerInlineLabelKind('${kind}')">${partnerLabelKindName(kind)}</button>`).join('')}</div>
+        <label>Label to edit<select onchange="setPartnerInlineLabelIndex(this.value)">${entries.map(current => `<option value="${current.index}" ${current.index === index ? 'selected' : ''}>${escapeHtml(jobLabel(current))}</option>`).join('')}</select></label>
+        <div class="workflow-compact-actions">
+          <button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(true, '${partnerInlineLabelKind}'); renderPartnerInlineEditors()">Select all</button>
+          <button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(false, '${partnerInlineLabelKind}'); renderPartnerInlineEditors()">Clear all</button>
+          <button class="btn-secondary" type="button" onclick="resetPartnerLabelCopies('${partnerInlineLabelKind}'); renderPartnerInlineEditors()">Reset copies</button>
+        </div>
+      </div>
+      <div class="partner-inline-workbench ${labelsEnabled ? '' : 'disabled'}">
+        <section class="partner-inline-live-label">
+          <header><div><div class="b2b-card-kicker">Live label editor</div><h4>Edit the label</h4></div><span>${escapeHtml(productStatus)}</span></header>
+          <div class="b2b-label-editor-stage partner-label-editor-stage">
+            <div class="partner-label-editor-canvas" style="--b2b-label-ratio:${width} / ${height};--b2b-label-max-width:${sheetWidth}px">${b2bLabelEditorHtml(template, job.product || {}, job.directory || {}, { partnerIndex: index, runFields: job.run || {} })}</div>
+          </div>
+        </section>
+        <aside class="partner-inline-run-panel">
+          <header><div class="b2b-card-kicker">This print run</div><h4>Carton range &amp; copies</h4></header>
+          <div class="partner-inline-run-grid">
+            <label class="partner-inline-toggle"><input type="checkbox" ${job.print_selected ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'print_selected', this.checked, true)"><span>Include this label</span></label>
+            <label>Carton Total<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_total || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_total', this.value, true)"></label>
+            <label>Start Carton<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_start || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_start', this.value, false)"></label>
+            <label>End Carton<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_end || job.run?.carton_total || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_end', this.value, false)"></label>
+            <label>Copies<input type="number" min="1" step="1" value="${escapeHtml(job.run?.copies || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.copies', this.value, false)"></label>
+            ${hasBarcode ? `<label class="partner-inline-toggle"><input type="checkbox" ${job.run?.print_barcode ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'run.print_barcode', this.checked, true)"><span>Include barcode</span></label><label class="partner-inline-wide">GTIN / UPC<input value="${escapeHtml(job.product?.gtin || '')}" oninput="updatePartnerLabelJob(${index}, 'product.gtin', this.value, false)"></label><label>Barcode Type<select onchange="updatePartnerLabelJob(${index}, 'product.barcode_type', this.value, true)">${['GTIN_14', 'UPC_A', 'EAN_13', 'CODE128', 'NONE'].map(type => `<option value="${type}" ${job.product?.barcode_type === type ? 'selected' : ''}>${type.replace('_', '-')}</option>`).join('')}</select></label>` : ''}
+          </div>
+          <button class="btn-secondary partner-regenerate-one" type="button" onclick="regeneratePartnerLabel(${index})">Regenerate only this label</button>
+          <div class="partner-inline-production">
+            <div class="b2b-card-kicker">Production PDF</div>
+            <strong>Generate ${escapeHtml(template.name || partnerLabelKindName(partnerInlineLabelKind))}</strong>
+            <small>${stale ? 'The label has changed since the last PDF render.' : 'Creates the print-ready PDF for the selected label group.'}</small>
+            <button class="btn-generate" type="button" onclick="openPartnerPreview('${partnerInlineLabelKind}')" ${labelsEnabled ? '' : 'disabled'}>${partnerLabelPreviewUrl(partnerInlineLabelKind) && !stale ? 'Open Production PDF' : 'Generate & Open PDF'}</button>
+          </div>
+        </aside>
+      </div>`;
+    window.requestAnimationFrame(() => fitB2BLabelPreview(container.querySelector('.partner-label-editor-canvas')));
+    enhanceSearchableSelects(container);
+  }
+
   function commitPartnerProductLabelEdit(element) {
     const index = Number(element?.dataset?.partnerLabelIndex);
     const field = String(element?.dataset?.partnerProductEdit || '');
@@ -404,8 +498,11 @@
       job.run.copies = String(template?.default_copies || job.run.copies || 1);
     }
     markPartnerPreviewStale(isPartnerPalletLabelJob(job) ? 'palletLabel' : 'packLabels');
-    if (rerenderEditor && String(activeKeheDocumentType || '').startsWith('partner')) {
-      renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    if (rerenderEditor) {
+      if (String(activeKeheDocumentType || '').startsWith('partner') && document.getElementById('document-editor-panel')?.classList.contains('visible')) {
+        renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+      }
+      renderPartnerInlineEditors();
     }
     renderPartnerSelectionState();
   }
@@ -420,20 +517,10 @@
       const element = document.getElementById(id);
       if (element) element.disabled = !!disabled;
     };
-    setDisabled('btn-partner-pack-labels', !loaded || !labelsEnabled || !hasPackLabels);
-    setDisabled('btn-partner-pallet-labels', !loaded || !labelsEnabled || !hasPalletLabels);
     setDisabled('btn-partner-mpl', !loaded || !mplEnabled || !partnerMplDraft);
-    setDisabled('btn-preview-partner-pack-labels', !labelsEnabled || !partnerLabelsPreviewUrl);
-    setDisabled('btn-preview-partner-pallet-labels', !labelsEnabled || !partnerPalletLabelsPreviewUrl);
     setDisabled('btn-preview-partner-mpl', !mplEnabled || !partnerMplPreviewUrl);
-    document.getElementById('btn-partner-pack-labels')?.classList.toggle('hidden', loaded && !hasPackLabels);
-    document.getElementById('btn-partner-pallet-labels')?.classList.toggle('hidden', !loaded || !hasPalletLabels);
-    document.getElementById('btn-preview-partner-pack-labels')?.classList.toggle('hidden', !labelsEnabled || !partnerLabelsPreviewUrl);
-    document.getElementById('btn-preview-partner-pallet-labels')?.classList.toggle('hidden', !labelsEnabled || !partnerPalletLabelsPreviewUrl);
     document.getElementById('btn-preview-partner-mpl')?.classList.toggle('hidden', !mplEnabled || !partnerMplPreviewUrl);
-    const previewActions = document.querySelector('.partner-generated-preview-actions');
-    if (previewActions) previewActions.classList.toggle('hidden', !previewActions.querySelector('button:not(.hidden)'));
-    [['packLabels', 'btn-preview-partner-pack-labels', 'Open Pack Labels PDF'], ['palletLabel', 'btn-preview-partner-pallet-labels', 'Open Pallet Labels PDF'], ['masterPackingList', 'btn-preview-partner-mpl', 'Open Packing List PDF']].forEach(([kind, id, label]) => {
+    [['masterPackingList', 'btn-preview-partner-mpl', 'Open Packing List PDF']].forEach(([kind, id, label]) => {
       const previewButton = document.getElementById(id);
       if (!previewButton) return;
       const stale = partnerPreviewIsStale(kind);
@@ -447,6 +534,15 @@
         ? 'Regenerate Selected PDFs'
         : 'Generate Selected PDFs';
     }
+    const mplGenerateButton = document.getElementById('btn-generate-partner-mpl');
+    if (mplGenerateButton) {
+      mplGenerateButton.disabled = !loaded || !mplEnabled || !partnerMplDraft;
+      mplGenerateButton.textContent = partnerMplPreviewUrl && !partnerPreviewIsStale('masterPackingList') ? 'Open Production PDF' : 'Generate & Open PDF';
+    }
+    document.querySelector('.partner-label-workflow-section')?.classList.toggle('disabled', !labelsEnabled);
+    document.querySelector('.partner-mpl-workflow-section')?.classList.toggle('disabled', !mplEnabled);
+    const labelProductionButton = document.querySelector('#partner-inline-label-editor .partner-inline-production .btn-generate');
+    if (labelProductionButton) labelProductionButton.disabled = !loaded || !labelsEnabled;
   }
 
   function renderPartnerWorkspace() {
@@ -470,6 +566,12 @@
     document.getElementById('partner-loaded-order').textContent = partnerOrderPayload.sales_order_number || '-';
     document.getElementById('partner-line-count').textContent = String(partnerOrderPayload.items?.length || 0);
     document.getElementById('partner-review-status').textContent = reviewCount ? `${reviewCount} line(s) need review` : 'Ready';
+    const mpl = partnerMplDraft?.packing_lists?.[0] || {};
+    const itemCount = Array.isArray(mpl.items) ? mpl.items.length : 0;
+    document.getElementById('partner-mpl-item-count').textContent = String(itemCount);
+    document.getElementById('partner-mpl-pallet-count').textContent = String(mpl.total_pallets || mpl._pallet_ids?.length || 1);
+    document.getElementById('partner-mpl-edit-status').textContent = partnerPreviewIsStale('masterPackingList') ? 'Changes need a new PDF' : (partnerMplPreviewUrl ? 'Production PDF ready' : 'Ready to review');
+    renderPartnerInlineEditors();
     renderPartnerSelectionState();
   }
 
@@ -523,6 +625,7 @@
       pallets: kind === 'palletLabel' ? Math.max(1, Number(partnerMplDraft?.packing_lists?.[0]?.total_pallets || 1)) : 0,
       blob: pdf,
     });
+    renderPartnerInlineEditors();
     renderPartnerSelectionState();
     return true;
   }
@@ -559,28 +662,35 @@
       blob: pdf,
     });
     partnerMplDraft = activeKeheDocumentDraft;
+    const editStatus = document.getElementById('partner-mpl-edit-status');
+    if (editStatus) editStatus.textContent = 'Production PDF ready';
     renderPartnerSelectionState();
     return true;
   }
 
   async function openPartnerPreview(kind) {
     let previewUrl = kind === 'masterPackingList' ? partnerMplPreviewUrl : partnerLabelPreviewUrl(kind);
-    if (!previewUrl) {
-      if (!(await confirmDocumentReadiness('partners'))) return;
-      showWorkflowProgress(kind === 'masterPackingList' ? 4 : 3, `Preparing ${kind === 'masterPackingList' ? 'packing list' : partnerLabelKindName(kind).toLowerCase()}…`);
-      if (kind === 'masterPackingList') await renderPartnerMplPreview();
-      else await renderPartnerLabelsPreview(kind);
+    try {
+      if (!previewUrl || partnerPreviewIsStale(kind)) {
+        if (!(await confirmDocumentReadiness('partners'))) return;
+        showWorkflowProgress(kind === 'masterPackingList' ? 4 : 3, `Preparing ${kind === 'masterPackingList' ? 'packing list' : partnerLabelKindName(kind).toLowerCase()}…`);
+        if (kind === 'masterPackingList') await renderPartnerMplPreview();
+        else await renderPartnerLabelsPreview(kind);
+        previewUrl = kind === 'masterPackingList' ? partnerMplPreviewUrl : partnerLabelPreviewUrl(kind);
+      }
+      if (!previewUrl) return;
+      blobUrl = previewUrl;
+      const filename = kind === 'masterPackingList' ? `${partnerCustomerId || 'customer'}_packing_list.pdf` : partnerLabelFilename(kind);
+      document.getElementById('btn-download').download = filename;
+      setDownloadReady(true, previewUrl);
+      setActivePreviewFormat(kind === 'masterPackingList' ? 'a4' : 'rollo');
+      resetPreviewSurface();
+      await openPreview();
+    } catch (err) {
+      setStatus(`PDF generation failed: ${err?.message || 'unknown error'}`, 'error');
+    } finally {
       closeWorkflowProgress();
-      previewUrl = kind === 'masterPackingList' ? partnerMplPreviewUrl : partnerLabelPreviewUrl(kind);
     }
-    if (!previewUrl) return;
-    blobUrl = previewUrl;
-    const filename = kind === 'masterPackingList' ? `${partnerCustomerId || 'customer'}_packing_list.pdf` : partnerLabelFilename(kind);
-    document.getElementById('btn-download').download = filename;
-    setDownloadReady(true, previewUrl);
-    setActivePreviewFormat(kind === 'masterPackingList' ? 'a4' : 'rollo');
-    resetPreviewSurface();
-    await openPreview();
   }
 
   async function renderPartnerPreviews() {

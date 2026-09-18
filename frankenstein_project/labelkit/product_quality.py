@@ -139,7 +139,8 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
             "case_quantity": bool(case_row and _positive_number(case_row.get("case_qty"), whole=True)),
             "dimensions": bool(case_row and all(_positive_number(case_row.get(field)) for field in MEASUREMENT_FIELDS)),
             "weight": bool(case_row and _positive_number(case_row.get("gross_weight_lbs"))),
-            "each_weight": bool(each_row and _positive_number(each_row.get("gross_weight_lbs"))),
+            "each_weight": bool(case_row and _positive_number(case_row.get("each_net_weight_g"))),
+            "total_product_weight": bool(case_row and _positive_number(case_row.get("package_net_weight_g"))),
             "label_template": bool(primary.get("label_template_id")) if primary.get("label_enabled") else True,
             "verified": str(primary.get("verification_status") or "").upper() == "VERIFIED",
             "hierarchy": not any(issue["severity"] in {"invalid", "duplicate"} for issue in group_issues),
@@ -148,11 +149,13 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         for index in indexes:
             row_issues[index].extend(group_issues)
             if not all(_positive_number((case_row or {}).get(field)) for field in MEASUREMENT_FIELDS):
-                row_issues[index].append(_issue("missing_dimensions", "Case dimensions are incomplete."))
+                row_issues[index].append(_issue("missing_dimensions", "Final shipping-case dimensions are incomplete."))
             if not case_row or not _positive_number(case_row.get("gross_weight_lbs")):
-                row_issues[index].append(_issue("missing_weight", "Case gross weight is missing."))
-            if not each_row or not _positive_number(each_row.get("gross_weight_lbs")):
-                row_issues[index].append(_issue("missing_weight", "Each gross weight is missing."))
+                row_issues[index].append(_issue("missing_weight", "Total weight with packaging is missing."))
+            if not case_row or not _positive_number(case_row.get("each_net_weight_g")):
+                row_issues[index].append(_issue("missing_weight", "Each weight is missing."))
+            if not case_row or not _positive_number(case_row.get("package_net_weight_g")):
+                row_issues[index].append(_issue("missing_weight", "Total product weight is missing."))
             if not case_row or not _positive_number(case_row.get("case_qty"), whole=True):
                 row_issues[index].append(_issue("missing_case_quantity", "Case Eaches / Package is missing."))
             if primary.get("label_enabled") and not primary.get("label_template_id"):

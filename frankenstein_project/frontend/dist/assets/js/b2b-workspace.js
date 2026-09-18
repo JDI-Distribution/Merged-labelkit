@@ -178,6 +178,29 @@
     };
   }
 
+  const B2B_FINAL_PRODUCT_FIELDS = new Set([
+    'each_net_weight_g', 'package_net_weight_g', 'gross_weight_lbs',
+    'length_in', 'width_in', 'height_in',
+  ]);
+
+  function getSelectedB2BFinalCaseEntry() {
+    return getB2BProductEntries().find(entry => (
+      mplProductGroupKey(entry.row, entry.index) === b2bSelectedGroupKey
+      && normalizePackagingLevel(entry.row.packaging_level) === 'Case'
+    )) || null;
+  }
+
+  function getB2BOutputProduct(product = getSelectedB2BProduct()) {
+    if (!product) return product;
+    const finalCaseProduct = getSelectedB2BFinalCaseEntry()?.row;
+    if (!finalCaseProduct) return product;
+    const output = { ...product };
+    B2B_FINAL_PRODUCT_FIELDS.forEach(field => {
+      if (String(finalCaseProduct[field] ?? '').trim()) output[field] = finalCaseProduct[field];
+    });
+    return output;
+  }
+
   function renderB2BProductSettings(product = getSelectedB2BProduct(), template = getSelectedB2BTemplate()) {
     const panel = document.getElementById('b2b-product-settings');
     const status = document.getElementById('b2b-settings-status');
@@ -191,10 +214,12 @@
 
     const isOrderFallback = b2bSelectedProductIndex <= -1000;
     const canEdit = isOrderFallback || hasPermission('table_crud');
+    const finalCaseProduct = getSelectedB2BFinalCaseEntry()?.row || product;
     Object.entries(b2bProductSettingMap()).forEach(([field, id]) => {
       const input = document.getElementById(id);
       if (!input) return;
-      input.value = product[field] ?? '';
+      const source = B2B_FINAL_PRODUCT_FIELDS.has(field) ? finalCaseProduct : product;
+      input.value = source[field] ?? '';
       input.disabled = !canEdit;
     });
     setNativeSelectOptions(document.getElementById('b2b-product-barcode-type'), B2B_BARCODE_TYPES, product.barcode_type || '', 'Select type');
@@ -436,7 +461,7 @@
     const sheetWidth = width <= 3 && height >= 3 ? 440 : width <= 3 ? 640 : 720;
     canvas.style.setProperty('--b2b-label-ratio', `${width} / ${height}`);
     canvas.style.setProperty('--b2b-label-max-width', `${sheetWidth}px`);
-    canvas.innerHTML = b2bLabelEditorHtml(template, product, getSelectedB2BDirectory());
+    canvas.innerHTML = b2bLabelEditorHtml(template, getB2BOutputProduct(product), getSelectedB2BDirectory());
     window.requestAnimationFrame(() => fitB2BLabelPreview(canvas));
     if (meta) {
       const productNote = b2bSelectedProductIndex <= -1000
@@ -894,7 +919,10 @@
       b2bOrderFallbackProducts[fallbackIndex][field] = value;
     } else {
       if (b2bSelectedProductIndex < 0 || !hasPermission('table_crud')) return;
-      updateMplProductRow(b2bSelectedProductIndex, field, value);
+      const targetIndex = B2B_FINAL_PRODUCT_FIELDS.has(field)
+        ? (getSelectedB2BFinalCaseEntry()?.index ?? b2bSelectedProductIndex)
+        : b2bSelectedProductIndex;
+      updateMplProductRow(targetIndex, field, value);
     }
     const state = document.getElementById('b2b-product-save-state');
     if (state) state.textContent = fallbackIndex >= 0 ? 'Updated for this label job' : 'Saving to Product Master…';
@@ -915,7 +943,7 @@
   }
 
   function buildB2BPayload() {
-    const product = getSelectedB2BProduct();
+    const product = getB2BOutputProduct();
     const template = getSelectedB2BTemplate();
     const directory = Object.fromEntries(Object.entries(getSelectedB2BDirectory()).map(([field, value]) => [
       field,

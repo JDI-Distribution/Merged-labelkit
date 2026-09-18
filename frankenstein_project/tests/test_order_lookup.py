@@ -780,20 +780,24 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn('id="partner-workspace-page"', html)
         self.assertIn('id="partner-sales-order-number"', html)
         for button_id in (
-            "btn-partner-pack-labels",
-            "btn-partner-pallet-labels",
             "btn-partner-mpl",
-            "btn-preview-partner-pack-labels",
-            "btn-preview-partner-pallet-labels",
+            "btn-generate-partner-mpl",
             "btn-preview-partner-mpl",
+            "btn-render-partner-previews",
         ):
             self.assertIn(f'id="{button_id}"', html)
+        self.assertIn('id="partner-inline-label-editor"', html)
+        self.assertIn('id="partner-generate-labels"', html)
+        self.assertIn('id="partner-generate-mpl"', html)
         self.assertNotIn('id="partner-label-editor-list"', html)
         self.assertNotIn('id="partner-labels-preview"', html)
         self.assertNotIn('id="partner-mpl-preview"', html)
         self.assertIn("function openPartnerLabelEditor(kind", javascript)
         self.assertIn("function openPartnerPreview(kind)", javascript)
         self.assertIn("function renderPartnerLabelsEditor(kind", javascript)
+        self.assertIn("function renderPartnerInlineEditors()", javascript)
+        self.assertIn("Live label editor", javascript)
+        self.assertIn("Carton range &amp; copies", javascript)
         self.assertIn("commitPartnerProductLabelEdit(this)", javascript)
         self.assertIn("commitPartnerRunLabelEdit(this)", javascript)
         self.assertIn('onclick="editPartnerPackingList()"', html)

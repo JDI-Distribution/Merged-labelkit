@@ -88,6 +88,19 @@ def _product_case_qty(product: Dict[str, Any]) -> int:
     return 1
 
 
+def _label_weight_lbs(product: Dict[str, Any], case_product: Dict[str, Any]) -> str:
+    """Return the printed case/inner weight from the simplified product model."""
+    level = _normalize_packaging_level(product.get("packaging_level"))
+    if level == "Inner Pack":
+        each_weight_g = _parse_float(case_product.get("each_net_weight_g"))
+        inner_eaches = _parse_float(product.get("case_qty"))
+        if each_weight_g is not None and inner_eaches is not None and each_weight_g > 0 and inner_eaches > 0:
+            weight_lbs = (each_weight_g * inner_eaches) / 453.59237
+            return f"{weight_lbs:.3f}".rstrip("0").rstrip(".")
+        return ""
+    return str(case_product.get("gross_weight_lbs") or "").strip()
+
+
 def _default_copies(product: Dict[str, Any]) -> int:
     parsed = _parse_float(product.get("default_copies"))
     level = _normalize_packaging_level(product.get("packaging_level"))
@@ -197,13 +210,15 @@ def build_kehe_pack_label_draft(
             if kind not in ("MP", "IP"):
                 continue
 
+            label_weight_lbs = _label_weight_lbs(product, case_product)
+
             label_warnings: List[str] = []
             gtin = _gtin14(product.get("gtin"))
             if len(_only_digits(gtin)) != 14:
                 label_warnings.append("GTIN must be 14 digits for ITF-14.")
             if not product.get("description"):
                 label_warnings.append("Description is blank.")
-            if not product.get("gross_weight_lbs"):
+            if not label_weight_lbs:
                 label_warnings.append("Weight is blank.")
 
             default_copies = _default_copies(product)
@@ -237,7 +252,7 @@ def build_kehe_pack_label_draft(
                 "width_in": product.get("width_in", ""),
                 "height_in": product.get("height_in", ""),
                 "dimensions_in": _product_dimensions_display(product),
-                "gross_weight_lbs": product.get("gross_weight_lbs", ""),
+                "gross_weight_lbs": label_weight_lbs,
                 "sku": product.get("sku", ""),
                 "lot": lot,
                 "best_before": best_before,

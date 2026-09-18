@@ -86,16 +86,18 @@
         case_quantity: !!caseRow && positive(caseRow.case_qty, true),
         dimensions: !!caseRow && ['length_in', 'width_in', 'height_in'].every(field => positive(caseRow[field])),
         weight: !!caseRow && positive(caseRow.gross_weight_lbs),
-        each_weight: !!each && positive(each.gross_weight_lbs),
+        each_weight: !!caseRow && positive(caseRow.each_net_weight_g),
+        total_product_weight: !!caseRow && positive(caseRow.package_net_weight_g),
         label_template: primary.label_enabled ? !!primary.label_template_id : true,
         verified: String(primary.verification_status || '').toUpperCase() === 'VERIFIED',
         hierarchy: !groupIssues.some(issue => ['invalid', 'duplicate'].includes(issue.severity)),
       };
       const score = Math.round(100 * Object.values(criteria).filter(Boolean).length / Object.keys(criteria).length);
       const commonIssues = [...groupIssues];
-      if (!caseRow || !['length_in', 'width_in', 'height_in'].every(field => positive(caseRow[field]))) commonIssues.push(qualityIssue('missing_dimensions', 'Case dimensions are incomplete.'));
-      if (!caseRow || !positive(caseRow.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Case gross weight is missing.'));
-      if (!each || !positive(each.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Each gross weight is missing.'));
+      if (!caseRow || !['length_in', 'width_in', 'height_in'].every(field => positive(caseRow[field]))) commonIssues.push(qualityIssue('missing_dimensions', 'Final shipping-case dimensions are incomplete.'));
+      if (!caseRow || !positive(caseRow.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Total weight with packaging is missing.'));
+      if (!caseRow || !positive(caseRow.each_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Each weight is missing.'));
+      if (!caseRow || !positive(caseRow.package_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Total product weight is missing.'));
       if (!caseRow || !positive(caseRow.case_qty, true)) commonIssues.push(qualityIssue('missing_case_quantity', 'Case Eaches / Package is missing.'));
       if (primary.label_enabled && !primary.label_template_id) commonIssues.push(qualityIssue('missing_label_template', 'Label template is missing.'));
       if (String(primary.verification_status || '').toUpperCase() !== 'VERIFIED') commonIssues.push(qualityIssue('needs_review', 'Configuration is Draft or Needs Review.'));

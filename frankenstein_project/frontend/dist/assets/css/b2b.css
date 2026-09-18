@@ -1102,6 +1102,17 @@
       font-weight: 700;
     }
 
+    .directory-card-meta {
+      display: grid;
+      gap: 2px;
+    }
+
+    .directory-card-meta small {
+      color: #7a8994;
+      font-size: 9.5px;
+      font-weight: 650;
+    }
+
     .directory-card-status {
       border-radius: 999px;
       background: #edf2f5;
@@ -1244,6 +1255,141 @@
       min-height: 78px;
     }
 
+    .directory-identity-grid {
+      margin-bottom: 14px;
+    }
+
+    .directory-address-workbench {
+      margin-top: 2px;
+      padding: 14px;
+      border: 1px solid #d3dde4;
+      border-radius: 11px;
+      background: #f4f7f8;
+    }
+
+    .directory-address-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .directory-address-heading > div {
+      display: grid;
+      gap: 2px;
+    }
+
+    .directory-address-heading > div span,
+    .directory-address-heading label {
+      color: #61717d;
+      font-size: 9.5px;
+      font-weight: 850;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    .directory-address-heading > div strong {
+      color: #203847;
+      font-size: 12px;
+    }
+
+    .directory-address-heading label {
+      min-width: 210px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .directory-address-heading select,
+    .directory-address-grid textarea {
+      width: 100%;
+      border: 1px solid #c9d5dc;
+      border-radius: 8px;
+      background: #fff;
+      color: #213746;
+      padding: 8px 10px;
+      box-sizing: border-box;
+    }
+
+    .directory-address-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .directory-address-grid label {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+      color: #536776;
+      font-size: 10.5px;
+      font-weight: 800;
+    }
+
+    .directory-address-grid textarea {
+      min-height: 105px;
+      resize: vertical;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .directory-address-coverage {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .directory-address-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid #d2dae0;
+      border-radius: 999px;
+      background: #fff;
+      color: #556875;
+      padding: 5px 9px;
+      cursor: pointer;
+    }
+
+    .directory-address-chip span { font-size: 10.5px; font-weight: 800; }
+    .directory-address-chip small { color: #9a6415; font-size: 9px; font-weight: 750; }
+    .directory-address-chip.complete small { color: #237252; }
+    .directory-address-chip.selected {
+      border-color: #5e9f94;
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, .1);
+      color: #0f665f;
+    }
+
+    .directory-optional-details {
+      margin-top: 12px;
+      border: 1px solid #d5dde3;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .directory-optional-details > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 13px;
+      color: #244153;
+      background: #f7f9fa;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .directory-optional-details > summary::-webkit-details-marker { display: none; }
+    .directory-optional-details > summary > span:first-child { display: grid; gap: 2px; }
+    .directory-optional-details > summary strong { font-size: 11.5px; }
+    .directory-optional-details > summary small { color: #70808c; font-size: 10px; }
+    .directory-optional-details > summary > span:last-child { color: #60727f; font-size: 10px; font-weight: 800; }
+    .directory-optional-details[open] > summary > span:last-child::before { content: 'Hide '; }
+    .directory-optional-details > .mpl-unified-fields-grid { padding: 13px; }
+
     #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid input,
     #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid select,
     #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid textarea,
@@ -1312,6 +1458,12 @@
       #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
         grid-template-columns: 1fr;
       }
+      .directory-address-heading {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .directory-address-heading label { min-width: 0; }
+      .directory-address-grid { grid-template-columns: 1fr; }
       #mpl-directory-modal .directory-card-body .mpl-field-wide {
         grid-column: auto;
       }

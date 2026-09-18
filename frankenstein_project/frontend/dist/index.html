@@ -577,12 +577,12 @@
                   <label>Barcode Type <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select></label>
                   <label>Barcode Level <select id="b2b-product-barcode-level" onchange="updateB2BProductField('barcode_level', this.value)"></select></label>
                   <label>Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
-                  <label>Each Net Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
-                  <label>Package Net Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
-                  <label>Gross Weight (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
-                  <label>Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
-                  <label>Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
-                  <label>Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
+                  <label>Each Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
+                  <label>Total Product Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
+                  <label>Total Weight with Packaging (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
+                  <label>Final Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
+                  <label>Final Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
+                  <label>Final Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
                   <label>Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
                   <label class="b2b-setting-toggle">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
                 </div>
@@ -697,36 +697,43 @@
           <div class="b2b-card-heading">
             <div class="b2b-heading-with-step">
               <span class="b2b-step-number">02</span>
-              <div><div class="b2b-card-kicker">Review &amp; edit</div><h3>Prepare the documents</h3></div>
+              <div><div class="b2b-card-kicker">Review &amp; generate</div><h3>Order documents</h3></div>
             </div>
             <span class="b2b-save-state">Changes stay with this order</span>
           </div>
-          <div class="partner-output-toggles">
-            <label><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Labels</strong><small>Include the applicable customer labels</small></span></label>
-            <label><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing list &amp; Ti-Hi</strong><small>Include the customer packing list</small></span></label>
-          </div>
-          <div class="partner-document-actions" id="partner-document-actions">
-            <button class="btn-document" id="btn-partner-pack-labels" type="button" onclick="openPartnerLabelEditor('packLabels')" disabled><span>Pack Labels</span><small>Review and edit label content</small></button>
-            <button class="btn-document hidden" id="btn-partner-pallet-labels" type="button" onclick="openPartnerLabelEditor('palletLabel')" disabled><span>Pallet Labels</span><small>Review and edit pallet labels</small></button>
-            <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Master Packing List</span><small>Review MPL and pallet details</small></button>
-          </div>
-          <div class="kehe-preview-actions partner-generated-preview-actions">
-            <button class="btn-secondary hidden" id="btn-preview-partner-pack-labels" type="button" onclick="openPartnerPreview('packLabels')" disabled>Open Pack Labels PDF</button>
-            <button class="btn-secondary hidden" id="btn-preview-partner-pallet-labels" type="button" onclick="openPartnerPreview('palletLabel')" disabled>Open Pallet Labels PDF</button>
-            <button class="btn-secondary hidden" id="btn-preview-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')" disabled>Open Packing List PDF</button>
-          </div>
-        </section>
-
-        <section class="b2b-preview-card partner-generate-card">
-          <div class="b2b-card-heading">
-            <div class="b2b-heading-with-step">
-              <span class="b2b-step-number">03</span>
-              <div><div class="b2b-card-kicker">Production PDFs</div><h3>Generate selected documents</h3></div>
-            </div>
-            <span class="b2b-proof-note">Final render</span>
+          <div class="partner-document-sections" id="partner-document-actions">
+            <section class="partner-workflow-section partner-label-workflow-section">
+              <header class="partner-workflow-section-header">
+                <label class="partner-document-select"><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer Labels</strong><small>Edit the actual label, confirm this print run, and generate the production PDF.</small></span></label>
+                <span class="partner-section-state">Changes stay with this order</span>
+              </header>
+              <div class="partner-inline-label-editor" id="partner-inline-label-editor"></div>
+            </section>
+            <section class="partner-workflow-section partner-mpl-workflow-section">
+              <header class="partner-workflow-section-header">
+                <label class="partner-document-select"><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing List &amp; Ti-Hi</strong><small>Review and edit the master packing list before generating its production PDF.</small></span></label>
+                <span class="partner-section-state">Master Packing List</span>
+              </header>
+              <div class="partner-mpl-review-section">
+                <div class="partner-mpl-review-copy">
+                  <div class="b2b-card-kicker">Review &amp; edit</div>
+                  <h4>Master Packing List</h4>
+                  <p>Review item quantities, pallet assignments, weights, addresses, and TI-Hi details.</p>
+                  <div class="partner-mpl-metrics"><span><strong id="partner-mpl-item-count">0</strong> items</span><span><strong id="partner-mpl-pallet-count">0</strong> pallets</span><span id="partner-mpl-edit-status">Ready to review</span></div>
+                </div>
+                <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Review &amp; Edit Master Packing List</span><small>Open the full packing-list editor</small></button>
+              </div>
+              <div class="partner-section-production">
+                <div><div class="b2b-card-kicker">Production PDF</div><strong>Generate Master Packing List</strong><small>Create the current reviewed packing-list PDF.</small></div>
+                <div class="partner-section-production-actions">
+                  <button class="btn-secondary hidden" id="btn-preview-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')" disabled>Open Packing List PDF</button>
+                  <button class="btn-generate" id="btn-generate-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')">Generate &amp; Open PDF</button>
+                </div>
+              </div>
+            </section>
           </div>
           <div class="partner-generate-row">
-            <span>Run one final check, then create the selected PDFs for review, saving, or printing.</span>
+            <span>Generate the selected documents after reviewing any required changes.</span>
             <button class="btn-generate" id="btn-render-partner-previews" type="button" onclick="renderPartnerPreviews()">Generate Selected PDFs</button>
           </div>
         </section>
@@ -966,23 +973,33 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Product Master Table</div>
-          <div class="kehe-product-master-subtitle">Each product has one shared identity and separate packaging levels. Expand a product to edit Case, Inner Pack, Each, and label settings.</div>
+          <div class="kehe-product-master-subtitle">Enter shared product details and final shipping-case measurements once, then configure the required packaging levels and labels.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
       </div>
 
       <div class="editor-body">
-        <div class="kehe-product-master-toolbar">
-          <div>
+        <div class="kehe-product-master-toolbar product-master-command-bar">
+          <div class="product-master-command-copy">
             <div class="kehe-product-master-title">Editable Product Data</div>
-            <div class="kehe-product-master-subtitle">Gross weight includes the product and packaging at that level. Analytics conversion requires Eaches Contained on the Case level.</div>
+            <div class="kehe-product-master-subtitle">Enter each weight plus the final case's product weight, packaged weight, and dimensions once. Packaging levels keep only hierarchy and label settings.</div>
           </div>
-          <div class="kehe-product-master-actions">
-            <button class="btn-secondary" type="button" onclick="downloadImportTemplate('product-master')">Download Product Template</button>
-            <button class="btn-secondary" type="button" onclick="triggerExcelImport('product-master')">Upload Excel/CSV</button>
-            <button class="btn-secondary" type="button" onclick="exportMplProductMasterTable()">Export Product CSV</button>
-            <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change History</button>
-            <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Configuration</button>
+          <div class="product-master-command-actions" aria-label="Product Master actions">
+            <div class="product-master-action-group">
+              <span>Import data</span>
+              <div>
+                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('product-master')">Download Template</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('product-master')">Upload File</button>
+              </div>
+            </div>
+            <div class="product-master-action-group">
+              <span>Records</span>
+              <div>
+                <button class="btn-secondary product-master-action" type="button" onclick="exportMplProductMasterTable()">Export CSV</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_product_master')">History</button>
+              </div>
+            </div>
+            <button class="btn-generate product-master-add-action" type="button" onclick="addMplProductRow()">Add Configuration</button>
           </div>
           <input class="hidden" id="product-master-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('product-master', this)">
         </div>
@@ -1040,7 +1057,6 @@
       </div>
 
       <div class="editor-footer">
-        <button class="btn-secondary" type="button" onclick="addMplProductRow()">Add Configuration</button>
         <button class="btn-generate" type="button" onclick="closeMplProductMasterModal()">Done</button>
       </div>
     </div>
@@ -1059,27 +1075,29 @@
       </div>
 
       <div class="editor-body">
-        <div class="kehe-product-master-toolbar">
-          <div>
+        <div class="kehe-product-master-toolbar product-master-command-bar">
+          <div class="product-master-command-copy">
             <div class="kehe-product-master-title">Directory Records</div>
-            <div class="kehe-product-master-subtitle">Select Edit details on a record, or add a new customer or destination. Changes save automatically.</div>
+            <div class="kehe-product-master-subtitle">Keep customer identity, label defaults, and shipping addresses in reusable records. Edit one address role at a time.</div>
           </div>
-          <div class="kehe-product-master-actions">
-            <button class="btn-secondary" type="button" onclick="downloadImportTemplate('dc-directory')">Download Directory Template</button>
-            <button class="btn-secondary" type="button" onclick="triggerExcelImport('dc-directory')">Upload Excel/CSV</button>
-            <button class="btn-secondary" type="button" onclick="exportMplDirectoryTable()">Export Directory CSV</button>
-            <button class="btn-secondary" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
-            <button class="btn-secondary" type="button" onclick="addMplDirectoryRow()">Add Customer / Destination</button>
+          <div class="product-master-command-actions" aria-label="Customer Directory actions">
+            <div class="product-master-action-group">
+              <span>Import data</span>
+              <div>
+                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('dc-directory')">Download Template</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('dc-directory')">Upload File</button>
+              </div>
+            </div>
+            <div class="product-master-action-group">
+              <span>Records</span>
+              <div>
+                <button class="btn-secondary product-master-action" type="button" onclick="exportMplDirectoryTable()">Export CSV</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_directory')">History</button>
+              </div>
+            </div>
+            <button class="btn-generate product-master-add-action" type="button" onclick="addMplDirectoryRow()">Add Record</button>
           </div>
           <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
-        </div>
-
-        <div class="directory-entry-guide">
-          <div class="directory-entry-guide-icon" aria-hidden="true">&#9998;</div>
-          <div>
-            <strong>Enter customer and destination information here</strong>
-            <span>Use Add Customer / Destination for a new record. The editable fields for the selected record stay expanded below.</span>
-          </div>
         </div>
 
         <div class="table-filter-toolbar" aria-label="Customer directory filters">

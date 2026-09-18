@@ -446,6 +446,7 @@
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
   let mplDirectoryExpandedIndex = -1;
+  const mplDirectoryAddressTabs = new Map();
   let b2bLabelTemplates = [];
   let b2bSelectedCustomer = '';
   let b2bSelectedGroupKey = '';
@@ -466,6 +467,8 @@
   let partnerMplPreviewUrl = null;
   let partnerEditingLabelKind = '';
   let partnerEditingMpl = false;
+  let partnerInlineLabelKind = 'packLabels';
+  let partnerInlineLabelIndex = -1;
   let b2bRunFields = {
     po_number: '',
     order_number: '',
@@ -2217,17 +2220,23 @@
   function productMasterCsvHeader() {
     return [
       'Customer / Storefront', 'Config ID', 'SKU', 'Customer Item Number', 'Product Description', 'Product Status',
-      'Packaging Level', 'GTIN', 'Eaches Contained', 'Length (in)', 'Width/Breadth (in)', 'Height (in)',
-      'Gross Weight (lbs, product + packaging)', 'Each Net Weight (g, product only)', 'Package Net Weight (g, product only)',
+      'Packaging Level', 'GTIN', 'Eaches Contained', 'Each Weight (g)', 'Total Product Weight (g)',
+      'Total Weight with Packaging (lb)', 'Final Length (in)', 'Final Width/Breadth (in)', 'Final Height (in)',
       'Label Template ID', 'Barcode Type', 'Barcode Level', 'Default Copies', 'Label Enabled', 'Level Active', 'Source Note'
     ];
   }
 
   function productMasterCsvRow(row = {}) {
+    const isFinalCase = String(row.packaging_level || '').trim().toLowerCase() === 'case';
     return [
       row.storefront, row.config_id, row.sku, row.customer_item_number, row.description, row.verification_status,
       row.packaging_level, row.gtin, row.packaging_level === 'Each' ? '1' : row.case_qty,
-      row.length_in, row.width_in, row.height_in, row.gross_weight_lbs, row.each_net_weight_g, row.package_net_weight_g,
+      isFinalCase ? row.each_net_weight_g : '',
+      isFinalCase ? row.package_net_weight_g : '',
+      isFinalCase ? row.gross_weight_lbs : '',
+      isFinalCase ? row.length_in : '',
+      isFinalCase ? row.width_in : '',
+      isFinalCase ? row.height_in : '',
       row.label_template_id, row.barcode_type, row.barcode_level, row.default_copies,
       row.label_enabled, row.is_active, row.source_note,
     ];
@@ -2292,13 +2301,13 @@
           [
             'USAGE GUIDE — not imported', 'Repeat one Config ID for every packaging level of a product.',
             'Shared product SKU', 'Optional customer item', 'Shared description', 'Shared status',
-            'One row per level', 'Level barcode', 'Total sellable eaches at this level', 'Level length', 'Level width', 'Level height',
-            'Full product + packaging weight at this level', 'Optional product-only each weight', 'Optional product-only package weight',
+            'One row per level', 'Level barcode', 'Total sellable eaches at this level', 'One sellable each', 'All product in the final case',
+            'Final case including packaging', 'Final case length', 'Final case width', 'Final case height',
             'Level label template', 'Level barcode type', 'Level barcode level', 'Copies per unit', 'true/false', 'true/false', 'Optional notes'
           ],
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '16', default_copies: '2', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', length_in: '7', width_in: '6.25', height_in: '5.25', gross_weight_lbs: '2.667', default_copies: '6', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', gross_weight_lbs: '0.444', is_active: true }))
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', each_net_weight_g: '113', package_net_weight_g: '4068', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '10', default_copies: '2', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', default_copies: '6', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', is_active: true }))
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
     setStatus(`${isDirectory ? 'Directory' : 'Product Master'} import template downloaded.`, 'success');
