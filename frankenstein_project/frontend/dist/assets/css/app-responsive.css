@@ -585,6 +585,18 @@
     .partner-order-summary span { color: #6d7881; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
     .partner-order-summary strong { color: #28343d; overflow-wrap: anywhere; }
 
+    .partner-address-card { padding: 16px; border-color: #d4dade; background: #f8f9fa; }
+    .partner-address-heading,
+    .partner-download-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+    .partner-address-heading h3,
+    .partner-download-heading h4 { margin: 2px 0 0; color: #203948; }
+    .partner-address-heading > span,
+    .partner-download-heading > span { color: #6d7c86; font-size: 10px; text-align: right; }
+    .partner-address-selectors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 13px; }
+    .partner-address-selectors label { display: grid; gap: 5px; min-width: 0; color: #526571; font-size: 10px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
+    .partner-address-selectors select { width: 100%; min-width: 0; min-height: 42px; border: 1px solid #ccd6dc; border-radius: 9px; background: #fff; color: #26343d; padding: 8px 10px; text-transform: none; }
+    .partner-address-selectors small { color: #7a8790; font-size: 9px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+
     .partner-documents-card { border-color: #d4dade; background: #f8f9fa; }
     .partner-document-list { display: grid; gap: 10px; }
     .partner-document-row {
@@ -619,27 +631,6 @@
       text-align: left;
     }
     .partner-document-row-actions .btn-document small { font-size: 9.5px; font-weight: 650; opacity: .84; }
-    .partner-generate-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      margin-top: 14px;
-      padding: 14px 0 0;
-      border-top: 1px solid #dbe1e5;
-      color: #667680;
-      font-size: 11.5px;
-      line-height: 1.45;
-    }
-    .partner-generate-row .btn-generate {
-      width: auto;
-      min-width: 245px;
-      min-height: 46px;
-      flex: 0 0 auto;
-      border-radius: 10px;
-      padding: 11px 18px;
-    }
-
     .partner-document-sections { display: grid; gap: 16px; margin-top: 12px; }
     .partner-workflow-section {
       min-width: 0;
@@ -811,6 +802,16 @@
     .partner-mpl-metrics { display: flex; flex-wrap: wrap; gap: 7px; }
     .partner-mpl-metrics span { border-radius: 999px; background: #edf2f4; color: #596c78; padding: 5px 9px; font-size: 10px; font-weight: 750; }
     .partner-mpl-metrics strong { color: #214636; }
+    .partner-mpl-review-actions { display: grid; gap: 8px; }
+    .partner-mpl-review-actions .btn-document,
+    .partner-mpl-review-actions .btn-generate { width: 100%; min-height: 44px; border-radius: 9px; }
+    .partner-download-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid #dce2e6; }
+    .partner-download-files { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+    .partner-download-files article { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 12px; border: 1px solid #d4dce1; border-radius: 10px; background: #fff; }
+    .partner-download-files article > div { display: grid; gap: 3px; min-width: 0; }
+    .partner-download-files strong { color: #253a46; font-size: 11.5px; }
+    .partner-download-files small { color: #74818a; font-size: 9.5px; }
+    .partner-download-files .btn-secondary { width: auto; min-width: 126px; min-height: 38px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
     .partner-section-production {
       display: flex;
       align-items: center;
@@ -870,12 +871,19 @@
       .partner-label-kind-tabs { width: fit-content; }
       .partner-inline-workbench { grid-template-columns: 1fr; }
       .partner-mpl-review-section { grid-template-columns: 1fr; }
+      .partner-address-selectors { grid-template-columns: 1fr; }
       .partner-label-editor-toolbar { grid-template-columns: 1fr; }
       .partner-customer-selector { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
       .partner-order-summary,
       .partner-customer-options { grid-template-columns: 1fr; }
+      .partner-address-heading,
+      .partner-download-heading,
+      .partner-download-files article { align-items: stretch; flex-direction: column; }
+      .partner-address-heading > span,
+      .partner-download-heading > span { text-align: left; }
+      .partner-download-files .btn-secondary { width: 100%; }
       .partner-document-row-actions { display: grid; grid-template-columns: 1fr; }
       .partner-document-row-actions .btn-document,
       .partner-document-row-actions .btn-secondary { width: 100%; min-width: 0; }
@@ -887,10 +895,6 @@
       .partner-inline-toggle { grid-column: auto; }
       .partner-section-production-actions { align-items: stretch; flex-direction: column; }
       .partner-section-production-actions .btn-generate { width: 100%; }
-      .partner-generate-row { align-items: stretch; flex-direction: column; }
-      .partner-generate-row .btn-generate { width: 100%; min-width: 0; }
       .partner-label-editor-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .partner-order-summary > div { border-right: 0; border-bottom: 1px solid #dfe3e6; }
-      .partner-generate-row { align-items: stretch; flex-direction: column; padding-left: 0; }
-      .partner-generate-row .btn-generate { width: 100%; min-width: 0; }
     }

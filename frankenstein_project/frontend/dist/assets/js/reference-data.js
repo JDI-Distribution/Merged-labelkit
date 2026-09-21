@@ -824,6 +824,7 @@
                 </span>
                 <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · ${escapeHtml(configLabel)} · ${uniqueLevels.length} packaging level${uniqueLevels.length === 1 ? '' : 's'} · ${escapeHtml(verification)} <span class="product-quality-badge ${qualityState}" title="${escapeHtml((groupQuality.issues || []).map(issue => issue.message).join(' · ') || 'Complete')}">${groupQuality.score}% complete</span></span>
                 <span class="mpl-product-group-summary">${escapeHtml(groupSummary)}</span>
+                <span class="mpl-product-group-action">${expanded ? 'Hide details' : 'Review & edit'}</span>
               </button>
             </div>
           </td>
@@ -1178,7 +1179,7 @@
   }
 
   function normalizeDcDirectoryRow(row = {}) {
-    const shipFrom = String(row.ship_from ?? row.SHIP_FROM ?? row['SHIP FROM'] ?? '').trim();
+    const shipFrom = String(row.ship_from ?? row.SHIP_FROM ?? row['SHIP FROM'] ?? '').trim() || DEFAULT_KEHE_SHIP_FROM;
     return {
       storefront: normalizeStorefront(row.storefront ?? row.STOREFRONT ?? row['Storefront']),
       dc: String(row.dc ?? row.DC ?? '').trim(),
@@ -1209,11 +1210,20 @@
   function getMplDirectoryRows() {
     return mplDirectoryRows
       .map(normalizeDcDirectoryRow)
-      .filter(row => row.dc || row.name || row.delivery_address || row.billing_address || row.ship_from || row.default_label_template_id || row.receiving_email || row.manufacturer_name || row.source_note);
+      .filter(row => row.dc || row.name || row.delivery_address || row.billing_address || row.default_label_template_id || row.receiving_email || row.manufacturer_name || row.source_note);
   }
 
   function getActiveDcDirectoryRows() {
     return isStandaloneMplReferenceMode() ? getMplDirectoryRows() : getKeheDcDirectoryRows();
+  }
+
+  function getSavedMplShipFromAddresses() {
+    const sharedOrigin = getSharedMplDirectoryShipFrom();
+    const savedOrigins = mplDirectoryRows
+      .map(normalizeDcDirectoryRow)
+      .filter(row => row.is_active !== false)
+      .map(row => String(row.ship_from || '').trim());
+    return uniqueTextValues([sharedOrigin, ...savedOrigins]);
   }
 
   function loadMplDirectoryFromStorage() {
@@ -1318,49 +1328,123 @@
     }
   }
 
-  const MPL_DIRECTORY_ADDRESS_FIELDS = ['ship_from', 'delivery_address', 'billing_address'];
+  function getSharedMplDirectoryShipFrom() {
+    const savedOrigins = mplDirectoryRows
+      .map(row => String(row?.ship_from ?? row?.SHIP_FROM ?? row?.['SHIP FROM'] ?? '').trim())
+      .filter(Boolean);
+    if (!savedOrigins.length) return mplDirectorySharedShipFrom || DEFAULT_KEHE_SHIP_FROM;
 
-  function directoryRecordTypeLabel(value) {
-    return ({
-      CUSTOMER_DEFAULT: 'Customer Default',
-      DESTINATION: 'Ship-To Destination',
-      DISTRIBUTION_CENTER: 'Distribution Center',
-    })[normalizeB2BDirectoryRecordType(value)] || 'Ship-To Destination';
+    const counts = new Map();
+    savedOrigins.forEach(origin => counts.set(origin, (counts.get(origin) || 0) + 1));
+    const currentOrigin = String(mplDirectorySharedShipFrom || '').trim();
+    const savedOrigin = [...counts.entries()]
+      .sort((left, right) => {
+        const countDifference = right[1] - left[1];
+        if (countDifference) return countDifference;
+        if (left[0] === currentOrigin) return -1;
+        if (right[0] === currentOrigin) return 1;
+        return 0;
+      })[0]?.[0];
+    if (savedOrigin) mplDirectorySharedShipFrom = savedOrigin;
+    return mplDirectorySharedShipFrom || DEFAULT_KEHE_SHIP_FROM;
   }
 
-  function directoryRecordTypeOptionsHtml(selected) {
-    const normalized = normalizeB2BDirectoryRecordType(selected);
-    return B2B_DIRECTORY_RECORD_TYPES.map(value => (
-      `<option value="${escapeHtml(value)}" ${value === normalized ? 'selected' : ''}>${escapeHtml(directoryRecordTypeLabel(value))}</option>`
-    )).join('');
+  function renderSharedDirectoryOrigin() {
+    const origin = getSharedMplDirectoryShipFrom();
+    const lines = origin.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const name = document.getElementById('directory-shared-origin-name');
+    const address = document.getElementById('directory-shared-origin-address');
+    const editor = document.getElementById('directory-shared-origin-editor');
+    const input = document.getElementById('directory-shared-origin-input');
+    const editButton = document.getElementById('btn-edit-directory-origin');
+    if (name) name.textContent = lines[0] || 'Ship From';
+    if (address) address.textContent = lines.slice(1).join(', ') || 'Address not set';
+    if (input && editor?.classList.contains('hidden')) input.value = origin;
+    if (editButton) {
+      const canEdit = hasPermission('table_crud');
+      editButton.classList.toggle('hidden', !canEdit);
+      editButton.disabled = !canEdit;
+    }
   }
 
-  function directoryAddressLabel(field) {
-    return ({ ship_from: 'Ship From', delivery_address: 'Ship To', billing_address: 'Bill To' })[field] || 'Ship To';
+  function toggleSharedDirectoryOriginEditor() {
+    if (!hasPermission('table_crud')) return;
+    const editor = document.getElementById('directory-shared-origin-editor');
+    const input = document.getElementById('directory-shared-origin-input');
+    if (!editor || !input) return;
+    const opening = editor.classList.contains('hidden');
+    editor.classList.toggle('hidden', !opening);
+    if (opening) {
+      input.value = getSharedMplDirectoryShipFrom();
+      window.requestAnimationFrame(() => input.focus());
+    }
   }
 
-  function directoryAddressFieldForRow(index, row) {
-    const saved = mplDirectoryAddressTabs.get(index);
-    if (MPL_DIRECTORY_ADDRESS_FIELDS.includes(saved)) return saved;
-    if (row.delivery_address) return 'delivery_address';
-    if (row.ship_from) return 'ship_from';
-    if (row.billing_address) return 'billing_address';
-    return row.record_type === 'CUSTOMER_DEFAULT' ? 'ship_from' : 'delivery_address';
+  function cancelSharedDirectoryOriginEdit() {
+    document.getElementById('directory-shared-origin-editor')?.classList.add('hidden');
+    renderSharedDirectoryOrigin();
   }
 
-  function directoryAddressCoverage(row) {
-    return MPL_DIRECTORY_ADDRESS_FIELDS
-      .filter(field => String(row[field] || '').trim())
-      .map(directoryAddressLabel);
-  }
-
-  function setMplDirectoryAddressTab(index, field) {
-    if (!MPL_DIRECTORY_ADDRESS_FIELDS.includes(field)) return;
-    mplDirectoryAddressTabs.set(index, field);
-    renderMplDirectoryTable();
-    window.requestAnimationFrame(() => {
-      document.querySelector(`[data-directory-row-index="${index}"] [data-directory-address="${field}"]`)?.focus();
+  function saveSharedDirectoryOrigin() {
+    if (!hasPermission('table_crud')) return;
+    const input = document.getElementById('directory-shared-origin-input');
+    const origin = String(input?.value || '').trim();
+    if (!origin) {
+      setStatus('Enter a Ship From address before applying it.', 'error');
+      input?.focus();
+      return;
+    }
+    const previousOrigin = getSharedMplDirectoryShipFrom();
+    mplDirectorySharedShipFrom = origin;
+    mplDirectoryRows.forEach(row => {
+      const currentOrigin = String(row.ship_from || '').trim();
+      if (!currentOrigin || currentOrigin === previousOrigin) row.ship_from = origin;
     });
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    document.getElementById('directory-shared-origin-editor')?.classList.add('hidden');
+    renderSharedDirectoryOrigin();
+    setStatus('Default Ship From updated. Saved destination overrides were preserved.', 'success');
+  }
+
+  function selectMplDirectoryShipFrom(index, value) {
+    if (!hasPermission('table_crud') || !mplDirectoryRows[index]) return;
+    if (value === '__custom__') {
+      const editor = document.getElementById(`directory-origin-custom-${index}`);
+      editor?.classList.remove('hidden');
+      editor?.querySelector('textarea')?.focus();
+      return;
+    }
+    mplDirectoryRows[index].ship_from = String(value || '').trim() || getSharedMplDirectoryShipFrom();
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    renderMplDirectoryTable();
+    setStatus('Ship From selection saved for this destination.', 'success');
+  }
+
+  function saveMplDirectoryShipFromOverride(index) {
+    if (!hasPermission('table_crud') || !mplDirectoryRows[index]) return;
+    const input = document.querySelector(`#directory-origin-custom-${index} textarea`);
+    const origin = String(input?.value || '').trim();
+    if (!origin) {
+      setStatus('Enter the alternate Ship From address.', 'error');
+      input?.focus();
+      return;
+    }
+    mplDirectoryRows[index].ship_from = origin;
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    renderMplDirectoryTable();
+    setStatus('Alternate Ship From saved and added to workflow address selectors.', 'success');
+  }
+
+  function resetMplDirectoryShipFrom(index) {
+    if (!hasPermission('table_crud') || !mplDirectoryRows[index]) return;
+    mplDirectoryRows[index].ship_from = getSharedMplDirectoryShipFrom();
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    renderMplDirectoryTable();
+    setStatus('This destination now uses the default Ship From.', 'success');
   }
 
   function renderMplDirectoryTable() {
@@ -1369,14 +1453,11 @@
     const canEdit = hasPermission('table_crud');
     const editDisabled = canEdit ? '' : 'disabled';
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
+    renderSharedDirectoryOrigin();
     syncTableFilterOptions('mpl-directory-storefront-filter', rows.map(row => row.storefront), 'All customers');
-    syncTableFilterOptions('mpl-directory-type-filter', rows.map(row => row.record_type), 'All record types');
-    document.querySelectorAll('#mpl-directory-type-filter option').forEach(option => {
-      if (option.value) option.textContent = directoryRecordTypeLabel(option.value);
-    });
     const search = String(document.getElementById('mpl-directory-search')?.value || '').trim().toLowerCase();
     const storefront = String(document.getElementById('mpl-directory-storefront-filter')?.value || '').trim().toLowerCase();
-    const recordType = String(document.getElementById('mpl-directory-type-filter')?.value || '').trim().toLowerCase();
+    const addressStatus = String(document.getElementById('mpl-directory-type-filter')?.value || '').trim();
     const status = String(document.getElementById('mpl-directory-status-filter')?.value || '').trim().toLowerCase();
     const filtered = rows
       .map((row, index) => ({ row, index }))
@@ -1399,26 +1480,35 @@
           row.match_values,
         ].some(value => String(value || '').toLowerCase().includes(search)))
           && (!storefront || String(row.storefront || '').trim().toLowerCase() === storefront)
-          && (!recordType || String(row.record_type || '').trim().toLowerCase() === recordType)
+          && (!addressStatus
+            || (addressStatus === 'complete' && !!String(row.delivery_address || '').trim() && !!String(row.billing_address || '').trim())
+            || (addressStatus === 'missing_ship_to' && !String(row.delivery_address || '').trim())
+            || (addressStatus === 'missing_bill_to' && !String(row.billing_address || '').trim()))
           && statusMatches;
       });
     const countEl = document.getElementById('mpl-directory-count');
     if (countEl) countEl.textContent = `${filtered.length} of ${rows.length} records`;
     if (!filtered.length) {
-      body.innerHTML = `<div class="empty-row">${rows.length ? 'No directory records match this search.' : 'No directory rows yet. Add a customer or destination.'}</div>`;
+      body.innerHTML = `<div class="empty-row">${rows.length ? 'No destinations match these filters.' : 'No destinations yet. Add one manually or import an address file.'}</div>`;
       return;
     }
     if (!filtered.some(({ index }) => index === mplDirectoryExpandedIndex)) {
       mplDirectoryExpandedIndex = filtered[0].index;
     }
     body.innerHTML = filtered.map(({ row, index }) => {
-      const addressField = directoryAddressFieldForRow(index, row);
-      const addressCoverage = directoryAddressCoverage(row);
+      const hasShipTo = !!String(row.delivery_address || '').trim();
+      const hasBillTo = !!String(row.billing_address || '').trim();
+      const addressCount = Number(hasShipTo) + Number(hasBillTo);
+      const shipToSummary = hasShipTo ? String(row.delivery_address).split(/\r?\n/)[0] : 'Ship To missing';
+      const sharedOrigin = getSharedMplDirectoryShipFrom();
+      const selectedOrigin = String(row.ship_from || '').trim() || sharedOrigin;
+      const originOptions = getSavedMplShipFromAddresses();
+      const usesSharedOrigin = selectedOrigin === sharedOrigin;
       return `
       <details class="mpl-directory-card" data-directory-row-index="${index}" ${index === mplDirectoryExpandedIndex ? 'open' : ''}>
         <summary onclick="selectMplDirectoryCard(${index}, event)">
           <span class="directory-card-title">${escapeHtml(row.name || row.storefront || 'Unnamed record')}<small>${escapeHtml(row.storefront || 'No customer')} · ${escapeHtml(row.dc || 'No code')}</small></span>
-          <span class="directory-card-meta">${escapeHtml(directoryRecordTypeLabel(row.record_type))}<small>${escapeHtml(addressCoverage.length ? addressCoverage.join(' · ') : 'No address saved')}</small></span>
+          <span class="directory-card-meta">${escapeHtml(shipToSummary)}<small>${addressCount} of 2 destination addresses saved</small></span>
           <span class="directory-card-status">${escapeHtml(row.verification_status || (row.is_active ? 'ACTIVE' : 'INACTIVE'))}</span>
           <span class="directory-card-toggle" aria-hidden="true"><span class="directory-card-toggle-edit">Edit details</span><span class="directory-card-toggle-hide">Editing</span></span>
         </summary>
@@ -1438,32 +1528,39 @@
             </select></label>
             <label>Code <input ${editDisabled} value="${escapeHtml(row.dc)}" placeholder="45" oninput="updateMplDirectoryRow(${index}, 'dc', this.value)"></label>
             <label>Name <input ${editDisabled} value="${escapeHtml(row.name)}" placeholder="DC / Customer / Store" oninput="updateMplDirectoryRow(${index}, 'name', this.value)"></label>
-            <label>Record Type <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'record_type', this.value)">
-              ${directoryRecordTypeOptionsHtml(row.record_type)}
-            </select></label>
             <label title="Tracks review without changing label content; Blocked hides the configuration from general users.">Data Status <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'verification_status', this.value)">
               ${selectOptionsHtml(B2B_VERIFICATION_STATUSES, row.verification_status, 'Select status')}
             </select></label>
-            <label class="mpl-toggle-field">Active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
+            <label class="directory-active-control"><span><strong>Active destination</strong><small>Available in address selectors</small></span><input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
           </div>
-          <section class="directory-address-workbench">
+          <section class="directory-destination-workbench">
+            <div class="directory-origin-choice">
+              <div><span>Ship From for this destination</span><strong>${usesSharedOrigin ? 'Using the default origin' : 'Using a saved alternative'}</strong><small>The selected origin is available before generating packing lists and labels.</small></div>
+              <label><span>Origin</span><select ${editDisabled} onchange="selectMplDirectoryShipFrom(${index}, this.value)">
+                ${originOptions.map(origin => `<option value="${escapeHtml(origin)}" ${origin === selectedOrigin ? 'selected' : ''}>${escapeHtml(`${origin === sharedOrigin ? 'Default' : 'Saved'} — ${firstLine(origin) || origin}`)}</option>`).join('')}
+                ${canEdit ? '<option value="__custom__">Add another Ship From…</option>' : ''}
+              </select></label>
+              ${!usesSharedOrigin && canEdit ? `<button class="btn-secondary" type="button" onclick="resetMplDirectoryShipFrom(${index})">Use default</button>` : ''}
+            </div>
+            <div class="directory-origin-custom hidden" id="directory-origin-custom-${index}">
+              <label>Alternate Ship From Address<textarea rows="4" placeholder="Company&#10;Street address&#10;City, State ZIP&#10;Country">${escapeHtml(selectedOrigin)}</textarea></label>
+              <div><button class="btn-secondary" type="button" onclick="renderMplDirectoryTable()">Cancel</button><button class="btn-generate" type="button" onclick="saveMplDirectoryShipFromOverride(${index})">Save alternative</button></div>
+            </div>
             <div class="directory-address-heading">
-              <div><span>Addresses</span><strong>Edit one address role at a time</strong></div>
-              <label>Address to edit
-                <select onchange="setMplDirectoryAddressTab(${index}, this.value)">
-                  ${MPL_DIRECTORY_ADDRESS_FIELDS.map(field => `<option value="${field}" ${field === addressField ? 'selected' : ''}>${directoryAddressLabel(field)}</option>`).join('')}
-                </select>
-              </label>
+              <div><span>Destination addresses</span><strong>Enter the addresses used on labels and packing lists</strong></div>
+              <span class="directory-completeness-badge ${addressCount === 2 ? 'complete' : ''}">${addressCount} of 2 complete</span>
             </div>
             <div class="directory-address-grid">
-              <label class="directory-address-field">${directoryAddressLabel(addressField)} Address
-                <textarea data-directory-address="${addressField}" rows="4" ${editDisabled} placeholder="Enter the ${directoryAddressLabel(addressField).toLowerCase()} address" oninput="updateMplDirectoryRow(${index}, '${addressField}', this.value)">${escapeHtml(row[addressField] || '')}</textarea>
+              <label class="directory-address-field"><span>Ship To Address <small>Required for destination documents</small></span>
+                <textarea rows="4" ${editDisabled} placeholder="Company or location&#10;Street address&#10;City, State ZIP&#10;Country" oninput="updateMplDirectoryRow(${index}, 'delivery_address', this.value)">${escapeHtml(row.delivery_address || '')}</textarea>
               </label>
-              <label>Match Values
-                <textarea rows="4" ${editDisabled} placeholder="One GLN, address fragment, city, or ZIP per line" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea>
+              <label class="directory-address-field"><span>Bill To Address <button class="directory-copy-address" type="button" ${editDisabled} onclick="copyMplDirectoryAddress(${index}, 'delivery_address', 'billing_address')">Same as Ship To</button></span>
+                <textarea rows="4" ${editDisabled} placeholder="Enter the billing address, or copy Ship To" oninput="updateMplDirectoryRow(${index}, 'billing_address', this.value)">${escapeHtml(row.billing_address || '')}</textarea>
               </label>
             </div>
-            <div class="directory-address-coverage">${MPL_DIRECTORY_ADDRESS_FIELDS.map(field => `<button type="button" class="directory-address-chip ${field === addressField ? 'selected' : ''} ${String(row[field] || '').trim() ? 'complete' : ''}" onclick="setMplDirectoryAddressTab(${index}, '${field}')"><span>${directoryAddressLabel(field)}</span><small>${String(row[field] || '').trim() ? 'Saved' : 'Missing'}</small></button>`).join('')}</div>
+            <label class="directory-match-values">Matching values <small>Optional GLN, city, ZIP, address fragment, or customer reference—one per line.</small>
+              <textarea rows="3" ${editDisabled} placeholder="Example: 0569813430045&#10;Ontario&#10;91761" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea>
+            </label>
           </section>
           <details class="directory-optional-details" ${row.default_label_template_id || row.receiving_email || row.manufacturer_name || row.manufacturer_address || row.docking_instructions || row.source_note ? 'open' : ''}>
             <summary><span><strong>Label, receiving, and notes</strong><small>Optional operational defaults for this record</small></span><span>Show details</span></summary>
@@ -1495,9 +1592,11 @@
 
   function addMplDirectoryRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
+    const filteredStorefront = String(document.getElementById('mpl-directory-storefront-filter')?.value || '').trim();
     const newRow = normalizeDcDirectoryRow({
-      storefront: selectedKit === 'b2b' ? (b2bSelectedCustomer || 'New Customer') : 'KeHE',
+      storefront: filteredStorefront || (selectedKit === 'b2b' ? (b2bSelectedCustomer || 'New Customer') : 'KeHE'),
       dc: `DRAFT-${Date.now()}`,
+      ship_from: getSharedMplDirectoryShipFrom(),
       record_type: selectedKit === 'b2b' ? 'CUSTOMER_DEFAULT' : 'DESTINATION',
       verification_status: 'DRAFT',
       is_active: true,
@@ -1514,6 +1613,18 @@
       card.scrollIntoView({ behavior: 'smooth', block: 'center' });
       card.querySelector('input, select, textarea')?.focus();
     }
+  }
+
+  function copyMplDirectoryAddress(index, sourceField, targetField) {
+    if (!hasPermission('table_crud')) return;
+    if (!mplDirectoryRows[index]) return;
+    const allowedFields = ['delivery_address', 'billing_address'];
+    if (!allowedFields.includes(sourceField) || !allowedFields.includes(targetField)) return;
+    mplDirectoryRows[index][targetField] = String(mplDirectoryRows[index][sourceField] || '').trim();
+    saveMplDirectoryToStorage();
+    saveMplDirectoryToBackendDebounced();
+    renderMplDirectoryTable();
+    setStatus('Bill To copied from Ship To.', 'success');
   }
 
   async function useMplDirectoryForB2B(index) {

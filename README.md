@@ -2,7 +2,7 @@
 
 Merged LabelKit is a FastAPI web app for print-ready label and packing-list workflows.
 
-Current documented release: `2026.09.18-directory-partner-flow`
+Current documented release: `2026.09.21-master-data-workflows`
 
 - Michaels DTS: match ASN XML to ShipStation shipping-label PDFs, generate one combined PDF, and review/export the match report.
 - KeHE GS1: upload KeHE ASN XML, use read-only KeHE-filtered reference table views, preview/edit outputs, and generate GS1 labels, pack labels, pallet labels, master packing lists, and TI-HI pallet layouts.
@@ -230,7 +230,7 @@ Final shipping-case data is entered once instead of being repeated at every pack
 
 KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B uses `Available in Label Creator` and `Active` to control general-user availability. `Data Status` is limited to `DRAFT`, `NEEDS_REVIEW`, `VERIFIED`, or `BLOCKED`; it never changes printed label content. `BLOCKED` hides a configuration from general users, while Admin/Editor roles can still inspect, correct, preview, and print it. Missing business values appear as review warnings instead of turning the label creator into a dead end.
 
-The standalone Directory uses searchable customer/destination cards with a persistent editor. The first matching record opens automatically, and selecting `Edit details` moves the entry form to that record. Identity and status stay visible at the top. A single `Address to edit` control switches between `Ship From`, `Ship To`, and `Bill To`, while compact Saved/Missing indicators show the completeness of all three roles without displaying three large address fields at once. Template, receiving, manufacturer, docking, and source-note fields remain available in the optional details panel. Changes save automatically. `Add Record` creates a draft and immediately opens its fields. Preview/Label Creator and `Delete record` actions remain visible in the editor header. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work. This is a UI simplification only: the existing address fields and Catalyst Directory schema remain unchanged.
+The standalone Directory uses searchable customer/destination cards with a persistent editor patterned after Product Master. The first matching record opens automatically, and selecting `Edit details` moves the entry form to that destination. `Ship To` and `Bill To` are visible together, with a `Same as Ship To` shortcut for billing. The shared Bakell `Ship From` address is displayed once and remains the automatic default, so users do not repeatedly enter it. An authorized Admin or Editor can change that default or save an alternate Ship From on a destination; unique active origins then appear in document-workflow dropdowns and a selection applies only to the current run. Changing the default preserves saved alternatives. Template, receiving, manufacturer, docking, and source-note fields remain available in the optional details panel. Changes save automatically. `Add Destination` creates a draft for the currently filtered customer when possible and immediately opens its fields. The directory template/export includes a blank-by-default `Ship From Override` column, so only exceptions need to be entered; older imports containing `Ship From` remain accepted, and rows without an override inherit the saved default. Preview/Label Creator and `Delete record` actions remain visible in the editor header. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work. The established Catalyst `SHIP_FROM`, `DELIVERY_ADDRESS`, and `BILLING_ADDRESS` columns remain unchanged for compatibility with label and packing-list generation, so this feature requires no Catalyst schema migration.
 
 Table maintenance tools:
 
@@ -403,7 +403,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.18-directory-partner-flow"
+$release = "2026.09.21-master-data-workflows"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -472,7 +472,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.18-directory-partner-flow"
+$release = "2026.09.21-master-data-workflows"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```

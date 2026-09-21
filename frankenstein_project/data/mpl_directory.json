@@ -231,7 +231,7 @@
       "storefront": "DecoPac",
       "dc": "DECOPAC-DEFAULT",
       "name": "DECOPAC, INC",
-      "ship_from": "",
+      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
       "delivery_address": "ANOKA, MN USA",
       "billing_address": "",
       "match_values": [
@@ -269,9 +269,9 @@
       "docking_instructions": "",
       "verification_status": "NEEDS_REVIEW",
       "source_note": "Manufacturer identity/address comes from the current LabelKit directory data; confirm it is authoritative for the bulk label.",
-      "is_active": true,
+      "is_active": false,
       "unique_key": "generic b2b|generic-bulk-default"
     }
   ],
-  "updated_at": "2026-07-31T22:16:54Z"
+  "updated_at": "2026-09-21T16:25:08Z"
 }

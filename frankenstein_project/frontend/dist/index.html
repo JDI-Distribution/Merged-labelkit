@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/assets/css/module-system.css">
   <link rel="stylesheet" href="/assets/css/mpl-draft-sync.css">
   <link rel="stylesheet" href="/assets/css/workflow-enhancements.css">
+  <link rel="stylesheet" href="/assets/css/master-data.css">
 </head>
 <body data-module="home">
 
@@ -693,6 +694,14 @@
           <div><span>Review status</span><strong id="partner-review-status">Ready</strong></div>
         </section>
 
+        <section class="b2b-card partner-address-card">
+          <div class="partner-address-heading">
+            <div><div class="b2b-card-kicker">Order addresses</div><h3>Choose addresses for this order</h3></div>
+            <span>Options are filtered to the detected customer</span>
+          </div>
+          <div class="partner-address-selectors" id="partner-address-selectors"></div>
+        </section>
+
         <section class="b2b-card partner-documents-card">
           <div class="b2b-card-heading">
             <div class="b2b-heading-with-step">
@@ -721,21 +730,20 @@
                   <p>Review item quantities, pallet assignments, weights, addresses, and TI-Hi details.</p>
                   <div class="partner-mpl-metrics"><span><strong id="partner-mpl-item-count">0</strong> items</span><span><strong id="partner-mpl-pallet-count">0</strong> pallets</span><span id="partner-mpl-edit-status">Ready to review</span></div>
                 </div>
-                <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Review &amp; Edit Master Packing List</span><small>Open the full packing-list editor</small></button>
-              </div>
-              <div class="partner-section-production">
-                <div><div class="b2b-card-kicker">Production PDF</div><strong>Generate Master Packing List</strong><small>Create the current reviewed packing-list PDF.</small></div>
-                <div class="partner-section-production-actions">
-                  <button class="btn-secondary hidden" id="btn-preview-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')" disabled>Open Packing List PDF</button>
+                <div class="partner-mpl-review-actions">
+                  <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Review &amp; Edit Master Packing List</span><small>Open the full packing-list editor</small></button>
                   <button class="btn-generate" id="btn-generate-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')">Generate &amp; Open PDF</button>
                 </div>
               </div>
             </section>
           </div>
-          <div class="partner-generate-row">
-            <span>Generate the selected documents after reviewing any required changes.</span>
-            <button class="btn-generate" id="btn-render-partner-previews" type="button" onclick="renderPartnerPreviews()">Generate Selected PDFs</button>
-          </div>
+          <section class="partner-download-panel" aria-labelledby="partner-download-title">
+            <div class="partner-download-heading">
+              <div><div class="b2b-card-kicker">Finished documents</div><h4 id="partner-download-title">Download files</h4></div>
+              <span>Generate each document above, then download its current PDF here.</span>
+            </div>
+            <div class="partner-download-files" id="partner-download-files"></div>
+          </section>
         </section>
       </div>
 
@@ -1043,10 +1051,17 @@
 
         <div class="kehe-product-master-scroll">
           <table class="kehe-product-master-table">
-            <thead>
+            <thead class="product-master-list-heading">
               <tr>
-                <th style="width:88%">Product Entry</th>
-                <th style="width:12%">Actions</th>
+                <th colspan="2">
+                  <div class="product-master-list-columns">
+                    <span aria-hidden="true"></span>
+                    <span>Product</span>
+                    <span>Customer &amp; readiness</span>
+                    <span>Packaging summary</span>
+                    <span>Action</span>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody id="mpl-product-master-body">
@@ -1069,7 +1084,7 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Customer &amp; Destination Directory</div>
-          <div class="kehe-product-master-subtitle">Customer defaults, receiving requirements, ship-to addresses, and template defaults.</div>
+          <div class="kehe-product-master-subtitle">Maintain reusable customer destinations for labels and packing lists.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplDirectoryModal()">Close</button>
       </div>
@@ -1078,26 +1093,42 @@
         <div class="kehe-product-master-toolbar product-master-command-bar">
           <div class="product-master-command-copy">
             <div class="kehe-product-master-title">Directory Records</div>
-            <div class="kehe-product-master-subtitle">Keep customer identity, label defaults, and shipping addresses in reusable records. Edit one address role at a time.</div>
+            <div class="kehe-product-master-subtitle">Add each destination once. Ship From is applied automatically by default, with optional saved alternatives when another origin is needed.</div>
           </div>
           <div class="product-master-command-actions" aria-label="Customer Directory actions">
             <div class="product-master-action-group">
-              <span>Import data</span>
+              <span>Address data</span>
               <div>
-                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('dc-directory')">Download Template</button>
-                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('dc-directory')">Upload File</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('dc-directory')">Download Address Template</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('dc-directory')">Import Addresses</button>
               </div>
             </div>
             <div class="product-master-action-group">
-              <span>Records</span>
+              <span>Directory</span>
               <div>
-                <button class="btn-secondary product-master-action" type="button" onclick="exportMplDirectoryTable()">Export CSV</button>
-                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_directory')">History</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="exportMplDirectoryTable()">Export Directory</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
               </div>
             </div>
-            <button class="btn-generate product-master-add-action" type="button" onclick="addMplDirectoryRow()">Add Record</button>
+            <button class="btn-generate product-master-add-action" type="button" onclick="addMplDirectoryRow()">Add Destination</button>
           </div>
           <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
+        </div>
+
+        <div class="directory-shared-origin" role="note" aria-label="Shared Ship From address">
+          <div class="directory-shared-origin-mark">SF</div>
+          <div><span>Shared Ship From · Applied automatically</span><strong id="directory-shared-origin-name">BAKELL LLC</strong><small id="directory-shared-origin-address">1967 Essex Ct, Redlands, CA 92373, USA</small></div>
+          <div class="directory-shared-origin-actions">
+            <span class="directory-shared-origin-status">Default for new destinations and document runs</span>
+            <button class="btn-secondary" id="btn-edit-directory-origin" type="button" onclick="toggleSharedDirectoryOriginEditor()">Edit shared origin</button>
+          </div>
+        </div>
+        <div class="directory-shared-origin-editor hidden" id="directory-shared-origin-editor">
+          <label>Shared Ship From Address
+            <textarea id="directory-shared-origin-input" rows="4" placeholder="Company&#10;Street address&#10;City, State ZIP&#10;Country"></textarea>
+          </label>
+          <div><button class="btn-secondary" type="button" onclick="cancelSharedDirectoryOriginEdit()">Cancel</button><button class="btn-generate" type="button" onclick="saveSharedDirectoryOrigin()">Save Default Origin</button></div>
+          <small>This changes the default origin in local and Catalyst storage while preserving saved destination overrides.</small>
         </div>
 
         <div class="table-filter-toolbar" aria-label="Customer directory filters">
@@ -1112,9 +1143,12 @@
             </select>
           </label>
           <label class="table-filter-control">
-            <span>Record type</span>
+            <span>Address status</span>
             <select id="mpl-directory-type-filter" onchange="renderMplDirectoryTable()">
-              <option value="">All record types</option>
+              <option value="">All destinations</option>
+              <option value="complete">Complete addresses</option>
+              <option value="missing_ship_to">Missing Ship To</option>
+              <option value="missing_bill_to">Missing Bill To</option>
             </select>
           </label>
           <label class="table-filter-control">
@@ -1129,8 +1163,9 @@
           <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderMplDirectoryTable, 'mpl-directory-search', 'mpl-directory-storefront-filter', 'mpl-directory-type-filter', 'mpl-directory-status-filter')">Clear filters</button>
           <span class="table-filter-count" id="mpl-directory-count" aria-live="polite"></span>
         </div>
+        <div class="directory-list-heading" aria-hidden="true"><span>Destination</span><span>Address readiness</span><span>Status</span><span>Actions</span></div>
         <div class="mpl-directory-card-list" id="mpl-directory-body">
-          <div class="empty-row">No directory rows yet.</div>
+          <div class="empty-row">No destinations yet.</div>
         </div>
       </div>
 

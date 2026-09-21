@@ -66,6 +66,8 @@
     const backendCustomer = String(payload?.detected_partner_customer || '').trim();
     if (PARTNER_WORKFLOW_CONFIG[backendCustomer]) return backendCustomer;
     const candidates = [
+      payload?.order_details?.email_id,
+      payload?.order_details?.email,
       payload?.order_details?.storefront,
       payload?.order_details?.billing_customer_name,
       payload?.order_details?.ship_to_name,
@@ -122,13 +124,105 @@
     )) || null;
   }
 
+  function partnerDirectoryRows(customerId = partnerCustomerId) {
+    const config = PARTNER_WORKFLOW_CONFIG[customerId] || {};
+    const customerNames = [config.label, ...(config.detectionAliases || [])]
+      .map(value => normalizeStorefront(value).toLowerCase())
+      .filter(Boolean);
+    if (!customerNames.length) return [];
+    return mplDirectoryRows
+      .map(normalizeDcDirectoryRow)
+      .filter(row => row.is_active !== false)
+      .filter(row => {
+        const storefront = normalizeStorefront(row.storefront).toLowerCase();
+        if (!storefront) return false;
+        return customerNames.some(name => storefront === name || storefront.includes(name) || name.includes(storefront));
+      });
+  }
+
+  function partnerAddressValue(field) {
+    const mpl = partnerMplDraft?.packing_lists?.[0] || {};
+    if (field === 'ship_from') return String(mpl.supplier_info || '');
+    if (field === 'billing_address') return String(mpl.bill_to || '');
+    return String(mpl.ship_to || '');
+  }
+
+  function partnerAddressOptions(field) {
+    const options = [];
+    const seen = new Set();
+    const directoryRows = field === 'ship_from'
+      ? mplDirectoryRows.map(normalizeDcDirectoryRow).filter(row => row.is_active !== false)
+      : partnerDirectoryRows();
+    const sharedOrigin = field === 'ship_from' ? getSharedMplDirectoryShipFrom() : '';
+    directoryRows.forEach((row, index) => {
+      const value = String(row[field] || '').trim();
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      const record = [row.name, row.dc ? `DC ${row.dc}` : ''].filter(Boolean).join(' · ') || `Directory record ${index + 1}`;
+      const label = field === 'ship_from'
+        ? `${value === sharedOrigin ? 'Default' : 'Saved origin'} — ${firstLine(value) || value}`
+        : `${record} — ${firstLine(value) || value}`;
+      options.push({ value, label, source: 'directory' });
+    });
+    const current = partnerAddressValue(field).trim();
+    if (current && !seen.has(current)) options.unshift({ value: current, label: `Current order — ${firstLine(current) || current}`, source: 'order' });
+    return options;
+  }
+
+  function renderPartnerAddressSelectors() {
+    const container = document.getElementById('partner-address-selectors');
+    if (!container) return;
+    const fields = [
+      ['ship_from', 'Ship From'],
+      ['delivery_address', 'Ship To'],
+      ['billing_address', 'Bill To'],
+    ];
+    container.innerHTML = fields.map(([field, label]) => {
+      const options = partnerAddressOptions(field);
+      const current = partnerAddressValue(field).trim();
+      const savedCount = options.filter(option => option.source === 'directory').length;
+      const select = options.length
+        ? `<select onchange="selectPartnerAddress('${field}', this.value)">${options.map(option => `<option value="${escapeHtml(option.value)}" ${option.value === current ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select>`
+        : `<select disabled><option>No ${escapeHtml(label)} addresses saved</option></select>`;
+      const note = savedCount
+        ? `${savedCount} saved for ${partnerCustomerLabel()}`
+        : (current ? `Using the order value; no saved ${label} address` : `No ${label} address available`);
+      return `<label><span>${escapeHtml(label)}</span>${select}<small>${escapeHtml(note)}</small></label>`;
+    }).join('');
+    enhanceSearchableSelects(container);
+  }
+
+  function selectPartnerAddress(field, value) {
+    if (!['ship_from', 'delivery_address', 'billing_address'].includes(field)) return;
+    const address = String(value || '').trim();
+    const matchedRow = partnerDirectoryRows().find(row => String(row[field] || '').trim() === address) || {};
+    partnerLabelJobs.forEach(job => {
+      job.directory = { ...(job.directory || {}), [field]: address };
+      if (field === 'delivery_address') {
+        job.directory.name = matchedRow.name || job.directory.name || partnerCustomerLabel();
+        job.directory.dc = matchedRow.dc || job.directory.dc || '';
+      }
+    });
+    const mpl = partnerMplDraft?.packing_lists?.[0];
+    if (mpl) {
+      if (field === 'ship_from') mpl.supplier_info = address;
+      else if (field === 'billing_address') mpl.bill_to = address;
+      else {
+        mpl.ship_to = address;
+        mpl.dc = matchedRow.dc || mpl.dc || '';
+        mpl.dc_name = matchedRow.name || mpl.dc_name || '';
+      }
+    }
+    ['packLabels', 'palletLabel', 'masterPackingList'].forEach(markPartnerPreviewStale);
+    renderPartnerWorkspace();
+    setStatus(`${directoryAddressLabel(field)} updated for this order.`, 'success');
+  }
+
   function buildPartnerLabelJobs(payload, customerId) {
     const details = payload?.order_details || {};
     const customer = partnerCustomerLabel(customerId);
     const shippingAddress = analyticsMplAddress(details, 'shipping');
-    const directory = mplDirectoryRows.map(normalizeDcDirectoryRow).find(row => (
-      normalizeStorefront(row.storefront).toLowerCase().includes(customer.toLowerCase()) && row.is_active !== false
-    )) || {};
+    const directory = partnerDirectoryRows(customerId)[0] || {};
     const makeJob = (item, index, requestedTemplateId = '') => {
       const product = normalizeProductRow(item?.product || {
         storefront: customer,
@@ -218,9 +312,15 @@
     draft.storefront = partnerCustomerLabel(customerId);
     const mpl = draft.packing_lists?.[0];
     if (mpl) {
+      const directory = partnerDirectoryRows(customerId)[0] || {};
       mpl.template_id = mplTemplateId;
       mpl.brand_id = 'bakell';
       mpl.storefront = partnerCustomerLabel(customerId);
+      mpl.supplier_info = directory.ship_from || mpl.supplier_info || '';
+      mpl.ship_to = directory.delivery_address || mpl.ship_to || '';
+      mpl.bill_to = directory.billing_address || mpl.bill_to || '';
+      mpl.dc = directory.dc || mpl.dc || '';
+      mpl.dc_name = directory.name || mpl.dc_name || '';
       (mpl.items || []).forEach((row, index) => {
         const source = payload?.items?.[index] || {};
         const product = source?.product || {};
@@ -284,7 +384,7 @@
       document.getElementById('partner-order-instance-picker')?.classList.add('hidden');
       updateWorkflowProgress('Matching SKUs', 'Matching order lines to Product Master…');
       const detectedCustomerId = detectPartnerCustomer(payload);
-      const customerId = partnerCustomerOverride || detectedCustomerId;
+      const customerId = detectedCustomerId || partnerCustomerOverride;
       if (!customerId) throw new Error('Customer could not be detected. Select DecoPac, Dutch Bros, or Fancy Sprinkles, then load the order again.');
       partnerOrderPayload = payload;
       partnerCustomerId = customerId;
@@ -297,7 +397,7 @@
       revokePartnerPreviewUrls();
       renderPartnerWorkspace();
       const selectionNote = detectedCustomerId === customerId ? 'detected' : 'selected';
-      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. Review the documents, then generate the selected PDFs.`, 'success');
+      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. Review and generate each document below.`, 'success');
       closeWorkflowProgress();
     } catch (err) {
       closeWorkflowProgress();
@@ -518,22 +618,6 @@
       if (element) element.disabled = !!disabled;
     };
     setDisabled('btn-partner-mpl', !loaded || !mplEnabled || !partnerMplDraft);
-    setDisabled('btn-preview-partner-mpl', !mplEnabled || !partnerMplPreviewUrl);
-    document.getElementById('btn-preview-partner-mpl')?.classList.toggle('hidden', !mplEnabled || !partnerMplPreviewUrl);
-    [['masterPackingList', 'btn-preview-partner-mpl', 'Open Packing List PDF']].forEach(([kind, id, label]) => {
-      const previewButton = document.getElementById(id);
-      if (!previewButton) return;
-      const stale = partnerPreviewIsStale(kind);
-      previewButton.textContent = stale ? `${label} · Refresh needed` : label;
-      previewButton.classList.toggle('preview-stale', stale);
-    });
-    const button = document.getElementById('btn-render-partner-previews');
-    if (button) {
-      button.disabled = !loaded || (!labelsEnabled && !mplEnabled);
-      button.textContent = partnerLabelsPreviewUrl || partnerPalletLabelsPreviewUrl || partnerMplPreviewUrl
-        ? 'Regenerate Selected PDFs'
-        : 'Generate Selected PDFs';
-    }
     const mplGenerateButton = document.getElementById('btn-generate-partner-mpl');
     if (mplGenerateButton) {
       mplGenerateButton.disabled = !loaded || !mplEnabled || !partnerMplDraft;
@@ -543,6 +627,24 @@
     document.querySelector('.partner-mpl-workflow-section')?.classList.toggle('disabled', !mplEnabled);
     const labelProductionButton = document.querySelector('#partner-inline-label-editor .partner-inline-production .btn-generate');
     if (labelProductionButton) labelProductionButton.disabled = !loaded || !labelsEnabled;
+    renderPartnerDownloadFiles();
+  }
+
+  function renderPartnerDownloadFiles() {
+    const container = document.getElementById('partner-download-files');
+    if (!container) return;
+    const files = [];
+    if (partnerJobsForKind('packLabels').length) files.push({ kind: 'packLabels', label: 'Customer labels', filename: partnerLabelFilename('packLabels'), url: partnerLabelsPreviewUrl });
+    if (partnerJobsForKind('palletLabel').length) files.push({ kind: 'palletLabel', label: 'Pallet labels', filename: partnerLabelFilename('palletLabel'), url: partnerPalletLabelsPreviewUrl });
+    files.push({ kind: 'masterPackingList', label: 'Master packing list', filename: `${partnerCustomerId || 'customer'}_packing_list.pdf`, url: partnerMplPreviewUrl });
+    container.innerHTML = files.map(file => {
+      const stale = partnerPreviewIsStale(file.kind);
+      const state = stale ? 'Changed — regenerate above' : (file.url ? 'PDF ready' : 'Generate above first');
+      const action = file.url && !stale
+        ? `<a class="btn-secondary" href="${escapeHtml(file.url)}" download="${escapeHtml(file.filename)}">Download PDF</a>`
+        : `<button class="btn-secondary" type="button" disabled>${stale ? 'Regenerate above' : 'Not generated yet'}</button>`;
+      return `<article><div><strong>${escapeHtml(file.label)}</strong><small>${escapeHtml(state)}</small></div>${action}</article>`;
+    }).join('');
   }
 
   function renderPartnerWorkspace() {
@@ -571,6 +673,7 @@
     document.getElementById('partner-mpl-item-count').textContent = String(itemCount);
     document.getElementById('partner-mpl-pallet-count').textContent = String(mpl.total_pallets || mpl._pallet_ids?.length || 1);
     document.getElementById('partner-mpl-edit-status').textContent = partnerPreviewIsStale('masterPackingList') ? 'Changes need a new PDF' : (partnerMplPreviewUrl ? 'Production PDF ready' : 'Ready to review');
+    renderPartnerAddressSelectors();
     renderPartnerInlineEditors();
     renderPartnerSelectionState();
   }
@@ -596,7 +699,7 @@
       setStatus(`${partnerCustomerLabel(customerId)} layout applied to the packing list and labels.`, 'success');
       return;
     }
-    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Review the documents, then generate the selected PDFs.`, 'success');
+    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Review and generate each document below.`, 'success');
   }
 
   async function renderPartnerLabelsPreview(kind = 'packLabels') {
@@ -621,6 +724,7 @@
       scope: 'partners',
       name: partnerLabelFilename(kind),
       labelType: partnerLabelKindName(kind),
+      format: 'rollo',
       labels: selectedJobs.reduce((total, job) => total + Math.max(1, Number(job.run?.copies || 1)) * Math.max(1, Number(job.run?.carton_total || 1)), 0),
       pallets: kind === 'palletLabel' ? Math.max(1, Number(partnerMplDraft?.packing_lists?.[0]?.total_pallets || 1)) : 0,
       blob: pdf,
@@ -658,6 +762,7 @@
       scope: 'partners',
       name: `${partnerCustomerId || 'customer'}_packing_list.pdf`,
       labelType: 'Master Packing List',
+      format: 'a4',
       pallets: Math.max(1, Number(activeKeheDocumentDraft.packing_lists?.[0]?.total_pallets || 1)),
       blob: pdf,
     });
@@ -690,34 +795,6 @@
       setStatus(`PDF generation failed: ${err?.message || 'unknown error'}`, 'error');
     } finally {
       closeWorkflowProgress();
-    }
-  }
-
-  async function renderPartnerPreviews() {
-    const options = arguments[0] || {};
-    const button = document.getElementById('btn-render-partner-previews');
-    if (button) button.disabled = true;
-    setStatus('Rendering the selected label and packing-list previews…', 'info');
-    try {
-      if (!options.skipReadiness && !(await confirmDocumentReadiness('partners'))) return;
-      showWorkflowProgress(3, 'Preparing customer labels…');
-      if (document.getElementById('partner-generate-labels')?.checked) {
-        await renderPartnerLabelsPreview('packLabels');
-        await renderPartnerLabelsPreview('palletLabel');
-      } else window.clearGeneratedOutputs?.('partners-packLabels', 'partners-palletLabel');
-      if (document.getElementById('partner-generate-mpl')?.checked) {
-        updateWorkflowProgress('Rendering packing list', 'Rendering the packing list and Ti-Hi…');
-        await renderPartnerMplPreview();
-      } else window.clearGeneratedOutputs?.('partners-mpl');
-      updateWorkflowProgress('Opening preview', 'Finalizing document previews…');
-      closeWorkflowProgress();
-      setStatus('Selected PDFs are ready. Open a document below to review, save, or print it.', 'success');
-      showPrintSummary('partners');
-    } catch (err) {
-      closeWorkflowProgress();
-      setStatus(`Preview generation failed: ${err?.message || 'unknown error'}`, 'error');
-    } finally {
-      renderPartnerSelectionState();
     }
   }
 

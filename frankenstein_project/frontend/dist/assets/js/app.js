@@ -436,6 +436,7 @@
   const MPL_PRODUCT_MASTER_STORAGE_KEY = 'jdi_mpl_product_master_rows_v1';
   const MPL_DIRECTORY_STORAGE_KEY = 'jdi_mpl_directory_rows_v1';
   const DEFAULT_KEHE_SHIP_FROM = 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA';
+  let mplDirectorySharedShipFrom = DEFAULT_KEHE_SHIP_FROM;
   let keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
   let keheDcDirectoryLoadPromise = null;
   let mplProductMasterRows = loadMplProductMasterFromStorage();
@@ -446,7 +447,6 @@
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
   let mplDirectoryExpandedIndex = -1;
-  const mplDirectoryAddressTabs = new Map();
   let b2bLabelTemplates = [];
   let b2bSelectedCustomer = '';
   let b2bSelectedGroupKey = '';
@@ -661,7 +661,7 @@
   function applyPermissionUi() {
     const tableCrud = hasPermission('table_crud');
     const auditView = hasPermission('audit_view');
-    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"], button[onclick^="triggerExcelImport"]').forEach(btn => {
+    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"], button[onclick="toggleSharedDirectoryOriginEditor()"], button[onclick^="triggerExcelImport"]').forEach(btn => {
       btn.classList.toggle('hidden', !tableCrud);
       btn.disabled = !tableCrud;
     });
@@ -1463,6 +1463,7 @@
     const key = field === 'supplier_info'
       ? 'ship_from'
       : (field === 'bill_to' ? 'billing_address' : 'delivery_address');
+    if (field === 'supplier_info') return getSavedMplShipFromAddresses();
     return uniqueManualOptions(getActiveDcDirectoryRows().map(row => row[key]));
   }
 
@@ -2251,50 +2252,68 @@
     setStatus(`Exported ${rows.length} Product Master row${rows.length === 1 ? '' : 's'}.`, 'success');
   }
 
+  function directoryCsvHeader() {
+    return [
+      'Customer / Storefront', 'Code', 'Destination Name', 'Ship From Override', 'Ship To', 'Bill To', 'Match Values',
+      'Record Type', 'Default Label Template ID', 'Receiving Email', 'Docking Instructions',
+      'Manufacturer Name', 'Manufacturer Address', 'Verification Status', 'Source Note', 'Active'
+    ];
+  }
+
+  function directoryCsvRow(row = {}) {
+    const sharedOrigin = getSharedMplDirectoryShipFrom();
+    const shipFromOverride = String(row.ship_from || '').trim() === sharedOrigin ? '' : row.ship_from;
+    return [
+      row.storefront,
+      row.dc,
+      row.name,
+      shipFromOverride,
+      row.delivery_address,
+      row.billing_address,
+      Array.isArray(row.match_values) ? row.match_values.join('\n') : row.match_values,
+      row.record_type,
+      row.default_label_template_id,
+      row.receiving_email,
+      row.docking_instructions,
+      row.manufacturer_name,
+      row.manufacturer_address,
+      row.verification_status,
+      row.source_note,
+      row.is_active,
+    ];
+  }
+
   function exportMplDirectoryTable() {
     const rows = getMplDirectoryRows();
     downloadCsvRows('labelkit_directory_export.csv', [
-      [
-        'Storefront', 'Code', 'Name', 'Ship From', 'Ship To', 'Bill To', 'Match Values',
-        'Record Type', 'Default Label Template ID', 'Manufacturer Name', 'Manufacturer Address',
-        'Receiving Email', 'Docking Instructions', 'Verification Status', 'Source Note', 'Active'
-      ],
-      ...rows.map(row => [
-        row.storefront,
-        row.dc,
-        row.name,
-        row.ship_from,
-        row.delivery_address,
-        row.billing_address,
-        row.match_values.join('\n'),
-        row.record_type,
-        row.default_label_template_id,
-        row.manufacturer_name,
-        row.manufacturer_address,
-        row.receiving_email,
-        row.docking_instructions,
-        row.verification_status,
-        row.source_note,
-        row.is_active,
-      ])
+      directoryCsvHeader(),
+      ...rows.map(directoryCsvRow)
     ]);
-    setStatus(`Exported ${rows.length} Directory row${rows.length === 1 ? '' : 's'}.`, 'success');
+    setStatus(`Exported ${rows.length} destination record${rows.length === 1 ? '' : 's'}. Only non-default Ship From overrides are included.`, 'success');
   }
 
   function downloadImportTemplate(target) {
     const isDirectory = target === 'dc-directory';
     const rows = isDirectory
       ? [
+          directoryCsvHeader(),
           [
-            'Storefront', 'Code', 'Name', 'Ship From', 'Ship To', 'Bill To', 'Match Values',
-            'Record Type', 'Default Label Template ID', 'Manufacturer Name', 'Manufacturer Address',
-            'Receiving Email', 'Docking Instructions', 'Verification Status', 'Source Note', 'Active'
+            'USAGE GUIDE — not imported', 'Unique customer destination code', 'Customer, DC, store, or warehouse name',
+            'Optional alternate origin; leave blank to use the shared default', 'Required destination address', 'Billing address; may match Ship To', 'Optional GLN, city, ZIP, or aliases separated by line breaks',
+            'Use DESTINATION for shipping locations', 'Optional saved label template', 'Optional receiving contact', 'Optional delivery instructions',
+            'Optional manufacturer override', 'Optional manufacturer address override', 'DRAFT / NEEDS_REVIEW / VERIFIED / BLOCKED', 'Optional source or review note', 'true/false'
           ],
-          [
-            'KeHE', '45', 'KeHE Romeoville DC', 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA',
-            'Ship To address here', 'Bill To address here', 'GLN or matching values here',
-            'DESTINATION', '', '', '', '', '', 'VERIFIED', '', 'true'
-          ]
+          directoryCsvRow(normalizeDcDirectoryRow({
+            storefront: 'KeHE',
+            dc: '45',
+            name: 'KeHE Ontario DC',
+            delivery_address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
+            billing_address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
+            match_values: ['0569813430045', 'Ontario', '91761'],
+            record_type: 'DESTINATION',
+            verification_status: 'DRAFT',
+            is_active: true,
+          }))
         ]
       : [
           productMasterCsvHeader(),
@@ -2310,7 +2329,7 @@
           productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', is_active: true }))
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
-    setStatus(`${isDirectory ? 'Directory' : 'Product Master'} import template downloaded.`, 'success');
+    setStatus(`${isDirectory ? 'Address Directory' : 'Product Master'} import template downloaded.`, 'success');
   }
 
   async function handleExcelImportFile(target, input) {
@@ -2327,13 +2346,13 @@
     const form = new FormData();
     form.append('file', file);
     try {
-      setStatus('Reading Excel import preview...', 'info');
+      setStatus(target === 'dc-directory' ? 'Reading address import preview…' : 'Reading Product Master import preview…', 'info');
       const res = await fetch(endpoint, { method: 'POST', body: form });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not preview Excel import.');
       activeExcelImportPreview = { target, ...data };
       await navigateToRoute(`mpl/import/${target}`);
-      setStatus('Excel import preview ready. Confirm to save changes.', 'info');
+      setStatus(`${target === 'dc-directory' ? 'Address' : 'Product Master'} import preview ready. Confirm to save changes.`, 'info');
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not preview Excel import.'), 'error');
     }
@@ -2343,7 +2362,7 @@
     const preview = activeExcelImportPreview || {};
     const summary = preview.summary || {};
     document.getElementById('excel-import-title').textContent = preview.target === 'dc-directory'
-      ? 'Directory Table Excel Import Preview'
+      ? 'Address Directory Import Preview'
       : 'Product Master Table Excel Import Preview';
     document.getElementById('excel-import-summary').textContent =
       `${preview.filename || 'Excel file'} • ${summary.added_rows || 0} added • ${summary.updated_rows || 0} updated • ${summary.unchanged_rows || 0} unchanged • ${summary.duplicate_rows || 0} duplicate • ${summary.invalid_rows || 0} invalid`;
@@ -2357,7 +2376,7 @@
     const rowModeLabel = document.getElementById('excel-import-row-mode-label');
     if (rowModeLabel) {
       rowModeLabel.textContent = preview.target === 'dc-directory'
-        ? 'Unique key: Storefront + Code. Matching rows update the existing Directory record.'
+        ? 'Unique key: Customer + Code. Ship From is supplied automatically; matching destinations update the existing record.'
         : 'Unique key: Storefront + Config ID + Packaging Level. Legacy rows without Config ID use Storefront + Packaging Level + SKU.';
     }
     const body = document.getElementById('excel-import-body');
@@ -2678,7 +2697,11 @@
       const select = options.length
         ? `<select onchange="applyManualMplAddress(${mplIndex}, '${jsString(field)}', this.value)">
             <option value="">Select ${escapeHtml(label)}</option>
-            ${options.map((option, index) => `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escapeHtml(firstLine(option) || option)}</option>`).join('')}
+            ${options.map((option, index) => {
+              const isDefaultOrigin = field === 'supplier_info' && option === getSharedMplDirectoryShipFrom();
+              const optionLabel = `${isDefaultOrigin ? 'Default — ' : ''}${firstLine(option) || option}`;
+              return `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escapeHtml(optionLabel)}</option>`;
+            }).join('')}
           </select>`
         : `<select disabled><option>No ${escapeHtml(label)} options</option></select>`;
       return renderManualMplSelect(label, select);

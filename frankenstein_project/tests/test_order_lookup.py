@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from server import (
     FRONTEND_DIST,
     _analytics_case_conversion,
+    _apply_shared_directory_ship_from,
     _analytics_order_details,
     _analytics_order_instance_groups,
     _analytics_kehe_case_conversion,
@@ -26,6 +27,7 @@ from server import (
     serve_frontend_index,
 )
 from labelkit.draft_storage import MPL_VERSION_LIMIT, bounded_versions
+from labelkit.reference_data import DEFAULT_DIRECTORY_SHIP_FROM, _dedupe_dc_directory_rows, normalize_dc_directory_row
 from pipelines.kehe.common import (
     _validate_mpl_each_item_numbers,
     apply_product_master_to_mpl_draft,
@@ -42,6 +44,49 @@ def _frontend_javascript_bundle() -> str:
 
 
 class AnalyticsOrderInstanceTests(unittest.TestCase):
+    def test_directory_applies_shared_bakell_origin_without_replacing_destination_addresses(self):
+        row = normalize_dc_directory_row({
+            "storefront": "Example",
+            "dc": "A1",
+            "delivery_address": "Destination",
+            "billing_address": "Billing",
+        })
+
+        self.assertEqual(DEFAULT_DIRECTORY_SHIP_FROM, row["ship_from"])
+        self.assertEqual("Destination", row["delivery_address"])
+        self.assertEqual("Billing", row["billing_address"])
+        self.assertEqual([], _dedupe_dc_directory_rows([{}]))
+
+        imported = [normalize_dc_directory_row({"storefront": "Example", "dc": "B2"})]
+        _apply_shared_directory_ship_from(imported, [{"ship_from": "NEW ORIGIN\n100 NEW STREET"}])
+        self.assertEqual("NEW ORIGIN\n100 NEW STREET", imported[0]["ship_from"])
+
+        imported_with_override = [normalize_dc_directory_row({
+            "storefront": "Example",
+            "dc": "C3",
+            "ship_from": "ALTERNATE ORIGIN\n200 OTHER STREET",
+        })]
+        _apply_shared_directory_ship_from(
+            imported_with_override,
+            [
+                {"ship_from": "ONE-OFF ORIGIN"},
+                {"ship_from": "CURRENT DEFAULT"},
+                {"ship_from": "CURRENT DEFAULT"},
+            ],
+        )
+        self.assertEqual("ALTERNATE ORIGIN\n200 OTHER STREET", imported_with_override[0]["ship_from"])
+
+        imported_without_override = [normalize_dc_directory_row({"storefront": "Example", "dc": "D4"})]
+        _apply_shared_directory_ship_from(
+            imported_without_override,
+            [
+                {"ship_from": "ONE-OFF ORIGIN"},
+                {"ship_from": "CURRENT DEFAULT"},
+                {"ship_from": "CURRENT DEFAULT"},
+            ],
+        )
+        self.assertEqual("CURRENT DEFAULT", imported_without_override[0]["ship_from"])
+
     def test_order_lookup_helpers_validate_and_select_consistently(self):
         self.assertEqual("SO-101", _validated_sales_order_number({"sales_order_number": " SO-101 "}))
         with self.assertRaises(HTTPException):
@@ -782,11 +827,15 @@ class FrontendDeliveryTests(unittest.TestCase):
         for button_id in (
             "btn-partner-mpl",
             "btn-generate-partner-mpl",
-            "btn-preview-partner-mpl",
-            "btn-render-partner-previews",
         ):
             self.assertIn(f'id="{button_id}"', html)
+        self.assertNotIn('id="btn-preview-partner-mpl"', html)
+        self.assertNotIn('id="btn-render-partner-previews"', html)
         self.assertIn('id="partner-inline-label-editor"', html)
+        self.assertIn('id="partner-address-selectors"', html)
+        self.assertIn('id="partner-download-files"', html)
+        self.assertIn('Download files', html)
+        self.assertNotIn('Generate Master Packing List</strong>', html)
         self.assertIn('id="partner-generate-labels"', html)
         self.assertIn('id="partner-generate-mpl"', html)
         self.assertNotIn('id="partner-label-editor-list"', html)
@@ -815,8 +864,34 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("palletJob.run.copies = '2'", javascript)
         self.assertIn("function detectPartnerCustomer(payload)", javascript)
         self.assertIn("payload?.detected_partner_customer", javascript)
+        self.assertIn("payload?.order_details?.email_id", javascript)
+        self.assertIn("const customerId = detectedCustomerId || partnerCustomerOverride;", javascript)
         self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
-        self.assertIn("async function renderPartnerPreviews()", javascript)
+        self.assertIn("function partnerDirectoryRows(customerId", javascript)
+        self.assertIn("function renderPartnerAddressSelectors()", javascript)
+        self.assertIn("function selectPartnerAddress(field, value)", javascript)
+        self.assertIn("function renderPartnerDownloadFiles()", javascript)
+        self.assertNotIn("async function renderPartnerPreviews()", javascript)
+        self.assertIn("openGeneratedOutput", javascript)
+        self.assertIn("Open each PDF directly from here", javascript)
+        self.assertIn("Ship From is applied automatically", html)
+        self.assertIn("Shared Ship From · Applied automatically", html)
+        self.assertIn("Edit shared origin", html)
+        self.assertIn("Save Default Origin", html)
+        self.assertIn("Add Destination", html)
+        self.assertIn("Download Address Template", html)
+        self.assertIn("Import Addresses", html)
+        self.assertIn("Export Directory", html)
+        self.assertIn("Change History", html)
+        self.assertIn("function copyMplDirectoryAddress", javascript)
+        self.assertIn("function saveSharedDirectoryOrigin", javascript)
+        self.assertIn("function getSavedMplShipFromAddresses", javascript)
+        self.assertIn("function saveMplDirectoryShipFromOverride", javascript)
+        self.assertIn("Saved origin", javascript)
+        self.assertIn("Same as Ship To", javascript)
+        self.assertIn("directory-active-control", javascript)
+        self.assertNotIn("<label>Record Type", javascript)
+        self.assertNotIn("Address to edit", javascript)
         self.assertIn("const saveBeforeGenerate = !!options.saveMplDraft;", javascript)
 
 

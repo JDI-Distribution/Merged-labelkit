@@ -67,7 +67,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.444",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-CRS109-4OZ",
       "config_id": "",
       "customer_item_number": "",
@@ -148,7 +148,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.444",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-CRS104-4OZ",
       "config_id": "",
       "customer_item_number": "",
@@ -229,7 +229,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.444",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-BRS209-4OZ",
       "config_id": "",
       "customer_item_number": "",
@@ -310,7 +310,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.444",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-BRS205-4OZ",
       "config_id": "",
       "customer_item_number": "",
@@ -364,7 +364,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.28",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-PIABX-HOLIDAY",
       "config_id": "",
       "customer_item_number": "",
@@ -445,7 +445,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.28",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-PIABX-FAN",
       "config_id": "",
       "customer_item_number": "",
@@ -553,7 +553,7 @@
       "each_net_weight_g": "",
       "package_net_weight_g": "",
       "gross_weight_lbs": "0.444",
-      "case_qty": "",
+      "case_qty": "1",
       "sku": "TW-CRS118-4OZ",
       "config_id": "",
       "customer_item_number": "",
@@ -1183,7 +1183,7 @@
       "barcode_level": "CASE",
       "default_copies": "",
       "verification_status": "NEEDS_REVIEW",
-      "label_enabled": true,
+      "label_enabled": false,
       "source_note": "Generated carton range and page-helper values are run/UI data and are not seeded.",
       "is_active": true,
       "unique_key": "decopac|decopac-50250-case|case"
@@ -1675,5 +1675,5 @@
       "unique_key": "standard b2b|draft-1789599184295|shipper contents"
     }
   ],
-  "updated_at": "2026-09-16T22:53:12Z"
+  "updated_at": "2026-09-21T16:19:45Z"
 }

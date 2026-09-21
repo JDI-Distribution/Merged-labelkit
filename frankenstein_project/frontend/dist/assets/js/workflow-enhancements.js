@@ -16,6 +16,7 @@
   let mplHistory = [];
   let mplHistoryIndex = -1;
   let singlePartnerPreviewUrl = null;
+  let generatedOutputPreviewUrl = null;
 
   function digits(value) { return String(value || '').replace(/\D/g, ''); }
   function positive(value, whole = false) {
@@ -332,17 +333,17 @@
   };
   window.clearGeneratedOutputs = (...keys) => keys.flat().forEach(key => generatedOutputs.delete(key));
   window.showPrintSummary = (scope = selectedKit) => {
-    const outputs = [...generatedOutputs.values()].filter(output => !scope || output.scope === scope);
+    const outputs = [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
     const readiness = getReadiness(['partners', 'b2b', 'kehe'].includes(scope) ? scope : 'mpl');
     const metrics = {
       files: outputs.length,
-      pages: outputs.reduce((sum, output) => sum + Number(output.pages || 0), 0),
-      labels: outputs.reduce((sum, output) => sum + Number(output.labels || 0), 0),
-      pallets: outputs.reduce((sum, output) => sum + Number(output.pallets || 0), 0),
+      pages: outputs.reduce((sum, [, output]) => sum + Number(output.pages || 0), 0),
+      labels: outputs.reduce((sum, [, output]) => sum + Number(output.labels || 0), 0),
+      pallets: outputs.reduce((sum, [, output]) => sum + Number(output.pallets || 0), 0),
       review: new Set(readiness.issues.map(issue => issue.sku)).size,
     };
     const labelCounts = new Map();
-    outputs.filter(output => Number(output.labels || 0) > 0).forEach(output => {
+    outputs.map(([, output]) => output).filter(output => Number(output.labels || 0) > 0).forEach(output => {
       const label = output.labelType || 'Labels';
       labelCounts.set(label, (labelCounts.get(label) || 0) + Number(output.labels || 0));
     });
@@ -375,7 +376,7 @@
       : isPartnerSummary
         ? 'The selected PDFs were created and are ready for review.'
         : 'Final generated output and remaining review items.';
-    if (done) done.textContent = isB2BSummary ? 'View PDF' : isPartnerSummary ? 'Review PDFs' : 'Done';
+    if (done) done.textContent = isB2BSummary ? 'View PDF' : isPartnerSummary ? 'Close' : 'Done';
     const metricRows = isB2BSummary
       ? [['PDF files', metrics.files], ['Pages', metrics.pages], ['Labels', metrics.labels], ['Needs review', metrics.review]]
       : isPartnerSummary
@@ -385,10 +386,23 @@
       .map(([label, value]) => `<div class="workflow-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('')}</div>
       ${jobGroups.size ? `<section class="workflow-warning-panel"><header><strong>Label job</strong><span>${jobGroups.size}</span></header><div class="workflow-warning-list">${[...jobGroups.values()].map(group => `<div class="workflow-warning-row"><strong>${escapeHtml(group.sku)}</strong><small>${escapeHtml(group.type)}</small><span>${escapeHtml(String(group.copies))} label(s)</span></div>`).join('')}</div></section>` : ''}
       ${labelCounts.size && !isCompactLabelSummary ? `<section class="workflow-warning-panel"><header><strong>Labels by type</strong><span>${labelCounts.size}</span></header><div class="workflow-warning-list">${[...labelCounts.entries()].map(([label, count]) => `<div class="workflow-warning-row"><strong>${escapeHtml(label)}</strong><small>Included in this print run</small><span>${count}</span></div>`).join('')}</div></section>` : ''}
-      <section class="workflow-warning-panel"><header><strong>Generated files</strong><span>${outputs.length}</span></header><div class="workflow-warning-list">${outputs.length ? outputs.map(output => `<div class="workflow-warning-row"><strong>${escapeHtml(output.name || 'PDF')}</strong><small>${escapeHtml(output.labelType || '')}</small><span>${escapeHtml(String(output.pages || 0))} page(s)</span></div>`).join('') : '<div class="workflow-warning-row"><strong>No PDFs</strong><small>Generate a document to populate this summary.</small><span></span></div>'}</div></section>`;
+      <section class="workflow-warning-panel"><header><div><strong>Generated files</strong><small>Open each PDF directly from here—no need to return to the document sections.</small></div><span>${outputs.length}</span></header><div class="workflow-warning-list">${outputs.length ? outputs.map(([key, output]) => `<div class="workflow-generated-file"><div><strong>${escapeHtml(output.name || 'PDF')}</strong><small>${escapeHtml(output.labelType || '')}</small></div><span>${escapeHtml(String(output.pages || 0))} page(s)</span><button class="btn-secondary" type="button" onclick="openGeneratedOutput('${jsString(key)}')">Open PDF</button></div>`).join('') : '<div class="workflow-warning-row"><strong>No PDFs</strong><small>Generate a document to populate this summary.</small><span></span></div>'}</div></section>`;
     modal?.classList.add('visible');
   };
   window.closePrintSummary = () => document.getElementById('workflow-print-summary-modal')?.classList.remove('visible');
+  window.openGeneratedOutput = async key => {
+    const output = generatedOutputs.get(String(key || ''));
+    if (!output?.blob) return;
+    if (generatedOutputPreviewUrl) URL.revokeObjectURL(generatedOutputPreviewUrl);
+    generatedOutputPreviewUrl = URL.createObjectURL(output.blob);
+    blobUrl = generatedOutputPreviewUrl;
+    document.getElementById('btn-download').download = output.name || 'document.pdf';
+    setDownloadReady(true, generatedOutputPreviewUrl);
+    setActivePreviewFormat(output.format || (/packing list/i.test(output.labelType || '') ? 'a4' : 'rollo'));
+    resetPreviewSurface();
+    closePrintSummary();
+    await openPreview();
+  };
 
   window.openLabelJobSummary = scope => {
     const jobs = scope === 'partners' ? (partnerLabelJobs || []) : (getSelectedB2BProduct?.() ? [{ print_selected: true, product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }] : []);

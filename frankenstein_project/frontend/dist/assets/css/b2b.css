@@ -1030,8 +1030,154 @@
       padding: 2px;
     }
 
+    .directory-list-heading {
+      display: grid;
+      grid-template-columns: 28px minmax(220px, 1fr) minmax(170px, .8fr) auto auto;
+      gap: 11px;
+      align-items: center;
+      padding: 0 18px;
+      color: #697b87;
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+
+    .directory-list-heading span:nth-child(1) { grid-column: 2; }
+    .directory-list-heading span:nth-child(2) { grid-column: 3; }
+    .directory-list-heading span:nth-child(3) { grid-column: 4; }
+    .directory-list-heading span:nth-child(4) { grid-column: 5; }
+
     .mpl-directory-card-list > * {
       flex: 0 0 auto;
+    }
+
+    .directory-shared-origin {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      margin: 12px 0;
+      padding: 11px 13px;
+      border: 1px solid #c9ded8;
+      border-radius: 11px;
+      background: linear-gradient(135deg, #eff8f5 0%, #f7fafb 100%);
+      color: #284b55;
+    }
+
+    .directory-shared-origin-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: #0f766e;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .06em;
+    }
+
+    .directory-shared-origin > div:nth-child(2) {
+      min-width: 0;
+      display: grid;
+      gap: 1px;
+    }
+
+    .directory-shared-origin span,
+    .directory-shared-origin small {
+      color: #607681;
+      font-size: 9.5px;
+      font-weight: 750;
+    }
+
+    .directory-shared-origin strong {
+      color: #183f49;
+      font-size: 11.5px;
+    }
+
+    .directory-shared-origin-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .directory-shared-origin-actions .btn-secondary {
+      min-height: 32px;
+      width: auto;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .directory-shared-origin-status {
+      border: 1px solid #b9d7cf;
+      border-radius: 999px;
+      background: #fff;
+      color: #176b5d !important;
+      padding: 5px 9px;
+      font-weight: 850 !important;
+      white-space: nowrap;
+    }
+
+    .directory-shared-origin-editor {
+      display: grid;
+      grid-template-columns: minmax(300px, 1fr) auto;
+      align-items: end;
+      gap: 10px 14px;
+      margin: -2px 0 12px;
+      padding: 13px;
+      border: 1px solid #b9d7cf;
+      border-radius: 11px;
+      background: #fff;
+      box-shadow: 0 8px 20px rgba(31, 66, 61, .08);
+    }
+
+    .directory-shared-origin-editor.hidden { display: none; }
+
+    .directory-shared-origin-editor label {
+      display: grid;
+      gap: 5px;
+      color: #435d67;
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .directory-shared-origin-editor textarea {
+      min-height: 88px;
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      border: 1px solid #c7d5dc;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: #213746;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.4;
+      text-transform: none;
+    }
+
+    .directory-shared-origin-editor > div {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .directory-shared-origin-editor > div button {
+      min-height: 38px;
+      width: auto;
+      white-space: nowrap;
+    }
+
+    .directory-shared-origin-editor > small {
+      grid-column: 1 / -1;
+      color: #6c7e88;
+      font-size: 9.5px;
     }
 
     .mpl-directory-card {
@@ -1170,7 +1316,7 @@
       box-shadow: 0 5px 14px rgba(30, 55, 74, 0.08);
     }
 
-    .directory-card-editor-heading > div {
+    .directory-card-editor-heading > div:first-child {
       display: grid;
       gap: 2px;
     }
@@ -1201,13 +1347,14 @@
       align-items: center;
       justify-content: flex-end;
       gap: 8px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
 
     .directory-card-editor-actions .btn-secondary,
     .directory-card-editor-actions .btn-table-preview,
     .directory-card-editor-actions .directory-delete-button {
       min-height: 36px;
+      width: auto !important;
       padding: 8px 12px;
       font-size: 10.5px;
       white-space: nowrap;
@@ -1259,7 +1406,72 @@
       margin-bottom: 14px;
     }
 
-    .directory-address-workbench {
+    .directory-active-control {
+      display: flex !important;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px !important;
+      min-height: 40px;
+      box-sizing: border-box;
+      border: 1px solid #c9d9e2;
+      border-radius: 8px;
+      background: #fff;
+      padding: 7px 10px;
+    }
+
+    .directory-active-control > span {
+      min-width: 0;
+      display: grid;
+      gap: 1px;
+    }
+
+    .directory-active-control strong {
+      color: #334d5c;
+      font-size: 10.5px;
+      font-weight: 850;
+    }
+
+    .directory-active-control small {
+      color: #7b8b95;
+      font-size: 9px;
+      font-weight: 650;
+    }
+
+    .directory-active-control input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      position: relative;
+      flex: 0 0 auto;
+      width: 38px !important;
+      height: 22px !important;
+      min-height: 22px !important;
+      margin: 0;
+      border: 0 !important;
+      border-radius: 999px !important;
+      background: #b8c4cb;
+      cursor: pointer;
+      transition: background .16s ease;
+    }
+
+    .directory-active-control input[type="checkbox"]::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(25, 43, 54, .28);
+      transition: transform .16s ease;
+    }
+
+    .directory-active-control input[type="checkbox"]:checked { background: #0f766e; }
+    .directory-active-control input[type="checkbox"]:checked::after { transform: translateX(16px); }
+    .directory-active-control input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .55; }
+
+    .directory-address-workbench,
+    .directory-destination-workbench {
       margin-top: 2px;
       padding: 14px;
       border: 1px solid #d3dde4;
@@ -1294,6 +1506,23 @@
       font-size: 12px;
     }
 
+    .directory-completeness-badge {
+      border: 1px solid #ead3a4;
+      border-radius: 999px;
+      background: #fff8e8;
+      color: #95610f;
+      padding: 6px 9px;
+      font-size: 9.5px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .directory-completeness-badge.complete {
+      border-color: #b9dccd;
+      background: #eaf8f1;
+      color: #176b50;
+    }
+
     .directory-address-heading label {
       min-width: 210px;
       display: grid;
@@ -1317,6 +1546,75 @@
       gap: 12px;
     }
 
+    .directory-origin-choice {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) minmax(260px, .8fr) auto;
+      align-items: end;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid #d7e1e5;
+      border-radius: 10px;
+      background: #f7faf9;
+    }
+
+    .directory-origin-choice > div,
+    .directory-origin-choice label,
+    .directory-origin-custom label {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .directory-origin-choice span,
+    .directory-origin-custom label {
+      color: #536776;
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .directory-origin-choice strong { color: #244153; font-size: 12px; }
+    .directory-origin-choice small { color: #70808c; font-size: 9.5px; font-weight: 650; }
+    .directory-origin-choice select {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid #c9d5dc;
+      border-radius: 8px;
+      background: #fff;
+      color: #213746;
+      padding: 7px 9px;
+    }
+
+    .directory-origin-custom {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 12px;
+      margin: -4px 0 12px;
+      padding: 12px;
+      border: 1px solid #bcd8d2;
+      border-radius: 10px;
+      background: #f2faf7;
+    }
+
+    .directory-origin-custom textarea {
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      border: 1px solid #c9d5dc;
+      border-radius: 8px;
+      background: #fff;
+      color: #213746;
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .directory-origin-custom > div { display: flex; gap: 8px; }
+
     .directory-address-grid label {
       min-width: 0;
       display: grid;
@@ -1326,9 +1624,71 @@
       font-weight: 800;
     }
 
+    .directory-address-field > span {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .directory-address-field > span small {
+      color: #7a8994;
+      font-size: 9px;
+      font-weight: 650;
+    }
+
+    .directory-copy-address {
+      border: 0;
+      background: transparent;
+      color: #0f766e;
+      cursor: pointer;
+      font: inherit;
+      font-size: 9.5px;
+      font-weight: 850;
+      padding: 2px 0;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .directory-copy-address:disabled {
+      color: #9aa8b1;
+      cursor: default;
+      text-decoration: none;
+    }
+
     .directory-address-grid textarea {
       min-height: 105px;
       resize: vertical;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .directory-match-values {
+      display: grid;
+      gap: 5px;
+      margin-top: 11px;
+      color: #536776;
+      font-size: 10.5px;
+      font-weight: 800;
+    }
+
+    .directory-match-values small {
+      color: #748590;
+      font-size: 9.5px;
+      font-weight: 650;
+    }
+
+    .directory-match-values textarea {
+      min-height: 72px;
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      border: 1px solid #c9d5dc;
+      border-radius: 8px;
+      background: #fff;
+      color: #213746;
+      padding: 8px 10px;
       font: inherit;
       font-size: 12px;
       line-height: 1.4;
@@ -1442,6 +1802,7 @@
       .mpl-directory-card summary {
         grid-template-columns: 28px 1fr;
       }
+      .directory-list-heading { display: none; }
       .directory-card-meta,
       .directory-card-status,
       .directory-card-toggle {
@@ -1454,6 +1815,7 @@
       .directory-card-editor-actions {
         justify-content: flex-start;
         width: 100%;
+        flex-wrap: wrap;
       }
       #mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
         grid-template-columns: 1fr;
@@ -1464,6 +1826,16 @@
       }
       .directory-address-heading label { min-width: 0; }
       .directory-address-grid { grid-template-columns: 1fr; }
+      .directory-origin-choice,
+      .directory-origin-custom { grid-template-columns: 1fr; align-items: stretch; }
+      .directory-origin-choice > button { width: 100%; }
+      .directory-origin-custom > div { justify-content: stretch; }
+      .directory-origin-custom > div button { flex: 1 1 0; }
+      .directory-shared-origin { grid-template-columns: auto 1fr; }
+      .directory-shared-origin-actions { grid-column: 2; justify-content: flex-start; }
+      .directory-shared-origin-editor { grid-template-columns: 1fr; }
+      .directory-shared-origin-editor > div { justify-content: stretch; }
+      .directory-shared-origin-editor > div button { flex: 1 1 0; white-space: normal; }
       #mpl-directory-modal .directory-card-body .mpl-field-wide {
         grid-column: auto;
       }

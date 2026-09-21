@@ -17,6 +17,7 @@ DEFAULT_CASE_QTY_BY_LEVEL = {
 }
 B2B_VERIFICATION_STATUSES = {"DRAFT", "NEEDS_REVIEW", "VERIFIED", "BLOCKED"}
 B2B_DIRECTORY_RECORD_TYPES = {"CUSTOMER_DEFAULT", "DESTINATION", "DISTRIBUTION_CENTER"}
+DEFAULT_DIRECTORY_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
 def normalize_packaging_level(value: Any) -> str:
     raw = re.sub(r"\s+", " ", str(value or "").strip().lower())
@@ -380,7 +381,10 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
     dc = _first_value(row, "dc", "DC")
     name = _first_value(row, "name", "NAME")
-    ship_from = _first_value(row, "ship_from", "SHIP_FROM", "ship_from_address", "SHIP_FROM_ADDRESS", "Ship From")
+    ship_from = (
+        _first_value(row, "ship_from", "SHIP_FROM", "ship_from_address", "SHIP_FROM_ADDRESS", "Ship From")
+        or DEFAULT_DIRECTORY_SHIP_FROM
+    )
     delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
     billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
     match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
@@ -451,7 +455,6 @@ def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
         if not any([
             row.get("dc"),
             row.get("name"),
-            row.get("ship_from"),
             row.get("delivery_address"),
             row.get("billing_address"),
             row.get("match_values"),

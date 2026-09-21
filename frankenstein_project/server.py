@@ -85,6 +85,7 @@ from labelkit.reference_data import (  # noqa: E402
     _format_decimal_string,
     _parse_decimal_value,
     _product_storefront_level_sku_key,
+    DEFAULT_DIRECTORY_SHIP_FROM,
     normalize_packaging_level,
     normalize_dc_directory_row,
     normalize_product_master_row,
@@ -2452,12 +2453,16 @@ def _canonical_import_key(header: str, table: str) -> str:
         "storefront": "storefront",
         "store_front": "storefront",
         "store": "storefront",
+        "customer": "storefront",
+        "customer_storefront": "storefront",
         "dc": "dc",
         "code": "dc",
         "name": "name",
         "dc_name": "name",
+        "destination_name": "name",
         "ship_from": "ship_from",
         "ship_from_address": "ship_from",
+        "ship_from_override": "ship_from",
         "delivery_address": "delivery_address",
         "ship_to": "delivery_address",
         "ship_to_address": "delivery_address",
@@ -2487,7 +2492,7 @@ def _canonical_import_key(header: str, table: str) -> str:
 
 
 def _is_import_usage_guide_row(row: Dict[str, Any]) -> bool:
-    """Recognize the human-readable usage row shipped in Product Master templates."""
+    """Recognize human-readable guide rows shipped in import templates."""
     first_value = next((str(value or "").strip() for value in row.values() if str(value or "").strip()), "")
     normalized = re.sub(r"[^a-z0-9]+", " ", first_value.lower()).strip()
     return normalized.startswith("usage guide") or normalized.startswith("guide not imported")
@@ -2538,7 +2543,7 @@ def _adapt_product_template_weights(row: Dict[str, Any]) -> Dict[str, Any]:
 def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Dict[str, Any]]:
     canonical_rows: List[Dict[str, Any]] = []
     for row in rows:
-        if table in {"kehe_product_master", "mpl_product_master"} and _is_import_usage_guide_row(row):
+        if _is_import_usage_guide_row(row):
             continue
         next_row: Dict[str, Any] = {}
         for key, value in row.items():
@@ -2633,6 +2638,26 @@ def _merge_import_rows(current_rows: List[Dict[str, Any]], imported_rows: List[D
     return merged
 
 
+def _apply_shared_directory_ship_from(
+    imported_rows: List[Dict[str, Any]],
+    current_rows: List[Dict[str, Any]],
+) -> None:
+    """Apply the current default origin while preserving explicit import overrides."""
+    origin_counts: Dict[str, int] = {}
+    for row in current_rows:
+        origin = str(row.get("ship_from") or "").strip()
+        if origin:
+            origin_counts[origin] = origin_counts.get(origin, 0) + 1
+    shared_ship_from = max(
+        origin_counts,
+        key=lambda origin: (origin_counts[origin], origin == DEFAULT_DIRECTORY_SHIP_FROM),
+        default=DEFAULT_DIRECTORY_SHIP_FROM,
+    )
+    for row in imported_rows:
+        if str(row.get("ship_from") or "").strip() in {"", DEFAULT_DIRECTORY_SHIP_FROM}:
+            row["ship_from"] = shared_ship_from
+
+
 async def _preview_excel_import(request: Request, upload: UploadFile, table: str) -> JSONResponse:
     _require_permission(request, "table_crud")
     data = await upload.read(MAX_UPLOAD_BYTES + 1)
@@ -2645,7 +2670,7 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
     imported_rows: List[Dict[str, Any]] = []
     import_quality_rows: List[Dict[str, Any]] = []
     for raw_row in raw_rows:
-        if table in {"kehe_product_master", "mpl_product_master"} and _is_import_usage_guide_row(raw_row):
+        if _is_import_usage_guide_row(raw_row):
             continue
         if table == "mpl_product_master":
             quality_row = {
@@ -2671,6 +2696,8 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
             current_rows = _kehe_dc_directory_rows(current_rows)
         else:
             current_rows = _dedupe_dc_directory_rows(current_rows)
+        if table == "mpl_directory":
+            _apply_shared_directory_ship_from(imported_rows, current_rows)
         key_fn = _dc_row_key
 
     preview = _preview_row_changes(
@@ -2736,6 +2763,7 @@ async def confirm_mpl_directory_import(request: Request, payload: Dict[str, Any]
     current_rows = _datastore_load_dc_directory(request)
     if current_rows is None:
         current_rows = _shared_dc_directory_file_read()
+    _apply_shared_directory_ship_from(imported_rows, current_rows)
     merged_rows = _merge_import_rows(current_rows, imported_rows, _dc_row_key)
     return await save_mpl_directory(request, {
         "rows": merged_rows,
