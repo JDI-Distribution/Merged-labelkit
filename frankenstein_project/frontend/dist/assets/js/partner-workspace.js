@@ -97,6 +97,9 @@
     const ordered = Number(String(item?.quantity_ordered ?? '').replace(/,/g, ''));
     const casePack = Number(String(product?.case_qty ?? '').replace(/,/g, ''));
     if (!Number.isFinite(ordered) || ordered <= 0) return 1;
+    const quantityUom = String(item?.quantity_uom || '').trim().toUpperCase().replace(/\s+/g, '_');
+    const productLevel = normalizePackagingLevel(product?.packaging_level).toUpperCase().replace(/\s+/g, '_');
+    if (quantityUom && quantityUom === productLevel) return Math.max(1, Math.ceil(ordered));
     if (Number.isFinite(casePack) && casePack > 0) return Math.max(1, Math.ceil(ordered / casePack));
     return Math.max(1, Math.ceil(ordered));
   }
@@ -150,12 +153,14 @@
   function partnerAddressOptions(field) {
     const options = [];
     const seen = new Set();
-    const directoryRows = field === 'ship_from'
+    const wantedType = field === 'ship_from' ? 'SHIP_FROM' : (field === 'billing_address' ? 'BILL_TO' : 'SHIP_TO');
+    const directoryRows = (field === 'ship_from'
       ? mplDirectoryRows.map(normalizeDcDirectoryRow).filter(row => row.is_active !== false)
-      : partnerDirectoryRows();
+      : partnerDirectoryRows())
+      .filter(row => directoryHasRole(row, wantedType));
     const sharedOrigin = field === 'ship_from' ? getSharedMplDirectoryShipFrom() : '';
     directoryRows.forEach((row, index) => {
-      const value = String(row[field] || '').trim();
+      const value = String(row.address || row[field] || '').trim();
       if (!value || seen.has(value)) return;
       seen.add(value);
       const record = [row.name, row.dc ? `DC ${row.dc}` : ''].filter(Boolean).join(' · ') || `Directory record ${index + 1}`;
@@ -195,7 +200,7 @@
   function selectPartnerAddress(field, value) {
     if (!['ship_from', 'delivery_address', 'billing_address'].includes(field)) return;
     const address = String(value || '').trim();
-    const matchedRow = partnerDirectoryRows().find(row => String(row[field] || '').trim() === address) || {};
+    const matchedRow = partnerDirectoryRows().find(row => String(row.address || row[field] || '').trim() === address) || {};
     partnerLabelJobs.forEach(job => {
       job.directory = { ...(job.directory || {}), [field]: address };
       if (field === 'delivery_address') {
@@ -222,7 +227,16 @@
     const details = payload?.order_details || {};
     const customer = partnerCustomerLabel(customerId);
     const shippingAddress = analyticsMplAddress(details, 'shipping');
-    const directory = partnerDirectoryRows(customerId)[0] || {};
+    const directoryRows = partnerDirectoryRows(customerId);
+    const shipToRecord = directoryRows.find(row => directoryHasRole(row, 'SHIP_TO')) || {};
+    const billToRecord = directoryRows.find(row => directoryHasRole(row, 'BILL_TO')) || {};
+    const shipFromRecord = mplDirectoryRows.map(normalizeDcDirectoryRow).find(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM')) || {};
+    const directory = {
+      ...shipToRecord,
+      ship_from: shipFromRecord.address || getSharedMplDirectoryShipFrom(),
+      delivery_address: shipToRecord.address || '',
+      billing_address: billToRecord.address || '',
+    };
     const makeJob = (item, index, requestedTemplateId = '') => {
       const product = normalizeProductRow(item?.product || {
         storefront: customer,
@@ -312,7 +326,16 @@
     draft.storefront = partnerCustomerLabel(customerId);
     const mpl = draft.packing_lists?.[0];
     if (mpl) {
-      const directory = partnerDirectoryRows(customerId)[0] || {};
+      const directoryRows = partnerDirectoryRows(customerId);
+      const shipToRecord = directoryRows.find(row => directoryHasRole(row, 'SHIP_TO')) || {};
+      const billToRecord = directoryRows.find(row => directoryHasRole(row, 'BILL_TO')) || {};
+      const shipFromRecord = mplDirectoryRows.map(normalizeDcDirectoryRow).find(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM')) || {};
+      const directory = {
+        ...shipToRecord,
+        ship_from: shipFromRecord.address || getSharedMplDirectoryShipFrom(),
+        delivery_address: shipToRecord.address || '',
+        billing_address: billToRecord.address || '',
+      };
       mpl.template_id = mplTemplateId;
       mpl.brand_id = 'bakell';
       mpl.storefront = partnerCustomerLabel(customerId);
@@ -325,13 +348,13 @@
         const source = payload?.items?.[index] || {};
         const product = source?.product || {};
         const cartons = calculateOrderCartonCount(source, product);
-        row.analytics_quantity_eaches = analyticsOrderQuantity(source?.quantity_ordered);
+        row.analytics_quantity_eaches = analyticsOrderQuantity(source?.quantity_ordered_eaches ?? source?.quantity_ordered);
         row.eaches_per_case = analyticsOrderQuantity(product?.case_qty);
         row.qty_on_pallet = String(cartons);
         row.total_ordered = String(cartons);
         row.total_shipped = String(cartons);
         row.quantity_per_case = String(product?.case_qty || row.quantity_per_case || '');
-        row.uom = 'CASES';
+        row.uom = String(source?.quantity_uom || 'CASES').replace(/_/g, ' ');
       });
       ensureMplPalletState(mpl);
       syncMplLineNumbers(mpl);

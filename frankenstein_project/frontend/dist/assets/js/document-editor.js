@@ -373,6 +373,131 @@
     return Number.isFinite(cases) && Number.isFinite(unitsPerCase) ? String(cases * unitsPerCase) : '';
   }
 
+  const PARTNER_MPL_DEFAULT_COLUMNS = [
+    ['location_on_pallet', 'Pallet #', 0.075],
+    ['invoice_po_number', 'Invoice / PO #', 0.105],
+    ['item_number', 'Item #', 0.085],
+    ['lot', 'Lot #', 0.075],
+    ['color', 'Color', 0.075],
+    ['description', 'Description', 0.180],
+    ['product_size', 'Product Size', 0.090],
+    ['quantity_per_case', 'Quantity Per Case', 0.090],
+    ['qty_on_pallet', '# of Cases', 0.075],
+    ['units_on_pallet', 'Units on This Pallet', 0.095],
+    ['balance_owed', 'Balance Owed', 0.055],
+  ];
+
+  function ensurePartnerMplColumns(mpl) {
+    const saved = Array.isArray(mpl?.column_config) ? mpl.column_config : [];
+    const savedByKey = new Map(saved.filter(column => column?.key).map(column => [String(column.key), column]));
+    const defaults = PARTNER_MPL_DEFAULT_COLUMNS.map(([key, label, width]) => ({
+      key,
+      label: String(savedByKey.get(key)?.label || label),
+      width,
+      visible: savedByKey.get(key)?.visible !== false,
+      custom: false,
+    }));
+    const custom = saved.filter(column => column?.custom && column?.key).map(column => ({
+      key: String(column.key),
+      label: String(column.label || 'Custom Column'),
+      width: Number(column.width) || 0.09,
+      visible: column.visible !== false,
+      custom: true,
+    }));
+    const orderedKeys = saved.map(column => String(column?.key || '')).filter(Boolean);
+    const all = [...defaults, ...custom];
+    all.sort((left, right) => {
+      const leftIndex = orderedKeys.indexOf(left.key);
+      const rightIndex = orderedKeys.indexOf(right.key);
+      return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
+    });
+    mpl.column_config = all;
+    return all;
+  }
+
+  function partnerMplColumnValue(item, mpl, column) {
+    if (column.key === 'units_on_pallet') return mplItemUnits(item);
+    if (column.key === 'invoice_po_number') return item.invoice_po_number || mpl.customer_po_number || '';
+    if (column.key === 'item_number') return item.item_number || item.sku || '';
+    if (column.key === 'qty_on_pallet') return item.qty_on_pallet || item.total_shipped || '';
+    return item[column.key] || '';
+  }
+
+  function refreshPartnerMplColumns(mplIndex, keepModal = false) {
+    mplDraftSync?.schedule();
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    if (keepModal) window.requestAnimationFrame(() => openMplColumnManager(mplIndex));
+  }
+
+  function openMplColumnManager(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    const columns = ensurePartnerMplColumns(mpl);
+    let modal = document.getElementById('mpl-column-manager-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'mpl-column-manager-modal';
+      modal.className = 'editor-panel workflow-popup-panel';
+      document.body.appendChild(modal);
+    }
+    modal.dataset.mplIndex = String(mplIndex);
+    modal.innerHTML = `<div class="editor-dialog workflow-popup-dialog mpl-column-manager-dialog">
+      <div class="editor-toolbar"><div><div class="editor-title">Packing List Columns</div><div class="kehe-product-master-subtitle">Show, rename, reorder, or add columns. This layout is saved with this MPL and used in its PDF.</div></div><button class="btn-secondary" type="button" onclick="closeMplColumnManager()">Close</button></div>
+      <div class="editor-body">
+        <div class="mpl-column-manager-list">${columns.map((column, index) => `<div class="mpl-column-manager-row">
+          <label class="mpl-column-visible"><input type="checkbox" ${column.visible ? 'checked' : ''} onchange="setMplColumnVisible(${mplIndex}, ${index}, this.checked)"><span>Show</span></label>
+          <label><span>Column name</span><input value="${escapeHtml(column.label)}" onchange="renameMplColumn(${mplIndex}, ${index}, this.value)"></label>
+          <div class="mpl-column-order"><button class="btn-secondary" type="button" ${index === 0 ? 'disabled' : ''} onclick="moveMplColumn(${mplIndex}, ${index}, -1)">↑</button><button class="btn-secondary" type="button" ${index === columns.length - 1 ? 'disabled' : ''} onclick="moveMplColumn(${mplIndex}, ${index}, 1)">↓</button></div>
+          ${column.custom ? `<button class="btn-mini-danger" type="button" onclick="removeMplColumn(${mplIndex}, ${index})">Remove</button>` : '<span class="mpl-column-standard">Standard</span>'}
+        </div>`).join('')}</div>
+        <div class="mpl-column-add"><label><span>New custom column</span><input id="mpl-new-column-name" placeholder="Example: Warehouse Notes"></label><button class="btn-generate" type="button" onclick="addMplCustomColumn(${mplIndex})">Add column</button></div>
+      </div>
+      <div class="editor-footer"><button class="btn-generate" type="button" onclick="closeMplColumnManager()">Done</button></div>
+    </div>`;
+    modal.classList.add('visible');
+  }
+
+  function closeMplColumnManager() { document.getElementById('mpl-column-manager-modal')?.classList.remove('visible'); }
+  function setMplColumnVisible(mplIndex, columnIndex, visible) {
+    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
+    if (!columns[columnIndex]) return;
+    columns[columnIndex].visible = !!visible;
+    if (!columns.some(column => column.visible)) columns[columnIndex].visible = true;
+    refreshPartnerMplColumns(mplIndex, true);
+  }
+  function renameMplColumn(mplIndex, columnIndex, label) {
+    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
+    if (!columns[columnIndex]) return;
+    columns[columnIndex].label = String(label || '').trim() || 'Column';
+    refreshPartnerMplColumns(mplIndex, true);
+  }
+  function moveMplColumn(mplIndex, columnIndex, direction) {
+    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
+    const next = columnIndex + Number(direction || 0);
+    if (!columns[columnIndex] || next < 0 || next >= columns.length) return;
+    [columns[columnIndex], columns[next]] = [columns[next], columns[columnIndex]];
+    refreshPartnerMplColumns(mplIndex, true);
+  }
+  function removeMplColumn(mplIndex, columnIndex) {
+    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
+    if (!columns[columnIndex]?.custom) return;
+    columns.splice(columnIndex, 1);
+    refreshPartnerMplColumns(mplIndex, true);
+  }
+  function addMplCustomColumn(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    const input = document.getElementById('mpl-new-column-name');
+    const label = String(input?.value || '').trim();
+    if (!mpl || !label) { input?.focus(); return; }
+    const columns = ensurePartnerMplColumns(mpl);
+    let key = `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'column'}`;
+    let suffix = 2;
+    while (columns.some(column => column.key === key)) key = `${key.replace(/_\d+$/, '')}_${suffix++}`;
+    columns.push({ key, label, width: 0.09, visible: true, custom: true });
+    (mpl.items || []).forEach(item => { if (!(key in item)) item[key] = ''; });
+    refreshPartnerMplColumns(mplIndex, true);
+  }
+
   function renderStandaloneMplToolbar(mpl, mplIndex, label) {
     return `<div class="standalone-mpl-toolbar">
       <div><strong>${escapeHtml(label)}</strong><span>Every displayed value can be edited before PDF generation.</span></div>
@@ -382,6 +507,7 @@
         <button class="btn-secondary" type="button" onclick="autoPalletizeMpl(${mplIndex})">Auto Palletize</button>
         <button class="btn-secondary" type="button" onclick="openMplTiHiSettings(${mplIndex})">Ti-Hi Settings</button>
         <button class="btn-secondary" type="button" onclick="recalculateMplWeights(${mplIndex})">Recalculate Weights</button>
+        ${['decopac', 'dutch_bros', 'fancy'].includes(mplTemplateId(mpl)) ? `<button class="btn-secondary" type="button" onclick="openMplColumnManager(${mplIndex})">Manage Columns</button>` : ''}
       </div>
     </div>`;
   }
@@ -416,32 +542,19 @@
 
   function renderBreakdownTable(mpl, mplIndex, palletId) {
     const base = `packing_lists.${mplIndex}`;
+    const columns = ensurePartnerMplColumns(mpl).filter(column => column.visible);
     const rows = (mpl.items || [])
       .map((item, itemIndex) => ({ item, itemIndex }))
       .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
     return `<div class="decopac-table-wrap">
       <table class="decopac-table">
-        <thead><tr>
-          <th>Pallet #</th><th>Invoice / PO #</th><th>Item #</th><th>Lot #</th><th>Color</th>
-          <th>Description</th><th>Product Size</th><th>Quantity<br>Per Case</th><th># of Cases</th>
-          <th>Units on<br>This Pallet</th><th>Balance<br>Owed</th>
-        </tr></thead>
+        <thead><tr>${columns.map(column => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead>
         <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
           const itemBase = `${base}.items.${itemIndex}`;
           return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
-            <td>${editorPdfInput(`${itemBase}.location_on_pallet`, item.location_on_pallet || palletId)}<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button></td>
-            <td>${editorPdfInput(`${itemBase}.invoice_po_number`, item.invoice_po_number || mpl.customer_po_number || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.item_number`, item.item_number || item.sku || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.lot`, item.lot || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.color`, item.color || '')}</td>
-            <td><div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div></td>
-            <td>${editorPdfInput(`${itemBase}.product_size`, item.product_size || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.quantity_per_case`, item.quantity_per_case || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.qty_on_pallet`, item.qty_on_pallet || item.total_shipped || '')}</td>
-            <td>${editorPdfInput(`${itemBase}.units_on_pallet`, mplItemUnits(item))}</td>
-            <td>${editorPdfInput(`${itemBase}.balance_owed`, item.balance_owed || '0')}</td>
+            ${columns.map((column, columnIndex) => `<td>${column.key === 'description' ? `<div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div>` : editorPdfInput(`${itemBase}.${column.key}`, partnerMplColumnValue(item, mpl, column))}${columnIndex === 0 ? `<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button>` : ''}</td>`).join('')}
           </tr>`;
-        }).join('') : '<tr><td colspan="11" class="decopac-empty">No products assigned to this pallet.</td></tr>'}</tbody>
+        }).join('') : `<tr><td colspan="${columns.length}" class="decopac-empty">No products assigned to this pallet.</td></tr>`}</tbody>
       </table>
     </div>`;
   }

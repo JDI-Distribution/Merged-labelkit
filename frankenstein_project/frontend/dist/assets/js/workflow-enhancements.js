@@ -58,11 +58,9 @@
       const each = level('Each');
       const inner = level('Inner Pack');
       const caseRow = level('Case');
-      const master = level('Master Case');
-      const primary = caseRow || entries[0].row;
+      const primary = caseRow || inner || each || entries[0].row;
       const groupIssues = [];
       if (!each?.gtin) groupIssues.push(qualityIssue('missing_each_gtin', 'Each-level GTIN is missing.'));
-      if (!caseRow) groupIssues.push(qualityIssue('missing_case_quantity', 'Case packaging level is missing.'));
       const levelCounts = new Map();
       entries.forEach(entry => {
         const name = normalizePackagingLevel(entry.row.packaging_level);
@@ -74,32 +72,29 @@
       const eachQty = Number(each?.case_qty || 0);
       const innerQty = Number(inner?.case_qty || 0);
       const caseQty = Number(caseRow?.case_qty || 0);
-      const masterQty = Number(master?.case_qty || 0);
+      const innersPerCase = Number(caseRow?.inner_packs_per_case || 0);
       if (each && positive(each.case_qty, true) && eachQty !== 1) groupIssues.push(qualityIssue('hierarchy_conflict', 'Each quantity must equal 1.', 'invalid'));
-      if (innerQty && caseQty && (innerQty >= caseQty || caseQty % innerQty !== 0)) groupIssues.push(qualityIssue('hierarchy_conflict', 'Case quantity must contain a whole number of inner packs.', 'invalid'));
-      if (caseQty && masterQty && (caseQty >= masterQty || masterQty % caseQty !== 0)) groupIssues.push(qualityIssue('hierarchy_conflict', 'Master Case quantity must contain a whole number of cases.', 'invalid'));
+      if (inner && caseRow && (!positive(innersPerCase, true) || caseQty !== innerQty * innersPerCase)) groupIssues.push(qualityIssue('hierarchy_conflict', 'Case quantity must equal eaches per inner × inner packs per case.', 'invalid'));
 
       const criteria = {
-        identity: !!(primary.sku || primary.config_id),
+        identity: !!(each?.sku || primary.sku || primary.config_id),
         description: !!primary.description,
         gtin: !!primary.gtin && gtinValid(primary.gtin),
         each_gtin: !!each?.gtin && gtinValid(each.gtin),
-        case_quantity: !!caseRow && positive(caseRow.case_qty, true),
-        dimensions: !!caseRow && ['length_in', 'width_in', 'height_in'].every(field => positive(caseRow[field])),
-        weight: !!caseRow && positive(caseRow.gross_weight_lbs),
-        each_weight: !!caseRow && positive(caseRow.each_net_weight_g),
-        total_product_weight: !!caseRow && positive(caseRow.package_net_weight_g),
+        package_quantity: normalizePackagingLevel(primary.packaging_level) === 'Each' || positive(primary.case_qty, true),
+        dimensions: ['length_in', 'width_in', 'height_in'].every(field => positive(primary[field])),
+        weight: positive(primary.gross_weight_lbs),
+        each_weight: positive(each?.each_net_weight_g || primary.each_net_weight_g),
         label_template: primary.label_enabled ? !!primary.label_template_id : true,
         verified: String(primary.verification_status || '').toUpperCase() === 'VERIFIED',
         hierarchy: !groupIssues.some(issue => ['invalid', 'duplicate'].includes(issue.severity)),
       };
       const score = Math.round(100 * Object.values(criteria).filter(Boolean).length / Object.keys(criteria).length);
       const commonIssues = [...groupIssues];
-      if (!caseRow || !['length_in', 'width_in', 'height_in'].every(field => positive(caseRow[field]))) commonIssues.push(qualityIssue('missing_dimensions', 'Final shipping-case dimensions are incomplete.'));
-      if (!caseRow || !positive(caseRow.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Total weight with packaging is missing.'));
-      if (!caseRow || !positive(caseRow.each_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Each weight is missing.'));
-      if (!caseRow || !positive(caseRow.package_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Total product weight is missing.'));
-      if (!caseRow || !positive(caseRow.case_qty, true)) commonIssues.push(qualityIssue('missing_case_quantity', 'Case Eaches / Package is missing.'));
+      if (!['length_in', 'width_in', 'height_in'].every(field => positive(primary[field]))) commonIssues.push(qualityIssue('missing_dimensions', `${primary.packaging_level || 'Outermost'} dimensions are incomplete.`));
+      if (!positive(primary.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Outermost packaged weight is missing.'));
+      if (!positive(each?.each_net_weight_g || primary.each_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Each weight is missing.'));
+      if (normalizePackagingLevel(primary.packaging_level) !== 'Each' && !positive(primary.case_qty, true)) commonIssues.push(qualityIssue('missing_case_quantity', `${primary.packaging_level} quantity is missing.`));
       if (primary.label_enabled && !primary.label_template_id) commonIssues.push(qualityIssue('missing_label_template', 'Label template is missing.'));
       if (String(primary.verification_status || '').toUpperCase() !== 'VERIFIED') commonIssues.push(qualityIssue('needs_review', 'Configuration is Draft or Needs Review.'));
 
@@ -137,7 +132,7 @@
 
   function productQualitySnapshot() { return analyzeProductRows(typeof mplProductMasterRows === 'undefined' ? [] : mplProductMasterRows); }
   function productGroupPassesFilter(group, filter, search = '') {
-    const haystack = group.entries.map(({ row }) => [row.storefront, row.sku, row.config_id, row.gtin, row.description, row.customer_item_number].join(' ')).join(' ').toLowerCase();
+    const haystack = group.entries.map(({ row }) => [row.storefront, row.display_sku, row.sku, row.config_id, row.gtin, row.description, row.customer_item_number].join(' ')).join(' ').toLowerCase();
     if (search && !haystack.includes(search.toLowerCase())) return false;
     if (!filter || filter === 'all') return true;
     return group.entries.some(({ index }) => productQualitySnapshot().rows[index]?.issues?.some(issue => issue.code === filter));

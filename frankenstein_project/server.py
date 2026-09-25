@@ -708,6 +708,9 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
         "PACKAGING_LEVEL": normalized["packaging_level"],
         "CASE_QTY": normalized["case_qty"],
         "SKU": normalized["sku"],
+        "DISPLAY_SKU": normalized.get("display_sku", ""),
+        "DISPLAY_SKU_UOM": normalized.get("display_sku_uom", "Each"),
+        "INNER_PACKS_PER_CASE": normalized.get("inner_packs_per_case", ""),
         "CONFIG_ID": normalized.get("config_id", ""),
         "CUSTOMER_ITEM_NUMBER": normalized.get("customer_item_number", ""),
         "LABEL_TEMPLATE_ID": normalized.get("label_template_id", ""),
@@ -1251,7 +1254,9 @@ def _product_row_key(row: Dict[str, Any]) -> str:
 
 def _dc_row_key(row: Dict[str, Any]) -> str:
     normalized = normalize_dc_directory_row(row)
-    return _dc_directory_base_key(normalized.get("dc", ""), normalized.get("storefront", ""))
+    return str(normalized.get("unique_key") or _dc_directory_base_key(
+        normalized.get("dc", ""), normalized.get("storefront", "")
+    ))
 
 
 def _row_label(table: str, row: Dict[str, Any]) -> str:
@@ -1517,7 +1522,10 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
         product_rows = _shared_product_master_file_read()
 
     order_details = _analytics_order_details(analytics_rows)
-    items = _b2b_analytics_order_items_for_products(analytics_rows, product_rows or [])
+    try:
+        items = _b2b_analytics_order_items_for_products(analytics_rows, product_rows or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     summary = {
         "analytics_rows": len(analytics_rows),
         "line_items": len(items),
@@ -2231,13 +2239,17 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     eligible_products = [
         row
         for row in normalized_product_rows
-        if normalize_packaging_level(row.get("packaging_level")) == "Case" and bool(row.get("in_packing_list"))
+        if bool(row.get("is_active", True))
     ]
     products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
     for product in eligible_products:
-        key = _canonical_order_sku(product.get("sku"))
-        if key:
-            products_by_sku.setdefault(key, []).append(product)
+        product_keys = {
+            _canonical_order_sku(product.get("sku")),
+            _canonical_order_sku(product.get("display_sku")),
+        }
+        for key in product_keys:
+            if key:
+                products_by_sku.setdefault(key, []).append(product)
 
     items: List[Dict[str, Any]] = []
     matched_count = 0
@@ -2246,36 +2258,66 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     partial_case_items = 0
     missing_each_gtin = 0
     for sku_key, order_item in aggregated.items():
-        candidates = products_by_sku.get(sku_key, [])
+        raw_candidates = products_by_sku.get(sku_key, [])
+        candidates_by_group: Dict[str, List[Dict[str, Any]]] = {}
+        for candidate in raw_candidates:
+            group_key = "|".join([
+                str(candidate.get("storefront") or "").strip().lower(),
+                str(candidate.get("config_id") or candidate.get("sku") or "").strip().lower(),
+            ])
+            candidates_by_group.setdefault(group_key, []).append(candidate)
+        candidates = list(candidates_by_group.values())
         if len(candidates) == 1:
             matched_count += 1
             match_status = "matched"
-            product = candidates[0]
+            matching_rows = candidates[0]
+            product = next(
+                (row for level in ("Case", "Inner Pack", "Each") for row in matching_rows if normalize_packaging_level(row.get("packaging_level")) == level),
+                matching_rows[0],
+            )
+            exact_sku_row = next((row for row in matching_rows if _canonical_order_sku(row.get("sku")) == sku_key), None)
+            if exact_sku_row is None:
+                display_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
+                exact_sku_row = next(
+                    (row for row in matching_rows if normalize_packaging_level(row.get("packaging_level")) == display_uom),
+                    None,
+                )
+                if exact_sku_row is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Display SKU '{order_item.get('sku')}' represents {display_uom}, "
+                            f"but that packaging level is not configured in Product Master."
+                        ),
+                    )
         elif len(candidates) > 1:
             ambiguous_count += 1
             match_status = "ambiguous"
             product = None
+            exact_sku_row = None
         else:
             match_status = "unmatched"
             product = None
+            exact_sku_row = None
         converted_order_item = dict(order_item)
-        if product is not None and _is_kehe_storefront(product.get("storefront")):
-            configured_case_pack = _analytics_quantity(product.get("case_qty"))
-            if configured_case_pack is None or float(configured_case_pack) <= 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"Product Master Case row for SKU '{order_item.get('sku')}' requires "
-                        "Eaches / Package greater than 1 before Analytics eaches can be "
-                        "converted to cases."
-                    ),
-                )
-        conversion = _analytics_case_conversion(
-            order_item.get("quantity_ordered"),
-            product,
-            normalized_product_rows,
-        )
+        try:
+            matched_config_id = str((exact_sku_row or {}).get("config_id") or "").strip().lower()
+            uses_level_specific_skus = bool(matched_config_id and any(
+                normalize_packaging_level(row.get("packaging_level")) == "Each"
+                and str(row.get("config_id") or "").strip().lower() == matched_config_id
+                and str(row.get("storefront") or "").strip().lower() == str((exact_sku_row or {}).get("storefront") or "").strip().lower()
+                for row in normalized_product_rows
+            ))
+            conversion = _analytics_case_conversion(
+                order_item.get("quantity_ordered"),
+                exact_sku_row,
+                normalized_product_rows,
+                quantity_is_matched_uom=uses_level_specific_skus,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if conversion:
+            product = conversion.pop("outermost_product", product)
             converted_order_item.update(conversion)
             converted_to_cases += 1
             if not conversion.get("case_conversion_exact"):
@@ -2290,7 +2332,8 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             "each_gtin": each_gtin,
             "candidate_storefronts": sorted({
                 str(candidate.get("storefront") or "").strip()
-                for candidate in candidates
+                for candidate_group in candidates
+                for candidate in candidate_group
                 if str(candidate.get("storefront") or "").strip()
             }),
         })
@@ -2410,8 +2453,16 @@ def _canonical_import_key(header: str, table: str) -> str:
         "sku": "sku",
         "item_number": "sku",
         "ecomdash_sku": "sku",
+        "display_sku": "display_sku",
+        "display_item_number": "display_sku",
+        "display_sku_uom": "display_sku_uom",
+        "display_sku_represents": "display_sku_uom",
+        "display_sku_unit": "display_sku_uom",
+        "inner_packs_per_case": "inner_packs_per_case",
+        "inners_per_case": "inner_packs_per_case",
         "config_id": "config_id",
         "configuration_id": "config_id",
+        "internal_configuration_id": "config_id",
         "customer_item_number": "customer_item_number",
         "customer_item": "customer_item_number",
         "label_template_id": "label_template_id",
@@ -2460,6 +2511,11 @@ def _canonical_import_key(header: str, table: str) -> str:
         "name": "name",
         "dc_name": "name",
         "destination_name": "name",
+        "address_name": "name",
+        "address_type": "address_type",
+        "address_roles": "address_roles",
+        "address_role": "address_roles",
+        "address": "address",
         "ship_from": "ship_from",
         "ship_from_address": "ship_from",
         "ship_from_override": "ship_from",

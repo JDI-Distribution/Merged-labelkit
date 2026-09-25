@@ -16,7 +16,10 @@ DEFAULT_CASE_QTY_BY_LEVEL = {
     "Other": "",
 }
 B2B_VERIFICATION_STATUSES = {"DRAFT", "NEEDS_REVIEW", "VERIFIED", "BLOCKED"}
-B2B_DIRECTORY_RECORD_TYPES = {"CUSTOMER_DEFAULT", "DESTINATION", "DISTRIBUTION_CENTER"}
+B2B_DIRECTORY_RECORD_TYPES = {
+    "CUSTOMER_DEFAULT", "DESTINATION", "DISTRIBUTION_CENTER",
+    "SHIP_FROM", "SHIP_TO", "BILL_TO",
+}
 DEFAULT_DIRECTORY_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
 def normalize_packaging_level(value: Any) -> str:
@@ -51,6 +54,19 @@ def _normalize_verification_status(value: Any) -> str:
 def _normalize_directory_record_type(value: Any) -> str:
     raw = re.sub(r"\s+", "_", str(value or "").strip().upper())
     return raw if raw in B2B_DIRECTORY_RECORD_TYPES else "DESTINATION"
+
+
+DIRECTORY_ADDRESS_ROLES = ("SHIP_FROM", "SHIP_TO", "BILL_TO")
+
+
+def _parse_directory_roles(value: Any) -> List[str]:
+    """Return the selected address roles in a stable display order."""
+    values = value if isinstance(value, list) else re.split(r"[,;|]+", str(value or ""))
+    selected = {
+        re.sub(r"\s+", "_", str(item or "").strip().upper())
+        for item in values
+    }
+    return [role for role in DIRECTORY_ADDRESS_ROLES if role in selected]
 
 
 def _first_value(row: Dict[str, Any], *keys: str) -> str:
@@ -210,6 +226,19 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "eaches_per_inner_pack",
     )
     sku = _first_value(row, "sku", "SKU", "item_number", "ITEM_NUMBER")
+    display_sku = _first_value(row, "display_sku", "DISPLAY_SKU", "display_item_number", "DISPLAY_ITEM_NUMBER")
+    display_sku_uom = normalize_packaging_level(
+        _first_value(row, "display_sku_uom", "DISPLAY_SKU_UOM", "display_sku_represents", "DISPLAY_SKU_REPRESENTS") or "Each"
+    )
+    if display_sku_uom not in {"Each", "Inner Pack", "Case"}:
+        display_sku_uom = "Each"
+    inner_packs_per_case = _first_value(
+        row,
+        "inner_packs_per_case",
+        "INNER_PACKS_PER_CASE",
+        "inners_per_case",
+        "INNERS_PER_CASE",
+    )
     customer_item_number = _first_value(row, "customer_item_number", "CUSTOMER_ITEM_NUMBER", "customer_item", "item_number_customer")
     label_template_id = _first_value(row, "label_template_id", "LABEL_TEMPLATE_ID", "template_id")
     barcode_type = _first_value(row, "barcode_type", "BARCODE_TYPE")
@@ -261,6 +290,9 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "gross_weight_lbs": gross_weight_lbs,
         "case_qty": case_qty,
         "sku": sku,
+        "display_sku": display_sku,
+        "display_sku_uom": display_sku_uom,
+        "inner_packs_per_case": inner_packs_per_case,
         "config_id": config_id,
         "customer_item_number": customer_item_number,
         "label_template_id": label_template_id,
@@ -340,6 +372,7 @@ def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, An
                 "case_qty",
                 "default_copies",
                 "sku",
+                "display_sku",
                 "config_id",
                 "customer_item_number",
                 "label_template_id",
@@ -388,9 +421,25 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
     billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
     match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
-    record_type = _normalize_directory_record_type(
-        _first_value(row, "record_type", "RECORD_TYPE")
-    )
+    raw_record_type = _first_value(row, "record_type", "RECORD_TYPE", "address_type", "ADDRESS_TYPE")
+    roles_value: Any = row.get("address_roles", row.get("ADDRESS_ROLES", raw_record_type))
+    address_roles = _parse_directory_roles(roles_value)
+    legacy_record_type = _normalize_directory_record_type(raw_record_type)
+    if not address_roles and legacy_record_type in DIRECTORY_ADDRESS_ROLES:
+        address_roles = [legacy_record_type]
+    record_type = ",".join(address_roles) if address_roles else legacy_record_type
+    address = _first_value(row, "address", "ADDRESS")
+    if not address:
+        if "SHIP_FROM" in address_roles:
+            address = ship_from
+        elif "BILL_TO" in address_roles:
+            address = billing_address
+        else:
+            address = delivery_address
+    if address_roles:
+        ship_from = address if "SHIP_FROM" in address_roles else ""
+        delivery_address = address if "SHIP_TO" in address_roles else ""
+        billing_address = address if "BILL_TO" in address_roles else ""
     default_label_template_id = _first_value(row, "default_label_template_id", "DEFAULT_LABEL_TEMPLATE_ID")
     manufacturer_name = _first_value(row, "manufacturer_name", "MANUFACTURER_NAME")
     manufacturer_address = _first_value(row, "manufacturer_address", "MANUFACTURER_ADDRESS")
@@ -410,6 +459,9 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "delivery_address": delivery_address,
         "billing_address": billing_address,
         "match_values": match_values,
+        "address_type": address_roles[0] if address_roles else legacy_record_type,
+        "address_roles": address_roles,
+        "address": address,
         "record_type": record_type,
         "default_label_template_id": default_label_template_id,
         "manufacturer_name": manufacturer_name,
@@ -426,6 +478,7 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
             delivery_address,
             billing_address,
             match_values,
+            record_type,
         ),
     }
 
@@ -442,8 +495,13 @@ def _dc_directory_unique_key(
     delivery_address: str = "",
     billing_address: str = "",
     match_values: Optional[List[str]] = None,
+    record_type: str = "",
 ) -> str:
-    return _dc_directory_base_key(dc, storefront)
+    base = _dc_directory_base_key(dc, storefront)
+    normalized_roles = _parse_directory_roles(record_type)
+    if normalized_roles:
+        return f"{base}|{'+'.join(role.lower() for role in normalized_roles)}"
+    return base
 
 
 def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

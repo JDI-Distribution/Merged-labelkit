@@ -53,6 +53,7 @@
     return mplDirectoryRows
       .map((raw, index) => ({ row: normalizeDcDirectoryRow(raw), index }))
       .filter(({ row }) => normalizeStorefront(row.storefront).toLowerCase() === normalizedCustomer)
+      .filter(({ row }) => directoryHasRole(row, 'SHIP_TO'))
       .filter(({ row }) => hasPermission('table_crud') || row.is_active);
   }
 

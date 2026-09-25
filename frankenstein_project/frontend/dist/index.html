@@ -981,7 +981,7 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Product Master Table</div>
-          <div class="kehe-product-master-subtitle">Enter shared product details and final shipping-case measurements once, then configure the required packaging levels and labels.</div>
+          <div class="kehe-product-master-subtitle">Maintain one product record with required Each data, optional Inner Pack and Case levels, and one automatically selected outermost shipping unit.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
       </div>
@@ -990,24 +990,24 @@
         <div class="kehe-product-master-toolbar product-master-command-bar">
           <div class="product-master-command-copy">
             <div class="kehe-product-master-title">Editable Product Data</div>
-            <div class="kehe-product-master-subtitle">Enter each weight plus the final case's product weight, packaged weight, and dimensions once. Packaging levels keep only hierarchy and label settings.</div>
+            <div class="kehe-product-master-subtitle">Each is the required base. Add Inner Pack or Case only when used; the outermost available unit holds packaged weight and dimensions.</div>
           </div>
           <div class="product-master-command-actions" aria-label="Product Master actions">
             <div class="product-master-action-group">
-              <span>Import data</span>
+              <span>Data file</span>
               <div>
-                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('product-master')">Download Template</button>
-                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('product-master')">Upload File</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('product-master')">Download template</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('product-master')">Import file</button>
               </div>
             </div>
             <div class="product-master-action-group">
               <span>Records</span>
               <div>
                 <button class="btn-secondary product-master-action" type="button" onclick="exportMplProductMasterTable()">Export CSV</button>
-                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_product_master')">History</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_product_master')">Change history</button>
               </div>
             </div>
-            <button class="btn-generate product-master-add-action" type="button" onclick="addMplProductRow()">Add Configuration</button>
+            <button class="btn-generate product-master-add-action" type="button" onclick="addMplProductRow()">Add configuration</button>
           </div>
           <input class="hidden" id="product-master-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('product-master', this)">
         </div>
@@ -1092,25 +1092,25 @@
       <div class="editor-body">
         <div class="kehe-product-master-toolbar product-master-command-bar">
           <div class="product-master-command-copy">
-            <div class="kehe-product-master-title">Directory Records</div>
-            <div class="kehe-product-master-subtitle">Add each destination once. Ship From is applied automatically by default, with optional saved alternatives when another origin is needed.</div>
+            <div class="kehe-product-master-title">Address data</div>
+            <div class="kehe-product-master-subtitle">Maintain reusable shipping and billing addresses. Ship From is applied automatically from Bakell by default, and saved alternatives stay selectable.</div>
           </div>
           <div class="product-master-command-actions" aria-label="Customer Directory actions">
             <div class="product-master-action-group">
-              <span>Address data</span>
+              <span>Data file</span>
               <div>
-                <button class="btn-secondary product-master-action" type="button" onclick="downloadImportTemplate('dc-directory')">Download Address Template</button>
-                <button class="btn-secondary product-master-action" type="button" onclick="triggerExcelImport('dc-directory')">Import Addresses</button>
+                <button class="btn-secondary product-master-action" type="button" aria-label="Download Address Template" onclick="downloadImportTemplate('dc-directory')">Download template</button>
+                <button class="btn-secondary product-master-action" type="button" aria-label="Import Addresses" onclick="triggerExcelImport('dc-directory')">Import file</button>
               </div>
             </div>
             <div class="product-master-action-group">
-              <span>Directory</span>
+              <span>Records</span>
               <div>
-                <button class="btn-secondary product-master-action" type="button" onclick="exportMplDirectoryTable()">Export Directory</button>
-                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_directory')">Change History</button>
+                <button class="btn-secondary product-master-action" type="button" aria-label="Export Directory" onclick="exportMplDirectoryTable()">Export CSV</button>
+                <button class="btn-secondary product-master-action" type="button" onclick="openKeheAuditModal('mpl_directory')">Change history</button>
               </div>
             </div>
-            <button class="btn-generate product-master-add-action" type="button" onclick="addMplDirectoryRow()">Add Destination</button>
+            <button class="btn-generate product-master-add-action" type="button" aria-label="Add address" title="Add Destination or Source Address" onclick="addMplDirectoryRow()">Add address</button>
           </div>
           <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
         </div>
@@ -1119,7 +1119,7 @@
           <div class="directory-shared-origin-mark">SF</div>
           <div><span>Shared Ship From · Applied automatically</span><strong id="directory-shared-origin-name">BAKELL LLC</strong><small id="directory-shared-origin-address">1967 Essex Ct, Redlands, CA 92373, USA</small></div>
           <div class="directory-shared-origin-actions">
-            <span class="directory-shared-origin-status">Default for new destinations and document runs</span>
+            <span class="directory-shared-origin-status">Saved origin · Default for new destinations and document runs</span>
             <button class="btn-secondary" id="btn-edit-directory-origin" type="button" onclick="toggleSharedDirectoryOriginEditor()">Edit shared origin</button>
           </div>
         </div>
@@ -1143,12 +1143,12 @@
             </select>
           </label>
           <label class="table-filter-control">
-            <span>Address status</span>
+            <span>Address role</span>
             <select id="mpl-directory-type-filter" onchange="renderMplDirectoryTable()">
-              <option value="">All destinations</option>
-              <option value="complete">Complete addresses</option>
-              <option value="missing_ship_to">Missing Ship To</option>
-              <option value="missing_bill_to">Missing Bill To</option>
+              <option value="">All address roles</option>
+              <option value="SHIP_FROM">Ship From</option>
+              <option value="SHIP_TO">Ship To</option>
+              <option value="BILL_TO">Bill To</option>
             </select>
           </label>
           <label class="table-filter-control">
@@ -1163,7 +1163,7 @@
           <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderMplDirectoryTable, 'mpl-directory-search', 'mpl-directory-storefront-filter', 'mpl-directory-type-filter', 'mpl-directory-status-filter')">Clear filters</button>
           <span class="table-filter-count" id="mpl-directory-count" aria-live="polite"></span>
         </div>
-        <div class="directory-list-heading" aria-hidden="true"><span>Destination</span><span>Address readiness</span><span>Status</span><span>Actions</span></div>
+        <div class="directory-list-heading" aria-hidden="true"><span>Address record</span><span>Roles &amp; address</span><span>Status</span><span>Actions</span></div>
         <div class="mpl-directory-card-list" id="mpl-directory-body">
           <div class="empty-row">No destinations yet.</div>
         </div>
@@ -1172,6 +1172,38 @@
       <div class="editor-footer">
         <button class="btn-generate" type="button" onclick="closeMplDirectoryModal()">Done</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Product configuration add/edit popup -->
+  <div class="editor-panel master-record-editor-panel" id="mpl-product-editor-modal">
+    <div class="editor-dialog master-record-editor-dialog">
+      <div class="editor-toolbar">
+        <div>
+          <div class="editor-title" id="mpl-product-editor-title">Product configuration</div>
+          <div class="kehe-product-master-subtitle">Order matching, packaging hierarchy, weights, dimensions, and label settings.</div>
+        </div>
+        <button class="btn-secondary" type="button" onclick="closeMplProductEditor()">Close</button>
+      </div>
+      <div class="editor-body master-record-editor-body" id="mpl-product-editor-body"></div>
+      <div class="editor-footer master-record-editor-footer">
+        <button class="btn-secondary" type="button" onclick="closeMplProductEditor()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Address add/edit popup -->
+  <div class="editor-panel master-record-editor-panel" id="mpl-directory-editor-modal">
+    <div class="editor-dialog master-record-editor-dialog master-address-editor-dialog">
+      <div class="editor-toolbar">
+        <div>
+          <div class="editor-title" id="mpl-directory-editor-title">Address record</div>
+          <div class="kehe-product-master-subtitle" id="mpl-directory-editor-subtitle">Reusable address details and document roles.</div>
+        </div>
+        <button class="btn-secondary" type="button" onclick="closeMplDirectoryEditor()">Close</button>
+      </div>
+      <div class="editor-body master-record-editor-body" id="mpl-directory-editor-body"></div>
+      <div class="editor-footer master-record-editor-footer" id="mpl-directory-editor-footer"></div>
     </div>
   </div>
 

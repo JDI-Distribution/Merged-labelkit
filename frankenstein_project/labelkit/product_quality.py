@@ -11,7 +11,7 @@ from .reference_data import normalize_packaging_level, normalize_product_master_
 
 GTIN_LENGTHS = {8, 12, 13, 14}
 MEASUREMENT_FIELDS = ("length_in", "width_in", "height_in")
-WEIGHT_FIELDS = ("each_net_weight_g", "package_net_weight_g", "gross_weight_lbs")
+WEIGHT_FIELDS = ("each_net_weight_g", "gross_weight_lbs")
 
 
 def gtin_check_digit_valid(value: Any) -> bool:
@@ -101,17 +101,14 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         group_rows = [normalized[index] for index in indexes]
         levels = [normalize_packaging_level(row.get("packaging_level")) for row in group_rows]
         level_counts = Counter(levels)
-        primary = next((row for row in group_rows if normalize_packaging_level(row.get("packaging_level")) == "Case"), group_rows[0])
         each_row = next((row for row in group_rows if normalize_packaging_level(row.get("packaging_level")) == "Each"), None)
         inner_row = next((row for row in group_rows if normalize_packaging_level(row.get("packaging_level")) == "Inner Pack"), None)
         case_row = next((row for row in group_rows if normalize_packaging_level(row.get("packaging_level")) == "Case"), None)
-        master_row = next((row for row in group_rows if normalize_packaging_level(row.get("packaging_level")) == "Master Case"), None)
+        primary = case_row or inner_row or each_row or group_rows[0]
 
         group_issues: List[Dict[str, str]] = []
         if not each_row or not str(each_row.get("gtin") or "").strip():
             group_issues.append(_issue("missing_each_gtin", "Each-level GTIN is missing."))
-        if not case_row:
-            group_issues.append(_issue("missing_case_level", "Case packaging level is missing."))
         for level, count in level_counts.items():
             if level != "Other" and count > 1:
                 group_issues.append(_issue("duplicate_level", f"Packaging hierarchy contains {count} {level} rows.", "duplicate"))
@@ -123,24 +120,21 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         each_qty = quantity(each_row)
         inner_qty = quantity(inner_row)
         case_qty = quantity(case_row)
-        master_qty = quantity(master_row)
+        inners_per_case = quantity({"case_qty": (case_row or {}).get("inner_packs_per_case")})
         if each_row and each_qty not in (None, 1):
             group_issues.append(_issue("hierarchy_conflict", "Each packaging quantity must equal 1.", "invalid"))
-        if inner_qty and case_qty and (inner_qty >= case_qty or case_qty % inner_qty != 0):
-            group_issues.append(_issue("hierarchy_conflict", "Case each quantity must contain a whole number of inner packs.", "invalid"))
-        if case_qty and master_qty and (case_qty >= master_qty or master_qty % case_qty != 0):
-            group_issues.append(_issue("hierarchy_conflict", "Master Case quantity must contain a whole number of cases.", "invalid"))
+        if inner_row and case_row and (not inners_per_case or not inner_qty or case_qty != inner_qty * inners_per_case):
+            group_issues.append(_issue("hierarchy_conflict", "Case quantity must equal eaches per inner × inner packs per case.", "invalid"))
 
         criteria = {
             "identity": bool(primary.get("sku") or primary.get("config_id")),
             "description": bool(primary.get("description")),
             "gtin": bool(primary.get("gtin")) and gtin_check_digit_valid(primary.get("gtin")),
             "each_gtin": bool(each_row and each_row.get("gtin") and gtin_check_digit_valid(each_row.get("gtin"))),
-            "case_quantity": bool(case_row and _positive_number(case_row.get("case_qty"), whole=True)),
-            "dimensions": bool(case_row and all(_positive_number(case_row.get(field)) for field in MEASUREMENT_FIELDS)),
-            "weight": bool(case_row and _positive_number(case_row.get("gross_weight_lbs"))),
-            "each_weight": bool(case_row and _positive_number(case_row.get("each_net_weight_g"))),
-            "total_product_weight": bool(case_row and _positive_number(case_row.get("package_net_weight_g"))),
+            "package_quantity": normalize_packaging_level(primary.get("packaging_level")) == "Each" or _positive_number(primary.get("case_qty"), whole=True),
+            "dimensions": all(_positive_number(primary.get(field)) for field in MEASUREMENT_FIELDS),
+            "weight": _positive_number(primary.get("gross_weight_lbs")),
+            "each_weight": _positive_number((each_row or {}).get("each_net_weight_g") or primary.get("each_net_weight_g")),
             "label_template": bool(primary.get("label_template_id")) if primary.get("label_enabled") else True,
             "verified": str(primary.get("verification_status") or "").upper() == "VERIFIED",
             "hierarchy": not any(issue["severity"] in {"invalid", "duplicate"} for issue in group_issues),
@@ -148,16 +142,14 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         score = round(100 * sum(criteria.values()) / len(criteria))
         for index in indexes:
             row_issues[index].extend(group_issues)
-            if not all(_positive_number((case_row or {}).get(field)) for field in MEASUREMENT_FIELDS):
-                row_issues[index].append(_issue("missing_dimensions", "Final shipping-case dimensions are incomplete."))
-            if not case_row or not _positive_number(case_row.get("gross_weight_lbs")):
-                row_issues[index].append(_issue("missing_weight", "Total weight with packaging is missing."))
-            if not case_row or not _positive_number(case_row.get("each_net_weight_g")):
+            if not all(_positive_number(primary.get(field)) for field in MEASUREMENT_FIELDS):
+                row_issues[index].append(_issue("missing_dimensions", f"{primary.get('packaging_level') or 'Outermost'} dimensions are incomplete."))
+            if not _positive_number(primary.get("gross_weight_lbs")):
+                row_issues[index].append(_issue("missing_weight", "Outermost packaged weight is missing."))
+            if not _positive_number((each_row or {}).get("each_net_weight_g") or primary.get("each_net_weight_g")):
                 row_issues[index].append(_issue("missing_weight", "Each weight is missing."))
-            if not case_row or not _positive_number(case_row.get("package_net_weight_g")):
-                row_issues[index].append(_issue("missing_weight", "Total product weight is missing."))
-            if not case_row or not _positive_number(case_row.get("case_qty"), whole=True):
-                row_issues[index].append(_issue("missing_case_quantity", "Case Eaches / Package is missing."))
+            if normalize_packaging_level(primary.get("packaging_level")) != "Each" and not _positive_number(primary.get("case_qty"), whole=True):
+                row_issues[index].append(_issue("missing_case_quantity", f"{primary.get('packaging_level')} quantity is missing."))
             if primary.get("label_enabled") and not primary.get("label_template_id"):
                 row_issues[index].append(_issue("missing_label_template", "Label template is missing."))
             if str(primary.get("verification_status") or "").upper() != "VERIFIED":

@@ -811,7 +811,7 @@ def _render_decopac_mpl_pages(
     theme = _mpl_template_theme("decopac", brand_id)
     rows_per_page = 7
     chunks = [items[i:i + rows_per_page] for i in range(0, len(items), rows_per_page)] or [[]]
-    column_specs = [
+    default_column_specs = [
         ("location_on_pallet", "Pallet #", 0.075),
         ("invoice_po_number", "Invoice / PO #", 0.105),
         ("item_number", "Item #", 0.085),
@@ -824,6 +824,28 @@ def _render_decopac_mpl_pages(
         ("units_on_pallet", "Units on this Pallet", 0.095),
         ("balance_owed", "Balance Owed", 0.055),
     ]
+    configured_columns = mpl.get("column_config") if isinstance(mpl.get("column_config"), list) else []
+    allowed_defaults = {key: (label, width) for key, label, width in default_column_specs}
+    column_specs = []
+    seen_columns = set()
+    for raw_column in configured_columns:
+        if not isinstance(raw_column, dict) or raw_column.get("visible") is False:
+            continue
+        key = _mpl_clean(raw_column.get("key"))
+        if not key or key in seen_columns:
+            continue
+        is_custom = bool(raw_column.get("custom")) and key.startswith("custom_")
+        if key not in allowed_defaults and not is_custom:
+            continue
+        default_label, default_width = allowed_defaults.get(key, ("Custom Column", 0.09))
+        label = _mpl_clean(raw_column.get("label")) or default_label
+        width = _parse_float(raw_column.get("width")) or default_width
+        column_specs.append((key, label, max(0.03, float(width))))
+        seen_columns.add(key)
+    if not column_specs:
+        column_specs = list(default_column_specs)
+    total_width = sum(spec[2] for spec in column_specs) or 1.0
+    column_specs = [(key, label, width / total_width) for key, label, width in column_specs]
     computed_tihi: Dict[str, str] = {}
     try:
         tihi_entries, _tihi_warnings = _mpl_build_tihi_entries(mpl, items)

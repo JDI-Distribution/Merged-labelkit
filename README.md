@@ -230,12 +230,12 @@ Final shipping-case data is entered once instead of being repeated at every pack
 
 KeHE pack-label eligibility is separate from B2B eligibility. KeHE permits active Case or Inner Pack rows with a GTIN and applies a blank-copy fallback of 2 for Case or 6 for Inner Pack. B2B uses `Available in Label Creator` and `Active` to control general-user availability. `Data Status` is limited to `DRAFT`, `NEEDS_REVIEW`, `VERIFIED`, or `BLOCKED`; it never changes printed label content. `BLOCKED` hides a configuration from general users, while Admin/Editor roles can still inspect, correct, preview, and print it. Missing business values appear as review warnings instead of turning the label creator into a dead end.
 
-The standalone Directory uses searchable customer/destination cards with a persistent editor patterned after Product Master. The first matching record opens automatically, and selecting `Edit details` moves the entry form to that destination. `Ship To` and `Bill To` are visible together, with a `Same as Ship To` shortcut for billing. The shared Bakell `Ship From` address is displayed once and remains the automatic default, so users do not repeatedly enter it. An authorized Admin or Editor can change that default or save an alternate Ship From on a destination; unique active origins then appear in document-workflow dropdowns and a selection applies only to the current run. Changing the default preserves saved alternatives. Template, receiving, manufacturer, docking, and source-note fields remain available in the optional details panel. Changes save automatically. `Add Destination` creates a draft for the currently filtered customer when possible and immediately opens its fields. The directory template/export includes a blank-by-default `Ship From Override` column, so only exceptions need to be entered; older imports containing `Ship From` remain accepted, and rows without an override inherit the saved default. Preview/Label Creator and `Delete record` actions remain visible in the editor header. Directory rows remain unique by `Storefront + Code`; inactive rows remain visible to administrators for correction work. The established Catalyst `SHIP_FROM`, `DELIVERY_ADDRESS`, and `BILLING_ADDRESS` columns remain unchanged for compatibility with label and packing-list generation, so this feature requires no Catalyst schema migration.
+The standalone Directory uses searchable address cards. Opening a row shows a compact read-only record view; `Edit address` opens the larger editing form, while `Add address` opens directly in edit mode. Completely blank new records are discarded when closed. Every address can be assigned one or more roles with `Ship From`, `Ship To`, and `Bill To` checkboxes, and the same active record appears in each matching document dropdown. `Same as Ship To` adds the Bill To role to the same record instead of creating a duplicate. The shared Bakell `Ship From` address remains the automatic default, and authorized Admin or Editor users can change it or save alternatives. Template, receiving, manufacturer, docking, matching values, and source notes remain optional. Changes save automatically. Directory import/export uses a comma-separated `Address Roles` field and still accepts older single-role or legacy address columns. The existing Catalyst `RECORD_TYPE`, `SHIP_FROM`, `DELIVERY_ADDRESS`, and `BILLING_ADDRESS` columns remain compatible: selected roles are stored in `RECORD_TYPE`, and the shared address is copied to the applicable legacy output columns. No new directory-table column is required.
 
 Table maintenance tools:
 
 - `Download Product Template` and `Download Directory Template` download import-ready CSV templates.
-- The Product Master template uses the same shared-product plus packaging-level hierarchy shown in the UI. Its guide row explains where every column is used, and its example product contains Case, Inner Pack, and Each rows. Each Weight and final shipping-case weights and dimensions are entered once; the remaining level rows contain their GTIN, each quantity, and label settings.
+- The Product Master template uses the same shared-product plus packaging-level hierarchy shown in the UI. Each is required; Inner Pack and Case are optional. Display SKU plus `Display SKU Represents` identifies whether an order quantity is already Each, Inner Pack, or Case. Level-specific SKUs, GTINs, contained-each quantities, and label settings remain on their applicable rows, while shared weight and outermost dimensions are entered once.
 - `Upload Excel/CSV` opens an import preview with each row selected by default; unchecked rows are skipped.
 - `Import Selected Rows` saves only the checked rows and records change history.
 - `Export Product CSV` exports the full standalone Product Master table.
@@ -317,13 +317,15 @@ TI-HI behavior:
 
 Current Product Master package fields are:
 
-- `STOREFRONT`, `CONFIG_ID`, `SKU`, `CUSTOMER_ITEM_NUMBER`, `DESCRIPTION`, `PACKAGING_LEVEL`
+- `STOREFRONT`, `CONFIG_ID`, `DISPLAY_SKU`, `DISPLAY_SKU_UOM`, `SKU`, `CUSTOMER_ITEM_NUMBER`, `DESCRIPTION`, `PACKAGING_LEVEL`
 - `GTIN`, `BARCODE_TYPE`, `BARCODE_LEVEL`, `LABEL_TEMPLATE_ID`
 - `LENGTH_IN`, `WIDTH_IN`, `HEIGHT_IN`
-- `CASE_QTY`, `EACH_NET_WEIGHT_G`, `PACKAGE_NET_WEIGHT_G`, `GROSS_WEIGHT_LBS`
+- `CASE_QTY`, `INNER_PACKS_PER_CASE`, `EACH_NET_WEIGHT_G`, `PACKAGE_NET_WEIGHT_G`, `GROSS_WEIGHT_LBS`
 - `DEFAULT_COPIES`, `PACK_STATEMENT`, `VERIFICATION_STATUS`, `LABEL_ENABLED`, `IS_ACTIVE`, `SOURCE_NOTE`
 
-Storage remains one row per packaging level, so no Catalyst table migration is required for the grouped editor. The Case row is the canonical storage row for the once-per-product physical data shown in the UI: `EACH_NET_WEIGHT_G` is Each Weight, `PACKAGE_NET_WEIGHT_G` is Total Product Weight, `GROSS_WEIGHT_LBS` is Total Weight with Packaging, and `LENGTH_IN` / `WIDTH_IN` / `HEIGHT_IN` are the final shipping-case dimensions. Inner Pack and other packaging rows retain their GTIN, each quantity, and label configuration without asking users to repeat weights or dimensions. New templates and exports use the clearer headings while import aliases continue to accept the stored field names.
+Storage remains one row per packaging level. Each is mandatory, while Inner Pack and Case are optional. `DISPLAY_SKU` is an alternate order-facing identifier shared by the configuration, and `DISPLAY_SKU_UOM` records whether its incoming quantity represents Each, Inner Pack, or Case. `INNER_PACKS_PER_CASE` is used when a Case contains Inner Packs. The outermost configured row is the canonical storage row for once-per-product physical data: `EACH_NET_WEIGHT_G` is one sellable each, `PACKAGE_NET_WEIGHT_G` is total product weight, `GROSS_WEIGHT_LBS` includes packaging, and `LENGTH_IN` / `WIDTH_IN` / `HEIGHT_IN` are the outermost shipping dimensions. Other packaging rows retain their SKU, GTIN, contained-each quantity, and label configuration without asking users to repeat weights or dimensions.
+
+The Catalyst `mpl_product_master` table must contain `DISPLAY_SKU`, `DISPLAY_SKU_UOM`, and `INNER_PACKS_PER_CASE` before deploying this schema. Existing rows can remain blank and can be deleted/reimported through Product Master when the finalized SKU workbook is available.
 
 The former `DIMENSIONS_IN`, `WEIGHT_LBS`, `LABELS_PER_UNIT`, and `LABEL_REQUIRED` columns are obsolete. Legacy headings are accepted for one transition import and converted immediately, but they are never written to JSON or Catalyst and are not included in new templates or exports. TI-HI reads the three numeric dimension fields directly. Product Master writes reconcile rows by key and Catalyst `ROWID`; they do not clear and recreate the table.
 
@@ -814,7 +816,8 @@ Tracked app source:
     |           |   |-- mpl-draft-sync.css
     |           |   |-- operations.css
     |           |   |-- preview.css
-    |           |   `-- responsive-shell.css
+    |           |   |-- responsive-shell.css
+    |           |   `-- workflow-enhancements.css
     |           |-- js
     |           |   |-- app.js
     |           |   |-- b2b-workspace.js
@@ -822,7 +825,8 @@ Tracked app source:
     |           |   |-- mpl-draft-sync.js
     |           |   |-- mpl-tihi.js
     |           |   |-- partner-workspace.js
-    |           |   `-- reference-data.js
+    |           |   |-- reference-data.js
+    |           |   `-- workflow-enhancements.js
     |           `-- vendor
     |               `-- pdfjs-3.11.174
     |                   |-- LICENSE
@@ -837,6 +841,7 @@ Tracked app source:
     |   |-- draft_storage.py
     |   |-- file_operations.py
     |   |-- order_intake.py
+    |   |-- product_quality.py
     |   |-- reference_data.py
     |   `-- security.py
     |-- tests
@@ -847,7 +852,8 @@ Tracked app source:
     |   |-- test_module_boundaries.py
     |   |-- test_mpl_templates.py
     |   |-- test_order_lookup.py
-    |   `-- test_product_master_migration.py
+    |   |-- test_product_master_migration.py
+    |   `-- test_product_quality.py
     `-- pipelines
         |-- b2b_labels
         |   |-- __init__.py

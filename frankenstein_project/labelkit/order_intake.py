@@ -278,30 +278,64 @@ def _b2b_analytics_order_items_for_products(
     normalized_product_rows = _dedupe_product_master_rows(product_rows)
     products_by_sku: Dict[str, List[Dict[str, Any]]] = {}
     for product in normalized_product_rows:
-        if normalize_packaging_level(product.get("packaging_level")) != "Case":
+        if not bool(product.get("is_active", True)):
             continue
-        if not bool(product.get("in_packing_list")):
-            continue
-        sku_key = _canonical_order_sku(product.get("sku"))
-        if sku_key:
-            products_by_sku.setdefault(sku_key, []).append(product)
+        sku_keys = {
+            _canonical_order_sku(product.get("sku")),
+            _canonical_order_sku(product.get("display_sku")),
+        }
+        for product_sku_key in sku_keys:
+            if product_sku_key:
+                products_by_sku.setdefault(product_sku_key, []).append(product)
 
     items: List[Dict[str, Any]] = []
     for sku_key, order_item in aggregated.items():
-        candidates = products_by_sku.get(sku_key, [])
+        raw_candidates = products_by_sku.get(sku_key, [])
+        candidates_by_group: Dict[str, List[Dict[str, Any]]] = {}
+        for candidate in raw_candidates:
+            group_key = "|".join([
+                str(candidate.get("storefront") or "").strip().lower(),
+                str(candidate.get("config_id") or candidate.get("sku") or "").strip().lower(),
+            ])
+            candidates_by_group.setdefault(group_key, []).append(candidate)
+        candidates = list(candidates_by_group.values())
         if len(candidates) > 1:
             match_status = "ambiguous"
             product = None
         elif len(candidates) == 1:
-            match_status = "matched"
-            product = candidates[0]
+            matching_rows = candidates[0]
+            product = next((row for row in matching_rows if _canonical_order_sku(row.get("sku")) == sku_key), None)
+            if product is None:
+                display_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
+                product = next((row for row in matching_rows if normalize_packaging_level(row.get("packaging_level")) == display_uom), None)
+            match_status = "matched" if product is not None else "unmatched"
         else:
             match_status = "unmatched"
             product = None
 
+        converted_order_item = dict(order_item)
+        if product is not None:
+            matched_config_id = str(product.get("config_id") or "").strip().lower()
+            uses_level_specific_skus = bool(matched_config_id and any(
+                normalize_packaging_level(row.get("packaging_level")) == "Each"
+                and str(row.get("config_id") or "").strip().lower() == matched_config_id
+                and str(row.get("storefront") or "").strip().lower() == str(product.get("storefront") or "").strip().lower()
+                for row in normalized_product_rows
+            ))
+            if uses_level_specific_skus:
+                conversion = _analytics_case_conversion(
+                    order_item.get("quantity_ordered"),
+                    product,
+                    normalized_product_rows,
+                    quantity_is_matched_uom=True,
+                )
+                if conversion:
+                    product = conversion.pop("outermost_product", product)
+                    converted_order_item.update(conversion)
+
         item = {
-            **order_item,
-            "quantity_ordered": int(order_item["quantity_ordered"]) if float(order_item["quantity_ordered"]).is_integer() else round(float(order_item["quantity_ordered"]), 6),
+            **converted_order_item,
+            "quantity_ordered": int(converted_order_item["quantity_ordered"]) if float(converted_order_item["quantity_ordered"]).is_integer() else round(float(converted_order_item["quantity_ordered"]), 6),
             "match_status": match_status,
             "product": product,
         }
@@ -315,70 +349,85 @@ def _analytics_case_conversion(
     quantity_ordered: Any,
     product: Optional[Dict[str, Any]],
     packaging_rows: Optional[List[Dict[str, Any]]] = None,
+    *,
+    quantity_is_matched_uom: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """Convert Analytics eaches using an explicit Product Master case pack.
-
-    Analytics reports ordered units as eaches. A matched Product Master Case row
-    supplies the number of eaches in one physical case, regardless of customer.
-    Keeping this conversion customer-neutral prevents large B2B orders from being
-    treated as hundreds of already-packed cases by the MPL/Ti-Hi workflow.
-    """
-    each_quantity = _analytics_quantity(quantity_ordered)
-    if each_quantity is None or not isinstance(product, dict):
+    """Convert the matched SKU unit to the configuration's outermost unit."""
+    ordered_quantity = _analytics_quantity(quantity_ordered)
+    if ordered_quantity is None or not isinstance(product, dict):
         return None
 
-    eaches_per_case = _analytics_quantity(product.get("case_qty"))
-    if eaches_per_case is None or float(eaches_per_case) <= 1:
-        return None
-
-    eaches_per_inner_pack: Optional[float | int] = None
-    inner_packs_per_case: Optional[float | int] = None
-    wanted_sku = _canonical_order_sku(product.get("sku"))
-    wanted_storefront = _normalize_storefront(product.get("storefront")).lower()
+    normalized_product = normalize_product_master_row(product)
+    if not str(product.get("packaging_level") or product.get("PACKAGING_LEVEL") or "").strip() and float(_analytics_quantity(product.get("case_qty")) or 0) > 1:
+        normalized_product["packaging_level"] = "Case"
+    wanted_storefront = _normalize_storefront(normalized_product.get("storefront")).lower()
+    wanted_config = str(normalized_product.get("config_id") or "").strip().lower()
+    wanted_sku = _canonical_order_sku(normalized_product.get("sku"))
+    group_rows: List[Dict[str, Any]] = []
     for raw_row in packaging_rows or []:
         row = normalize_product_master_row(raw_row)
-        if normalize_packaging_level(row.get("packaging_level")) != "Inner Pack":
-            continue
-        if _canonical_order_sku(row.get("sku")) != wanted_sku:
-            continue
         if _normalize_storefront(row.get("storefront")).lower() != wanted_storefront:
             continue
-        configured_inner_pack = _analytics_quantity(row.get("case_qty"))
-        if configured_inner_pack is None or float(configured_inner_pack) <= 1:
-            break
-        eaches_per_inner_pack = configured_inner_pack
-        calculated_inner_packs = float(eaches_per_case) / float(configured_inner_pack)
-        nearest_inner_pack = round(calculated_inner_packs)
-        inner_packs_per_case = (
-            int(nearest_inner_pack)
-            if abs(calculated_inner_packs - nearest_inner_pack) < 1e-9
-            else round(calculated_inner_packs, 6)
-        )
-        break
+        same_group = bool(wanted_config) and str(row.get("config_id") or "").strip().lower() == wanted_config
+        legacy_group = not wanted_config and _canonical_order_sku(row.get("sku")) == wanted_sku
+        if same_group or legacy_group:
+            group_rows.append(row)
+    product_identity = (
+        str(normalized_product.get("config_id") or "").strip().lower(),
+        normalize_packaging_level(normalized_product.get("packaging_level")),
+        _canonical_order_sku(normalized_product.get("sku")),
+    )
+    if not any((str(row.get("config_id") or "").strip().lower(), normalize_packaging_level(row.get("packaging_level")), _canonical_order_sku(row.get("sku"))) == product_identity for row in group_rows):
+        group_rows.append(normalized_product)
 
-    raw_case_quantity = float(each_quantity) / float(eaches_per_case)
-    nearest_whole_case = round(raw_case_quantity)
-    exact_case_multiple = abs(raw_case_quantity - nearest_whole_case) < 1e-9
-    case_quantity = int(nearest_whole_case if exact_case_multiple else math.ceil(raw_case_quantity))
-    full_cases = math.floor(raw_case_quantity)
-    remainder_eaches_value = 0.0 if exact_case_multiple else float(each_quantity) - (full_cases * float(eaches_per_case))
+    by_level = {normalize_packaging_level(row.get("packaging_level")): row for row in group_rows}
+    outermost = by_level.get("Case") or by_level.get("Inner Pack") or by_level.get("Each") or normalized_product
+    matched_level = normalize_packaging_level(normalized_product.get("packaging_level")) if quantity_is_matched_uom else "Each"
+    outer_level = normalize_packaging_level(outermost.get("packaging_level"))
+    input_eaches = 1.0 if matched_level == "Each" else float(_analytics_quantity(normalized_product.get("case_qty")) or 1)
+    outer_eaches = 1.0 if outer_level == "Each" else float(_analytics_quantity(outermost.get("case_qty")) or 1)
+    if not quantity_is_matched_uom and outer_eaches <= 1:
+        return None
+    ordered_eaches = float(ordered_quantity) * input_eaches
+    raw_outer_quantity = ordered_eaches / outer_eaches
+    nearest_whole = round(raw_outer_quantity)
+    exact_multiple = abs(raw_outer_quantity - nearest_whole) < 1e-9
+    if not exact_multiple and "fancy" in wanted_storefront:
+        raise ValueError(
+            f"Fancy Sprinkles SKU '{product.get('sku')}' quantity {ordered_quantity:g} "
+            f"does not divide exactly into the configured {outer_level} quantity of {outer_eaches:g}."
+        )
+    outer_quantity = int(nearest_whole if exact_multiple else math.ceil(raw_outer_quantity))
+    full_units = math.floor(raw_outer_quantity)
+    remainder_eaches_value = 0.0 if exact_multiple else ordered_eaches - (full_units * outer_eaches)
     remainder_eaches: float | int = (
         int(round(remainder_eaches_value))
         if abs(remainder_eaches_value - round(remainder_eaches_value)) < 1e-9
         else round(remainder_eaches_value, 6)
     )
 
+    inner_row = by_level.get("Inner Pack")
+    eaches_per_inner_pack = _analytics_quantity((inner_row or {}).get("case_qty"))
+    inner_packs_per_case = _analytics_quantity((by_level.get("Case") or {}).get("inner_packs_per_case"))
+    if inner_packs_per_case is None and eaches_per_inner_pack and outer_level == "Case":
+        calculated_inners = outer_eaches / float(eaches_per_inner_pack)
+        nearest_inners = round(calculated_inners)
+        inner_packs_per_case = int(nearest_inners) if abs(calculated_inners - nearest_inners) < 1e-9 else round(calculated_inners, 6)
+
     return {
-        "quantity_ordered_eaches": each_quantity,
-        "quantity_ordered_cases": case_quantity,
-        "quantity_ordered": case_quantity,
-        "quantity_uom": "CASES",
+        "quantity_ordered_eaches": int(ordered_eaches) if ordered_eaches.is_integer() else round(ordered_eaches, 6),
+        "quantity_ordered_cases": outer_quantity,
+        "quantity_ordered": outer_quantity,
+        "quantity_uom": outer_level.upper().replace(" ", "_"),
+        "source_packaging_level": matched_level,
+        "outermost_packaging_level": outer_level,
         "eaches_per_inner_pack": eaches_per_inner_pack,
         "inner_packs_per_case": inner_packs_per_case,
-        "eaches_per_case": eaches_per_case,
+        "eaches_per_case": outer_eaches if outer_level == "Case" else None,
         "case_pack_source": "product_master",
-        "case_conversion_exact": exact_case_multiple,
+        "case_conversion_exact": exact_multiple,
         "case_conversion_remainder_eaches": remainder_eaches,
+        "outermost_product": outermost,
     }
 
 
@@ -402,6 +451,7 @@ def _product_each_gtin(
         return ""
     normalized_product = normalize_product_master_row(product)
     wanted_sku = _canonical_order_sku(normalized_product.get("sku"))
+    wanted_config = str(normalized_product.get("config_id") or "").strip().lower()
     wanted_storefront = _normalize_storefront(normalized_product.get("storefront")).lower()
     if not wanted_sku:
         return ""
@@ -411,7 +461,9 @@ def _product_each_gtin(
         row = normalize_product_master_row(raw_row)
         if normalize_packaging_level(row.get("packaging_level")) != "Each":
             continue
-        if _canonical_order_sku(row.get("sku")) != wanted_sku:
+        same_group = bool(wanted_config) and str(row.get("config_id") or "").strip().lower() == wanted_config
+        legacy_group = not wanted_config and _canonical_order_sku(row.get("sku")) == wanted_sku
+        if not (same_group or legacy_group):
             continue
         if _normalize_storefront(row.get("storefront")).lower() != wanted_storefront:
             continue

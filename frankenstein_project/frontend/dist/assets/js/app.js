@@ -442,11 +442,13 @@
   let mplProductMasterRows = loadMplProductMasterFromStorage();
   let mplProductMasterLoadPromise = null;
   let mplProductMasterSaveTimer = null;
-  const mplExpandedProductGroups = new Set();
+  let mplProductEditorGroupKey = '';
   let mplDirectoryRows = loadMplDirectoryFromStorage();
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
-  let mplDirectoryExpandedIndex = -1;
+  let mplDirectoryEditorIndex = -1;
+  let mplDirectoryEditorMode = 'view';
+  let mplDirectoryEditorIsNew = false;
   let b2bLabelTemplates = [];
   let b2bSelectedCustomer = '';
   let b2bSelectedGroupKey = '';
@@ -491,7 +493,7 @@
   const B2B_BARCODE_TYPES = ['UPC_A', 'EAN_13', 'GTIN_14', 'NONE'];
   const B2B_BARCODE_LEVELS = ['EACH', 'INNER_PACK', 'CASE', 'MASTER_CASE', 'PALLET', 'NONE'];
   const B2B_VERIFICATION_STATUSES = ['DRAFT', 'NEEDS_REVIEW', 'VERIFIED', 'BLOCKED'];
-  const B2B_DIRECTORY_RECORD_TYPES = ['CUSTOMER_DEFAULT', 'DESTINATION', 'DISTRIBUTION_CENTER'];
+  const B2B_DIRECTORY_RECORD_TYPES = ['CUSTOMER_DEFAULT', 'DESTINATION', 'DISTRIBUTION_CENTER', 'SHIP_FROM', 'SHIP_TO', 'BILL_TO'];
   const mplLiveTiHiTimers = new Map();
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
@@ -1327,14 +1329,14 @@
       .map(canonicalId)
       .filter(Boolean);
     let index = rows.findIndex(row => {
-      if (!isCasePackagingLevel(row.packaging_level)) return false;
+      if (!isProductInPackingList(row)) return false;
       const keys = [row.config_id, row.gtin, row.customer_item_number, row.sku].map(canonicalId).filter(Boolean);
       return candidates.some(candidate => keys.includes(candidate));
     });
     if (index >= 0) return index;
     const desc = String(item?.description || '').trim().toLowerCase();
     if (!desc) return -1;
-    index = rows.findIndex(row => isCasePackagingLevel(row.packaging_level) && String(row.description || '').trim().toLowerCase() === desc);
+    index = rows.findIndex(row => isProductInPackingList(row) && String(row.description || '').trim().toLowerCase() === desc);
     return index;
   }
 
@@ -2220,24 +2222,18 @@
 
   function productMasterCsvHeader() {
     return [
-      'Customer / Storefront', 'Config ID', 'SKU', 'Customer Item Number', 'Product Description', 'Product Status',
-      'Packaging Level', 'GTIN', 'Eaches Contained', 'Each Weight (g)', 'Total Product Weight (g)',
-      'Total Weight with Packaging (lb)', 'Final Length (in)', 'Final Width/Breadth (in)', 'Final Height (in)',
+      'Customer / Storefront', 'Internal Configuration ID', 'Display SKU', 'Display SKU Represents', 'Level SKU', 'Customer Item Number', 'Product Description', 'Product Status',
+      'Packaging Level', 'GTIN', 'Eaches Contained', 'Inner Packs per Case', 'Each Weight (g)',
+      'Total Weight with Packaging (lb)', 'Outermost Length (in)', 'Outermost Width/Breadth (in)', 'Outermost Height (in)',
       'Label Template ID', 'Barcode Type', 'Barcode Level', 'Default Copies', 'Label Enabled', 'Level Active', 'Source Note'
     ];
   }
 
   function productMasterCsvRow(row = {}) {
-    const isFinalCase = String(row.packaging_level || '').trim().toLowerCase() === 'case';
     return [
-      row.storefront, row.config_id, row.sku, row.customer_item_number, row.description, row.verification_status,
-      row.packaging_level, row.gtin, row.packaging_level === 'Each' ? '1' : row.case_qty,
-      isFinalCase ? row.each_net_weight_g : '',
-      isFinalCase ? row.package_net_weight_g : '',
-      isFinalCase ? row.gross_weight_lbs : '',
-      isFinalCase ? row.length_in : '',
-      isFinalCase ? row.width_in : '',
-      isFinalCase ? row.height_in : '',
+      row.storefront, row.config_id, row.display_sku, row.display_sku_uom || 'Each', row.sku, row.customer_item_number, row.description, row.verification_status,
+      row.packaging_level, row.gtin, row.packaging_level === 'Each' ? '1' : row.case_qty, row.inner_packs_per_case,
+      row.each_net_weight_g, row.gross_weight_lbs, row.length_in, row.width_in, row.height_in,
       row.label_template_id, row.barcode_type, row.barcode_level, row.default_copies,
       row.label_enabled, row.is_active, row.source_note,
     ];
@@ -2254,24 +2250,20 @@
 
   function directoryCsvHeader() {
     return [
-      'Customer / Storefront', 'Code', 'Destination Name', 'Ship From Override', 'Ship To', 'Bill To', 'Match Values',
-      'Record Type', 'Default Label Template ID', 'Receiving Email', 'Docking Instructions',
+      'Customer / Storefront', 'Code', 'Address Name', 'Address Roles', 'Address', 'Match Values',
+      'Default Label Template ID', 'Receiving Email', 'Docking Instructions',
       'Manufacturer Name', 'Manufacturer Address', 'Verification Status', 'Source Note', 'Active'
     ];
   }
 
   function directoryCsvRow(row = {}) {
-    const sharedOrigin = getSharedMplDirectoryShipFrom();
-    const shipFromOverride = String(row.ship_from || '').trim() === sharedOrigin ? '' : row.ship_from;
     return [
       row.storefront,
       row.dc,
       row.name,
-      shipFromOverride,
-      row.delivery_address,
-      row.billing_address,
+      (row.address_roles || []).join(',') || row.address_type || row.record_type,
+      row.address,
       Array.isArray(row.match_values) ? row.match_values.join('\n') : row.match_values,
-      row.record_type,
       row.default_label_template_id,
       row.receiving_email,
       row.docking_instructions,
@@ -2289,7 +2281,7 @@
       directoryCsvHeader(),
       ...rows.map(directoryCsvRow)
     ]);
-    setStatus(`Exported ${rows.length} destination record${rows.length === 1 ? '' : 's'}. Only non-default Ship From overrides are included.`, 'success');
+    setStatus(`Exported ${rows.length} address record${rows.length === 1 ? '' : 's'}.`, 'success');
   }
 
   function downloadImportTemplate(target) {
@@ -2298,19 +2290,29 @@
       ? [
           directoryCsvHeader(),
           [
-            'USAGE GUIDE — not imported', 'Unique customer destination code', 'Customer, DC, store, or warehouse name',
-            'Optional alternate origin; leave blank to use the shared default', 'Required destination address', 'Billing address; may match Ship To', 'Optional GLN, city, ZIP, or aliases separated by line breaks',
-            'Use DESTINATION for shipping locations', 'Optional saved label template', 'Optional receiving contact', 'Optional delivery instructions',
+            'USAGE GUIDE — not imported', 'Reusable customer/location code', 'Customer, DC, store, warehouse, or origin name',
+            'One or more: SHIP_FROM, SHIP_TO, BILL_TO (comma-separated)', 'One reusable address per row', 'Optional GLN, city, ZIP, or aliases separated by line breaks',
+            'Optional saved label template', 'Optional receiving contact', 'Optional delivery instructions',
             'Optional manufacturer override', 'Optional manufacturer address override', 'DRAFT / NEEDS_REVIEW / VERIFIED / BLOCKED', 'Optional source or review note', 'true/false'
           ],
           directoryCsvRow(normalizeDcDirectoryRow({
             storefront: 'KeHE',
             dc: '45',
             name: 'KeHE Ontario DC',
-            delivery_address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
-            billing_address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
+            address_type: 'SHIP_TO',
+            address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
             match_values: ['0569813430045', 'Ontario', '91761'],
-            record_type: 'DESTINATION',
+            record_type: 'SHIP_TO',
+            verification_status: 'DRAFT',
+            is_active: true,
+          })),
+          directoryCsvRow(normalizeDcDirectoryRow({
+            storefront: 'KeHE',
+            dc: '45',
+            name: 'KeHE Ontario Billing',
+            address_type: 'BILL_TO',
+            address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
+            record_type: 'BILL_TO',
             verification_status: 'DRAFT',
             is_active: true,
           }))
@@ -2318,15 +2320,15 @@
       : [
           productMasterCsvHeader(),
           [
-            'USAGE GUIDE — not imported', 'Repeat one Config ID for every packaging level of a product.',
-            'Shared product SKU', 'Optional customer item', 'Shared description', 'Shared status',
-            'One row per level', 'Level barcode', 'Total sellable eaches at this level', 'One sellable each', 'All product in the final case',
-            'Final case including packaging', 'Final case length', 'Final case width', 'Final case height',
+            'USAGE GUIDE — not imported', 'Repeat this system grouping ID for all rows of one product.',
+            'Alternate order SKU shared by the product', 'How Display SKU quantity should be interpreted: Each, Inner Pack, or Case', 'Order SKU for this unit', 'Optional customer item', 'Shared description', 'Shared status',
+            'Each is required; Inner Pack and Case are optional', 'Barcode for this unit', 'Total eaches in this unit', 'Used only on Case when an Inner Pack exists', 'Weight of one sellable each',
+            'Weight of the outermost unit including packaging', 'Outermost unit length', 'Outermost unit width', 'Outermost unit height',
             'Level label template', 'Level barcode type', 'Level barcode level', 'Copies per unit', 'true/false', 'true/false', 'Optional notes'
           ],
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', each_net_weight_g: '113', package_net_weight_g: '4068', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '10', default_copies: '2', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', default_copies: '6', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', sku: 'TW-CRS109-4OZ', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', is_active: true }))
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', display_sku_uom: 'Each', sku: 'TW-CRS109-CASE', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', inner_packs_per_case: '6', each_net_weight_g: '113', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '10', default_copies: '2', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-INNER', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', each_net_weight_g: '113', default_copies: '6', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-EACH', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', each_net_weight_g: '113', is_active: true }))
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
     setStatus(`${isDirectory ? 'Address Directory' : 'Product Master'} import template downloaded.`, 'success');
@@ -2448,8 +2450,7 @@
       return [
         row?.storefront ? `Storefront: ${row.storefront}` : '',
         row?.dc ? `Code: ${row.dc}` : '',
-        row?.delivery_address ? `Ship To: ${truncateAuditValue(row.delivery_address)}` : '',
-        row?.billing_address ? `Bill To: ${truncateAuditValue(row.billing_address)}` : '',
+        row?.address ? `${String(row.address_type || row.record_type || 'Address').replace(/_/g, ' ')}: ${truncateAuditValue(row.address)}` : '',
       ].filter(Boolean).join(' | ');
     }
     return [
@@ -2778,7 +2779,7 @@
       return `
         <div class="mpl-product-picker">
           <label>Product</label>
-          <select disabled><option>No selected Case rows</option></select>
+          <select disabled><option>No active shipping configurations</option></select>
         </div>`;
     }
     const selectedIndex = getMplItemProductIndex(item);

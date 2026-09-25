@@ -87,6 +87,22 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         )
         self.assertEqual("CURRENT DEFAULT", imported_without_override[0]["ship_from"])
 
+    def test_directory_address_can_be_reused_for_multiple_dropdown_roles(self):
+        row = normalize_dc_directory_row({
+            "storefront": "DecoPac",
+            "dc": "MAIN",
+            "name": "DecoPac Office",
+            "address": "DecoPac\n123 Main St\nAnytown, CA 90000",
+            "address_roles": ["SHIP_TO", "BILL_TO"],
+        })
+
+        self.assertEqual(["SHIP_TO", "BILL_TO"], row["address_roles"])
+        self.assertEqual("SHIP_TO,BILL_TO", row["record_type"])
+        self.assertEqual(row["address"], row["delivery_address"])
+        self.assertEqual(row["address"], row["billing_address"])
+        self.assertEqual("", row["ship_from"])
+        self.assertTrue(row["unique_key"].endswith("|ship_to+bill_to"))
+
     def test_order_lookup_helpers_validate_and_select_consistently(self):
         self.assertEqual("SO-101", _validated_sales_order_number({"sales_order_number": " SO-101 "}))
         with self.assertRaises(HTTPException):
@@ -340,6 +356,56 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         self.assertEqual(29, payload["items"][0]["quantity_ordered"])
         self.assertEqual(1044, payload["items"][0]["quantity_ordered_eaches"])
         self.assertEqual(1, payload["summary"]["converted_to_cases"])
+
+    def test_mpl_lookup_matches_display_sku_using_configured_unit(self):
+        order_rows = [{
+            "Sales Order Number": "DISPLAY-1",
+            "Ecomdash ID": "DISPLAY-ORDER",
+            "Storefront": "Fancy Sprinkles",
+            "SKUNumber": "COMMON-DISPLAY-SKU",
+            "Quantity Ordered": "72",
+        }]
+        products = [
+            {
+                "storefront": "Fancy Sprinkles",
+                "config_id": "FANCY-ONE",
+                "display_sku": "COMMON-DISPLAY-SKU",
+                "display_sku_uom": "Each",
+                "packaging_level": "Each",
+                "sku": "FANCY-EACH",
+                "case_qty": "1",
+                "is_active": True,
+            },
+            {
+                "storefront": "Fancy Sprinkles",
+                "config_id": "FANCY-ONE",
+                "display_sku": "COMMON-DISPLAY-SKU",
+                "display_sku_uom": "Each",
+                "packaging_level": "Case",
+                "sku": "FANCY-CASE",
+                "case_qty": "36",
+                "is_active": True,
+            },
+        ]
+
+        with (
+            patch("server._require_permission"),
+            patch("server._analytics_export_order_rows", return_value=order_rows),
+            patch("server._datastore_load_product_master", return_value=products),
+        ):
+            response = lookup_mpl_order(object(), {"sales_order_number": "DISPLAY-1"})
+
+        payload = json.loads(response.body)
+        self.assertEqual("matched", payload["items"][0]["match_status"])
+        self.assertEqual("Each", payload["items"][0]["source_packaging_level"])
+        self.assertEqual(72, payload["items"][0]["quantity_ordered_eaches"])
+        self.assertEqual(2, payload["items"][0]["quantity_ordered"])
+
+        b2b_items = _b2b_analytics_order_items_for_products(order_rows, products)
+        self.assertEqual("matched", b2b_items[0]["match_status"])
+        self.assertEqual("Case", b2b_items[0]["product"]["packaging_level"])
+        self.assertEqual("CASE", b2b_items[0]["quantity_uom"])
+        self.assertEqual(2, b2b_items[0]["quantity_ordered"])
 
     def test_mpl_item_number_uses_each_gtin_from_same_product_group(self):
         case_product = {

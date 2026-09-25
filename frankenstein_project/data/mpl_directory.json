@@ -2,11 +2,66 @@
   "rows": [
     {
       "id": "",
+      "storefront": "Bakell",
+      "dc": "DEFAULT-SHIP-FROM",
+      "name": "Default Ship From",
+      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "delivery_address": "",
+      "billing_address": "",
+      "match_values": [],
+      "address_type": "SHIP_FROM",
+      "address_roles": [
+        "SHIP_FROM"
+      ],
+      "address": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "record_type": "SHIP_FROM",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "VERIFIED",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "bakell|default-ship-from|ship_from"
+    },
+    {
+      "id": "",
       "storefront": "KeHE",
       "dc": "01",
       "name": "DC 01 Elkton",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430001",
+        "3800 deerpark",
+        "elkton",
+        "32033"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|01|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "01",
+      "name": "DC 01 Elkton",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430001",
@@ -14,7 +69,12 @@
         "elkton",
         "32033"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -23,15 +83,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|01"
+      "unique_key": "kehe|01|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "14",
       "name": "DC 14 Goodyear",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 14 Goodyear\nKEHE DISTRIBUTORS, LLC\n17510 W THOMAS RD\nGOODYEAR AZ 85395\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430014",
+        "17510 w thomas",
+        "goodyear",
+        "85395"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 14 Goodyear\nKEHE DISTRIBUTORS, LLC\n17510 W THOMAS RD\nGOODYEAR AZ 85395\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|14|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "14",
+      "name": "DC 14 Goodyear",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430014",
@@ -39,7 +129,12 @@
         "goodyear",
         "85395"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -48,15 +143,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|14"
+      "unique_key": "kehe|14|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "18",
       "name": "DC 18 Romeoville",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 18 Romeoville\nKeHE Distributors, LLC\n900 Schmidt Rd\nRomeoville, IL 60446\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430018",
+        "900 schmidt",
+        "romeoville",
+        "60446"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 18 Romeoville\nKeHE Distributors, LLC\n900 Schmidt Rd\nRomeoville, IL 60446\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|18|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "18",
+      "name": "DC 18 Romeoville",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430018",
@@ -64,7 +189,12 @@
         "romeoville",
         "60446"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -73,15 +203,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|18"
+      "unique_key": "kehe|18|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "19",
       "name": "DC 19 Dallas",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 19 Dallas\nKeHE Distributors, LLC\n4450 Logistics Drive\nDallas, TX 75241\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430019",
+        "4450 logistics",
+        "dallas",
+        "75241"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 19 Dallas\nKeHE Distributors, LLC\n4450 Logistics Drive\nDallas, TX 75241\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|19|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "19",
+      "name": "DC 19 Dallas",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430019",
@@ -89,7 +249,12 @@
         "dallas",
         "75241"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -98,15 +263,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|19"
+      "unique_key": "kehe|19|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "27",
       "name": "DC 27 North East",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 27 North East\nKeHE Distributors, LLC\n585 Principio Pkwy W\nNorth East, MD 21901\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430027",
+        "585 principio",
+        "north east",
+        "21901"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 27 North East\nKeHE Distributors, LLC\n585 Principio Pkwy W\nNorth East, MD 21901\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|27|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "27",
+      "name": "DC 27 North East",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430027",
@@ -114,7 +309,12 @@
         "north east",
         "21901"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -123,15 +323,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|27"
+      "unique_key": "kehe|27|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "33",
       "name": "DC 33 Stockton",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 33 Stockton\nKEHE DISTRIBUTORS, LLC\n4650 NEWCASTLE RD\nSTOCKTON CA 95215\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430033",
+        "4650 newcastle",
+        "stockton",
+        "95215"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 33 Stockton\nKEHE DISTRIBUTORS, LLC\n4650 NEWCASTLE RD\nSTOCKTON CA 95215\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|33|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "33",
+      "name": "DC 33 Stockton",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430033",
@@ -139,7 +369,12 @@
         "stockton",
         "95215"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -148,15 +383,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|33"
+      "unique_key": "kehe|33|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "45",
       "name": "DC 45 Ontario",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 45 Ontario\nKeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\n909-975-1019",
+      "billing_address": "",
+      "match_values": [
+        "0569813430045",
+        "601 s rockefeller",
+        "ontario",
+        "91761"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 45 Ontario\nKeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\n909-975-1019",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|45|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "45",
+      "name": "DC 45 Ontario",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430045",
@@ -164,7 +429,12 @@
         "ontario",
         "91761"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -173,15 +443,46 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|45"
+      "unique_key": "kehe|45|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "46",
       "name": "DC 46 Tualatin",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 46 Tualatin\nKeHE Distributors, LLC\n12360 S.W. Leveton Dr\nTualatin, OR 97062\n503-692-0662",
+      "billing_address": "",
+      "match_values": [
+        "0569813430046",
+        "12360 s.w. leveton",
+        "12360 sw leveton",
+        "tualatin",
+        "97062"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 46 Tualatin\nKeHE Distributors, LLC\n12360 S.W. Leveton Dr\nTualatin, OR 97062\n503-692-0662",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|46|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "46",
+      "name": "DC 46 Tualatin",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430046",
@@ -190,7 +491,12 @@
         "tualatin",
         "97062"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -199,15 +505,45 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|46"
+      "unique_key": "kehe|46|bill_to"
     },
     {
       "id": "",
       "storefront": "KeHE",
       "dc": "55",
       "name": "DC 55 Douglasville",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "DC 55 Douglasville\nKeHE Distributors, LLC\n1851 Riverside Pkwy\nDouglasville, GA 30135\n855-938-1462",
+      "billing_address": "",
+      "match_values": [
+        "0569813430055",
+        "1851 riverside",
+        "douglasville",
+        "30135"
+      ],
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "DC 55 Douglasville\nKeHE Distributors, LLC\n1851 Riverside Pkwy\nDouglasville, GA 30135\n855-938-1462",
+      "record_type": "SHIP_TO",
+      "default_label_template_id": "",
+      "manufacturer_name": "",
+      "manufacturer_address": "",
+      "receiving_email": "",
+      "docking_instructions": "",
+      "verification_status": "DRAFT",
+      "source_note": "",
+      "is_active": true,
+      "unique_key": "kehe|55|ship_to"
+    },
+    {
+      "id": "",
+      "storefront": "KeHE",
+      "dc": "55",
+      "name": "DC 55 Douglasville",
+      "ship_from": "",
+      "delivery_address": "",
       "billing_address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
       "match_values": [
         "0569813430055",
@@ -215,7 +551,12 @@
         "douglasville",
         "30135"
       ],
-      "record_type": "DESTINATION",
+      "address_type": "BILL_TO",
+      "address_roles": [
+        "BILL_TO"
+      ],
+      "address": "DC 01 Elkton\nKeHE Distributors, LLC\n3800 Deerpark Blvd.\nElkton, FL 32033\n855-938-1462",
+      "record_type": "BILL_TO",
       "default_label_template_id": "",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -224,21 +565,26 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|55"
+      "unique_key": "kehe|55|bill_to"
     },
     {
       "id": "",
       "storefront": "DecoPac",
       "dc": "DECOPAC-DEFAULT",
       "name": "DECOPAC, INC",
-      "ship_from": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "ship_from": "",
       "delivery_address": "ANOKA, MN USA",
       "billing_address": "",
       "match_values": [
         "DecoPac",
         "Anoka"
       ],
-      "record_type": "CUSTOMER_DEFAULT",
+      "address_type": "SHIP_TO",
+      "address_roles": [
+        "SHIP_TO"
+      ],
+      "address": "ANOKA, MN USA",
+      "record_type": "SHIP_TO",
       "default_label_template_id": "DECOPAC_CASE_4X6",
       "manufacturer_name": "",
       "manufacturer_address": "",
@@ -247,7 +593,7 @@
       "verification_status": "NEEDS_REVIEW",
       "source_note": "Source provides only DECOPAC, INC and ANOKA, MN USA; confirm full address before activation.",
       "is_active": true,
-      "unique_key": "decopac|decopac-default"
+      "unique_key": "decopac|decopac-default|ship_to"
     },
     {
       "id": "",
@@ -261,7 +607,12 @@
         "Bulk",
         "Further Processing"
       ],
-      "record_type": "CUSTOMER_DEFAULT",
+      "address_type": "SHIP_FROM",
+      "address_roles": [
+        "SHIP_FROM"
+      ],
+      "address": "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
+      "record_type": "SHIP_FROM",
       "default_label_template_id": "BULK_FURTHER_PROCESSING_4X6",
       "manufacturer_name": "BAKELL LLC",
       "manufacturer_address": "1967 ESSEX CT\nREDLANDS, CA 92373\nUSA",
@@ -270,8 +621,8 @@
       "verification_status": "NEEDS_REVIEW",
       "source_note": "Manufacturer identity/address comes from the current LabelKit directory data; confirm it is authoritative for the bulk label.",
       "is_active": false,
-      "unique_key": "generic b2b|generic-bulk-default"
+      "unique_key": "generic b2b|generic-bulk-default|ship_from"
     }
   ],
-  "updated_at": "2026-09-21T16:25:08Z"
+  "updated_at": "2026-09-25T17:15:48Z"
 }
