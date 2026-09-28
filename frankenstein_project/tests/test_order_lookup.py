@@ -999,6 +999,18 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertNotIn("It is copied automatically", javascript)
         self.assertNotIn("mplProductMasterRows[groupIndex].display_sku = String(value || '').trim()", javascript)
 
+    def test_b2b_unique_review_groups_keep_every_order_job_and_order_ship_to_wins(self):
+        javascript = (FRONTEND_DIST / "assets" / "js" / "b2b-workspace.js").read_text(encoding="utf-8")
+        context_javascript = (FRONTEND_DIST / "assets" / "js" / "order-context.js").read_text(encoding="utf-8")
+
+        self.assertIn("const uniqueGroups = [...reviewGroups.values()]", javascript)
+        self.assertIn("job.line_index = index", javascript)
+        self.assertIn("const selectedBatchJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex]", javascript)
+        self.assertIn("b2bOrderJobs.forEach(job => { job.directory = { ...(job.directory || {}), delivery_address: address, address }; });", javascript)
+        self.assertIn("orderDetails.ship_to_name", javascript)
+        self.assertIn("details.shipping_street1", context_javascript)
+        self.assertIn("const destinationName = b2bOrderShipToName || destinationRow.name", javascript)
+
     def test_frontend_shell_is_fluid_and_routes_are_canonical_hash_urls(self):
         html = serve_frontend_index().body.decode("utf-8")
         responsive_css = (FRONTEND_DIST / "assets" / "css" / "responsive-shell.css").read_text(encoding="utf-8")
@@ -1057,6 +1069,10 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function selectB2BOrderJob(value)", javascript)
         self.assertIn("function selectB2BOrderCustomer(value)", javascript)
         self.assertIn("function detectB2BOrderCustomer(payload, matchedProduct)", javascript)
+        self.assertIn("function b2bOrderReviewGroupKey(job)", javascript)
+        self.assertIn('id="b2b-order-destination-input"', javascript)
+        self.assertIn("function updateB2BOrderDestination(value)", javascript)
+        self.assertIn("order line(s)", javascript)
         self.assertIn('id="b2b-order-line-select"', javascript)
         self.assertIn('id="b2b-order-customer-select"', javascript)
         self.assertIn("job.match_status = 'customer_override'", javascript)
@@ -1133,7 +1149,9 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("Ship From is applied automatically", html)
         self.assertIn("Shared Ship From · Applied automatically", html)
         self.assertIn("Edit shared origin", html)
-        self.assertIn("Save Default Origin", html)
+        self.assertIn('id="mpl-shared-origin-address"', html)
+        self.assertIn("function openSharedMplDirectoryEditor()", javascript)
+        self.assertNotIn("Save Default Origin", html)
         self.assertIn("Add Destination", html)
         self.assertIn("Download Address Template", html)
         self.assertIn("Import Addresses", html)

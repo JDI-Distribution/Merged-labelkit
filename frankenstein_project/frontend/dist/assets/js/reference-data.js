@@ -1664,6 +1664,31 @@
     return address || DEFAULT_KEHE_SHIP_FROM;
   }
 
+  function getSharedMplDirectoryShipFromIndex() {
+    const index = mplDirectoryRows.findIndex(raw => {
+      const row = normalizeDcDirectoryRow(raw);
+      return row.is_active !== false
+        && directoryHasRole(row, 'SHIP_FROM')
+        && String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM';
+    });
+    return index;
+  }
+
+  function openSharedMplDirectoryEditor() {
+    const index = getSharedMplDirectoryShipFromIndex();
+    if (index < 0) {
+      setStatus('The shared Ship From record is missing. Add it in Customer Directory first.', 'error');
+      return;
+    }
+    openMplDirectoryEditor(index, 'edit');
+  }
+
+  function renderSharedMplDirectoryOrigin() {
+    const target = document.getElementById('mpl-shared-origin-address');
+    if (!target) return;
+    target.textContent = getSharedMplDirectoryShipFrom() || 'Not configured';
+  }
+
   function openMplDirectoryEditor(index, mode = 'view') {
     if (!Number.isInteger(index) || !mplDirectoryRows[index]) return;
     mplDirectoryEditorIndex = index;
@@ -1801,6 +1826,7 @@
   function renderMplDirectoryTable() {
     const body = document.getElementById('mpl-directory-body');
     if (!body) return;
+    renderSharedMplDirectoryOrigin();
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
     syncTableFilterOptions('mpl-directory-storefront-filter', rows.map(row => row.storefront), 'All customers');
     const search = String(document.getElementById('mpl-directory-search')?.value || '').trim().toLowerCase();
