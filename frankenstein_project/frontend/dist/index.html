@@ -704,6 +704,7 @@
           <div><span>Order lines</span><strong id="partner-line-count">0</strong></div>
           <div><span>Review status</span><strong id="partner-review-status">Ready</strong></div>
         </section>
+        <div id="partner-review-stages"></div>
         <section class="partner-resolution-summary" id="partner-resolution-summary" aria-label="Automatic order resolution"></section>
 
         <section class="b2b-card partner-documents-card">
@@ -718,7 +719,7 @@
           <div class="partner-document-sections" id="partner-document-actions">
             <section class="partner-workflow-section partner-label-workflow-section">
               <header class="partner-workflow-section-header">
-                <label class="partner-document-select"><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer Labels</strong><small>All order-line label counts are calculated on load. Review or edit before generation.</small></span></label>
+                <label class="partner-document-select"><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Case Labels + Inner Pack Labels</strong><small>Review each packaging level separately before generation.</small></span></label>
                 <span class="partner-section-state">Changes stay with this order</span>
               </header>
               <div class="partner-inline-label-editor" id="partner-inline-label-editor"></div>
@@ -742,6 +743,7 @@
               </div>
             </section>
           </div>
+          <div class="partner-stage-footer"><span>Current stage: <strong id="partner-current-stage">Case Labels</strong></span><button class="btn-secondary" type="button" onclick="completePartnerReviewStage()">Mark Stage Reviewed</button></div>
           <section class="partner-download-panel" aria-labelledby="partner-download-title">
             <div class="partner-download-heading">
               <div><div class="b2b-card-kicker">Finished documents</div><h4 id="partner-download-title">Download files</h4></div>

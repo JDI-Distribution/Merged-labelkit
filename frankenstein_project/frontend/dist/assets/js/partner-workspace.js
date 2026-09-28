@@ -1,4 +1,66 @@
 /* DecoPac, Dutch Bros, and Fancy partner workflow. */
+  const PARTNER_REVIEW_STAGES = [
+    { id: 'caseLabels', label: 'Case Labels', kind: 'packLabels' },
+    { id: 'innerPackLabels', label: 'Inner Pack Labels', kind: 'packLabels' },
+    { id: 'packingListTihi', label: 'Packing List + TI-HI', kind: 'masterPackingList' },
+    { id: 'palletLabels', label: 'Pallet Labels', kind: 'palletLabel' },
+  ];
+  let partnerReviewStage = 'caseLabels';
+  const partnerReviewState = {};
+
+  function resetPartnerReviewState() {
+    PARTNER_REVIEW_STAGES.forEach(stage => { partnerReviewState[stage.id] = 'needs_review'; });
+    partnerReviewStage = 'caseLabels';
+  }
+
+  function partnerPackagingLevel(job) {
+    return String(job?.product?.packaging_level || '').trim().toLowerCase().replace(/[_-]+/g, ' ');
+  }
+
+  function partnerJobsForStage(stageId) {
+    const stage = PARTNER_REVIEW_STAGES.find(candidate => candidate.id === stageId);
+    if (!stage) return [];
+    if (stage.id === 'palletLabels') return partnerJobsForKind('palletLabel');
+    if (stage.id === 'packingListTihi') return partnerMplDraft ? [partnerMplDraft] : [];
+    return partnerJobsForKind('packLabels').filter(({ job }) => {
+      const level = partnerPackagingLevel(job);
+      return stage.id === 'innerPackLabels'
+        ? /inner\s*pack|inner/.test(level)
+        : !/inner\s*pack|inner/.test(level);
+    });
+  }
+
+  function selectPartnerReviewStage(stageId) {
+    const index = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === stageId);
+    if (index < 0 || !partnerOrderPayload) return;
+    const currentIndex = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === partnerReviewStage);
+    if (index > currentIndex && PARTNER_REVIEW_STAGES.slice(0, index).some(stage => partnerReviewState[stage.id] !== 'reviewed')) {
+      setStatus('Review the earlier document stage before continuing.', 'info');
+      return;
+    }
+    partnerReviewStage = stageId;
+    renderPartnerWorkspace();
+  }
+
+  function completePartnerReviewStage(stageId = partnerReviewStage) {
+    partnerReviewState[stageId] = 'reviewed';
+    const currentIndex = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === stageId);
+    const next = PARTNER_REVIEW_STAGES[currentIndex + 1];
+    if (next) partnerReviewStage = next.id;
+    renderPartnerWorkspace();
+    setStatus(next ? `${PARTNER_REVIEW_STAGES[currentIndex].label} reviewed. Continue with ${next.label}.` : 'All document stages reviewed. Generate the selected documents.', 'success');
+  }
+
+  function renderPartnerReviewStages() {
+    if (!partnerOrderPayload) return '';
+    return `<nav class="partner-review-stages" aria-label="Automatic order document stages">${PARTNER_REVIEW_STAGES.map((stage, index) => {
+      const active = stage.id === partnerReviewStage;
+      const state = partnerReviewState[stage.id] || 'needs_review';
+      const disabled = index > 0 && PARTNER_REVIEW_STAGES.slice(0, index).some(previous => partnerReviewState[previous.id] !== 'reviewed');
+      return `<button type="button" class="partner-review-stage${active ? ' is-active' : ''}${state === 'reviewed' ? ' is-reviewed' : ''}" onclick="selectPartnerReviewStage('${stage.id}')" ${disabled ? 'disabled' : ''}><span>${String(index + 1).padStart(2, '0')}</span><strong>${stage.label}</strong><small>${state === 'reviewed' ? 'Reviewed' : 'Needs review'}</small></button>`;
+    }).join('<span class="partner-review-stage-connector" aria-hidden="true"></span>')}</nav>`;
+  }
+
   function revokePartnerPreviewUrls() {
     [partnerLabelsPreviewUrl, partnerPalletLabelsPreviewUrl, partnerMplPreviewUrl].filter(Boolean).forEach(url => URL.revokeObjectURL(url));
     partnerLabelsPreviewUrl = null;
@@ -386,6 +448,7 @@
       partnerCustomerOverride = '';
       partnerResolvedOrderContext = resolveOrderContext(payload, { customer: partnerCustomerLabel(customerId) });
       partnerLabelJobs = buildPartnerLabelJobs(payload, customerId);
+      resetPartnerReviewState();
       updateWorkflowProgress('Calculating cartons', 'Calculating label quantities and pallet details…');
       partnerMplDraft = buildPartnerMplDraft(payload, customerId);
       activeKeheDocumentType = 'masterPackingList';
@@ -405,6 +468,10 @@
 
   async function generatePartnerOrderDocuments() {
     if (!partnerOrderPayload) return false;
+    if (PARTNER_REVIEW_STAGES.some(stage => partnerReviewState[stage.id] !== 'reviewed')) {
+      setStatus('Review all four document stages before generating all documents.', 'info');
+      return false;
+    }
     if (!(await confirmDocumentReadiness('partners'))) return false;
     const failures = [];
     const labelKinds = ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length);
@@ -525,13 +592,21 @@
   function renderPartnerInlineEditors() {
     const container = document.getElementById('partner-inline-label-editor');
     if (!container) return;
-    const availableKinds = ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length);
+    const activeStage = PARTNER_REVIEW_STAGES.find(stage => stage.id === partnerReviewStage);
+    const stageJobs = activeStage?.kind === 'packLabels' ? partnerJobsForStage(partnerReviewStage) : [];
+    const availableKinds = activeStage?.id === 'palletLabels'
+      ? ['palletLabel']
+      : activeStage?.kind === 'packLabels'
+        ? ['packLabels']
+        : ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length);
     if (!availableKinds.length) {
       container.innerHTML = '<div class="partner-empty-state"><strong>No customer labels configured</strong><span>This order has no matching label jobs.</span></div>';
       return;
     }
     if (!availableKinds.includes(partnerInlineLabelKind)) partnerInlineLabelKind = availableKinds[0];
-    const entries = partnerJobsForKind(partnerInlineLabelKind);
+    const entries = activeStage?.kind === 'packLabels'
+      ? stageJobs
+      : partnerJobsForKind(partnerInlineLabelKind);
     if (!entries.some(entry => entry.index === partnerInlineLabelIndex)) partnerInlineLabelIndex = entries[0].index;
     const entry = entries.find(candidate => candidate.index === partnerInlineLabelIndex) || entries[0];
     const { job, index } = entry;
@@ -722,6 +797,13 @@
     document.getElementById('partner-empty-state')?.classList.toggle('hidden', !!partnerOrderPayload);
     document.getElementById('partner-order-workspace')?.classList.toggle('hidden', !partnerOrderPayload);
     if (!partnerOrderPayload) return;
+    const stagesContainer = document.getElementById('partner-review-stages');
+    if (stagesContainer) stagesContainer.innerHTML = renderPartnerReviewStages();
+    const currentStage = PARTNER_REVIEW_STAGES.find(stage => stage.id === partnerReviewStage);
+    const currentStageLabel = document.getElementById('partner-current-stage');
+    if (currentStageLabel) currentStageLabel.textContent = currentStage?.label || 'Case Labels';
+    document.querySelector('.partner-label-workflow-section')?.classList.toggle('hidden', !['packLabels', 'palletLabel'].includes(currentStage?.kind));
+    document.querySelector('.partner-mpl-workflow-section')?.classList.toggle('hidden', currentStage?.id !== 'packingListTihi');
     const summary = partnerOrderPayload.summary || {};
     const reviewCount = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
     document.getElementById('partner-detected-customer').textContent = partnerCustomerLabel();
