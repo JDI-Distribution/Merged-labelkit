@@ -9,8 +9,12 @@
   const partnerReviewState = {};
 
   function resetPartnerReviewState() {
-    PARTNER_REVIEW_STAGES.forEach(stage => { partnerReviewState[stage.id] = 'needs_review'; });
+    PARTNER_REVIEW_STAGES.forEach(stage => {
+      partnerReviewState[stage.id] = partnerJobsForStage(stage.id).length ? 'needs_review' : 'not_applicable';
+    });
     partnerReviewStage = 'caseLabels';
+    const firstAvailable = PARTNER_REVIEW_STAGES.find(stage => partnerReviewState[stage.id] !== 'not_applicable');
+    if (firstAvailable) partnerReviewStage = firstAvailable.id;
   }
 
   function partnerPackagingLevel(job) {
@@ -34,7 +38,7 @@
     const index = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === stageId);
     if (index < 0 || !partnerOrderPayload) return;
     const currentIndex = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === partnerReviewStage);
-    if (index > currentIndex && PARTNER_REVIEW_STAGES.slice(0, index).some(stage => partnerReviewState[stage.id] !== 'reviewed')) {
+    if (index > currentIndex && PARTNER_REVIEW_STAGES.slice(0, index).some(stage => !['reviewed', 'not_applicable'].includes(partnerReviewState[stage.id]))) {
       setStatus('Review the earlier document stage before continuing.', 'info');
       return;
     }
@@ -56,8 +60,8 @@
     return `<nav class="partner-review-stages" aria-label="Automatic order document stages">${PARTNER_REVIEW_STAGES.map((stage, index) => {
       const active = stage.id === partnerReviewStage;
       const state = partnerReviewState[stage.id] || 'needs_review';
-      const disabled = index > 0 && PARTNER_REVIEW_STAGES.slice(0, index).some(previous => partnerReviewState[previous.id] !== 'reviewed');
-      return `<button type="button" class="partner-review-stage${active ? ' is-active' : ''}${state === 'reviewed' ? ' is-reviewed' : ''}" onclick="selectPartnerReviewStage('${stage.id}')" ${disabled ? 'disabled' : ''}><span>${String(index + 1).padStart(2, '0')}</span><strong>${stage.label}</strong><small>${state === 'reviewed' ? 'Reviewed' : 'Needs review'}</small></button>`;
+      const disabled = index > 0 && PARTNER_REVIEW_STAGES.slice(0, index).some(previous => !['reviewed', 'not_applicable'].includes(partnerReviewState[previous.id]));
+      return `<button type="button" class="partner-review-stage${active ? ' is-active' : ''}${state === 'reviewed' ? ' is-reviewed' : ''}" onclick="selectPartnerReviewStage('${stage.id}')" ${disabled || state === 'not_applicable' ? 'disabled' : ''}><span>${String(index + 1).padStart(2, '0')}</span><strong>${stage.label}</strong><small>${state === 'reviewed' ? 'Reviewed' : state === 'not_applicable' ? 'Not applicable' : 'Needs review'}</small></button>`;
     }).join('<span class="partner-review-stage-connector" aria-hidden="true"></span>')}</nav>`;
   }
 
@@ -468,7 +472,7 @@
 
   async function generatePartnerOrderDocuments() {
     if (!partnerOrderPayload) return false;
-    if (PARTNER_REVIEW_STAGES.some(stage => partnerReviewState[stage.id] !== 'reviewed')) {
+    if (PARTNER_REVIEW_STAGES.some(stage => !['reviewed', 'not_applicable'].includes(partnerReviewState[stage.id]))) {
       setStatus('Review all four document stages before generating all documents.', 'info');
       return false;
     }
@@ -607,6 +611,10 @@
     const entries = activeStage?.kind === 'packLabels'
       ? stageJobs
       : partnerJobsForKind(partnerInlineLabelKind);
+    if (!entries.length) {
+      container.innerHTML = '<div class="partner-empty-state"><strong>No labels in this stage</strong><span>This document category is not required for the loaded order.</span></div>';
+      return;
+    }
     if (!entries.some(entry => entry.index === partnerInlineLabelIndex)) partnerInlineLabelIndex = entries[0].index;
     const entry = entries.find(candidate => candidate.index === partnerInlineLabelIndex) || entries[0];
     const { job, index } = entry;
