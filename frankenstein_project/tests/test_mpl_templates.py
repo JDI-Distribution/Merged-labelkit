@@ -6,6 +6,7 @@ from pathlib import Path
 import pymupdf as fitz
 
 from pipelines.kehe.common import _MPL_BRAND_LOGO_PATHS, _mpl_template_id, render_kehe_master_packing_list_pdf
+from pipelines.kehe.mpl_renderer import _MPL_INNER_W, _MPL_MARGIN
 
 
 class MplTemplateTests(unittest.TestCase):
@@ -311,6 +312,39 @@ class MplTemplateTests(unittest.TestCase):
         self.assertIn("Warehouse Notes", text)
         self.assertIn("KEEP UPRIGHT", text)
         self.assertNotIn("Total Shipped", text)
+
+    def test_standard_pdf_preserves_reordered_columns_and_pallet_metadata_alignment(self):
+        draft = self._draft("standard")
+        mpl = draft["packing_lists"][0]
+        mpl["items"][0]["custom_warehouse_notes"] = "KEEP UPRIGHT"
+        mpl["column_config"] = [
+            {"key": "total_shipped", "label": "Shipped", "visible": True, "width": 0.12},
+            {"key": "item_number", "label": "Product Code", "visible": True, "width": 0.17},
+            {"key": "description", "label": "Product", "visible": True, "width": 0.39},
+            {"key": "total_ordered", "label": "Ordered", "visible": False, "width": 0.11},
+            {"key": "custom_warehouse_notes", "label": "Warehouse Notes", "visible": True, "custom": True, "width": 0.09},
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "reordered-mpl.pdf"
+            render_kehe_master_packing_list_pdf(draft, str(output_path))
+            with fitz.open(output_path) as document:
+                page = document[0]
+                text = " ".join(page.get_text().split())
+                words = page.get_text("words")
+
+        headers = ["Shipped", "Product Code", "Product", "Warehouse Notes"]
+        positions = [text.index(header) for header in headers]
+        self.assertEqual(sorted(positions), positions)
+        self.assertNotIn("Ordered", text)
+        self.assertIn("KEEP UPRIGHT", text)
+
+        total_width = 0.12 + 0.17 + 0.39 + 0.09
+        product_code_left = _MPL_MARGIN + _MPL_INNER_W * (0.12 / total_width)
+        product_code_right = product_code_left + _MPL_INNER_W * (0.17 / total_width)
+        pallet_word = next(word for word in words if word[4] == "Pallet:")
+        self.assertGreaterEqual(pallet_word[0], product_code_left)
+        self.assertLess(pallet_word[0], product_code_right)
 
     def test_kehe_pdf_keeps_fixed_columns_when_column_config_is_present(self):
         draft = self._draft("kehe")

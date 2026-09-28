@@ -458,6 +458,7 @@
   let b2bOrderFallbackProducts = [];
   let b2bOrderLabelJobs = [];
   let b2bSelectedOrderJobIndex = -1;
+  let b2bOrderCustomerOverride = '';
   let b2bResolvedOrderContext = null;
   let b2bResolvedDirectoryFallback = {};
   let b2bCopiesTemplateId = '';
@@ -3117,6 +3118,7 @@
     b2bOrderFallbackProducts = [];
     b2bOrderLabelJobs = [];
     b2bSelectedOrderJobIndex = -1;
+    b2bOrderCustomerOverride = '';
     b2bResolvedOrderContext = null;
     b2bResolvedDirectoryFallback = {};
     mplProductMasterRows = loadMplProductMasterFromStorage();

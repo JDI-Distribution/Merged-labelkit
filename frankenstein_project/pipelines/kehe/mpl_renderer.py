@@ -772,16 +772,17 @@ def _render_mpl_pallet_group_row(
     _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, theme["label_fill"], _MPL_GRID, 0.40)
 
     cols = _mpl_col_widths(_mpl_column_specs(mpl, template_id))
-    item_x, item_w = cols[0][2], cols[0][3]
-    desc_x, desc_w = (cols[1][2], cols[1][3]) if len(cols) > 1 else (item_x, item_w)
+    item_column = next((column for column in cols if column[0] == "item_number"), cols[0] if cols else None)
+    description_column = next((column for column in cols if column[0] in {"description", "_description_block"}), None)
 
     c.setFillColorRGB(0, 0, 0)
     c.setFont("Helvetica-Bold", 8.4)
-    c.drawString(item_x + 5, y - row_h / 2 - 3.0, f"Pallet: {_mpl_pallet_label(pallet_num)}")
+    if item_column:
+        c.drawString(item_column[2] + 5, y - row_h / 2 - 3.0, f"Pallet: {_mpl_pallet_label(pallet_num)}")
 
     weight = _mpl_weight_label(pallet_weight)
-    if weight:
-        c.drawCentredString(desc_x + desc_w / 2, y - row_h / 2 - 3.0, weight)
+    if weight and description_column:
+        c.drawCentredString(description_column[2] + description_column[3] / 2, y - row_h / 2 - 3.0, weight)
 
     return y - row_h
 

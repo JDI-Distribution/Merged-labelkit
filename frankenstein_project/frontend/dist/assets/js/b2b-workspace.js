@@ -674,6 +674,30 @@
     loadB2BOrderFromAnalytics(null, ecomdashId, orderNumber);
   }
 
+  function detectB2BOrderCustomer(payload, matchedProduct) {
+    const details = payload?.order_details || {};
+    const signals = [
+      details.storefront,
+      details.billing_customer_name,
+      details.ship_to_name,
+      details.email_id,
+      details.email,
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    const partnerId = typeof partnerCustomerIdFromText === 'function'
+      ? partnerCustomerIdFromText(signals.join(' | '))
+      : '';
+    if (partnerId && PARTNER_WORKFLOW_CONFIG[partnerId]?.label) return PARTNER_WORKFLOW_CONFIG[partnerId].label;
+
+    const normalizedSignals = signals.map(value => normalizeStorefront(value).toLowerCase().replace(/[^a-z0-9]+/g, ''));
+    const matchingTemplate = b2bLabelTemplates.find(template => {
+      const customer = normalizeStorefront(template?.customer || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return customer && normalizedSignals.some(signal => signal && (signal === customer || signal.includes(customer) || customer.includes(signal)));
+    });
+    if (matchingTemplate?.customer) return normalizeStorefront(matchingTemplate.customer);
+    return String(details.storefront || details.billing_customer_name || details.ship_to_name || matchedProduct?.storefront || '').trim()
+      || 'Order Customer';
+  }
+
   function completeB2BOrderLoad(payload, orderNumber) {
     const orderDetails = payload?.order_details || {};
     const analyticsItems = Array.isArray(payload?.items) ? payload.items : [];
@@ -683,12 +707,7 @@
     const ambiguousProducts = Number(summary.ambiguous_products || 0);
     const firstMatched = analyticsItems.find(item => item?.product && item.match_status === 'matched');
     const matchedProduct = firstMatched?.product ? normalizeProductRow(firstMatched.product) : null;
-    const preliminaryCustomer = String(
-      matchedProduct?.storefront
-      || orderDetails?.billing_customer_name
-      || orderDetails?.storefront
-      || ''
-    ).trim() || 'Order Customer';
+    const preliminaryCustomer = detectB2BOrderCustomer(payload, matchedProduct);
     b2bResolvedOrderContext = resolveOrderContext(payload, { customer: preliminaryCustomer });
     const orderCustomer = b2bResolvedOrderContext.customer || preliminaryCustomer;
     const normalizedOrderCustomer = normalizeStorefront(orderCustomer).toLowerCase();
@@ -723,6 +742,7 @@
       }));
 
     b2bSelectedCustomer = orderCustomer;
+    b2bOrderCustomerOverride = '';
     b2bSelectedDirectoryIndex = b2bResolvedOrderContext.directoryShipTo?.index ?? -1;
     const resolvedShipToRow = b2bResolvedOrderContext.directoryShipTo?.row || {};
     b2bResolvedDirectoryFallback = {
@@ -880,7 +900,9 @@
         const label = `Line ${index + 1} · ${jobProduct.sku || jobProduct.customer_item_number || 'SKU not set'} · ${jobTemplate} · ${job.run?.carton_total || 1} carton(s)`;
         return `<option value="${index}" ${index === b2bSelectedOrderJobIndex ? 'selected' : ''}>${escapeHtml(label)}</option>`;
       }).join('')}</select></label>` : '';
-    container.innerHTML = `<div class="b2b-resolution-heading"><span>Loaded Sales Order ${escapeHtml(loadedOrder)}</span><strong>LabelKit calculated ${b2bOrderLabelJobs.length || 1} order-line label job(s)</strong><small>Review each line with the selector. The batch is generated only when you choose Generate All.</small></div>${orderLinePicker}<div class="b2b-resolution-grid">${values.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div>`;
+    const customerOptions = uniqueTextValues([...b2bCustomerOptions(b2bSelectedCustomer), b2bSelectedCustomer]);
+    const customerPicker = `<label class="b2b-order-customer-picker"><span>Customer · detected from order</span><select id="b2b-order-customer-select" onchange="selectB2BOrderCustomer(this.value)">${customerOptions.map(customer => `<option value="${escapeHtml(customer)}" ${customer === b2bSelectedCustomer ? 'selected' : ''}>${escapeHtml(customer)}</option>`).join('')}</select><small>Change this if the detected customer is wrong.</small></label>`;
+    container.innerHTML = `<div class="b2b-resolution-top"><div class="b2b-resolution-heading"><span>Loaded Sales Order ${escapeHtml(loadedOrder)}</span><strong>LabelKit calculated ${b2bOrderLabelJobs.length || 1} order-line label job(s)</strong><small>Review each line with the selector. The batch is generated only when you choose Generate All.</small></div>${customerPicker}</div>${orderLinePicker}<div class="b2b-resolution-grid">${values.filter(([label]) => label !== 'Customer').map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div>`;
     container.classList.add('is-resolved');
     if (details && !details.dataset.userOpened) details.open = false;
   }
@@ -894,7 +916,9 @@
     const wantedConfig = String(product.config_id || '').trim().toLowerCase();
     const wantedSku = String(product.sku || '').trim().toLowerCase();
     const wantedLevel = normalizePackagingLevel(product.packaging_level);
-    const matchedIndex = mplProductMasterRows.findIndex(raw => {
+    const matchedIndex = b2bOrderCustomerOverride
+      ? -1
+      : mplProductMasterRows.findIndex(raw => {
       const row = normalizeProductRow(raw);
       return normalizeStorefront(row.storefront).toLowerCase() === wantedStorefront
         && normalizePackagingLevel(row.packaging_level) === wantedLevel
@@ -902,7 +926,11 @@
           || (!wantedConfig && String(row.sku || '').trim().toLowerCase() === wantedSku));
     });
     let fallbackIndex = -1;
-    if (matchedIndex >= 0 && job.match_status === 'matched') {
+    if (b2bOrderCustomerOverride && Number.isInteger(job.customer_override_fallback_index)) {
+      const fallbackIndex = job.customer_override_fallback_index;
+      b2bSelectedProductIndex = -1000 - fallbackIndex;
+      b2bSelectedGroupKey = mplProductGroupKey(b2bOrderFallbackProducts[fallbackIndex], b2bSelectedProductIndex);
+    } else if (matchedIndex >= 0 && job.match_status === 'matched') {
       b2bSelectedProductIndex = matchedIndex;
       b2bSelectedGroupKey = mplProductGroupKey(mplProductMasterRows[matchedIndex], matchedIndex);
     } else {
@@ -914,7 +942,7 @@
       b2bSelectedProductIndex = -1000 - fallbackIndex;
       b2bSelectedGroupKey = mplProductGroupKey(product, b2bSelectedProductIndex);
     }
-    b2bSelectedCustomer = product.storefront || b2bSelectedCustomer;
+    b2bSelectedCustomer = b2bOrderCustomerOverride || product.storefront || b2bSelectedCustomer;
     b2bSelectedTemplateId = job.template_id;
     b2bSelectedOrderJobIndex = index;
     b2bResolvedDirectoryFallback = { ...(job.directory || b2bResolvedDirectoryFallback) };
@@ -922,6 +950,50 @@
     b2bSettingsProductIndex = -1;
     clearB2BPreview();
     renderB2BCreator();
+  }
+
+  function selectB2BOrderCustomer(value) {
+    if (!b2bOrderLabelJobs.length || !String(b2bRunFields.order_number || '').trim()) {
+      selectB2BCustomer(value);
+      return;
+    }
+    const customer = normalizeStorefront(value);
+    if (!customer) return;
+    b2bOrderCustomerOverride = customer;
+    b2bSelectedCustomer = customer;
+    b2bOrderFallbackProducts = [];
+    b2bOrderLabelJobs.forEach((job, index) => {
+      const priorTemplate = b2bLabelTemplates.find(template => template.template_id === job.template_id);
+      const matchingTemplates = b2bLabelTemplates.filter(template => (
+        normalizeStorefront(template.customer || '').toLowerCase() === customer.toLowerCase()
+      ));
+      const template = matchingTemplates.find(candidate => candidate.template_id === job.template_id)
+        || matchingTemplates[0]
+        || b2bLabelTemplates.find(candidate => !String(candidate.customer || '').trim())
+        || priorTemplate
+        || b2bLabelTemplates[0]
+        || {};
+      const templateId = String(template.template_id || job.template_id || '').trim();
+      const product = normalizeProductRow({
+        ...job.product,
+        storefront: customer,
+        label_template_id: templateId,
+        label_enabled: true,
+        is_active: true,
+      });
+      const fallbackIndex = b2bOrderFallbackProducts.length;
+      b2bOrderFallbackProducts.push(product);
+      job.product = product;
+      job.template_id = templateId;
+      job.customer_override_fallback_index = fallbackIndex;
+      job.match_status = 'customer_override';
+      job.directory = { ...(job.directory || {}), storefront: customer };
+    });
+    b2bSelectedDirectoryIndex = -1;
+    b2bSelectedOrderJobIndex = Math.max(0, Math.min(b2bSelectedOrderJobIndex, b2bOrderLabelJobs.length - 1));
+    clearB2BPreview();
+    selectB2BOrderJob(String(b2bSelectedOrderJobIndex));
+    setStatus(`Customer changed to ${customer} for this order batch. Values are run-only and will not overwrite the original Product Master records.`, 'info');
   }
 
   function rememberB2BOverrideState(details) {
@@ -1020,6 +1092,7 @@
       b2bSelectedTemplateId = '';
     }
     setNativeSelectOptions(document.getElementById('b2b-customer-select'), customers, b2bSelectedCustomer, customers.length ? 'Select customer' : 'No customers available');
+    setB2BSelectorVisibility('customer', !String(b2bRunFields.order_number || '').trim());
 
     const hasCustomer = !!b2bSelectedCustomer;
     const groups = hasCustomer ? getB2BProductGroups() : [];
@@ -1114,6 +1187,7 @@
   }
 
   function selectB2BCustomer(value) {
+    b2bOrderCustomerOverride = '';
     b2bSelectedCustomer = String(value || '');
     b2bSelectedGroupKey = '';
     b2bSelectedProductIndex = -1;
@@ -1308,14 +1382,11 @@
     const job = orderBatch ? null : buildB2BPayload();
     const jobs = orderBatch ? b2bOrderLabelJobs.map(row => JSON.parse(JSON.stringify(row))) : [];
     if (orderBatch) {
-      const selectedSku = String(product?.sku || '').trim().toLowerCase();
       const currentJob = buildB2BPayload();
       const selectedLevel = normalizePackagingLevel(product?.packaging_level);
-      const selectedBatchJob = jobs.find(row => (
-        String(row.product?.sku || '').trim().toLowerCase() === selectedSku
-        && normalizePackagingLevel(row.product?.packaging_level) === selectedLevel
-      ));
-      if (selectedBatchJob && selectedSku) {
+      const selectedBatchJob = jobs[b2bSelectedOrderJobIndex];
+      if (selectedBatchJob
+        && normalizePackagingLevel(selectedBatchJob.product?.packaging_level) === selectedLevel) {
         selectedBatchJob.product = { ...currentJob.product, label_template_id: b2bSelectedTemplateId };
         selectedBatchJob.template_id = b2bSelectedTemplateId;
         selectedBatchJob.directory = currentJob.directory;
