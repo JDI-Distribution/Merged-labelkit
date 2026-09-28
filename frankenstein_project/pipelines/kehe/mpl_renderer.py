@@ -293,10 +293,43 @@ def _mpl_prepare_items(mpl: Dict[str, Any]) -> List[Dict[str, Any]]:
     return items
 
 
-def _mpl_col_widths() -> List[Tuple[str, str, float, float]]:
+def _mpl_column_specs(mpl: Optional[Dict[str, Any]], template_id: str) -> List[Tuple[str, str, float]]:
+    """Return saved columns for the standard editable MPL; keep KeHE fixed."""
+    if template_id != "standard" or not isinstance(mpl, dict):
+        return list(_ITEM_COLUMNS)
+    configured = mpl.get("column_config") if isinstance(mpl.get("column_config"), list) else []
+    defaults = {
+        "item_number": ("Item Number", 0.17),
+        "description": ("Pallet Weight &\nItem Description", 0.39),
+        "uom": ("UOM", 0.10),
+        "qty_on_pallet": ("Qty On\nPallet", 0.11),
+        "total_ordered": ("Total\nOrdered", 0.11),
+        "total_shipped": ("Total\nShipped", 0.12),
+    }
+    specs: List[Tuple[str, str, float]] = []
+    seen: set[str] = set()
+    for raw in configured:
+        if not isinstance(raw, dict) or raw.get("visible") is False:
+            continue
+        key = _mpl_clean(raw.get("key"))
+        custom = bool(raw.get("custom")) and key.startswith("custom_")
+        if not key or key in seen or (key not in defaults and not custom):
+            continue
+        default_label, default_width = defaults.get(key, ("Custom Column", 0.09))
+        label = _mpl_clean(raw.get("label")) or default_label
+        width = _parse_float(raw.get("width")) or default_width
+        specs.append((key, label, max(0.03, float(width))))
+        seen.add(key)
+    if not specs:
+        specs = [(key, label, width) for key, (label, width) in defaults.items()]
+    total = sum(width for _key, _label, width in specs) or 1.0
+    return [(key, label, width / total) for key, label, width in specs]
+
+
+def _mpl_col_widths(column_specs: Optional[List[Tuple[str, str, float]]] = None) -> List[Tuple[str, str, float, float]]:
     out: List[Tuple[str, str, float, float]] = []
     x = _MPL_MARGIN
-    for key, label, rel in _ITEM_COLUMNS:
+    for key, label, rel in (column_specs or _ITEM_COLUMNS):
         w = _MPL_INNER_W * rel
         out.append((key, label, x, w))
         x += w
@@ -560,13 +593,14 @@ def _render_mpl_table_header(
     y: float,
     template_id: str = "kehe",
     brand_id: str = "",
+    mpl: Optional[Dict[str, Any]] = None,
 ) -> float:
     theme = _mpl_template_theme(template_id, brand_id)
     th = (0.30 if theme["compact"] else 0.36) * inch
     _draw_mpl_cell(c, _MPL_MARGIN, y - th, _MPL_INNER_W, th, theme["primary"], theme["primary"], 0.45)
 
     c.setFillColorRGB(1, 1, 1)
-    for _key, header_lbl, x, w in _mpl_col_widths():
+    for _key, header_lbl, x, w in _mpl_col_widths(_mpl_column_specs(mpl, template_id)):
         lines = header_lbl.split("\n")
         c.setFont("Helvetica-Bold", 7.4)
         line_h = 7.8
@@ -585,14 +619,22 @@ def _render_mpl_table_header(
     return y - th
 
 
-def _mpl_item_height(item: Dict[str, Any], template_id: str = "kehe") -> float:
+def _mpl_item_height(
+    item: Dict[str, Any],
+    template_id: str = "kehe",
+    mpl: Optional[Dict[str, Any]] = None,
+) -> float:
     compact = bool(_mpl_template_theme(template_id)["compact"])
     desc = _mpl_clean(item.get("description"))
+    description_width = next(
+        (width for key, _label, _x, width in _mpl_col_widths(_mpl_column_specs(mpl, template_id)) if key in {"description", "_description_block"}),
+        _MPL_INNER_W * 0.39,
+    )
     desc_lines, _desc_size = fit_text_lines(
         desc.upper(),
         "Helvetica-Bold",
         7.2 if compact else 7.8,
-        _MPL_INNER_W * 0.39 - 10,
+        max(24, description_width - 10),
         4,
     ) if desc else ([], 7.2 if compact else 7.8)
 
@@ -624,16 +666,17 @@ def _render_mpl_item_row(
     row_h: float,
     bg_rgb: Tuple[float, float, float],
     template_id: str = "kehe",
+    mpl: Optional[Dict[str, Any]] = None,
 ) -> float:
     compact = bool(_mpl_template_theme(template_id)["compact"])
     _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, bg_rgb, _MPL_GRID, 0.30)
 
-    for key, _label, x, w in _mpl_col_widths():
+    for key, _label, x, w in _mpl_col_widths(_mpl_column_specs(mpl, template_id)):
         c.setStrokeColorRGB(_MPL_GRID[0], _MPL_GRID[1], _MPL_GRID[2])
         c.setLineWidth(0.30)
         c.line(x, y - row_h, x, y)
 
-        if key == "_description_block":
+        if key in {"_description_block", "description"}:
             desc = _mpl_clean(item.get("description")).upper()
             exp = _mpl_exp_short(_mpl_clean(item.get("expiration_date")))
 
@@ -723,13 +766,14 @@ def _render_mpl_pallet_group_row(
     pallet_weight: str,
     template_id: str = "kehe",
     brand_id: str = "",
+    mpl: Optional[Dict[str, Any]] = None,
 ) -> float:
     theme = _mpl_template_theme(template_id, brand_id)
     _draw_mpl_cell(c, _MPL_MARGIN, y - row_h, _MPL_INNER_W, row_h, theme["label_fill"], _MPL_GRID, 0.40)
 
-    cols = _mpl_col_widths()
+    cols = _mpl_col_widths(_mpl_column_specs(mpl, template_id))
     item_x, item_w = cols[0][2], cols[0][3]
-    desc_x, desc_w = cols[1][2], cols[1][3]
+    desc_x, desc_w = (cols[1][2], cols[1][3]) if len(cols) > 1 else (item_x, item_w)
 
     c.setFillColorRGB(0, 0, 0)
     c.setFont("Helvetica-Bold", 8.4)
@@ -745,6 +789,7 @@ def _render_mpl_pallet_group_row(
 def _mpl_build_units(
     items: List[Dict[str, Any]],
     template_id: str = "kehe",
+    mpl: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[str, Dict[str, Any], float]]:
     compact = bool(_mpl_template_theme(template_id)["compact"])
     units: List[Tuple[str, Dict[str, Any], float]] = []
@@ -756,7 +801,7 @@ def _mpl_build_units(
                 break
         units.append(("group", {"pallet": pallet, "pallet_weight": pallet_weight}, (0.26 if compact else 0.32) * inch))
         for row in rows:
-            units.append(("item", row, _mpl_item_height(row, template_id)))
+            units.append(("item", row, _mpl_item_height(row, template_id, mpl)))
     return units
 
 

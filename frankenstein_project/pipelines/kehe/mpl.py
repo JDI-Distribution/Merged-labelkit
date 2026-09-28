@@ -264,7 +264,7 @@ def render_kehe_master_packing_list_pdf(
                 c, mpl, items, brand_id, progress_callback, customer_heading="FANCY SPRINKLES"
             )
         else:
-            units = _mpl_build_units(items, template_id)
+            units = _mpl_build_units(items, template_id, mpl)
             available_h = (6.0 if template_id == "standard" else 6.85) * inch
             pages_units = _mpl_paginate_units(units, available_h=available_h)
             total_mpl_pages = len(pages_units)
@@ -278,7 +278,7 @@ def render_kehe_master_packing_list_pdf(
                 c.setPageSize(A4)
                 mpl_page = dict(mpl)
                 y = _render_mpl_header(c, mpl_page, page_idx, total_mpl_pages, template_id, brand_id)
-                y = _render_mpl_table_header(c, y, template_id, brand_id)
+                y = _render_mpl_table_header(c, y, template_id, brand_id, mpl)
 
                 alt = 0
                 for kind, payload, height in page_units:
@@ -293,10 +293,11 @@ def render_kehe_master_packing_list_pdf(
                             payload.get("pallet_weight", ""),
                             template_id,
                             brand_id,
+                            mpl,
                         )
                     else:
                         bg = (1, 1, 1) if alt % 2 == 0 else theme["row_alt"]
-                        y = _render_mpl_item_row(c, payload, y, height, bg, template_id)
+                        y = _render_mpl_item_row(c, payload, y, height, bg, template_id, mpl)
                         alt += 1
 
                 c.setStrokeColorRGB(0.2, 0.2, 0.2)

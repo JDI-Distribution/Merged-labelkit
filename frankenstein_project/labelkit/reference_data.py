@@ -242,7 +242,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     customer_item_number = _first_value(row, "customer_item_number", "CUSTOMER_ITEM_NUMBER", "customer_item", "item_number_customer")
     label_template_id = _first_value(row, "label_template_id", "LABEL_TEMPLATE_ID", "template_id")
     barcode_type = _first_value(row, "barcode_type", "BARCODE_TYPE")
-    barcode_level = _first_value(row, "barcode_level", "BARCODE_LEVEL")
     each_net_weight_g = _first_value(row, "each_net_weight_g", "EACH_NET_WEIGHT_G")
     package_net_weight_g = _first_value(row, "package_net_weight_g", "PACKAGE_NET_WEIGHT_G")
     gross_weight_lbs = _first_value(
@@ -266,7 +265,6 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     verification_status = _normalize_verification_status(
         _first_value(row, "verification_status", "VERIFICATION_STATUS")
     )
-    source_note = _first_value(row, "source_note", "SOURCE_NOTE")
 
     length_in, width_in, height_in, legacy_dimension_display, parsed_legacy_dimensions = _resolve_dimensions(row)
     if not case_qty:
@@ -297,11 +295,9 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "customer_item_number": customer_item_number,
         "label_template_id": label_template_id,
         "barcode_type": barcode_type,
-        "barcode_level": barcode_level,
         "default_copies": default_copies,
         "verification_status": verification_status,
         "label_enabled": label_enabled,
-        "source_note": source_note,
         "is_active": is_active,
         "unique_key": _product_master_unique_key(gtin, packaging_level, storefront, sku, config_id=config_id),
     }
@@ -355,6 +351,34 @@ def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, Any]]:
     return [normalize_product_master_row(r) for r in data if isinstance(r, dict)]
 
 
+def _apply_product_hierarchy(normalized_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Derive the outermost level and simple hierarchy values for each group."""
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for index, row in enumerate(normalized_rows):
+        identity = str(row.get("config_id") or row.get("display_sku") or row.get("sku") or f"row-{index}").strip().lower()
+        group_key = f"{str(row.get('storefront') or '').strip().lower()}|{identity}"
+        groups.setdefault(group_key, []).append(row)
+
+    priority = {"Case": 3, "Inner Pack": 2, "Each": 1}
+    for group in groups.values():
+        for row in group:
+            row["in_packing_list"] = False
+        active_rows = [row for row in group if row.get("is_active") is not False]
+        if not active_rows:
+            continue
+        outermost = max(active_rows, key=lambda row: priority.get(normalize_packaging_level(row.get("packaging_level")), 0))
+        outermost["in_packing_list"] = True
+        inner = next((row for row in group if normalize_packaging_level(row.get("packaging_level")) == "Inner Pack"), None)
+        case = next((row for row in group if normalize_packaging_level(row.get("packaging_level")) == "Case"), None)
+        inner_qty = _parse_decimal_value((inner or {}).get("case_qty"))
+        case_qty = _parse_decimal_value((case or {}).get("case_qty"))
+        if case and inner_qty and case_qty and not _parse_decimal_value(case.get("inner_packs_per_case")):
+            inferred = case_qty / inner_qty
+            if abs(inferred - round(inferred)) < 0.000001:
+                case["inner_packs_per_case"] = _format_decimal_string(inferred)
+    return normalized_rows
+
+
 def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped: Dict[str, Dict[str, Any]] = {}
     fallback_index = 0
@@ -385,7 +409,7 @@ def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, An
             fallback_index += 1
             key = f"row-{fallback_index}"
         deduped[key] = row
-    return list(deduped.values())
+    return _apply_product_hierarchy(list(deduped.values()))
 
 
 def _kehe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -410,6 +434,39 @@ def _parse_match_values(value: Any) -> List[str]:
     return [v.strip() for v in re.split(r"[\n,]+", raw) if v.strip()]
 
 
+def _derived_directory_match_values(existing: Any, dc: str, name: str, address: str) -> List[str]:
+    values: List[str] = []
+    seen = set()
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        key = text.lower()
+        if not text or key in seen or key in {"usa", "us", "united states", "canada"}:
+            return
+        seen.add(key)
+        values.append(text)
+
+    for value in _parse_match_values(existing):
+        add(value)
+    add(dc)
+    add(name)
+    if address:
+        add(address)
+        for line in re.split(r"\r?\n", address):
+            line = line.strip()
+            if not line:
+                continue
+            add(line)
+            city = line.split(",", 1)[0].strip()
+            if len(city) > 2 and not city[:1].isdigit():
+                add(city)
+        for value in re.findall(r"\b\d{5}(?:-\d{4})?\b|\b[A-Z]\d[A-Z][ -]?\d[A-Z]\d\b", address, re.I):
+            add(value)
+        for value in re.findall(r"\b\d{8,14}\b", address):
+            add(value)
+    return values
+
+
 def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
     dc = _first_value(row, "dc", "DC")
@@ -420,7 +477,7 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
     )
     delivery_address = _first_value(row, "delivery_address", "DELIVERY_ADDRESS")
     billing_address = _first_value(row, "billing_address", "BILLING_ADDRESS")
-    match_values = _parse_match_values(row.get("match_values", row.get("MATCH_VALUES", [])))
+    supplied_match_values = row.get("match_values", row.get("MATCH_VALUES", []))
     raw_record_type = _first_value(row, "record_type", "RECORD_TYPE", "address_type", "ADDRESS_TYPE")
     roles_value: Any = row.get("address_roles", row.get("ADDRESS_ROLES", raw_record_type))
     address_roles = _parse_directory_roles(roles_value)
@@ -440,15 +497,11 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
         ship_from = address if "SHIP_FROM" in address_roles else ""
         delivery_address = address if "SHIP_TO" in address_roles else ""
         billing_address = address if "BILL_TO" in address_roles else ""
+    match_values = _derived_directory_match_values(supplied_match_values, dc, name, address)
     default_label_template_id = _first_value(row, "default_label_template_id", "DEFAULT_LABEL_TEMPLATE_ID")
-    manufacturer_name = _first_value(row, "manufacturer_name", "MANUFACTURER_NAME")
-    manufacturer_address = _first_value(row, "manufacturer_address", "MANUFACTURER_ADDRESS")
-    receiving_email = _first_value(row, "receiving_email", "RECEIVING_EMAIL")
-    docking_instructions = _first_value(row, "docking_instructions", "DOCKING_INSTRUCTIONS")
     verification_status = _normalize_verification_status(
         _first_value(row, "verification_status", "VERIFICATION_STATUS")
     )
-    source_note = _first_value(row, "source_note", "SOURCE_NOTE")
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
     return {
         "id": _first_value(row, "id", "ROWID", "rowid"),
@@ -464,12 +517,7 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "address": address,
         "record_type": record_type,
         "default_label_template_id": default_label_template_id,
-        "manufacturer_name": manufacturer_name,
-        "manufacturer_address": manufacturer_address,
-        "receiving_email": receiving_email,
-        "docking_instructions": docking_instructions,
         "verification_status": verification_status,
-        "source_note": source_note,
         "is_active": is_active,
         "unique_key": _dc_directory_unique_key(
             dc,
@@ -517,7 +565,7 @@ def _dedupe_dc_directory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
             row.get("billing_address"),
             row.get("match_values"),
             row.get("default_label_template_id"),
-            row.get("manufacturer_name"),
+            row.get("address"),
         ]):
             continue
 

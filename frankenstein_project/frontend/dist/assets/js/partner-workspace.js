@@ -94,14 +94,7 @@
   }
 
   function calculateOrderCartonCount(item, product) {
-    const ordered = Number(String(item?.quantity_ordered ?? '').replace(/,/g, ''));
-    const casePack = Number(String(product?.case_qty ?? '').replace(/,/g, ''));
-    if (!Number.isFinite(ordered) || ordered <= 0) return 1;
-    const quantityUom = String(item?.quantity_uom || '').trim().toUpperCase().replace(/\s+/g, '_');
-    const productLevel = normalizePackagingLevel(product?.packaging_level).toUpperCase().replace(/\s+/g, '_');
-    if (quantityUom && quantityUom === productLevel) return Math.max(1, Math.ceil(ordered));
-    if (Number.isFinite(casePack) && casePack > 0) return Math.max(1, Math.ceil(ordered / casePack));
-    return Math.max(1, Math.ceil(ordered));
+    return resolvedOrderUnitCount(item, product);
   }
 
   function partnerBarcodeType(product) {
@@ -117,14 +110,24 @@
   function partnerFinalCaseProduct(product, customer) {
     const configId = String(product?.config_id || '').trim().toLowerCase();
     const sku = String(product?.sku || '').trim().toLowerCase();
-    return mplProductMasterRows.map(normalizeProductRow).find(row => (
-      normalizePackagingLevel(row.packaging_level) === 'Case'
-      && normalizeStorefront(row.storefront).toLowerCase().includes(String(customer || '').toLowerCase())
+    const entries = mplProductMasterRows.map((row, index) => ({ row: normalizeProductRow(row), index })).filter(({ row }) => (
+      normalizeStorefront(row.storefront).toLowerCase().includes(String(customer || '').toLowerCase())
       && (
         (configId && String(row.config_id || '').trim().toLowerCase() === configId)
         || (!configId && sku && String(row.sku || '').trim().toLowerCase() === sku)
       )
-    )) || null;
+    ));
+    return mplProductOutermostEntry(entries)?.row || null;
+  }
+
+  function partnerShipFromRecord(customerId = partnerCustomerId) {
+    const customerRows = partnerDirectoryRows(customerId).filter(row => directoryHasRole(row, 'SHIP_FROM'));
+    const allOrigins = mplDirectoryRows.map(normalizeDcDirectoryRow)
+      .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+    return customerRows[0]
+      || allOrigins.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM')
+      || allOrigins[0]
+      || {};
   }
 
   function partnerDirectoryRows(customerId = partnerCustomerId) {
@@ -174,29 +177,6 @@
     return options;
   }
 
-  function renderPartnerAddressSelectors() {
-    const container = document.getElementById('partner-address-selectors');
-    if (!container) return;
-    const fields = [
-      ['ship_from', 'Ship From'],
-      ['delivery_address', 'Ship To'],
-      ['billing_address', 'Bill To'],
-    ];
-    container.innerHTML = fields.map(([field, label]) => {
-      const options = partnerAddressOptions(field);
-      const current = partnerAddressValue(field).trim();
-      const savedCount = options.filter(option => option.source === 'directory').length;
-      const select = options.length
-        ? `<select onchange="selectPartnerAddress('${field}', this.value)">${options.map(option => `<option value="${escapeHtml(option.value)}" ${option.value === current ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select>`
-        : `<select disabled><option>No ${escapeHtml(label)} addresses saved</option></select>`;
-      const note = savedCount
-        ? `${savedCount} saved for ${partnerCustomerLabel()}`
-        : (current ? `Using the order value; no saved ${label} address` : `No ${label} address available`);
-      return `<label><span>${escapeHtml(label)}</span>${select}<small>${escapeHtml(note)}</small></label>`;
-    }).join('');
-    enhanceSearchableSelects(container);
-  }
-
   function selectPartnerAddress(field, value) {
     if (!['ship_from', 'delivery_address', 'billing_address'].includes(field)) return;
     const address = String(value || '').trim();
@@ -227,15 +207,16 @@
     const details = payload?.order_details || {};
     const customer = partnerCustomerLabel(customerId);
     const shippingAddress = analyticsMplAddress(details, 'shipping');
-    const directoryRows = partnerDirectoryRows(customerId);
-    const shipToRecord = directoryRows.find(row => directoryHasRole(row, 'SHIP_TO')) || {};
-    const billToRecord = directoryRows.find(row => directoryHasRole(row, 'BILL_TO')) || {};
-    const shipFromRecord = mplDirectoryRows.map(normalizeDcDirectoryRow).find(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM')) || {};
+    const context = partnerResolvedOrderContext || resolveOrderContext(payload, { customer });
+    const shipToRecord = context.directoryShipTo?.row || {};
+    const billToRecord = context.directoryBillTo?.row || {};
+    const shipFromRecord = context.shipFrom?.row || partnerShipFromRecord(customerId);
     const directory = {
       ...shipToRecord,
-      ship_from: shipFromRecord.address || getSharedMplDirectoryShipFrom(),
-      delivery_address: shipToRecord.address || '',
-      billing_address: billToRecord.address || '',
+      ship_from_name: shipFromRecord.name || '',
+      ship_from: context.shipFrom?.address || shipFromRecord.address || getSharedMplDirectoryShipFrom(),
+      delivery_address: context.shipTo?.address || shipToRecord.address || '',
+      billing_address: context.billTo?.address || billToRecord.address || '',
     };
     const makeJob = (item, index, requestedTemplateId = '') => {
       const product = normalizeProductRow(item?.product || {
@@ -326,24 +307,15 @@
     draft.storefront = partnerCustomerLabel(customerId);
     const mpl = draft.packing_lists?.[0];
     if (mpl) {
-      const directoryRows = partnerDirectoryRows(customerId);
-      const shipToRecord = directoryRows.find(row => directoryHasRole(row, 'SHIP_TO')) || {};
-      const billToRecord = directoryRows.find(row => directoryHasRole(row, 'BILL_TO')) || {};
-      const shipFromRecord = mplDirectoryRows.map(normalizeDcDirectoryRow).find(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM')) || {};
-      const directory = {
-        ...shipToRecord,
-        ship_from: shipFromRecord.address || getSharedMplDirectoryShipFrom(),
-        delivery_address: shipToRecord.address || '',
-        billing_address: billToRecord.address || '',
-      };
+      const context = partnerResolvedOrderContext || resolveOrderContext(payload, { customer: partnerCustomerLabel(customerId) });
+      const shipToRecord = context.directoryShipTo?.row || {};
       mpl.template_id = mplTemplateId;
       mpl.brand_id = 'bakell';
       mpl.storefront = partnerCustomerLabel(customerId);
-      mpl.supplier_info = directory.ship_from || mpl.supplier_info || '';
-      mpl.ship_to = directory.delivery_address || mpl.ship_to || '';
-      mpl.bill_to = directory.billing_address || mpl.bill_to || '';
-      mpl.dc = directory.dc || mpl.dc || '';
-      mpl.dc_name = directory.name || mpl.dc_name || '';
+      applyResolvedOrderContextToMpl(mpl, context);
+      mpl.supplier_info ||= getSharedMplDirectoryShipFrom();
+      mpl.dc = shipToRecord.dc || mpl.dc || '';
+      mpl.dc_name = shipToRecord.name || mpl.dc_name || '';
       (mpl.items || []).forEach((row, index) => {
         const source = payload?.items?.[index] || {};
         const product = source?.product || {};
@@ -412,6 +384,7 @@
       partnerOrderPayload = payload;
       partnerCustomerId = customerId;
       partnerCustomerOverride = '';
+      partnerResolvedOrderContext = resolveOrderContext(payload, { customer: partnerCustomerLabel(customerId) });
       partnerLabelJobs = buildPartnerLabelJobs(payload, customerId);
       updateWorkflowProgress('Calculating cartons', 'Calculating label quantities and pallet details…');
       partnerMplDraft = buildPartnerMplDraft(payload, customerId);
@@ -420,14 +393,46 @@
       revokePartnerPreviewUrls();
       renderPartnerWorkspace();
       const selectionNote = detectedCustomerId === customerId ? 'detected' : 'selected';
-      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. Review and generate each document below.`, 'success');
       closeWorkflowProgress();
+      setStatus(`${partnerCustomerLabel(customerId)} ${selectionNote}. ${partnerLabelJobs.length} label job(s) and the palletized packing-list draft are ready to review; Generate All Documents when ready.`, 'success');
     } catch (err) {
       closeWorkflowProgress();
       setStatus(`Order load failed: ${err?.message || 'unknown error'}`, 'error');
     } finally {
       setPartnerOrderBusy(false);
     }
+  }
+
+  async function generatePartnerOrderDocuments() {
+    if (!partnerOrderPayload) return false;
+    if (!(await confirmDocumentReadiness('partners'))) return false;
+    const failures = [];
+    const labelKinds = ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length);
+    showWorkflowProgress(3, 'Generating all order-line label PDFs…');
+    for (const kind of labelKinds) {
+      try {
+        updateWorkflowProgress('Preparing labels', `Generating ${partnerLabelKindName(kind).toLowerCase()} for all matching order lines…`);
+        await renderPartnerLabelsPreview(kind);
+      } catch (error) {
+        failures.push(`${partnerLabelKindName(kind)}: ${error?.message || 'generation failed'}`);
+      }
+    }
+    if (partnerMplDraft && document.getElementById('partner-generate-mpl')?.checked) {
+      try {
+        updateWorkflowProgress('Rendering packing list', 'Generating the packing list and TI-HI from all order lines…');
+        await renderPartnerMplPreview();
+      } catch (error) {
+        failures.push(`Packing list: ${error?.message || 'generation failed'}`);
+      }
+    }
+    closeWorkflowProgress();
+    renderPartnerWorkspace();
+    if (failures.length) {
+      setStatus(`Order loaded. Some automatic outputs need attention: ${failures.join(' · ')}`, 'error');
+      return false;
+    }
+    showPrintSummary('partners');
+    return true;
   }
 
   function isPartnerPalletLabelJob(job) {
@@ -646,6 +651,20 @@
       mplGenerateButton.disabled = !loaded || !mplEnabled || !partnerMplDraft;
       mplGenerateButton.textContent = partnerMplPreviewUrl && !partnerPreviewIsStale('masterPackingList') ? 'Open Production PDF' : 'Generate & Open PDF';
     }
+    const generateAllButton = document.getElementById('btn-generate-all-partner-documents');
+    if (generateAllButton) {
+      const selectedLabelKinds = labelsEnabled
+        ? ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length)
+        : [];
+      const includeMpl = mplEnabled && !!partnerMplDraft;
+      const hasDocuments = selectedLabelKinds.length > 0 || includeMpl;
+      const labelsReady = selectedLabelKinds.every(kind => partnerLabelPreviewUrl(kind) && !partnerPreviewIsStale(kind));
+      const mplReady = !includeMpl || (!!partnerMplPreviewUrl && !partnerPreviewIsStale('masterPackingList'));
+      const allReady = loaded && hasDocuments && labelsReady && mplReady;
+      generateAllButton.disabled = !loaded || !hasDocuments;
+      generateAllButton.textContent = allReady ? 'Open Generated Documents' : 'Generate All Documents';
+      generateAllButton.onclick = allReady ? () => showPrintSummary('partners') : () => generatePartnerOrderDocuments();
+    }
     document.querySelector('.partner-label-workflow-section')?.classList.toggle('disabled', !labelsEnabled);
     document.querySelector('.partner-mpl-workflow-section')?.classList.toggle('disabled', !mplEnabled);
     const labelProductionButton = document.querySelector('#partner-inline-label-editor .partner-inline-production .btn-generate');
@@ -670,6 +689,24 @@
     }).join('');
   }
 
+  function renderPartnerResolutionSummary() {
+    const container = document.getElementById('partner-resolution-summary');
+    if (!container || !partnerOrderPayload) return;
+    const context = partnerResolvedOrderContext || resolveOrderContext(partnerOrderPayload, { customer: partnerCustomerLabel() });
+    const summary = partnerOrderPayload.summary || {};
+    const destination = context.directoryShipTo?.row?.name
+      || context.directoryShipTo?.row?.dc
+      || partnerOrderPayload.order_details?.ship_to_name
+      || 'Order address';
+    const cards = [
+      ['Product matching', `${Number(summary.matched_products || 0)} of ${partnerOrderPayload.items?.length || 0} matched`, Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) ? 'review' : 'ready'],
+      ['Quantity conversion', `${Number(summary.converted_to_cases || 0)} line(s) converted`, Number(summary.partial_case_items || 0) ? 'review' : 'ready'],
+      ['Destination', destination, context.shipTo?.address ? 'ready' : 'review'],
+      ['Documents', `${partnerLabelJobs.length} label job(s) + packing list`, 'ready'],
+    ];
+    container.innerHTML = cards.map(([label, value, state]) => `<div class="partner-resolution-item ${state}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  }
+
   function renderPartnerWorkspace() {
     const config = PARTNER_WORKFLOW_CONFIG[partnerCustomerId];
     document.body.dataset.partnerCustomer = partnerCustomerId || 'unselected';
@@ -691,12 +728,12 @@
     document.getElementById('partner-loaded-order').textContent = partnerOrderPayload.sales_order_number || '-';
     document.getElementById('partner-line-count').textContent = String(partnerOrderPayload.items?.length || 0);
     document.getElementById('partner-review-status').textContent = reviewCount ? `${reviewCount} line(s) need review` : 'Ready';
+    renderPartnerResolutionSummary();
     const mpl = partnerMplDraft?.packing_lists?.[0] || {};
     const itemCount = Array.isArray(mpl.items) ? mpl.items.length : 0;
     document.getElementById('partner-mpl-item-count').textContent = String(itemCount);
     document.getElementById('partner-mpl-pallet-count').textContent = String(mpl.total_pallets || mpl._pallet_ids?.length || 1);
     document.getElementById('partner-mpl-edit-status').textContent = partnerPreviewIsStale('masterPackingList') ? 'Changes need a new PDF' : (partnerMplPreviewUrl ? 'Production PDF ready' : 'Ready to review');
-    renderPartnerAddressSelectors();
     renderPartnerInlineEditors();
     renderPartnerSelectionState();
   }
@@ -711,6 +748,7 @@
       return;
     }
     partnerCustomerOverride = '';
+    partnerResolvedOrderContext = resolveOrderContext(partnerOrderPayload, { customer: partnerCustomerLabel(customerId) });
     partnerLabelJobs = buildPartnerLabelJobs(partnerOrderPayload, customerId);
     partnerMplDraft = buildPartnerMplDraft(partnerOrderPayload, customerId);
     activeKeheDocumentType = 'masterPackingList';
@@ -722,7 +760,7 @@
       setStatus(`${partnerCustomerLabel(customerId)} layout applied to the packing list and labels.`, 'success');
       return;
     }
-    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Review and generate each document below.`, 'success');
+    setStatus(`${partnerCustomerLabel(customerId)} layout applied. Review the recalculated labels and packing list, then generate when ready.`, 'success');
   }
 
   async function renderPartnerLabelsPreview(kind = 'packLabels') {

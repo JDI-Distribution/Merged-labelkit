@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from labelkit.reference_data import _apply_product_hierarchy, normalize_packaging_level, normalize_product_master_row
+
 from .asn_parser import _normalize
 
 
@@ -33,6 +35,13 @@ def _canonical_id(value: Any) -> str:
     return digits.lstrip("0") or digits
 
 
+def _canonical_sku(value: Any) -> str:
+    raw = str(value or "").strip().casefold()
+    if re.fullmatch(r"\d+(?:\.0+)?", raw):
+        raw = raw.split(".", 1)[0].lstrip("0") or "0"
+    return re.sub(r"[\s_-]+", "", raw)
+
+
 def _gtin14(value: Any) -> str:
     digits = _only_digits(value)
     if len(digits) == 14:
@@ -45,15 +54,7 @@ def _gtin14(value: Any) -> str:
 
 
 def _normalize_packaging_level(value: Any) -> str:
-    raw = re.sub(r"\s+", " ", str(value or "").strip()).upper()
-    raw_no_space = raw.replace(" ", "")
-    if raw in ("INNER", "INNER PACKS", "IP") or raw_no_space in {"INNERPACK", "INNERPACKS"}:
-        raw = "INNER PACK"
-    if raw in ("CASE", "CASES", "MASTER PACK", "MASTER PACKS", "MASTER", "MP", "CASE PACK", "CASE PACKS"):
-        raw = "CASE"
-    if raw in ("SHIPPER", "SHIPPER CONTENT", "SHIPPER CONTENTS") or raw_no_space in {"SHIPPERCONTENT", "SHIPPERCONTENTS"}:
-        raw = "SHIPPER CONTENTS"
-    return _PACKAGING_LEVELS.get(raw, "Other")
+    return normalize_packaging_level(value)
 
 
 def _boolish(value: Any, default: bool = False) -> bool:
@@ -155,81 +156,57 @@ def _normalize_product_master_rows(rows: Optional[List[Dict[str, Any]]]) -> List
     for idx, row in enumerate(rows, start=1):
         if not isinstance(row, dict):
             continue
-        row = _legacy_product_master_adapter(row)
-        storefront = str(row.get("storefront") or row.get("STOREFRONT") or row.get("Storefront") or "KeHE").strip() or "KeHE"
-        gtin = str(row.get("gtin") or row.get("GTIN") or row.get("case_upc") or row.get("upc") or "").strip()
-        desc = str(row.get("description") or row.get("DESCRIPTION") or "").strip()
-        packaging_level = _normalize_packaging_level(row.get("packaging_level") or row.get("packging_level") or row.get("PACKGING LEVEL") or row.get("PACKAGING LEVEL"))
-        length_in = _format_number(_parse_float(row.get("length_in") or row.get("LENGTH_IN")))
-        width_in = _format_number(_parse_float(row.get("width_in") or row.get("WIDTH_IN") or row.get("breadth_in") or row.get("BREADTH_IN")))
-        height_in = _format_number(_parse_float(row.get("height_in") or row.get("HEIGHT_IN")))
-        gross_weight_lbs = _format_number(_parse_float(row.get("gross_weight_lbs") or row.get("GROSS_WEIGHT_LBS")))
-        sku = str(row.get("sku") or row.get("SKU") or "").strip()
-        in_packing_list = _product_in_packing_list(row, packaging_level)
-        # Only the Each level has an inherent quantity. Case and Inner Pack
-        # quantities must come from Product Master and are never guessed.
-        default_case_qty = "1" if packaging_level == "Each" else ""
-        case_qty = str(
-            row.get("case_qty")
-            or row.get("Case Qty")
-            or row.get("case_quantity")
-            or row.get("units_per_case")
-            or default_case_qty
-        ).strip()
-        default_copies = str(
-            row.get("default_copies")
-            or row.get("DEFAULT_COPIES")
-            or ""
-        ).strip()
-        is_active = _boolish(row.get("is_active", row.get("IS_ACTIVE", True)), True)
-        if not any([gtin, desc, length_in, width_in, height_in, gross_weight_lbs, sku, case_qty, default_copies]) and packaging_level == "Other":
+        normalized = normalize_product_master_row(_legacy_product_master_adapter(row))
+        normalized["line"] = row.get("line") or idx
+        if not any([
+            normalized.get("gtin"), normalized.get("description"), normalized.get("length_in"),
+            normalized.get("width_in"), normalized.get("height_in"), normalized.get("gross_weight_lbs"),
+            normalized.get("sku"), normalized.get("case_qty"), normalized.get("default_copies"),
+            normalized.get("config_id"), normalized.get("display_sku"),
+        ]) and normalized.get("packaging_level") == "Other":
             continue
-        out.append({
-            "line": row.get("line") or idx,
-            "storefront": storefront,
-            "in_packing_list": in_packing_list,
-            "gtin": gtin,
-            "description": desc,
-            "packaging_level": packaging_level,
-            "length_in": length_in,
-            "width_in": width_in,
-            "height_in": height_in,
-            "gross_weight_lbs": gross_weight_lbs,
-            "case_qty": case_qty,
-            "default_copies": default_copies,
-            "sku": sku,
-            "is_active": is_active,
-        })
-    return out
+        out.append(normalized)
+
+    return _apply_product_hierarchy(out)
 
 
 def _product_master_lookup(rows: List[Dict[str, Any]], *, packing_list_only: bool = False) -> Dict[str, Dict[str, Any]]:
     lookup: Dict[str, Dict[str, Any]] = {}
-    for row in _normalize_product_master_rows(rows):
-        if packing_list_only and not row.get("in_packing_list"):
+    normalized_rows = _normalize_product_master_rows(rows)
+    outer_by_group: Dict[str, Dict[str, Any]] = {}
+    for row in normalized_rows:
+        identity = str(row.get("config_id") or row.get("display_sku") or row.get("sku") or "").strip().lower()
+        group_key = f"{str(row.get('storefront') or 'KeHE').strip().lower()}|{identity}"
+        if row.get("in_packing_list"):
+            outer_by_group[group_key] = row
+    for row in normalized_rows:
+        identity = str(row.get("config_id") or row.get("display_sku") or row.get("sku") or "").strip().lower()
+        group_key = f"{str(row.get('storefront') or 'KeHE').strip().lower()}|{identity}"
+        target = outer_by_group.get(group_key) if packing_list_only else row
+        if not target:
             continue
-        for value in (row.get("gtin"), row.get("sku")):
-            key = _canonical_id(value)
-            if key:
-                lookup.setdefault(key, row)
-        sku_key = str(row.get("sku") or "").strip().lower()
-        if sku_key:
-            lookup.setdefault("sku:" + sku_key, row)
+        barcode_key = _canonical_id(row.get("gtin"))
+        if barcode_key:
+            lookup.setdefault(barcode_key, target)
+        for value in (row.get("sku"), row.get("display_sku"), row.get("customer_item_number")):
+            sku_key = _canonical_sku(value)
+            if sku_key:
+                lookup.setdefault("sku:" + sku_key, target)
     return lookup
 
 
 def _match_product_master_row(item: Dict[str, Any], rows: List[Dict[str, Any]], *, packing_list_only: bool = False) -> Optional[Dict[str, Any]]:
     lookup = _product_master_lookup(rows, packing_list_only=packing_list_only)
-    candidates = [
-        item.get("gtin"), item.get("case_upc"), item.get("upc"), item.get("item_number"), item.get("sku"),
-    ]
-    for value in candidates:
+    for value in (item.get("gtin"), item.get("case_upc"), item.get("upc")):
         key = _canonical_id(value)
         if key and key in lookup:
             return lookup[key]
-        sku_key = str(value or "").strip().lower()
+    for value in (item.get("item_number"), item.get("customer_item_number"), item.get("sku")):
+        sku_key = _canonical_sku(value)
         if sku_key and ("sku:" + sku_key) in lookup:
             return lookup["sku:" + sku_key]
+        if sku_key.isdigit() and sku_key in lookup:
+            return lookup[sku_key]
     desc = _normalize(item.get("description") or "")
     if desc:
         for row in _normalize_product_master_rows(rows):
@@ -245,11 +222,12 @@ def _find_product_packaging_sibling(
     rows: List[Dict[str, Any]],
     packaging_level: str,
 ) -> Optional[Dict[str, Any]]:
-    """Find one packaging row in the same Storefront + SKU product group."""
+    """Find one packaging row in the same Product Group ID."""
     wanted_sku = str(product.get("sku") or "").strip().lower()
+    wanted_config = str(product.get("config_id") or "").strip().lower()
     wanted_storefront = str(product.get("storefront") or "KeHE").strip().lower() or "kehe"
     wanted_level = _normalize_packaging_level(packaging_level)
-    if not wanted_sku:
+    if not wanted_sku and not wanted_config:
         return None
 
     matches: List[Dict[str, Any]] = []
@@ -257,7 +235,11 @@ def _find_product_packaging_sibling(
     for row in _normalize_product_master_rows(rows):
         if _normalize_packaging_level(row.get("packaging_level")) != wanted_level:
             continue
-        if str(row.get("sku") or "").strip().lower() != wanted_sku:
+        row_config = str(row.get("config_id") or "").strip().lower()
+        if wanted_config:
+            if row_config != wanted_config:
+                continue
+        elif str(row.get("sku") or "").strip().lower() != wanted_sku:
             continue
         row_storefront = str(row.get("storefront") or "KeHE").strip().lower() or "kehe"
         if row_storefront != wanted_storefront:

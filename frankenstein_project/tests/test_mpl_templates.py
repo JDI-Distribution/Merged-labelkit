@@ -294,6 +294,35 @@ class MplTemplateTests(unittest.TestCase):
         self.assertNotIn("QTY/CASE: 1", text)
         self.assertNotIn("SIZE: 1 LB", text)
 
+    def test_standard_pdf_uses_saved_visible_and_custom_columns(self):
+        draft = self._draft("standard")
+        mpl = draft["packing_lists"][0]
+        mpl["items"][0]["custom_warehouse_notes"] = "KEEP UPRIGHT"
+        mpl["column_config"] = [
+            {"key": "item_number", "label": "Product Code", "visible": True},
+            {"key": "description", "label": "Product", "visible": True},
+            {"key": "total_shipped", "label": "Total Shipped", "visible": False},
+            {"key": "custom_warehouse_notes", "label": "Warehouse Notes", "visible": True, "custom": True},
+        ]
+
+        text = self._render_first_page_text(draft)
+
+        self.assertIn("Product Code", text)
+        self.assertIn("Warehouse Notes", text)
+        self.assertIn("KEEP UPRIGHT", text)
+        self.assertNotIn("Total Shipped", text)
+
+    def test_kehe_pdf_keeps_fixed_columns_when_column_config_is_present(self):
+        draft = self._draft("kehe")
+        draft["packing_lists"][0]["column_config"] = [
+            {"key": "item_number", "label": "Changed Name", "visible": False},
+        ]
+
+        text = self._render_first_page_text(draft)
+
+        self.assertIn("Item Number", text)
+        self.assertNotIn("Changed Name", text)
+
     def test_all_four_supplier_brands_render_in_standard_template(self):
         expected = {
             "brew_glitter": "BREW GLITTER",

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 from pathlib import Path
@@ -5,7 +6,7 @@ from pathlib import Path
 import pymupdf as fitz
 
 from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job
-from server import _render_b2b_batch_pdf
+from server import _render_b2b_batch_pdf, render_b2b_label_batch
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -214,6 +215,24 @@ class B2BLabelRendererTests(unittest.TestCase):
             self.assertEqual(4, document.page_count)
             self.assertAlmostEqual(6 * 72, document[0].rect.width, delta=0.5)
             self.assertAlmostEqual(6 * 72, document[-1].rect.width, delta=0.5)
+
+    def test_b2b_batch_endpoint_renders_every_order_line_in_one_pdf(self):
+        decopac = next(template for template in self.templates if template["template_id"] == "DECOPAC_CASE_4X6")
+        dutch = next(template for template in self.templates if template["template_id"] == "DUTCH_OTHER_3X3")
+        jobs = [self._job(decopac), self._job(dutch)]
+        for index, job in enumerate(jobs, start=1):
+            job["product"]["sku"] = f"ORDER-SKU-{index}"
+            job["run"].update({"carton_total": "1", "carton_start": "1", "carton_end": "1", "copies": "1"})
+
+        from unittest.mock import patch
+
+        with patch("server._require_permission"):
+            response = asyncio.run(render_b2b_label_batch(object(), {"jobs": jobs}))
+
+        self.assertEqual("application/pdf", response.media_type)
+        self.assertEqual("2", response.headers["X-B2B-Page-Count"])
+        with fitz.open(stream=response.body, filetype="pdf") as document:
+            self.assertEqual(2, document.page_count)
 
     def test_combined_panel_formats_stay_on_one_physical_page(self):
         expected_repeat_text = {

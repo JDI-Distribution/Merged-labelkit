@@ -585,17 +585,29 @@
     .partner-order-summary span { color: #6d7881; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
     .partner-order-summary strong { color: #28343d; overflow-wrap: anywhere; }
 
-    .partner-address-card { padding: 16px; border-color: #d4dade; background: #f8f9fa; }
-    .partner-address-heading,
+    .partner-resolution-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+    }
+    .partner-resolution-item {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      padding: 12px 14px;
+      border: 1px solid #d6ddda;
+      border-radius: 11px;
+      background: #fff;
+      box-shadow: 0 3px 10px rgba(37, 55, 48, .04);
+    }
+    .partner-resolution-item.ready { box-shadow: inset 3px 0 0 #3f7664, 0 3px 10px rgba(37, 55, 48, .04); }
+    .partner-resolution-item.review { box-shadow: inset 3px 0 0 #b47b32, 0 3px 10px rgba(37, 55, 48, .04); }
+    .partner-resolution-item span { color: #738078; font-size: 9px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+    .partner-resolution-item strong { color: #293b34; font-size: 12px; overflow-wrap: anywhere; }
+
     .partner-download-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
-    .partner-address-heading h3,
     .partner-download-heading h4 { margin: 2px 0 0; color: #203948; }
-    .partner-address-heading > span,
     .partner-download-heading > span { color: #6d7c86; font-size: 10px; text-align: right; }
-    .partner-address-selectors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 13px; }
-    .partner-address-selectors label { display: grid; gap: 5px; min-width: 0; color: #526571; font-size: 10px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
-    .partner-address-selectors select { width: 100%; min-width: 0; min-height: 42px; border: 1px solid #ccd6dc; border-radius: 9px; background: #fff; color: #26343d; padding: 8px 10px; text-transform: none; }
-    .partner-address-selectors small { color: #7a8790; font-size: 9px; font-weight: 650; letter-spacing: 0; text-transform: none; }
 
     .partner-documents-card { border-color: #d4dade; background: #f8f9fa; }
     .partner-document-list { display: grid; gap: 10px; }
@@ -871,12 +883,12 @@
       .partner-label-kind-tabs { width: fit-content; }
       .partner-inline-workbench { grid-template-columns: 1fr; }
       .partner-mpl-review-section { grid-template-columns: 1fr; }
-      .partner-address-selectors { grid-template-columns: 1fr; }
       .partner-label-editor-toolbar { grid-template-columns: 1fr; }
       .partner-customer-selector { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
       .partner-order-summary,
+      .partner-resolution-summary,
       .partner-customer-options { grid-template-columns: 1fr; }
       .partner-address-heading,
       .partner-download-heading,

@@ -110,6 +110,32 @@ def format_michaels_item_number(raw_cb: str) -> str:
     return s
 
 
+def wrap_address_parts(parts: List[str], font_name: str, font_size: float, max_width: float) -> List[str]:
+    lines: List[str] = []
+    for part in parts:
+        for segment in str(part or "").splitlines():
+            segment = segment.strip()
+            if segment:
+                lines.extend(hard_wrap(segment, font_name, font_size, max_width))
+    return lines
+
+
+def fit_address_parts(
+    parts: List[str],
+    font_name: str,
+    font_size: float,
+    max_width: float,
+    max_lines: int,
+    min_font_size: float = 4.0,
+) -> Tuple[List[str], float]:
+    fitted_size = font_size
+    lines = wrap_address_parts(parts, font_name, fitted_size, max_width)
+    while fitted_size > min_font_size and len(lines) > max_lines:
+        fitted_size = max(min_font_size, fitted_size - 0.5)
+        lines = wrap_address_parts(parts, font_name, fitted_size, max_width)
+    return lines, fitted_size
+
+
 # ===========================================================================
 # PDF renderers
 # ===========================================================================
@@ -153,8 +179,8 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     c.setFont("Helvetica-Bold", FS_ADDR)
     c.drawString(xL, yT, "SHIP FROM:")
     y = yT - 0.18 * inch
-    from_text = " | ".join(line for line in [sf.name, sf.line1, sf.line2, f"{sf.city} {sf.state} {sf.zip}".strip()] if line.strip())
-    from_lines, from_size = fit_text_lines(from_text, "Helvetica", FS_ADDR, left_w, 6, min_font_size=6.0)
+    from_parts = [sf.name, sf.line1, sf.line2, f"{sf.city} {sf.state} {sf.zip}".strip()]
+    from_lines, from_size = fit_address_parts(from_parts, "Helvetica", FS_ADDR, left_w, 6, min_font_size=6.0)
     c.setFont("Helvetica", from_size)
     for line in from_lines:
         c.drawString(xL, y, line)
@@ -164,8 +190,8 @@ def render_gs1_label_page(pack: Pack, order_index: int, total_orders: int) -> by
     c.setFont("Helvetica-Bold", FS_ADDR)
     c.drawString(xR, y, "SHIP TO:")
     y -= 0.18 * inch
-    to_text = " | ".join(line for line in [st.name, st.line1, st.line2, f"{st.city} {st.state} {st.zip}".strip()] if line.strip())
-    to_lines, to_size = fit_text_lines(to_text, "Helvetica", FS_ADDR, right_w, 6, min_font_size=6.0)
+    to_parts = [st.name, st.line1, st.line2, f"{st.city} {st.state} {st.zip}".strip()]
+    to_lines, to_size = fit_address_parts(to_parts, "Helvetica", FS_ADDR, right_w, 6, min_font_size=6.0)
     c.setFont("Helvetica", to_size)
     for line in to_lines:
         c.drawString(xR, y, line)
@@ -325,11 +351,11 @@ def render_packing_list_pages(pack: Pack, order_index: int, total_orders: int) -
                             f"{sf.city}, {sf.state} {sf.zip}".strip(", ")] if l.strip()]
             right_lines = [l for l in [st.name, st.line1, st.line2,
                             f"{st.city}, {st.state} {st.zip}".strip(", ")] if l.strip()]
-            left_fitted, left_size = fit_text_lines(" | ".join(left_lines), "Helvetica", 6.2, W / 2 - margin - 8, 5, min_font_size=4.0)
-            right_fitted, right_size = fit_text_lines(" | ".join(right_lines), "Helvetica", 6.2, W / 2 - margin - 8, 5, min_font_size=4.0)
+            left_fitted, left_size = fit_address_parts(left_lines, "Helvetica", 6.2, W / 2 - margin - 8, 5, min_font_size=4.0)
+            right_fitted, right_size = fit_address_parts(right_lines, "Helvetica", 6.2, W / 2 - margin - 8, 5, min_font_size=4.0)
             address_size = min(left_size, right_size)
-            left_fitted = hard_wrap(" | ".join(left_lines), "Helvetica", address_size, W / 2 - margin - 8)
-            right_fitted = hard_wrap(" | ".join(right_lines), "Helvetica", address_size, W / 2 - margin - 8)
+            left_fitted = wrap_address_parts(left_lines, "Helvetica", address_size, W / 2 - margin - 8)
+            right_fitted = wrap_address_parts(right_lines, "Helvetica", address_size, W / 2 - margin - 8)
             c.setFont("Helvetica", address_size)
             for i in range(max(len(left_fitted), len(right_fitted))):
                 if i < len(left_fitted):

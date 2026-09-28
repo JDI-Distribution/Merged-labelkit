@@ -715,7 +715,8 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
         "CUSTOMER_ITEM_NUMBER": normalized.get("customer_item_number", ""),
         "LABEL_TEMPLATE_ID": normalized.get("label_template_id", ""),
         "BARCODE_TYPE": normalized.get("barcode_type", ""),
-        "BARCODE_LEVEL": normalized.get("barcode_level", ""),
+        # Compatibility column retained in Catalyst; its value is derived.
+        "BARCODE_LEVEL": normalized["packaging_level"].upper().replace(" ", "_"),
         "LENGTH_IN": length_in,
         "WIDTH_IN": width_in,
         "HEIGHT_IN": height_in,
@@ -1572,6 +1573,23 @@ async def render_b2b_labels(request: Request, payload: Dict[str, Any]) -> Respon
     return Response(content=result["pdf_bytes"], media_type="application/pdf", headers=headers)
 
 
+@app.post("/api/b2b/render-batch")
+async def render_b2b_label_batch(request: Request, payload: Dict[str, Any]) -> Response:
+    """Render every selected label job for one loaded order into a single PDF."""
+    _require_permission(request, "generate")
+    try:
+        pdf_bytes, pages, warnings = _render_b2b_batch_pdf(payload.get("jobs") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    headers = {
+        "Content-Disposition": 'inline; filename="b2b_order_labels.pdf"',
+        "X-B2B-Page-Count": str(pages),
+        "X-B2B-Warning-Count": str(len(warnings)),
+        "Access-Control-Expose-Headers": "X-B2B-Page-Count, X-B2B-Warning-Count",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+
 def _render_b2b_batch_pdf(jobs: List[Dict[str, Any]]) -> tuple[bytes, int, List[str]]:
     """Render selected B2B jobs into one mixed-size, print-ready PDF."""
     if not isinstance(jobs, list) or not jobs:
@@ -1729,10 +1747,6 @@ def _dc_to_datastore_row(row: Dict[str, Any], include_storefront: bool = False) 
         "MATCH_VALUES": json.dumps(normalized["match_values"]),
         "RECORD_TYPE": normalized.get("record_type", "DESTINATION"),
         "DEFAULT_LABEL_TEMPLATE_ID": normalized.get("default_label_template_id", ""),
-        "MANUFACTURER_NAME": normalized.get("manufacturer_name", ""),
-        "MANUFACTURER_ADDRESS": normalized.get("manufacturer_address", ""),
-        "RECEIVING_EMAIL": normalized.get("receiving_email", ""),
-        "DOCKING_INSTRUCTIONS": normalized.get("docking_instructions", ""),
         "VERIFICATION_STATUS": normalized.get("verification_status", ""),
         "UNIQUE_KEY": normalized["unique_key"],
         "IS_ACTIVE": bool(normalized.get("is_active", True)),
@@ -2275,7 +2289,27 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                 (row for level in ("Case", "Inner Pack", "Each") for row in matching_rows if normalize_packaging_level(row.get("packaging_level")) == level),
                 matching_rows[0],
             )
-            exact_sku_row = next((row for row in matching_rows if _canonical_order_sku(row.get("sku")) == sku_key), None)
+            exact_sku_rows = [row for row in matching_rows if _canonical_order_sku(row.get("sku")) == sku_key]
+            exact_sku_levels = {
+                normalize_packaging_level(row.get("packaging_level"))
+                for row in exact_sku_rows
+            }
+            if len(exact_sku_levels) > 1:
+                incoming_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
+                exact_sku_row = next(
+                    (row for row in exact_sku_rows if normalize_packaging_level(row.get("packaging_level")) == incoming_uom),
+                    None,
+                )
+                if exact_sku_row is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"SKU '{order_item.get('sku')}' is shared by multiple packaging levels; "
+                            f"configure Incoming UOM as one of {', '.join(sorted(exact_sku_levels))}."
+                        ),
+                    )
+            else:
+                exact_sku_row = exact_sku_rows[0] if exact_sku_rows else None
             if exact_sku_row is None:
                 display_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
                 exact_sku_row = next(
@@ -2451,16 +2485,19 @@ def _canonical_import_key(header: str, table: str) -> str:
         "labels_per_unit": "default_copies",
         "labels_to_print_per_unit": "default_copies",
         "sku": "sku",
+        "level_sku": "sku",
         "item_number": "sku",
         "ecomdash_sku": "sku",
         "display_sku": "display_sku",
         "display_item_number": "display_sku",
         "display_sku_uom": "display_sku_uom",
+        "incoming_uom": "display_sku_uom",
         "display_sku_represents": "display_sku_uom",
         "display_sku_unit": "display_sku_uom",
         "inner_packs_per_case": "inner_packs_per_case",
         "inners_per_case": "inner_packs_per_case",
         "config_id": "config_id",
+        "product_group_id": "config_id",
         "configuration_id": "config_id",
         "internal_configuration_id": "config_id",
         "customer_item_number": "customer_item_number",
@@ -2468,6 +2505,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "label_template_id": "label_template_id",
         "template_id": "label_template_id",
         "barcode_type": "barcode_type",
+        "barcode_encoding": "barcode_type",
         "barcode_level": "barcode_level",
         "length_in": "length_in",
         "width_in": "width_in",
@@ -2490,6 +2528,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "package_net_weight_g_product_only": "package_net_weight_g",
         "total_product_weight_g": "package_net_weight_g",
         "gross_weight_lbs": "gross_weight_lbs",
+        "packaged_weight_lb": "gross_weight_lbs",
         "gross_weight_lbs_product_packaging": "gross_weight_lbs",
         "total_weight_with_packaging_lb": "gross_weight_lbs",
         "default_copies": "default_copies",
@@ -2508,6 +2547,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "customer_storefront": "storefront",
         "dc": "dc",
         "code": "dc",
+        "location_code": "dc",
         "name": "name",
         "dc_name": "name",
         "destination_name": "name",
@@ -2515,6 +2555,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "address_type": "address_type",
         "address_roles": "address_roles",
         "address_role": "address_roles",
+        "roles": "address_roles",
         "address": "address",
         "ship_from": "ship_from",
         "ship_from_address": "ship_from",
@@ -2530,6 +2571,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "gln": "match_values",
         "record_type": "record_type",
         "default_label_template_id": "default_label_template_id",
+        "default_label_template": "default_label_template_id",
         "manufacturer_name": "manufacturer_name",
         "manufacturer_address": "manufacturer_address",
         "receiving_email": "receiving_email",

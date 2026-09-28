@@ -187,18 +187,18 @@
 
   function normalizeProductRow(row = {}) {
     const packagingLevel = normalizePackagingLevel(row.packaging_level ?? row.packging_level ?? row['PACKGING LEVEL'] ?? row['PACKAGING LEVEL']);
-    const inPackingList = normalizeInPackingList(row, packagingLevel);
-    const legacyDimensions = String(row.dimensions_in ?? row['L X W X H (in)'] ?? row.lwh_in ?? '').trim();
-    const parsedLegacy = parseLegacyDimensions(legacyDimensions);
-    const lengthIn = parsePositiveNumber(row.length_in ?? row.LENGTH_IN ?? row.length) ?? parsedLegacy?.length ?? null;
-    const widthIn = parsePositiveNumber(row.width_in ?? row.WIDTH_IN ?? row.breadth_in ?? row.BREADTH_IN ?? row.breadth) ?? parsedLegacy?.width ?? null;
-    const heightIn = parsePositiveNumber(row.height_in ?? row.HEIGHT_IN ?? row.height) ?? parsedLegacy?.height ?? null;
-    const dimensionsDisplay = (lengthIn && widthIn && heightIn)
-      ? `${formatNumberString(lengthIn)} x ${formatNumberString(widthIn)} x ${formatNumberString(heightIn)}`
-      : legacyDimensions;
-    const configId = String(row.config_id ?? row.CONFIG_ID ?? '').trim();
-    const labelEnabledRaw = row.label_enabled ?? row.LABEL_ENABLED;
-    const isActiveRaw = row.is_active ?? row.IS_ACTIVE;
+      const inPackingList = normalizeInPackingList(row, packagingLevel);
+      const legacyDimensions = String(row.dimensions_in ?? row['L X W X H (in)'] ?? row.lwh_in ?? '').trim();
+      const parsedLegacy = parseLegacyDimensions(legacyDimensions);
+      const lengthIn = parsePositiveNumber(row.length_in ?? row.LENGTH_IN ?? row.length) ?? parsedLegacy?.length ?? null;
+      const widthIn = parsePositiveNumber(row.width_in ?? row.WIDTH_IN ?? row.breadth_in ?? row.BREADTH_IN ?? row.breadth) ?? parsedLegacy?.width ?? null;
+      const heightIn = parsePositiveNumber(row.height_in ?? row.HEIGHT_IN ?? row.height) ?? parsedLegacy?.height ?? null;
+      const dimensionsDisplay = (lengthIn && widthIn && heightIn)
+        ? `${formatNumberString(lengthIn)} x ${formatNumberString(widthIn)} x ${formatNumberString(heightIn)}`
+        : legacyDimensions;
+      const configId = String(row.config_id ?? row.CONFIG_ID ?? '').trim();
+      const labelEnabledRaw = row.label_enabled ?? row.LABEL_ENABLED;
+      const isActiveRaw = row.is_active ?? row.IS_ACTIVE;
     return {
       storefront: normalizeStorefront(row.storefront ?? row.STOREFRONT ?? row['Storefront']),
       in_packing_list: inPackingList,
@@ -233,10 +233,8 @@
       customer_item_number: String(row.customer_item_number ?? row.CUSTOMER_ITEM_NUMBER ?? '').trim(),
       label_template_id: String(row.label_template_id ?? row.LABEL_TEMPLATE_ID ?? '').trim(),
       barcode_type: String(row.barcode_type ?? row.BARCODE_TYPE ?? '').trim(),
-      barcode_level: String(row.barcode_level ?? row.BARCODE_LEVEL ?? '').trim(),
       default_copies: normalizeDefaultCopies(row.default_copies ?? row.DEFAULT_COPIES ?? row.labels_per_unit ?? row['Labels / Unit'], packagingLevel),
       verification_status: normalizeB2BVerificationStatus(row.verification_status ?? row.VERIFICATION_STATUS),
-      source_note: String(row.source_note ?? row.SOURCE_NOTE ?? '').trim(),
       label_enabled: labelEnabledRaw === undefined ? false : parseBooleanLike(labelEnabledRaw, false),
       is_active: isActiveRaw === undefined ? true : parseBooleanLike(isActiveRaw, true)
     };
@@ -260,12 +258,12 @@
 
   function getMplProductMasterRows() {
     const groups = new Map();
-    mplProductMasterRows.map(normalizeProductRow).forEach((row, index) => {
-      if (row.is_active === false) return;
-      const key = mplProductGroupKey(row, index);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push({ row, index });
-    });
+      mplProductMasterRows.map(normalizeProductRow).forEach((row, index) => {
+        if (row.is_active === false) return;
+        const key = mplProductGroupKey(row, index);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push({ row, index });
+      });
     return [...groups.values()].map(entries => {
       const outermost = mplProductOutermostEntry(entries)?.row || entries[0]?.row;
       return outermost ? { ...outermost, in_packing_list: true } : null;
@@ -538,6 +536,14 @@
           changed = true;
         }
       });
+      const innerEntry = mplProductLevelEntry(entries, 'Inner Pack');
+      const caseEntry = mplProductLevelEntry(entries, 'Case');
+      const innerEaches = mplPositivePackageQuantity(innerEntry?.row?.case_qty);
+      const caseEaches = mplPositivePackageQuantity(caseEntry?.row?.case_qty);
+      if (caseEntry && innerEaches && caseEaches && caseEaches % innerEaches === 0 && !mplPositivePackageQuantity(caseEntry.row.inner_packs_per_case)) {
+        mplProductMasterRows[caseEntry.index].inner_packs_per_case = mplFormatPackageQuantity(caseEaches / innerEaches);
+        changed = true;
+      }
       if (mplProductLevelEntry(entries, 'Each')) return;
       const primary = mplProductOutermostEntry(entries)?.row || entries[0]?.row;
       if (!primary) return;
@@ -547,7 +553,6 @@
         packaging_level: 'Each',
         sku: primary.display_sku || primary.sku,
         gtin: '',
-        barcode_level: 'EACH',
         case_qty: '1',
         inner_packs_per_case: '',
         length_in: '',
@@ -737,6 +742,16 @@
     return formatNumberString(eachWeight * mplProductEachesPerOutermost(entries));
   }
 
+  function syncMplCalculatedPackageNetWeight(entries, previousCalculated) {
+    const outermost = mplProductOutermostEntry(entries);
+    if (!outermost) return;
+    const current = String(outermost.row.package_net_weight_g || '').trim();
+    const nextCalculated = mplCalculatedProductWeight(entries);
+    if (nextCalculated && (!current || current === String(previousCalculated || '').trim())) {
+      mplProductMasterRows[outermost.index].package_net_weight_g = nextCalculated;
+    }
+  }
+
   function updateMplProductGroupField(groupKey, key, value) {
     if (!hasPermission('table_crud')) return;
     const entries = mplProductEntriesForGroup(groupKey);
@@ -757,12 +772,20 @@
     renderMplProductEditor();
   }
 
+  function copyMplEachSkuToDisplay(groupKey) {
+    const eachEntry = mplProductLevelEntry(mplProductEntriesForGroup(groupKey), 'Each');
+    if (!eachEntry) return;
+    updateMplProductGroupField(groupKey, 'display_sku', eachEntry.row.sku || '');
+  }
+
   function updateMplProductFinalField(groupKey, key, value) {
     if (!hasPermission('table_crud')) return;
     const entries = mplProductEntriesForGroup(groupKey);
     if (!entries.length) return;
+    const previousCalculated = mplCalculatedProductWeight(entries);
     if (key === 'each_net_weight_g') {
       entries.forEach(({ index }) => { mplProductMasterRows[index][key] = value; });
+      syncMplCalculatedPackageNetWeight(mplProductEntriesForGroup(groupKey), previousCalculated);
     } else {
       const outermost = mplProductOutermostEntry(entries);
       if (!outermost) return;
@@ -779,6 +802,7 @@
     const level = normalizePackagingLevel(mplProductMasterRows[index].packaging_level);
     const groupKey = mplProductGroupKey(mplProductMasterRows[index], index);
     const entries = mplProductEntriesForGroup(groupKey);
+    const previousCalculated = mplCalculatedProductWeight(entries);
     const normalizedValue = normalizeCaseQty(value, level);
     if (level === 'Case' && mplProductLevelEntry(entries, 'Inner Pack')) {
       mplProductMasterRows[index].inner_packs_per_case = normalizedValue;
@@ -797,6 +821,7 @@
         }
       }
     }
+    syncMplCalculatedPackageNetWeight(mplProductEntriesForGroup(groupKey), previousCalculated);
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
     renderMplProductMasterTable();
@@ -808,28 +833,33 @@
     const printable = canPrintProductMasterLabel(row);
     const hasInner = !!mplProductLevelEntry(groupEntries, 'Inner Pack');
     const isCaseWithInner = row.packaging_level === 'Case' && hasInner;
-    const quantityValue = isCaseWithInner ? row.inner_packs_per_case : row.case_qty;
-    const quantityLabel = isCaseWithInner ? 'Inner Packs per Case' : (row.packaging_level === 'Inner Pack' ? 'Eaches per Inner Pack' : 'Eaches per Case');
+    const innerEaches = mplPositivePackageQuantity(mplProductLevelEntry(groupEntries, 'Inner Pack')?.row?.case_qty);
+    const caseEaches = mplPositivePackageQuantity(row.case_qty);
+    const inferredInnerPacks = isCaseWithInner && innerEaches && caseEaches && caseEaches % innerEaches === 0
+      ? mplFormatPackageQuantity(caseEaches / innerEaches)
+      : '';
+    const quantityValue = isCaseWithInner ? (row.inner_packs_per_case || inferredInnerPacks) : row.case_qty;
+    const isEach = row.packaging_level === 'Each';
+    const quantityLabel = isEach ? 'Quantity' : (isCaseWithInner ? 'Inner Packs per Case' : (row.packaging_level === 'Inner Pack' ? 'Eaches per Inner Pack' : 'Eaches per Case'));
     return `<article class="mpl-packaging-level-card" data-product-row-index="${index}">
       <header class="mpl-packaging-level-header">
-        <div><strong>${escapeHtml(row.packaging_level)}</strong><span>${escapeHtml(mplProductPackageBreakdown({ ...row, case_qty: quantityValue }, groupEntries))}</span></div>
+        <div><strong>${escapeHtml(row.packaging_level)}</strong><span>${escapeHtml(mplProductPackageBreakdown({ ...row, inner_packs_per_case: quantityValue }, groupEntries))}</span></div>
         <div class="mpl-packaging-level-actions">
           ${printable ? `<button class="btn-table-preview" type="button" onclick="openManualMplProductPackLabel(${index})">Preview label</button>` : ''}
-          ${canEdit ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Remove level</button>` : ''}
+          ${canEdit && !isEach ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Remove level</button>` : ''}
         </div>
       </header>
       <div class="mpl-packaging-primary-grid">
-        <label>${escapeHtml(row.packaging_level)} SKU <input ${editDisabled} value="${escapeHtml(row.sku)}" placeholder="Order SKU for this unit" onchange="updateMplProductRow(${index}, 'sku', this.value)"></label>
+        <label>${escapeHtml(row.packaging_level)} SKU <input ${editDisabled} value="${escapeHtml(row.sku)}" placeholder="SKU used for this package" onchange="updateMplProductRow(${index}, 'sku', this.value)">${isEach ? '<small>Matches orders sold as Each.</small>' : '<small>Matches orders sold at this package level.</small>'}</label>
         <label>GTIN <input ${editDisabled} value="${escapeHtml(row.gtin)}" onchange="updateMplProductRow(${index}, 'gtin', this.value)"></label>
-        <label>${escapeHtml(quantityLabel)} <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(quantityValue)}" onchange="validateProductNumericInput(this, true); updateMplProductLevelQuantity(${index}, this.value)"></label>
+        <label>${escapeHtml(quantityLabel)} <input ${editDisabled} ${isEach ? 'readonly' : ''} type="number" min="1" step="1" value="${escapeHtml(isEach ? '1' : quantityValue)}" onchange="validateProductNumericInput(this, true); updateMplProductLevelQuantity(${index}, this.value)">${isEach ? '<small>Base sellable unit</small>' : ''}</label>
         <label class="mpl-toggle-field">Label enabled <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
       </div>
       <details class="mpl-packaging-advanced">
         <summary>Label settings</summary>
         <div class="mpl-unified-fields-grid">
           <label>Template <select ${editDisabled} onchange="updateMplProductRow(${index}, 'label_template_id', this.value)">${selectOptionsHtml(b2bTemplateIdOptions(row.label_template_id), row.label_template_id, 'No template')}</select></label>
-          <label>Barcode Type <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_type', this.value)">${selectOptionsHtml(B2B_BARCODE_TYPES, row.barcode_type, 'Select type')}</select></label>
-          <label>Barcode Level <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_level', this.value)">${selectOptionsHtml(B2B_BARCODE_LEVELS, row.barcode_level, 'Select level')}</select></label>
+          <label>Barcode Encoding <select ${editDisabled} onchange="updateMplProductRow(${index}, 'barcode_type', this.value)">${selectOptionsHtml(B2B_BARCODE_TYPES, row.barcode_type, 'Select encoding')}</select><small>Applies to this ${escapeHtml(row.packaging_level)} barcode.</small></label>
           <label>Default Copies <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(row.default_copies || '')}" onchange="updateMplProductRow(${index}, 'default_copies', this.value)"></label>
           <label class="mpl-toggle-field">Level active <input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'is_active', this.checked)"></label>
         </div>
@@ -875,44 +905,39 @@
     const shared = eachEntry.row;
     const outer = outermost.row;
     const levels = [...new Set(entries.map(entry => normalizePackagingLevel(entry.row.packaging_level)))];
-    const optionalEntries = entries
-      .filter(entry => ['Inner Pack', 'Case'].includes(normalizePackagingLevel(entry.row.packaging_level)))
-      .sort((left, right) => ['Inner Pack', 'Case'].indexOf(left.row.packaging_level) - ['Inner Pack', 'Case'].indexOf(right.row.packaging_level));
+    const levelEntries = entries
+      .filter(entry => ['Each', 'Inner Pack', 'Case'].includes(normalizePackagingLevel(entry.row.packaging_level)))
+      .sort((left, right) => ['Each', 'Inner Pack', 'Case'].indexOf(left.row.packaging_level) - ['Each', 'Inner Pack', 'Case'].indexOf(right.row.packaging_level));
     const calculatedProductWeight = mplCalculatedProductWeight(entries);
     const title = document.getElementById('mpl-product-editor-title');
-    if (title) title.textContent = `${shared.display_sku || shared.sku || 'New product'} · Product configuration`;
+    if (title) title.textContent = `${shared.sku || 'New product'} · Product setup`;
     const displayUomOptions = ['Each', 'Inner Pack', 'Case']
       .filter(level => level === 'Each' || levels.includes(level) || level === shared.display_sku_uom)
       .map(level => `<option value="${level}" ${shared.display_sku_uom === level ? 'selected' : ''}>${level}</option>`)
       .join('');
     body.innerHTML = `<div class="master-record-form-stack">
       <section class="mpl-product-shared-card">
-        <header><div><span>Shared product details</span><h3>${escapeHtml(shared.display_sku || shared.sku || 'New configuration')}</h3></div><span class="directory-autosave-badge">Auto-save on</span></header>
+        <header><div><span>Product identity</span><h3>${escapeHtml(shared.sku || 'New product')}</h3><p>Enter the SKU used for each package level. Order SKUs are matched to these automatically.</p></div><span class="directory-autosave-badge">Auto-save on</span></header>
         <div class="mpl-product-shared-grid master-product-shared-grid">
           <label>Customer <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'storefront', this.value)">${selectOptionsHtml(b2bCustomerOptions(outer.storefront), outer.storefront, 'Select customer')}</select></label>
-          <label>Display / Alternate SKU <input ${editDisabled} value="${escapeHtml(shared.display_sku || '')}" placeholder="Optional SKU accepted from orders" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'display_sku', this.value)"></label>
-          <label>Display SKU represents <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'display_sku_uom', this.value)">${displayUomOptions}</select><small>Defines how Quantity Ordered is converted when this alternate SKU matches.</small></label>
-          <label>Each SKU <input ${editDisabled} value="${escapeHtml(shared.sku || '')}" placeholder="Order SKU for one each" onchange="updateMplProductRow(${eachEntry.index}, 'sku', this.value)"></label>
-          <label>Each GTIN <input ${editDisabled} value="${escapeHtml(shared.gtin || '')}" placeholder="Barcode for one each" onchange="updateMplProductRow(${eachEntry.index}, 'gtin', this.value)"></label>
-          <label class="mpl-product-description-field">Description <input ${editDisabled} value="${escapeHtml(shared.description || '')}" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'description', this.value)"></label>
+          <label class="mpl-product-description-field">Product name <input ${editDisabled} value="${escapeHtml(shared.description || '')}" placeholder="Name shown on labels and packing lists" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'description', this.value)"></label>
           <label>Each Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(shared.each_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'each_net_weight_g', this.value)"></label>
-          <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(outer.customer_item_number || '')}" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'customer_item_number', this.value)"></label>
-          <label>Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, outer.verification_status, 'Select status')}</select></label>
         </div>
-        <details class="mpl-packaging-advanced master-each-label-settings" ${shared.label_enabled ? 'open' : ''}>
-          <summary>Each label settings</summary>
-          <div class="mpl-unified-fields-grid">
-            <label class="mpl-toggle-field">Label enabled <input ${editDisabled} type="checkbox" ${shared.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${eachEntry.index}, 'label_enabled', this.checked)"></label>
-            <label>Template <select ${editDisabled} onchange="updateMplProductRow(${eachEntry.index}, 'label_template_id', this.value)">${selectOptionsHtml(b2bTemplateIdOptions(shared.label_template_id), shared.label_template_id, 'No template')}</select></label>
-            <label>Barcode Type <select ${editDisabled} onchange="updateMplProductRow(${eachEntry.index}, 'barcode_type', this.value)">${selectOptionsHtml(B2B_BARCODE_TYPES, shared.barcode_type, 'Select type')}</select></label>
-            <label>Default Copies <input ${editDisabled} type="number" min="1" step="1" value="${escapeHtml(shared.default_copies || '')}" onchange="updateMplProductRow(${eachEntry.index}, 'default_copies', this.value)"></label>
+        <details class="mpl-product-advanced">
+          <summary>Advanced matching details</summary>
+          <div class="mpl-product-shared-grid master-product-shared-grid">
+            <label><span>Alternate incoming SKU</span><div class="mpl-product-display-sku-control"><input ${editDisabled} data-mpl-product-display-sku value="${escapeHtml(shared.display_sku || '')}" placeholder="Optional; level SKUs match automatically" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'display_sku', this.value)"><button ${editDisabled} type="button" class="btn-secondary" onclick="copyMplEachSkuToDisplay('${jsString(mplProductEditorGroupKey)}')">Use Each SKU</button></div><small>Only set this when the order uses a code not listed on a packaging level.</small></label>
+            <label><span>Incoming SKU unit</span><select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'display_sku_uom', this.value)">${displayUomOptions}</select><small>Used only with the alternate incoming SKU.</small></label>
+            <label>Product Group ID <input ${editDisabled} value="${escapeHtml(shared.config_id || '')}" placeholder="Generated automatically" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'config_id', this.value)"><small>Keep unchanged to group package levels together.</small></label>
+            <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(outer.customer_item_number || '')}" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'customer_item_number', this.value)"></label>
+            <label>Verification Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, outer.verification_status, 'Select status')}</select></label>
           </div>
         </details>
         <div class="mpl-product-final-details">
-          <div class="mpl-product-final-heading"><span>Outermost shipping unit · ${escapeHtml(outer.packaging_level || 'Each')}</span><strong>Packaged weight and dimensions are stored once</strong></div>
+          <div class="mpl-product-final-heading"><span>Final shipping measurements · ${escapeHtml(outer.packaging_level || 'Each')}</span><strong>Stored once for the outermost unit</strong></div>
           <div class="mpl-product-final-grid">
-            <label>Calculated Product Weight (g) <input readonly value="${escapeHtml(calculatedProductWeight)}" placeholder="Calculated from Each weight"></label>
-            <label>Total Weight with Packaging (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.gross_weight_lbs || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'gross_weight_lbs', this.value)"></label>
+            <label>Total Product Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.package_net_weight_g || '')}" placeholder="Calculated: ${escapeHtml(calculatedProductWeight)}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'package_net_weight_g', this.value)"><small>Auto-calculated from Each weight × pack quantity. Enter a value only to override.</small></label>
+            <label>Packaged Weight (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.gross_weight_lbs || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'gross_weight_lbs', this.value)"><small>Outermost unit including packaging.</small></label>
             <label>Length (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.length_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'length_in', this.value)"></label>
             <label>Width (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.width_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'width_in', this.value)"></label>
             <label>Height (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.height_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'height_in', this.value)"></label>
@@ -921,7 +946,7 @@
       </section>
       <section class="mpl-product-levels-card">
         <header><div><span>Packaging levels</span><strong>Each is always present. Add Inner Pack or Case only when required.</strong></div>${canEdit ? `<select class="mpl-product-level-add" data-no-search onchange="addMplProductLevel('${jsString(mplProductEditorGroupKey)}', this.value); this.value=''"><option value="">+ Add level</option>${['Inner Pack', 'Case'].filter(level => !levels.includes(level)).map(level => `<option value="${level}">${level}</option>`).join('')}</select>` : ''}</header>
-        <div class="mpl-packaging-level-list">${optionalEntries.length ? optionalEntries.map(entry => mplProductEditorLevelCard(entry, entries, canEdit)).join('') : '<div class="mpl-product-no-levels"><strong>Each is the outermost shipping unit.</strong><span>Add another level only if orders or labels use it.</span></div>'}</div>
+        <div class="mpl-packaging-level-list">${levelEntries.map(entry => mplProductEditorLevelCard(entry, entries, canEdit)).join('')}</div>
       </section>
       ${canEdit ? '<div class="master-record-danger-zone"><div><strong>Delete configuration</strong><span>Removes the Each, Inner Pack, and Case records for this product.</span></div><button class="btn-mini-danger" type="button" onclick="deleteMplProductConfiguration()">Delete product</button></div>' : ''}
     </div>`;
@@ -1005,7 +1030,7 @@
               <button class="mpl-product-group-toggle" type="button" data-group-key="${escapeHtml(group.key)}" onclick="openMplProductEditor('${jsString(group.key)}')">
                 <span class="mpl-product-group-chevron" aria-hidden="true">›</span>
                 <span class="mpl-product-group-identity">
-                  <strong>${escapeHtml(sharedRow.display_sku || sharedRow.sku || primaryRow.sku || primaryRow.customer_item_number || 'SKU not set')}</strong>
+                  <strong>${escapeHtml(sharedRow.sku || primaryRow.sku || sharedRow.display_sku || primaryRow.customer_item_number || 'SKU not set')}</strong>
                   <span>${escapeHtml(sharedRow.description || primaryRow.description || 'Description not set')}</span>
                 </span>
                 <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · Outermost: ${escapeHtml(outermostLabel)} · ${escapeHtml(verification)} <span class="product-quality-badge ${qualityState}" title="${escapeHtml((groupQuality.issues || []).map(issue => issue.message).join(' · ') || 'Complete')}">${groupQuality.score}% complete</span></span>
@@ -1039,6 +1064,11 @@
     saveMplProductMasterToBackendDebounced();
     renderMplProductMasterTable();
     openMplProductEditor(groupKey);
+    window.requestAnimationFrame(() => {
+      const skuInput = document.querySelector('#mpl-product-editor-body .mpl-packaging-primary-grid input:not([readonly])');
+      skuInput?.focus();
+      skuInput?.scrollIntoView({ block: 'center' });
+    });
   }
 
   function addMplProductLevel(groupKey, packagingLevel) {
@@ -1056,13 +1086,11 @@
 
     const primary = mplProductOutermostEntry(entries)?.row || entries[0].row;
     const previousOutermost = mplProductOutermostEntry(entries);
-    const inheritedBarcodeLevel = level.toUpperCase().replace(/\s+/g, '_');
     const newRow = normalizeProductRow({
       ...primary,
       packaging_level: level,
       sku: '',
       gtin: '',
-      barcode_level: inheritedBarcodeLevel,
       length_in: primary.length_in || '',
       width_in: primary.width_in || '',
       height_in: primary.height_in || '',
@@ -1073,7 +1101,6 @@
       inner_packs_per_case: '',
       default_copies: '',
       verification_status: 'DRAFT',
-      source_note: '',
       label_enabled: false,
       is_active: true,
     });
@@ -1390,6 +1417,33 @@
     return normalizeDirectoryRoles(roles).map(role => labels[role]).filter(Boolean).join(' + ') || 'Address';
   }
 
+  function deriveDirectoryMatchValues(row = {}) {
+    const values = [];
+    const seen = new Set();
+    const add = value => {
+      const text = String(value || '').trim();
+      const key = text.toLowerCase();
+      if (!text || seen.has(key) || ['usa', 'us', 'united states', 'canada'].includes(key)) return;
+      seen.add(key);
+      values.push(text);
+    };
+    parseDcMatchValues(row.match_values ?? row.MATCH_VALUES ?? []).forEach(add);
+    add(row.dc ?? row.DC);
+    add(row.name ?? row.NAME);
+    const address = String(row.address ?? row.ADDRESS ?? '').trim();
+    if (address) {
+      add(address);
+      address.split(/\r?\n/).map(line => line.trim()).filter(Boolean).forEach(line => {
+        add(line);
+        const city = line.split(',')[0]?.trim();
+        if (city && city.length > 2 && !/^\d/.test(city)) add(city);
+      });
+      (address.match(/\b\d{5}(?:-\d{4})?\b|\b[A-Z]\d[A-Z][ -]?\d[A-Z]\d\b/gi) || []).forEach(add);
+      (address.match(/\b\d{8,14}\b/g) || []).forEach(add);
+    }
+    return values;
+  }
+
   function normalizeDcDirectoryRow(row = {}) {
     const rawRecordType = row.record_type ?? row.RECORD_TYPE ?? row.address_type ?? row.ADDRESS_TYPE;
     const legacyRecordType = normalizeB2BDirectoryRecordType(rawRecordType);
@@ -1421,15 +1475,10 @@
       address_type: addressRoles[0] || legacyRecordType,
       address_roles: addressRoles,
       address,
-      match_values: parseDcMatchValues(row.match_values ?? row.MATCH_VALUES ?? []),
+      match_values: deriveDirectoryMatchValues({ ...row, dc: String(row.dc ?? row.DC ?? '').trim(), name: String(row.name ?? row.NAME ?? '').trim(), address }),
       record_type: recordType,
       default_label_template_id: String(row.default_label_template_id ?? row.DEFAULT_LABEL_TEMPLATE_ID ?? '').trim(),
-      manufacturer_name: String(row.manufacturer_name ?? row.MANUFACTURER_NAME ?? '').trim(),
-      manufacturer_address: String(row.manufacturer_address ?? row.MANUFACTURER_ADDRESS ?? '').trim(),
-      receiving_email: String(row.receiving_email ?? row.RECEIVING_EMAIL ?? '').trim(),
-      docking_instructions: String(row.docking_instructions ?? row.DOCKING_INSTRUCTIONS ?? '').trim(),
       verification_status: normalizeB2BVerificationStatus(row.verification_status ?? row.VERIFICATION_STATUS),
-      source_note: String(row.source_note ?? row.SOURCE_NOTE ?? '').trim(),
       is_active: parseBooleanLike(row.is_active ?? row.IS_ACTIVE, true),
     };
   }
@@ -1488,7 +1537,7 @@
   function getMplDirectoryRows() {
     return mplDirectoryRows
       .map(normalizeDcDirectoryRow)
-      .filter(row => row.dc || row.name || row.address || row.default_label_template_id || row.receiving_email || row.manufacturer_name || row.source_note);
+      .filter(row => row.dc || row.name || row.address || row.default_label_template_id || row.match_values.length);
   }
 
   function getActiveDcDirectoryRows() {
@@ -1608,93 +1657,11 @@
   }
 
   function getSharedMplDirectoryShipFrom() {
-    const savedOrigins = mplDirectoryRows
-      .map(row => String(row?.ship_from ?? row?.SHIP_FROM ?? row?.['SHIP FROM'] ?? '').trim())
-      .filter(Boolean);
-    if (!savedOrigins.length) return mplDirectorySharedShipFrom || DEFAULT_KEHE_SHIP_FROM;
-
-    const counts = new Map();
-    savedOrigins.forEach(origin => counts.set(origin, (counts.get(origin) || 0) + 1));
-    const currentOrigin = String(mplDirectorySharedShipFrom || '').trim();
-    const savedOrigin = [...counts.entries()]
-      .sort((left, right) => {
-        const countDifference = right[1] - left[1];
-        if (countDifference) return countDifference;
-        if (left[0] === currentOrigin) return -1;
-        if (right[0] === currentOrigin) return 1;
-        return 0;
-      })[0]?.[0];
-    if (savedOrigin) mplDirectorySharedShipFrom = savedOrigin;
-    return mplDirectorySharedShipFrom || DEFAULT_KEHE_SHIP_FROM;
-  }
-
-  function renderSharedDirectoryOrigin() {
-    const origin = getSharedMplDirectoryShipFrom();
-    const lines = origin.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    const name = document.getElementById('directory-shared-origin-name');
-    const address = document.getElementById('directory-shared-origin-address');
-    const editor = document.getElementById('directory-shared-origin-editor');
-    const input = document.getElementById('directory-shared-origin-input');
-    const editButton = document.getElementById('btn-edit-directory-origin');
-    if (name) name.textContent = lines[0] || 'Ship From';
-    if (address) address.textContent = lines.slice(1).join(', ') || 'Address not set';
-    if (input && editor?.classList.contains('hidden')) input.value = origin;
-    if (editButton) {
-      const canEdit = hasPermission('table_crud');
-      editButton.classList.toggle('hidden', !canEdit);
-      editButton.disabled = !canEdit;
-    }
-  }
-
-  function toggleSharedDirectoryOriginEditor() {
-    if (!hasPermission('table_crud')) return;
-    const editor = document.getElementById('directory-shared-origin-editor');
-    const input = document.getElementById('directory-shared-origin-input');
-    if (!editor || !input) return;
-    const opening = editor.classList.contains('hidden');
-    editor.classList.toggle('hidden', !opening);
-    if (opening) {
-      input.value = getSharedMplDirectoryShipFrom();
-      window.requestAnimationFrame(() => input.focus());
-    }
-  }
-
-  function cancelSharedDirectoryOriginEdit() {
-    document.getElementById('directory-shared-origin-editor')?.classList.add('hidden');
-    renderSharedDirectoryOrigin();
-  }
-
-  function saveSharedDirectoryOrigin() {
-    if (!hasPermission('table_crud')) return;
-    const input = document.getElementById('directory-shared-origin-input');
-    const origin = String(input?.value || '').trim();
-    if (!origin) {
-      setStatus('Enter a Ship From address before applying it.', 'error');
-      input?.focus();
-      return;
-    }
-    mplDirectorySharedShipFrom = origin;
-    const defaultOriginIndex = mplDirectoryRows.findIndex(row => (
-      directoryHasRole(normalizeDcDirectoryRow(row), 'SHIP_FROM')
-      && String(row.name || '').trim().toLowerCase() === 'default ship from'
-    ));
-    const originRow = normalizeDcDirectoryRow({
-      storefront: 'Bakell',
-      dc: 'DEFAULT-SHIP-FROM',
-      name: 'Default Ship From',
-      address_type: 'SHIP_FROM',
-      record_type: 'SHIP_FROM',
-      address: origin,
-      verification_status: 'VERIFIED',
-      is_active: true,
-    });
-    if (defaultOriginIndex >= 0) mplDirectoryRows[defaultOriginIndex] = originRow;
-    else mplDirectoryRows.unshift(originRow);
-    saveMplDirectoryToStorage();
-    saveMplDirectoryToBackendDebounced();
-    document.getElementById('directory-shared-origin-editor')?.classList.add('hidden');
-    renderSharedDirectoryOrigin();
-    setStatus('Default Ship From updated. Other saved origins were preserved.', 'success');
+    const rows = mplDirectoryRows.map(normalizeDcDirectoryRow).filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+    const defaultOrigin = rows.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM');
+    const address = String(defaultOrigin?.address || rows[0]?.address || mplDirectorySharedShipFrom || DEFAULT_KEHE_SHIP_FROM).trim();
+    if (address) mplDirectorySharedShipFrom = address;
+    return address || DEFAULT_KEHE_SHIP_FROM;
   }
 
   function openMplDirectoryEditor(index, mode = 'view') {
@@ -1740,11 +1707,6 @@
     const roleBadges = row.address_roles.map(role => `<span class="directory-record-role">${escapeHtml(directoryRoleLabel([role]))}</span>`).join('');
     const operationalDetails = [
       ['Default label template', row.default_label_template_id],
-      ['Receiving email', row.receiving_email],
-      ['Manufacturer', row.manufacturer_name],
-      ['Manufacturer address', row.manufacturer_address],
-      ['Docking instructions', row.docking_instructions],
-      ['Source note', row.source_note],
     ].filter(([, value]) => String(value || '').trim());
     const footer = document.getElementById('mpl-directory-editor-footer');
     if (footer) footer.innerHTML = `
@@ -1774,7 +1736,6 @@
         <div><span>Data status</span><strong>${escapeHtml(String(row.verification_status || 'DRAFT').replace(/_/g, ' '))}</strong></div>
         <div><span>Dropdown availability</span><strong>${row.is_active ? 'Available' : 'Hidden'}</strong></div>
       </section>
-      ${row.match_values.length ? `<section class="directory-record-detail-card"><span>Matching values</span><div class="directory-record-token-list">${row.match_values.map(value => `<small>${escapeHtml(value)}</small>`).join('')}</div></section>` : ''}
       ${operationalDetails.length ? `<section class="directory-record-detail-card"><span>Operational details</span><dl>${operationalDetails.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${displayMultiline(value)}</dd></div>`).join('')}</dl></section>` : ''}
     </div>`;
   }
@@ -1823,26 +1784,15 @@
             ${DIRECTORY_ADDRESS_ROLES.map(role => `<label><input ${editDisabled} type="checkbox" ${row.address_roles.includes(role) ? 'checked' : ''} onchange="updateMplDirectoryRole(${index}, '${role}', this.checked)"><span>${escapeHtml(directoryRoleLabel([role]))}</span></label>`).join('')}
           </div><small>Check every document dropdown where this address should appear.</small></fieldset>
           <label>Data Status <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, row.verification_status, 'Select status')}</select></label>
+          <label>Default Label Template <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'default_label_template_id', this.value)">${selectOptionsHtml(b2bTemplateIdOptions(row.default_label_template_id), row.default_label_template_id, 'No default template')}</select></label>
           <label class="directory-active-control"><span><strong>Active address</strong><small>Available in document selectors</small></span><input ${editDisabled} type="checkbox" ${row.is_active ? 'checked' : ''} onchange="updateMplDirectoryRow(${index}, 'is_active', this.checked)"></label>
         </div>
       </section>
       <section class="directory-destination-workbench master-address-workbench">
-        <div class="directory-address-heading"><div><span>${escapeHtml(addressTypeLabel)} address</span><strong>Save this address once and reuse it wherever this role is requested.</strong></div><span class="directory-completeness-badge ${row.address ? 'complete' : ''}">${row.address ? 'Complete' : 'Missing address'}</span></div>
+        <div class="directory-address-heading"><div><span>${escapeHtml(addressTypeLabel)} address</span><strong>Save this address once and reuse it wherever this role is requested.</strong></div><span class="directory-completeness-badge ${row.address ? 'complete' : ''}" data-directory-completeness>${row.address ? 'Complete' : 'Missing address'}</span></div>
         <label class="directory-address-field"><span>${escapeHtml(addressTypeLabel)} Address <small>Used by labels and packing lists</small></span><textarea rows="6" ${editDisabled} placeholder="Company or location&#10;Street address&#10;City, State ZIP&#10;Country" oninput="updateMplDirectoryRow(${index}, 'address', this.value)">${escapeHtml(row.address || '')}</textarea></label>
         ${directoryHasRole(row, 'SHIP_TO') && !directoryHasRole(row, 'BILL_TO') && canEdit ? `<button class="directory-copy-address" type="button" onclick="copyMplDirectoryAddress(${index}, 'delivery_address', 'billing_address')">Same as Ship To · Also use for Bill To</button>` : ''}
-        <label class="directory-match-values">Matching values <small>Optional GLN, city, ZIP, address fragment, or customer reference—one per line.</small><textarea rows="3" ${editDisabled} placeholder="Example: 0569813430045&#10;Ontario&#10;91761" oninput="updateMplDirectoryRow(${index}, 'match_values', this.value)">${escapeHtml(row.match_values.join('\n'))}</textarea></label>
       </section>
-      <details class="directory-optional-details" ${row.default_label_template_id || row.receiving_email || row.manufacturer_name || row.manufacturer_address || row.docking_instructions || row.source_note ? 'open' : ''}>
-        <summary><span><strong>Label, receiving, and notes</strong><small>Optional operational defaults</small></span><span>Show details</span></summary>
-        <div class="mpl-unified-fields-grid">
-          <label>Default Template <select ${editDisabled} onchange="updateMplDirectoryRow(${index}, 'default_label_template_id', this.value)">${selectOptionsHtml(b2bTemplateIdOptions(row.default_label_template_id), row.default_label_template_id, 'No default template')}</select></label>
-          <label>Receiving Email <input ${editDisabled} value="${escapeHtml(row.receiving_email || '')}" oninput="updateMplDirectoryRow(${index}, 'receiving_email', this.value)"></label>
-          <label>Manufacturer Name <input ${editDisabled} value="${escapeHtml(row.manufacturer_name || '')}" oninput="updateMplDirectoryRow(${index}, 'manufacturer_name', this.value)"></label>
-          <label class="mpl-field-wide">Manufacturer Address <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'manufacturer_address', this.value)">${escapeHtml(row.manufacturer_address || '')}</textarea></label>
-          <label class="mpl-field-wide">Docking Instructions <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'docking_instructions', this.value)">${escapeHtml(row.docking_instructions || '')}</textarea></label>
-          <label class="mpl-field-wide">Source Note <textarea rows="2" ${editDisabled} oninput="updateMplDirectoryRow(${index}, 'source_note', this.value)">${escapeHtml(row.source_note || '')}</textarea></label>
-        </div>
-      </details>
     </div>`;
     applyPermissionUi();
     enhanceSearchableSelects(body);
@@ -1852,7 +1802,6 @@
     const body = document.getElementById('mpl-directory-body');
     if (!body) return;
     const rows = mplDirectoryRows.map(normalizeDcDirectoryRow);
-    renderSharedDirectoryOrigin();
     syncTableFilterOptions('mpl-directory-storefront-filter', rows.map(row => row.storefront), 'All customers');
     const search = String(document.getElementById('mpl-directory-search')?.value || '').trim().toLowerCase();
     const storefront = String(document.getElementById('mpl-directory-storefront-filter')?.value || '').trim().toLowerCase();
@@ -1873,8 +1822,6 @@
           row.record_type,
           row.default_label_template_id,
           row.address,
-          row.receiving_email,
-          row.manufacturer_name,
           row.match_values,
         ].some(value => String(value || '').toLowerCase().includes(search)))
           && (!storefront || String(row.storefront || '').trim().toLowerCase() === storefront)
@@ -1928,6 +1875,11 @@
     mplDirectoryEditorIsNew = true;
     renderMplDirectoryTable();
     openMplDirectoryEditor(newIndex, 'edit');
+    window.requestAnimationFrame(() => {
+      const nameInput = document.querySelector('#mpl-directory-editor-body input[placeholder="Warehouse, customer, or store"]');
+      nameInput?.focus();
+      nameInput?.scrollIntoView({ block: 'center' });
+    });
   }
 
   function copyMplDirectoryAddress(index, sourceField, targetField) {
@@ -1990,6 +1942,12 @@
       row.ship_from = directoryHasRole(row, 'SHIP_FROM') ? value : '';
       row.delivery_address = directoryHasRole(row, 'SHIP_TO') ? value : '';
       row.billing_address = directoryHasRole(row, 'BILL_TO') ? value : '';
+      const completeness = document.querySelector('[data-directory-completeness]');
+      if (completeness) {
+        const complete = String(value || '').trim().length > 0;
+        completeness.textContent = complete ? 'Complete' : 'Missing address';
+        completeness.classList.toggle('complete', complete);
+      }
     } else if (key === 'match_values') {
       mplDirectoryRows[index][key] = parseDcMatchValues(value);
     } else if (key === 'storefront') {

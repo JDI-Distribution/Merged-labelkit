@@ -555,8 +555,8 @@ def _draw_bulk(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, w
     barcode = _barcode_requested(job)
     statement_y = 0.92 * inch if barcode else 0.55 * inch
     manufacturer = "\n".join(filter(None, [
-        _job_value(job, "manufacturer_name"),
-        _job_value(job, "manufacturer_address"),
+        _job_value(job, "ship_from_name"),
+        _job_value(job, "ship_from"),
     ]))
     y -= 0.06 * inch
     _draw_wrapped_in_box(

@@ -83,6 +83,7 @@
         each_gtin: !!each?.gtin && gtinValid(each.gtin),
         package_quantity: normalizePackagingLevel(primary.packaging_level) === 'Each' || positive(primary.case_qty, true),
         dimensions: ['length_in', 'width_in', 'height_in'].every(field => positive(primary[field])),
+        product_weight: positive(primary.package_net_weight_g),
         weight: positive(primary.gross_weight_lbs),
         each_weight: positive(each?.each_net_weight_g || primary.each_net_weight_g),
         label_template: primary.label_enabled ? !!primary.label_template_id : true,
@@ -92,6 +93,7 @@
       const score = Math.round(100 * Object.values(criteria).filter(Boolean).length / Object.keys(criteria).length);
       const commonIssues = [...groupIssues];
       if (!['length_in', 'width_in', 'height_in'].every(field => positive(primary[field]))) commonIssues.push(qualityIssue('missing_dimensions', `${primary.packaging_level || 'Outermost'} dimensions are incomplete.`));
+      if (!positive(primary.package_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Outermost total product weight is missing.'));
       if (!positive(primary.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Outermost packaged weight is missing.'));
       if (!positive(each?.each_net_weight_g || primary.each_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Each weight is missing.'));
       if (normalizePackagingLevel(primary.packaging_level) !== 'Each' && !positive(primary.case_qty, true)) commonIssues.push(qualityIssue('missing_case_quantity', `${primary.packaging_level} quantity is missing.`));
@@ -161,6 +163,26 @@
     return readinessResult(issues);
   }
   function collectB2BReadiness() {
+    if (Array.isArray(b2bOrderLabelJobs) && b2bOrderLabelJobs.length) {
+      const issues = [];
+      b2bOrderLabelJobs.forEach((job, index) => {
+        if (job.print_selected === false) return;
+        const product = job.product || {};
+        const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
+        const sku = product.sku || product.customer_item_number || `Order line ${index + 1}`;
+        if (job.match_status !== 'matched') issues.push(readinessItem(sku, 'Product Master configuration was not matched; order data will be used.', 'product', index));
+        (template.required_product_fields || []).forEach(field => {
+          if (!String(product[field] ?? '').trim()) issues.push(readinessItem(sku, `${String(field).replace(/_/g, ' ')} is missing.`, /gtin|barcode/i.test(field) ? 'barcode' : /case|quantity/i.test(field) ? 'case' : 'product', index));
+        });
+        (template.required_run_fields || []).forEach(field => {
+          if (!String(job.run?.[field] ?? '').trim()) issues.push(readinessItem(sku, `${String(field).replace(/_/g, ' ')} is missing from this run.`, 'review', index));
+        });
+        if (product.verification_status && String(product.verification_status).toUpperCase() !== 'VERIFIED') {
+          issues.push(readinessItem(sku, `Product status is ${product.verification_status}.`, 'review', index));
+        }
+      });
+      return readinessResult(issues);
+    }
     const product = getSelectedB2BProduct?.() || {};
     const sku = product.sku || product.customer_item_number || 'Selected label';
     const issues = (getB2BValidationWarnings?.() || []).map(message => readinessItem(sku, message, /barcode|gtin/i.test(message) ? 'barcode' : /case|quantity/i.test(message) ? 'case' : 'review'));
@@ -330,12 +352,19 @@
   window.showPrintSummary = (scope = selectedKit) => {
     const outputs = [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
     const readiness = getReadiness(['partners', 'b2b', 'kehe'].includes(scope) ? scope : 'mpl');
+    const reviewSkuCount = scope === 'b2b' && b2bOrderLabelJobs.length
+      ? new Set(b2bOrderLabelJobs.filter(job => (
+        job.match_status !== 'matched'
+        || String(job.product?.verification_status || '').toUpperCase() !== 'VERIFIED'
+        || !job.product?.gtin
+      )).map(job => job.product?.sku || job.product?.customer_item_number).filter(Boolean)).size
+      : new Set(readiness.issues.map(issue => issue.sku)).size;
     const metrics = {
       files: outputs.length,
       pages: outputs.reduce((sum, [, output]) => sum + Number(output.pages || 0), 0),
       labels: outputs.reduce((sum, [, output]) => sum + Number(output.labels || 0), 0),
       pallets: outputs.reduce((sum, [, output]) => sum + Number(output.pallets || 0), 0),
-      review: new Set(readiness.issues.map(issue => issue.sku)).size,
+      review: reviewSkuCount,
     };
     const labelCounts = new Map();
     outputs.map(([, output]) => output).filter(output => Number(output.labels || 0) > 0).forEach(output => {
@@ -344,8 +373,10 @@
     });
     const summaryJobs = scope === 'partners'
       ? (partnerLabelJobs || []).filter(job => job.print_selected !== false)
-      : scope === 'b2b' && getSelectedB2BProduct?.()
-        ? [{ product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }]
+      : scope === 'b2b' && b2bOrderLabelJobs.length
+        ? b2bOrderLabelJobs.filter(job => job.print_selected !== false)
+        : scope === 'b2b' && getSelectedB2BProduct?.()
+          ? [{ product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }]
         : [];
     const jobGroups = new Map();
     summaryJobs.forEach((job, index) => {
@@ -400,7 +431,11 @@
   };
 
   window.openLabelJobSummary = scope => {
-    const jobs = scope === 'partners' ? (partnerLabelJobs || []) : (getSelectedB2BProduct?.() ? [{ print_selected: true, product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }] : []);
+    const jobs = scope === 'partners'
+      ? (partnerLabelJobs || [])
+      : (b2bOrderLabelJobs.length
+        ? b2bOrderLabelJobs
+        : (getSelectedB2BProduct?.() ? [{ print_selected: true, product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }] : []));
     const groups = new Map();
     jobs.forEach((job, index) => {
       const sku = job.product?.sku || job.product?.customer_item_number || `Line ${index + 1}`;

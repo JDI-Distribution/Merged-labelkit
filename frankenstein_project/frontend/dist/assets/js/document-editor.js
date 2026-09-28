@@ -225,18 +225,93 @@
       </div>`;
   }
 
-  function renderMplAddressBox(path, label, value) {
+  function inlineMplAddressOptions(mpl, field) {
+    const current = String(mpl?.[field] || '').trim();
+    let options = [];
+    if (selectedKit === 'partners' && typeof partnerAddressOptions === 'function') {
+      const partnerField = field === 'supplier_info' ? 'ship_from' : (field === 'bill_to' ? 'billing_address' : 'delivery_address');
+      options = partnerAddressOptions(partnerField).map(option => ({ value: option.value, label: option.label }));
+    } else if (typeof manualMplAddressOptions === 'function') {
+      options = manualMplAddressOptions(field).map(value => ({ value, label: firstLine(value) || value }));
+    }
+    if (current && !options.some(option => String(option.value).trim() === current)) {
+      options.unshift({ value: current, label: `Current — ${firstLine(current) || current}` });
+    }
+    const seen = new Set();
+    return options.filter(option => {
+      const key = String(option.value || '').trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function renderInlineMplAddressPicker(mplIndex, field, value) {
+    const mpl = getMpl(mplIndex) || {};
+    const options = inlineMplAddressOptions(mpl, field);
+    if (!options.length) return '';
+    const current = String(value || '').trim();
+    return `<select class="mpl-address-inline-select" aria-label="Choose saved address" onchange="applyInlineMplAddress(${mplIndex}, '${jsString(field)}', this.value)">
+      ${options.map(option => `<option value="${escapeHtml(option.value)}" ${String(option.value).trim() === current ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}
+    </select>`;
+  }
+
+  function applyInlineMplAddress(mplIndex, field, value) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl || !['supplier_info', 'bill_to', 'ship_to'].includes(field)) return;
+    captureMplHistoryCheckpoint();
+    mpl[field] = String(value || '');
+    if (selectedKit === 'partners' && typeof selectPartnerAddress === 'function') {
+      const partnerField = field === 'supplier_info' ? 'ship_from' : (field === 'bill_to' ? 'billing_address' : 'delivery_address');
+      selectPartnerAddress(partnerField, value);
+    }
+    mplDraftSync?.schedule();
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+  }
+
+  function renderMplAddressBox(mplIndex, field, label, value) {
+    const path = `packing_lists.${mplIndex}.${field}`;
     return `
       <div class="mpl-address-box">
-        <div class="mpl-address-label">${escapeHtml(label)}</div>
+        <div class="mpl-address-label"><span>${escapeHtml(label)}</span>${renderInlineMplAddressPicker(mplIndex, field, value)}</div>
         ${editorPdfTextarea(path, value)}
       </div>`;
+  }
+
+  const MPL_UOM_OPTIONS = ['CASES', 'EACHES', 'INNER PACK', 'CASE', 'PALLET', 'BOX', 'BUNDLE'];
+
+  function renderMplUomSelect(path, value) {
+    const raw = String(value ?? '').trim();
+    const options = Array.from(new Set([raw, ...MPL_UOM_OPTIONS].filter(option => String(option || '').trim())));
+    if (!raw && !options.length) return '<span class="mpl-uom-placeholder">CASES</span>';
+    return `
+      <select class="mpl-uom-select" data-draft-path="${escapeHtml(path)}" onfocus="captureMplHistoryCheckpoint()" onchange="updateDraftValue(this); window.requestAnimationFrame(() => fitPdfEditorInputText(document.getElementById('document-editor-body')));">
+        ${options.map(option => `<option value="${escapeHtml(option)}" ${option.toUpperCase() === raw.toUpperCase() ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}
+      </select>`;
   }
 
   function renderMplItemRow(mplIndex, itemIndex, item) {
     const base = `packing_lists.${mplIndex}.items.${itemIndex}`;
     const qty = item.qty_on_pallet || item.total_shipped || item.qty || '';
-    const showSecondaryDetails = !['kehe', 'standard'].includes(mplTemplateId(getMpl(mplIndex) || {}));
+    const mpl = getMpl(mplIndex) || {};
+    const templateId = mplTemplateId(mpl);
+    if (templateId === 'standard') {
+      const columns = ensurePartnerMplColumns(mpl).filter(column => column.visible);
+      return `<tr class="mpl-pallet-item-row mpl-configurable-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
+        ${columns.map(column => {
+          if (column.key === 'description') {
+            return `<td><div class="mpl-description-edit">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${base}.description`, item.description)}<div class="mpl-exp-edit"><span>EXP:</span>${editorPdfInput(`${base}.expiration_date`, item.expiration_date)}</div></div></td>`;
+          }
+          if (column.key === 'uom') {
+            return `<td>${renderMplUomSelect(`${base}.uom`, partnerMplColumnValue(item, mpl, column) || 'CASES')}</td>`;
+          }
+          return `<td>${editorPdfInput(`${base}.${column.key}`, partnerMplColumnValue(item, mpl, column))}</td>`;
+        }).join('')}
+        <td class="mpl-row-actions-cell"><button class="btn-mini-danger" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})">Delete</button></td>
+        <td class="mpl-row-drag-cell"><button class="mpl-drag-handle-btn" type="button" draggable="true" ondragstart="dragMplItem(event, ${mplIndex}, ${itemIndex})" title="Drag line item to another pallet" aria-label="Drag line item">⋮⋮</button></td>
+      </tr>`;
+    }
+    const showSecondaryDetails = !['kehe', 'standard'].includes(templateId);
     return `
       <tr class="mpl-pallet-item-row" data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
         <td style="width:16%">${editorPdfInput(`${base}.item_number`, item.item_number || item.sku || '')}</td>
@@ -247,7 +322,7 @@
             <div class="mpl-exp-edit"><span>EXP:</span>${editorPdfInput(`${base}.expiration_date`, item.expiration_date)}</div>
           </div>
         </td>
-        <td style="width:9%">${editorPdfInput(`${base}.uom`, item.uom || 'CASES')}</td>
+        <td style="width:9%">${renderMplUomSelect(`${base}.uom`, item.uom || 'CASES')}</td>
         <td style="width:10%">${editorPdfInput(`${base}.qty_on_pallet`, qty)}</td>
         <td style="width:10%">${editorPdfInput(`${base}.total_ordered`, item.total_ordered || qty)}</td>
         <td style="width:10%">${editorPdfInput(`${base}.total_shipped`, item.total_shipped || qty)}</td>
@@ -274,6 +349,9 @@
 
   function renderMplDropZone(mplIndex, palletId, items, emptyText) {
     const safePallet = jsString(palletId);
+    const mpl = getMpl(mplIndex) || {};
+    const configurable = mplTemplateId(mpl) === 'standard';
+    const columns = configurable ? ensurePartnerMplColumns(mpl).filter(column => column.visible) : [];
     return `
       <div class="mpl-pdf-table-wrap"
            ondragover="event.preventDefault(); this.classList.add('drag-over')"
@@ -283,13 +361,13 @@
           <table class="mpl-pdf-table">
             <thead>
               <tr>
-                <th>Item Number</th>
+                ${configurable ? columns.map((column, columnIndex) => renderMplEditableColumnHeader(mplIndex, column, columnIndex)).join('') : `<th>Item Number</th>
                 <th>Pallet Weight &amp;<br>Item Description</th>
                 <th>UOM</th>
                 <th>Qty On<br>Pallet</th>
                 <th>Total<br>Ordered</th>
-                <th>Total<br>Shipped</th>
-                <th>Action</th>
+                <th>Total<br>Shipped</th>`}
+                <th class="mpl-action-column-head"><span>Action</span>${configurable ? `<button type="button" onclick="addMplCustomColumnQuick(${mplIndex})" title="Add a column" aria-label="Add a column">+</button>` : ''}</th>
                 <th>Move</th>
               </tr>
             </thead>
@@ -333,7 +411,7 @@
     const palletIds = mpl._pallet_ids || [];
     const source = palletSourceLabel(mpl.palletization_source || keheMplPalletizationSource);
     const sourceClass = String(mpl.palletization_note || '').toLowerCase().includes('does not match') ? ' warning' : '';
-    return `
+      return `
       <div class="palletization-source-note${sourceClass}">Palletization Source: ${escapeHtml(source)}. ${escapeHtml(mpl.palletization_note || 'How to reorder: Click and hold the six-dot icon at the end of the row to drag the line item to another pallet.')}</div>
       <div class="mpl-pdf-editor-tools">
         <div>
@@ -387,10 +465,25 @@
     ['balance_owed', 'Balance Owed', 0.055],
   ];
 
+  const STANDARD_MPL_DEFAULT_COLUMNS = [
+    ['item_number', 'Item Number', 0.17],
+    ['description', 'Pallet Weight & Item Description', 0.39],
+    ['uom', 'UOM', 0.10],
+    ['qty_on_pallet', 'Qty On Pallet', 0.11],
+    ['total_ordered', 'Total Ordered', 0.11],
+    ['total_shipped', 'Total Shipped', 0.12],
+  ];
+
+  function mplDefaultColumnDefinitions(mpl) {
+    return ['decopac', 'dutch_bros', 'fancy'].includes(mplTemplateId(mpl))
+      ? PARTNER_MPL_DEFAULT_COLUMNS
+      : STANDARD_MPL_DEFAULT_COLUMNS;
+  }
+
   function ensurePartnerMplColumns(mpl) {
     const saved = Array.isArray(mpl?.column_config) ? mpl.column_config : [];
     const savedByKey = new Map(saved.filter(column => column?.key).map(column => [String(column.key), column]));
-    const defaults = PARTNER_MPL_DEFAULT_COLUMNS.map(([key, label, width]) => ({
+    const defaults = mplDefaultColumnDefinitions(mpl).map(([key, label, width]) => ({
       key,
       label: String(savedByKey.get(key)?.label || label),
       width,
@@ -423,79 +516,57 @@
     return item[column.key] || '';
   }
 
-  function refreshPartnerMplColumns(mplIndex, keepModal = false) {
+  function renderMplEditableColumnHeader(mplIndex, column, columnIndex) {
+    return `<th class="mpl-editable-column-head">
+      <div>
+        <input data-mpl-column-key="${escapeHtml(column.key)}" aria-label="Rename ${escapeHtml(column.label)} column" value="${escapeHtml(column.label)}" onfocus="captureMplHistoryCheckpoint()" onchange="renameMplColumn(${mplIndex}, ${columnIndex}, this.value)">
+        <button type="button" onclick="hideMplColumn(${mplIndex}, ${columnIndex})" title="Remove this column" aria-label="Remove ${escapeHtml(column.label)} column">−</button>
+      </div>
+    </th>`;
+  }
+
+  function refreshPartnerMplColumns(mplIndex) {
     mplDraftSync?.schedule();
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    if (keepModal) window.requestAnimationFrame(() => openMplColumnManager(mplIndex));
   }
 
-  function openMplColumnManager(mplIndex) {
-    const mpl = getMpl(mplIndex);
-    if (!mpl) return;
-    const columns = ensurePartnerMplColumns(mpl);
-    let modal = document.getElementById('mpl-column-manager-modal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'mpl-column-manager-modal';
-      modal.className = 'editor-panel workflow-popup-panel';
-      document.body.appendChild(modal);
-    }
-    modal.dataset.mplIndex = String(mplIndex);
-    modal.innerHTML = `<div class="editor-dialog workflow-popup-dialog mpl-column-manager-dialog">
-      <div class="editor-toolbar"><div><div class="editor-title">Packing List Columns</div><div class="kehe-product-master-subtitle">Show, rename, reorder, or add columns. This layout is saved with this MPL and used in its PDF.</div></div><button class="btn-secondary" type="button" onclick="closeMplColumnManager()">Close</button></div>
-      <div class="editor-body">
-        <div class="mpl-column-manager-list">${columns.map((column, index) => `<div class="mpl-column-manager-row">
-          <label class="mpl-column-visible"><input type="checkbox" ${column.visible ? 'checked' : ''} onchange="setMplColumnVisible(${mplIndex}, ${index}, this.checked)"><span>Show</span></label>
-          <label><span>Column name</span><input value="${escapeHtml(column.label)}" onchange="renameMplColumn(${mplIndex}, ${index}, this.value)"></label>
-          <div class="mpl-column-order"><button class="btn-secondary" type="button" ${index === 0 ? 'disabled' : ''} onclick="moveMplColumn(${mplIndex}, ${index}, -1)">↑</button><button class="btn-secondary" type="button" ${index === columns.length - 1 ? 'disabled' : ''} onclick="moveMplColumn(${mplIndex}, ${index}, 1)">↓</button></div>
-          ${column.custom ? `<button class="btn-mini-danger" type="button" onclick="removeMplColumn(${mplIndex}, ${index})">Remove</button>` : '<span class="mpl-column-standard">Standard</span>'}
-        </div>`).join('')}</div>
-        <div class="mpl-column-add"><label><span>New custom column</span><input id="mpl-new-column-name" placeholder="Example: Warehouse Notes"></label><button class="btn-generate" type="button" onclick="addMplCustomColumn(${mplIndex})">Add column</button></div>
-      </div>
-      <div class="editor-footer"><button class="btn-generate" type="button" onclick="closeMplColumnManager()">Done</button></div>
-    </div>`;
-    modal.classList.add('visible');
-  }
-
-  function closeMplColumnManager() { document.getElementById('mpl-column-manager-modal')?.classList.remove('visible'); }
-  function setMplColumnVisible(mplIndex, columnIndex, visible) {
+  function hideMplColumn(mplIndex, columnIndex) {
     const columns = ensurePartnerMplColumns(getMpl(mplIndex));
     if (!columns[columnIndex]) return;
-    columns[columnIndex].visible = !!visible;
-    if (!columns.some(column => column.visible)) columns[columnIndex].visible = true;
-    refreshPartnerMplColumns(mplIndex, true);
+    if (columns.filter(column => column.visible).length <= 1) {
+      setStatus('Keep at least one packing-list column.', 'error');
+      return;
+    }
+    captureMplHistoryCheckpoint();
+    columns[columnIndex].visible = false;
+    captureMplHistoryCheckpoint();
+    refreshPartnerMplColumns(mplIndex);
   }
   function renameMplColumn(mplIndex, columnIndex, label) {
     const columns = ensurePartnerMplColumns(getMpl(mplIndex));
     if (!columns[columnIndex]) return;
     columns[columnIndex].label = String(label || '').trim() || 'Column';
-    refreshPartnerMplColumns(mplIndex, true);
+    captureMplHistoryCheckpoint();
+    refreshPartnerMplColumns(mplIndex);
   }
-  function moveMplColumn(mplIndex, columnIndex, direction) {
-    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
-    const next = columnIndex + Number(direction || 0);
-    if (!columns[columnIndex] || next < 0 || next >= columns.length) return;
-    [columns[columnIndex], columns[next]] = [columns[next], columns[columnIndex]];
-    refreshPartnerMplColumns(mplIndex, true);
-  }
-  function removeMplColumn(mplIndex, columnIndex) {
-    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
-    if (!columns[columnIndex]?.custom) return;
-    columns.splice(columnIndex, 1);
-    refreshPartnerMplColumns(mplIndex, true);
-  }
-  function addMplCustomColumn(mplIndex) {
+  function addMplCustomColumnQuick(mplIndex) {
     const mpl = getMpl(mplIndex);
-    const input = document.getElementById('mpl-new-column-name');
-    const label = String(input?.value || '').trim();
-    if (!mpl || !label) { input?.focus(); return; }
+    if (!mpl) return;
+    captureMplHistoryCheckpoint();
     const columns = ensurePartnerMplColumns(mpl);
-    let key = `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'column'}`;
+    const label = 'New Column';
+    let key = 'custom_new_column';
     let suffix = 2;
     while (columns.some(column => column.key === key)) key = `${key.replace(/_\d+$/, '')}_${suffix++}`;
     columns.push({ key, label, width: 0.09, visible: true, custom: true });
     (mpl.items || []).forEach(item => { if (!(key in item)) item[key] = ''; });
-    refreshPartnerMplColumns(mplIndex, true);
+    captureMplHistoryCheckpoint();
+    refreshPartnerMplColumns(mplIndex);
+    window.requestAnimationFrame(() => {
+      const input = document.querySelector(`[data-mpl-column-key="${key}"]`);
+      input?.focus();
+      input?.select();
+    });
   }
 
   function renderStandaloneMplToolbar(mpl, mplIndex, label) {
@@ -507,7 +578,6 @@
         <button class="btn-secondary" type="button" onclick="autoPalletizeMpl(${mplIndex})">Auto Palletize</button>
         <button class="btn-secondary" type="button" onclick="openMplTiHiSettings(${mplIndex})">Ti-Hi Settings</button>
         <button class="btn-secondary" type="button" onclick="recalculateMplWeights(${mplIndex})">Recalculate Weights</button>
-        ${['decopac', 'dutch_bros', 'fancy'].includes(mplTemplateId(mpl)) ? `<button class="btn-secondary" type="button" onclick="openMplColumnManager(${mplIndex})">Manage Columns</button>` : ''}
       </div>
     </div>`;
   }
@@ -548,13 +618,14 @@
       .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
     return `<div class="decopac-table-wrap">
       <table class="decopac-table">
-        <thead><tr>${columns.map(column => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead>
+        <thead><tr>${columns.map((column, columnIndex) => renderMplEditableColumnHeader(mplIndex, column, columnIndex)).join('')}<th class="mpl-action-column-head"><span>Action</span><button type="button" onclick="addMplCustomColumnQuick(${mplIndex})" title="Add a column" aria-label="Add a column">+</button></th></tr></thead>
         <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
           const itemBase = `${base}.items.${itemIndex}`;
           return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
-            ${columns.map((column, columnIndex) => `<td>${column.key === 'description' ? `<div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div>` : editorPdfInput(`${itemBase}.${column.key}`, partnerMplColumnValue(item, mpl, column))}${columnIndex === 0 ? `<button class="decopac-delete" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})" title="Delete row">×</button>` : ''}</td>`).join('')}
+            ${columns.map(column => `<td>${column.key === 'description' ? `<div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div>` : editorPdfInput(`${itemBase}.${column.key}`, partnerMplColumnValue(item, mpl, column))}</td>`).join('')}
+            <td class="mpl-row-actions-cell"><button class="btn-mini-danger" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})">Delete</button></td>
           </tr>`;
-        }).join('') : `<tr><td colspan="${columns.length}" class="decopac-empty">No products assigned to this pallet.</td></tr>`}</tbody>
+        }).join('') : `<tr><td colspan="${columns.length + 1}" class="decopac-empty">No products assigned to this pallet.</td></tr>`}</tbody>
       </table>
     </div>`;
   }
@@ -586,7 +657,7 @@
           ${editorPdfInput(`${base}.pallet_heading`, mpl.pallet_heading || 'PALLET 1', 'decopac-pallet-heading')}
           <label><span>Delivery From</span>${editorPdfInput(`${base}.delivery_from_name`, mpl.delivery_from_name || firstLine(mpl.supplier_info))}</label>
           <label><span>Shipping Date</span>${editorPdfInput(`${base}.est_ship_date`, mpl.est_ship_date)}</label>
-          <label><span>Ship To Address</span>${editorPdfTextarea(`${base}.ship_to`, mpl.ship_to)}</label>
+          <label class="decopac-inline-address"><span>Ship To Address ${renderInlineMplAddressPicker(mplIndex, 'ship_to', mpl.ship_to)}</span>${editorPdfTextarea(`${base}.ship_to`, mpl.ship_to)}</label>
           <label><span>Phone #</span>${editorPdfInput(`${base}.phone_number`, mpl.phone_number || '')}</label>
           <label><span>Customer PO(s)</span>${editorPdfInput(`${base}.customer_po_number`, mpl.customer_po_number)}</label>
         </div>
@@ -654,9 +725,9 @@
         ${renderMplInfoCell(`packing_lists.${mplIndex}.total_pallets`, 'Total Pallets', mpl.total_pallets)}
       </div>
       <div class="mpl-address-grid">
-        ${renderMplAddressBox(`packing_lists.${mplIndex}.supplier_info`, 'SUPPLIER INFO:', mpl.supplier_info)}
-        ${renderMplAddressBox(`packing_lists.${mplIndex}.bill_to`, 'BILL TO:', mpl.bill_to)}
-        ${renderMplAddressBox(`packing_lists.${mplIndex}.ship_to`, 'SHIP TO:', mpl.ship_to)}
+        ${renderMplAddressBox(mplIndex, 'supplier_info', 'SUPPLIER INFO:', mpl.supplier_info)}
+        ${renderMplAddressBox(mplIndex, 'bill_to', 'BILL TO:', mpl.bill_to)}
+        ${renderMplAddressBox(mplIndex, 'ship_to', 'SHIP TO:', mpl.ship_to)}
       </div>
       <div class="mpl-ship-bar">
         ${renderMplShipCell(`packing_lists.${mplIndex}.customer_no`, 'Customer No', mpl.customer_no || mpl.customer_po_number)}
@@ -687,7 +758,6 @@
           </div>
           ${renderMplTemplateSelector(mpl, index)}
           ${renderMplBrandSelector(mpl, index)}
-          ${renderManualMplTools(mpl, index)}
           ${Array.isArray(mpl.warnings) && mpl.warnings.length
             ? `<div class="editor-warning" style="width:min(100%, 920px)">${mpl.warnings.map(escapeHtml).join('<br>')}</div>`
             : ''}

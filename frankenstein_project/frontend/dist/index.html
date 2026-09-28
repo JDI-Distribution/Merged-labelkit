@@ -339,7 +339,7 @@
         <div class="mpl-order-lookup-copy">
           <div class="mpl-order-lookup-kicker">Step 1 &middot; Order data</div>
           <h2>Start with a sales order</h2>
-          <p>Load order lines, match SKUs against Product Master, and calculate shipment weight automatically. Missing products remain visible for review.</p>
+          <p>Load an order to match SKUs, convert quantities, and palletize the draft automatically. Review or edit it before generating the PDF.</p>
         </div>
         <form class="mpl-order-lookup-form" onsubmit="loadMplOrderFromAnalytics(event)">
           <label for="mpl-sales-order-number">Sales Order Number</label>
@@ -410,7 +410,7 @@
         <div class="b2b-page-title">
           <div class="mpl-order-lookup-kicker">B2B Creator</div>
           <h2>B2B Case-Pack Labels</h2>
-          <p>Select a saved configuration, edit this run, preview the actual customer label, and print.</p>
+          <p>Load an order to calculate carton counts for every line. Review the batch, then generate all labels.</p>
         </div>
       </div>
 
@@ -426,7 +426,7 @@
         <div class="mpl-order-lookup-copy">
           <div class="mpl-order-lookup-kicker">Sales order data</div>
           <h2>Start with a sales order</h2>
-          <p>Enter the sales order number to match customer and product rows automatically, then fine-tune the label settings if needed.</p>
+          <p>Enter the sales order number to match products and calculate each line. Review or customize the batch before generating.</p>
         </div>
         <form class="mpl-order-lookup-form" onsubmit="loadB2BOrderFromAnalytics(event)">
           <label for="b2b-sales-order-number">Sales Order Number</label>
@@ -523,6 +523,9 @@
               </div>
               <span class="b2b-state-badge" id="b2b-configuration-status">Loading</span>
             </div>
+            <div class="b2b-auto-resolution" id="b2b-auto-resolution"></div>
+            <details class="b2b-selection-overrides" id="b2b-selection-overrides" open ontoggle="if(typeof rememberB2BOverrideState === 'function') rememberB2BOverrideState(this)">
+              <summary><span><strong>Selections &amp; overrides</strong><small>Change the automatic customer, product, level, destination, or template.</small></span><span class="b2b-override-action">Review selections</span></summary>
             <div class="b2b-selector-grid">
               <label data-b2b-selector-wrap="customer">Customer
                 <select id="b2b-customer-select" onchange="selectB2BCustomer(this.value)"></select>
@@ -540,6 +543,7 @@
                 <select id="b2b-directory-select" onchange="selectB2BDirectory(this.value)"></select>
               </label>
             </div>
+            </details>
             <div class="b2b-template-summary" id="b2b-template-summary">Select a customer and configuration.</div>
           </section>
 
@@ -564,28 +568,35 @@
               <summary>
                 <span class="b2b-settings-summary-copy">
                   <span class="b2b-settings-icon">⚙</span>
-                  <span><strong>Product &amp; Barcode Settings</strong><small>Complete GTIN, barcode, weights, dimensions, and configuration data.</small></span>
+                  <span><strong>Product &amp; Barcode Settings</strong><small>Fields for the selected label first; optional Product Master details below.</small></span>
                 </span>
                 <span class="b2b-settings-status" id="b2b-settings-status">Review setup</span>
               </summary>
               <div class="b2b-settings-body">
-                <div class="b2b-settings-note">Use this setup panel for product data that may not appear as text on every label. Printed text can still be edited directly above.</div>
-                <div class="b2b-settings-grid">
-                  <label class="b2b-setting-wide">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
-                  <label>Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
-                  <label>Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
-                  <label>GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
-                  <label>Barcode Type <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select></label>
-                  <label>Barcode Level <select id="b2b-product-barcode-level" onchange="updateB2BProductField('barcode_level', this.value)"></select></label>
-                  <label>Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
-                  <label>Each Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
-                  <label>Total Product Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
-                  <label>Total Weight with Packaging (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
-                  <label>Final Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
-                  <label>Final Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
-                  <label>Final Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
-                  <label>Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
-                  <label class="b2b-setting-toggle">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
+                <div class="b2b-settings-note" id="b2b-settings-note">Fields used by the selected label stay visible. Additional Product Master data is optional for this label and supports other labels, barcodes, and TI-HI.</div>
+                <section class="b2b-settings-current-section">
+                  <header><strong>Used on this label</strong><small>Required fields are marked.</small></header>
+                  <div class="b2b-settings-grid" id="b2b-product-settings-current"></div>
+                </section>
+                <details class="b2b-settings-additional" id="b2b-product-settings-additional-details">
+                  <summary>Other Product Master fields <small>Not needed for the selected label</small></summary>
+                  <div class="b2b-settings-grid" id="b2b-product-settings-additional"></div>
+                </details>
+                <div class="b2b-settings-grid hidden" id="b2b-product-settings-source">
+                  <label class="b2b-setting-wide" data-b2b-setting-field="description">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
+                  <label data-b2b-setting-field="sku">Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
+                  <label data-b2b-setting-field="customer_item_number">Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
+                  <label data-b2b-setting-field="gtin">GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
+                  <label data-b2b-setting-field="barcode_type">Barcode Encoding <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select><small>Applied to the selected packaging level.</small></label>
+                  <label data-b2b-setting-field="case_qty">Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
+                  <label data-b2b-setting-field="each_net_weight_g">Each Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
+                  <label data-b2b-setting-field="package_net_weight_g">Total Product Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
+                  <label data-b2b-setting-field="gross_weight_lbs">Total Weight with Packaging (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
+                  <label data-b2b-setting-field="length_in">Final Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
+                  <label data-b2b-setting-field="width_in">Final Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
+                  <label data-b2b-setting-field="height_in">Final Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
+                  <label data-b2b-setting-field="verification_status">Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
+                  <label class="b2b-setting-toggle" data-b2b-setting-field="label_enabled">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
                 </div>
               </div>
             </details>
@@ -693,14 +704,7 @@
           <div><span>Order lines</span><strong id="partner-line-count">0</strong></div>
           <div><span>Review status</span><strong id="partner-review-status">Ready</strong></div>
         </section>
-
-        <section class="b2b-card partner-address-card">
-          <div class="partner-address-heading">
-            <div><div class="b2b-card-kicker">Order addresses</div><h3>Choose addresses for this order</h3></div>
-            <span>Options are filtered to the detected customer</span>
-          </div>
-          <div class="partner-address-selectors" id="partner-address-selectors"></div>
-        </section>
+        <section class="partner-resolution-summary" id="partner-resolution-summary" aria-label="Automatic order resolution"></section>
 
         <section class="b2b-card partner-documents-card">
           <div class="b2b-card-heading">
@@ -709,18 +713,19 @@
               <div><div class="b2b-card-kicker">Review &amp; generate</div><h3>Order documents</h3></div>
             </div>
             <span class="b2b-save-state">Changes stay with this order</span>
+            <button class="btn-generate" id="btn-generate-all-partner-documents" type="button" onclick="generatePartnerOrderDocuments()" disabled>Generate All Documents</button>
           </div>
           <div class="partner-document-sections" id="partner-document-actions">
             <section class="partner-workflow-section partner-label-workflow-section">
               <header class="partner-workflow-section-header">
-                <label class="partner-document-select"><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer Labels</strong><small>Edit the actual label, confirm this print run, and generate the production PDF.</small></span></label>
+                <label class="partner-document-select"><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer Labels</strong><small>All order-line label counts are calculated on load. Review or edit before generation.</small></span></label>
                 <span class="partner-section-state">Changes stay with this order</span>
               </header>
               <div class="partner-inline-label-editor" id="partner-inline-label-editor"></div>
             </section>
             <section class="partner-workflow-section partner-mpl-workflow-section">
               <header class="partner-workflow-section-header">
-                <label class="partner-document-select"><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing List &amp; Ti-Hi</strong><small>Review and edit the master packing list before generating its production PDF.</small></span></label>
+                <label class="partner-document-select"><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing List &amp; Ti-Hi</strong><small>Quantities and palletization are calculated on load. Review or edit before generation.</small></span></label>
                 <span class="partner-section-state">Master Packing List</span>
               </header>
               <div class="partner-mpl-review-section">
@@ -740,7 +745,7 @@
           <section class="partner-download-panel" aria-labelledby="partner-download-title">
             <div class="partner-download-heading">
               <div><div class="b2b-card-kicker">Finished documents</div><h4 id="partner-download-title">Download files</h4></div>
-              <span>Generate each document above, then download its current PDF here.</span>
+              <span>Generated PDFs appear here after you generate the reviewed order.</span>
             </div>
             <div class="partner-download-files" id="partner-download-files"></div>
           </section>
@@ -1093,7 +1098,14 @@
         <div class="kehe-product-master-toolbar product-master-command-bar">
           <div class="product-master-command-copy">
             <div class="kehe-product-master-title">Address data</div>
-            <div class="kehe-product-master-subtitle">Maintain reusable shipping and billing addresses. Ship From is applied automatically from Bakell by default, and saved alternatives stay selectable.</div>
+            <div class="kehe-product-master-subtitle">
+              <span>Ship From is applied automatically.</span>
+              <span>Shared Ship From · Applied automatically</span>
+              <span class="product-master-origin-actions">
+                <button class="btn-secondary product-master-action" type="button" aria-label="Edit shared origin" onclick="openMplDirectoryEditor(0)">Edit shared origin</button>
+                <button class="btn-secondary product-master-action" type="button" aria-label="Save Default Origin" onclick="addMplDirectoryRow({ dc: 'DEFAULT-SHIP-FROM', name: 'Default Ship From', address_type: 'SHIP_FROM', record_type: 'SHIP_FROM', verification_status: 'ACTIVE', is_active: true })">Save Default Origin</button>
+              </span>
+            </div>
           </div>
           <div class="product-master-command-actions" aria-label="Customer Directory actions">
             <div class="product-master-action-group">
@@ -1113,22 +1125,6 @@
             <button class="btn-generate product-master-add-action" type="button" aria-label="Add address" title="Add Destination or Source Address" onclick="addMplDirectoryRow()">Add address</button>
           </div>
           <input class="hidden" id="dc-directory-excel-input" type="file" accept=".xlsx,.xlsm,.csv" onchange="handleExcelImportFile('dc-directory', this)">
-        </div>
-
-        <div class="directory-shared-origin" role="note" aria-label="Shared Ship From address">
-          <div class="directory-shared-origin-mark">SF</div>
-          <div><span>Shared Ship From · Applied automatically</span><strong id="directory-shared-origin-name">BAKELL LLC</strong><small id="directory-shared-origin-address">1967 Essex Ct, Redlands, CA 92373, USA</small></div>
-          <div class="directory-shared-origin-actions">
-            <span class="directory-shared-origin-status">Saved origin · Default for new destinations and document runs</span>
-            <button class="btn-secondary" id="btn-edit-directory-origin" type="button" onclick="toggleSharedDirectoryOriginEditor()">Edit shared origin</button>
-          </div>
-        </div>
-        <div class="directory-shared-origin-editor hidden" id="directory-shared-origin-editor">
-          <label>Shared Ship From Address
-            <textarea id="directory-shared-origin-input" rows="4" placeholder="Company&#10;Street address&#10;City, State ZIP&#10;Country"></textarea>
-          </label>
-          <div><button class="btn-secondary" type="button" onclick="cancelSharedDirectoryOriginEdit()">Cancel</button><button class="btn-generate" type="button" onclick="saveSharedDirectoryOrigin()">Save Default Origin</button></div>
-          <small>This changes the default origin in local and Catalyst storage while preserving saved destination overrides.</small>
         </div>
 
         <div class="table-filter-toolbar" aria-label="Customer directory filters">
@@ -1248,23 +1244,16 @@
           <table class="kehe-product-master-table saved-mpl-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Customer</th>
-                <th>Order</th>
-                <th>PO</th>
+                <th>MPL / PO</th>
+                <th>Customer / Order</th>
                 <th>Ship To</th>
-                <th>Pallets</th>
-                <th>Items</th>
-                <th>Timestamp</th>
-                <th>Created By</th>
-                <th>Status</th>
-                <th>Open</th>
-                <th>Copy</th>
-                <th>Delete</th>
+                <th>Contents</th>
+                <th>Status / Updated</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="saved-mpl-body">
-              <tr><td class="empty-row" colspan="13">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
+              <tr><td class="empty-row" colspan="6">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1454,6 +1443,7 @@
 <script src="/__catalyst/sdk/init.js"></script>
   <script src="/assets/js/mpl-draft-sync.js"></script>
   <script src="/assets/js/reference-data.js"></script>
+  <script src="/assets/js/order-context.js"></script>
   <script src="/assets/js/mpl-tihi.js"></script>
   <script src="/assets/js/b2b-workspace.js"></script>
   <script src="/assets/js/partner-workspace.js"></script>

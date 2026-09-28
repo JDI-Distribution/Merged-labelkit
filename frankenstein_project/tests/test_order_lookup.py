@@ -1,5 +1,7 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -32,6 +34,8 @@ from pipelines.kehe.common import (
     _validate_mpl_each_item_numbers,
     apply_product_master_to_mpl_draft,
 )
+from pipelines.kehe.product_master import _match_product_master_row
+from pipelines.kehe.asn_parser import load_kehe_dc_directory
 
 
 def _frontend_javascript_bundle() -> str:
@@ -44,6 +48,23 @@ def _frontend_javascript_bundle() -> str:
 
 
 class AnalyticsOrderInstanceTests(unittest.TestCase):
+    def test_kehe_directory_combines_separate_address_role_rows(self):
+        rows = {"rows": [
+            {"storefront": "KeHE", "dc": "45", "name": "Ontario", "address": "SHIP TO", "address_roles": ["SHIP_TO"], "match_values": ["91761"], "is_active": True},
+            {"storefront": "KeHE", "dc": "45", "name": "Ontario", "address": "BILL TO", "address_roles": ["BILL_TO"], "match_values": ["0569813430045"], "is_active": True},
+        ]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "directory.json"
+            path.write_text(json.dumps(rows), encoding="utf-8")
+            load_kehe_dc_directory.cache_clear()
+            with patch("pipelines.kehe.asn_parser.DIRECTORY_PATH", path):
+                directory = load_kehe_dc_directory()
+            load_kehe_dc_directory.cache_clear()
+
+        self.assertEqual("SHIP TO", directory["45"]["delivery_address"])
+        self.assertEqual("BILL TO", directory["45"]["billing_address"])
+        self.assertTrue({"91761", "0569813430045", "45", "Ontario"}.issubset(set(directory["45"]["match_values"])))
+
     def test_directory_applies_shared_bakell_origin_without_replacing_destination_addresses(self):
         row = normalize_dc_directory_row({
             "storefront": "Example",
@@ -218,6 +239,25 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         })
 
         self.assertEqual("", row["case_qty"])
+
+    def test_alphanumeric_sku_does_not_match_another_sku_by_shared_digits(self):
+        product_rows = [{
+            "storefront": "KeHE",
+            "packaging_level": "Case",
+            "sku": "TW-EXAMPLE4",
+            "description": "Example Case Product",
+            "case_qty": "36",
+            "is_active": True,
+        }]
+
+        matched = _match_product_master_row({
+            "storefront": "BAKELL.COM",
+            "sku": "4G-BG-RED",
+            "item_number": "4G-BG-RED",
+            "description": "4g Red Edible Brew Glitter",
+        }, product_rows)
+
+        self.assertIsNone(matched)
 
     def test_b2b_analytics_order_items_match_case_product_rows(self):
         analytics_rows = [
@@ -406,6 +446,119 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         self.assertEqual("Case", b2b_items[0]["product"]["packaging_level"])
         self.assertEqual("CASE", b2b_items[0]["quantity_uom"])
         self.assertEqual(2, b2b_items[0]["quantity_ordered"])
+
+    def test_mpl_lookup_uses_configured_uom_when_sku_is_shared_by_levels(self):
+        order_rows = [{
+            "Sales Order Number": "SHARED-LEVEL-SKU",
+            "Ecomdash ID": "SHARED-LEVEL-ORDER",
+            "Storefront": "Acme Foods",
+            "SKUNumber": "PACK-SKU",
+            "Quantity Ordered": "3",
+        }]
+        products = [
+            {
+                "storefront": "Acme Foods",
+                "config_id": "ACME-PACK-SKU",
+                "display_sku": "PACK-SKU",
+                "display_sku_uom": "Case",
+                "packaging_level": "Each",
+                "sku": "PACK-SKU",
+                "case_qty": "1",
+                "is_active": True,
+            },
+            {
+                "storefront": "Acme Foods",
+                "config_id": "ACME-PACK-SKU",
+                "display_sku": "PACK-SKU",
+                "display_sku_uom": "Case",
+                "packaging_level": "Case",
+                "sku": "PACK-SKU",
+                "case_qty": "24",
+                "is_active": True,
+            },
+        ]
+
+        with (
+            patch("server._require_permission"),
+            patch("server._analytics_export_order_rows", return_value=order_rows),
+            patch("server._datastore_load_product_master", return_value=products),
+        ):
+            response = lookup_mpl_order(object(), {"sales_order_number": "SHARED-LEVEL-SKU"})
+
+        payload = json.loads(response.body)
+        self.assertEqual("matched", payload["items"][0]["match_status"])
+        self.assertEqual("Case", payload["items"][0]["source_packaging_level"])
+        self.assertEqual("CASE", payload["items"][0]["quantity_uom"])
+        self.assertEqual(3, payload["items"][0]["quantity_ordered"])
+        self.assertEqual(72, payload["items"][0]["quantity_ordered_eaches"])
+
+    def test_mpl_lookup_converts_each_sku_and_preserves_case_sku_count(self):
+        order_rows = [
+            {
+                "Sales Order Number": "LEVEL-SPECIFIC-SKUS",
+                "Ecomdash ID": "LEVEL-SPECIFIC-ORDER",
+                "Storefront": "Acme Foods",
+                "SKUNumber": "ACME-EACH",
+                "Quantity Ordered": "72",
+            },
+            {
+                "Sales Order Number": "LEVEL-SPECIFIC-SKUS",
+                "Ecomdash ID": "LEVEL-SPECIFIC-ORDER",
+                "Storefront": "Acme Foods",
+                "SKUNumber": "ACME-INNER",
+                "Quantity Ordered": "12",
+            },
+            {
+                "Sales Order Number": "LEVEL-SPECIFIC-SKUS",
+                "Ecomdash ID": "LEVEL-SPECIFIC-ORDER",
+                "Storefront": "Acme Foods",
+                "SKUNumber": "ACME-CASE",
+                "Quantity Ordered": "3",
+            },
+        ]
+        products = [
+            {
+                "storefront": "Acme Foods",
+                "config_id": "ACME-LEVELS",
+                "packaging_level": "Each",
+                "sku": "ACME-EACH",
+                "case_qty": "1",
+                "is_active": True,
+            },
+            {
+                "storefront": "Acme Foods",
+                "config_id": "ACME-LEVELS",
+                "packaging_level": "Inner Pack",
+                "sku": "ACME-INNER",
+                "case_qty": "6",
+                "is_active": True,
+            },
+            {
+                "storefront": "Acme Foods",
+                "config_id": "ACME-LEVELS",
+                "packaging_level": "Case",
+                "sku": "ACME-CASE",
+                "case_qty": "24",
+                "inner_packs_per_case": "4",
+                "is_active": True,
+            },
+        ]
+
+        with (
+            patch("server._require_permission"),
+            patch("server._analytics_export_order_rows", return_value=order_rows),
+            patch("server._datastore_load_product_master", return_value=products),
+        ):
+            response = lookup_mpl_order(object(), {"sales_order_number": "LEVEL-SPECIFIC-SKUS"})
+
+        payload = json.loads(response.body)
+        self.assertEqual(["Each", "Inner Pack", "Case"], [item["source_packaging_level"] for item in payload["items"]])
+        self.assertEqual([72, 72, 72], [item["quantity_ordered_eaches"] for item in payload["items"]])
+        self.assertEqual([3, 3, 3], [item["quantity_ordered_cases"] for item in payload["items"]])
+
+        b2b_items = _b2b_analytics_order_items_for_products(order_rows, products)
+        self.assertEqual(["Each", "Inner Pack", "Case"], [item["source_packaging_level"] for item in b2b_items])
+        self.assertEqual([3, 3, 3], [item["quantity_ordered"] for item in b2b_items])
 
     def test_mpl_item_number_uses_each_gtin_from_same_product_group(self):
         case_product = {
@@ -832,6 +985,20 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("renderBtn.classList.toggle('hidden', type === 'masterPackingList')", javascript)
         self.assertNotIn("? 'Generate PDF Only'", javascript)
 
+    def test_product_setup_matches_level_skus_with_optional_incoming_override(self):
+        javascript = (FRONTEND_DIST / "assets" / "js" / "reference-data.js").read_text(encoding="utf-8")
+
+        self.assertIn("Order SKUs are matched to these automatically.", javascript)
+        self.assertIn("Matches orders sold at this package level.", javascript)
+        self.assertIn("Alternate incoming SKU", javascript)
+        self.assertIn("Optional; level SKUs match automatically", javascript)
+        self.assertLess(
+            javascript.index("<summary>Advanced matching details</summary>"),
+            javascript.index("Alternate incoming SKU"),
+        )
+        self.assertNotIn("It is copied automatically", javascript)
+        self.assertNotIn("mplProductMasterRows[groupIndex].display_sku = String(value || '').trim()", javascript)
+
     def test_frontend_shell_is_fluid_and_routes_are_canonical_hash_urls(self):
         html = serve_frontend_index().body.decode("utf-8")
         responsive_css = (FRONTEND_DIST / "assets" / "css" / "responsive-shell.css").read_text(encoding="utf-8")
@@ -883,6 +1050,15 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("b2bRunFieldNames(template).forEach(field =>", javascript)
         self.assertIn("function calculateOrderCartonCount(item, product)", javascript)
         self.assertIn("b2bRunFields.carton_total = String(orderCartons)", javascript)
+        self.assertIn("function buildB2BOrderLabelJobs(orderItems, fallbackTemplateId)", javascript)
+        self.assertIn("function organizeB2BProductSettings(template, product)", javascript)
+        self.assertIn('id="b2b-product-settings-current"', html)
+        self.assertIn('id="b2b-product-settings-additional"', html)
+        self.assertIn("function selectB2BOrderJob(value)", javascript)
+        self.assertIn('id="b2b-order-line-select"', javascript)
+        self.assertIn("/api/b2b/render-batch", javascript)
+        self.assertIn("Generate All ${b2bOrderLabelJobs.length} Labels & Open PDF", javascript)
+        self.assertNotIn("await generateB2BPreview(true, { automatic: true })", javascript)
 
     def test_combined_customer_order_module_uses_kehe_style_editors_and_previews(self):
         html = serve_frontend_index().body.decode("utf-8")
@@ -898,7 +1074,8 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertNotIn('id="btn-preview-partner-mpl"', html)
         self.assertNotIn('id="btn-render-partner-previews"', html)
         self.assertIn('id="partner-inline-label-editor"', html)
-        self.assertIn('id="partner-address-selectors"', html)
+        self.assertIn('class="partner-resolution-summary"', html)
+        self.assertIn('class="mpl-address-inline-select"', javascript)
         self.assertIn('id="partner-download-files"', html)
         self.assertIn('Download files', html)
         self.assertNotIn('Generate Master Packing List</strong>', html)
@@ -933,8 +1110,16 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("payload?.order_details?.email_id", javascript)
         self.assertIn("const customerId = detectedCustomerId || partnerCustomerOverride;", javascript)
         self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
+        self.assertIn('onclick="generatePartnerOrderDocuments()"', html)
+        self.assertIn("async function generatePartnerOrderDocuments()", javascript)
+        self.assertIn("await renderPartnerLabelsPreview(kind)", javascript)
+        self.assertIn("await renderPartnerMplPreview()", javascript)
+        self.assertIn('All order-line label counts are calculated on load.', html)
+        self.assertIn('btn-generate-all-partner-documents', html)
         self.assertIn("function partnerDirectoryRows(customerId", javascript)
-        self.assertIn("function renderPartnerAddressSelectors()", javascript)
+        self.assertIn("function renderInlineMplAddressPicker(mplIndex, field, value)", javascript)
+        self.assertIn("completeMplOrderLoad(payload, orderNumber, 'standard')", javascript)
+        self.assertNotIn("await renderEditedKeheDocument({ automatic: true })", javascript)
         self.assertIn("function selectPartnerAddress(field, value)", javascript)
         self.assertIn("function renderPartnerDownloadFiles()", javascript)
         self.assertNotIn("async function renderPartnerPreviews()", javascript)
@@ -950,7 +1135,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("Export Directory", html)
         self.assertIn("Change History", html)
         self.assertIn("function copyMplDirectoryAddress", javascript)
-        self.assertIn("function saveSharedDirectoryOrigin", javascript)
+        self.assertIn("function deriveDirectoryMatchValues", javascript)
         self.assertIn("function getSavedMplShipFromAddresses", javascript)
         self.assertIn("function saveMplDirectoryShipFromOverride", javascript)
         self.assertIn("Saved origin", javascript)

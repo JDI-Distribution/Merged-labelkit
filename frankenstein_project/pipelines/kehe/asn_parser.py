@@ -11,6 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
+
+from labelkit.reference_data import normalize_dc_directory_row
 UPS_RE = re.compile(r"(1Z[0-9A-Z]{16})")
 DEFAULT_KEHE_SHIP_FROM = "BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA"
 
@@ -53,29 +55,51 @@ def load_kehe_dc_directory() -> dict[str, dict[str, Any]]:
         rows = data
     else:
         raise ValueError("Shared directory JSON must be an object or rows list.")
-    required = {"dc", "name", "delivery_address", "billing_address", "match_values"}
     filtered: dict[str, dict[str, Any]] = {}
-    for row in rows:
+    for raw_row in rows:
+        row = normalize_dc_directory_row(raw_row) if isinstance(raw_row, dict) else {}
         if not isinstance(row, dict):
             continue
-        dc = str(row.get("dc") or row.get("DC") or "").strip()
+        dc = str(row.get("dc") or "").strip()
         if not dc:
             continue
         storefront = str(row.get("storefront") or "KeHE").strip() or "KeHE"
         if storefront.lower() != "kehe":
             continue
-        missing = required - set(row)
-        if missing:
-            raise ValueError(
-                f"KeHE DC directory row {dc} is missing: {', '.join(sorted(missing))}"
-            )
-        if not isinstance(row["match_values"], list):
-            raise ValueError(
-                f"KeHE DC directory row {dc} match_values must be a list."
-            )
-        row["storefront"] = storefront
+        if row.get("is_active") is False:
+            continue
+        bundle = filtered.setdefault(dc, {
+            "dc": dc,
+            "storefront": storefront,
+            "name": "",
+            "ship_from": "",
+            "delivery_address": "",
+            "billing_address": "",
+            "match_values": [],
+        })
+        bundle["name"] = bundle["name"] or str(row.get("name") or "").strip()
+        roles = set(row.get("address_roles") or [])
+        address = str(row.get("address") or "").strip()
+        if "SHIP_FROM" in roles:
+            bundle["ship_from"] = bundle["ship_from"] or address
+        if "SHIP_TO" in roles:
+            bundle["delivery_address"] = bundle["delivery_address"] or address
+        if "BILL_TO" in roles:
+            bundle["billing_address"] = bundle["billing_address"] or address
+        # Compatibility with historical three-address rows.
+        bundle["ship_from"] = bundle["ship_from"] or str(row.get("ship_from") or "").strip()
+        bundle["delivery_address"] = bundle["delivery_address"] or str(row.get("delivery_address") or "").strip()
+        bundle["billing_address"] = bundle["billing_address"] or str(row.get("billing_address") or "").strip()
+        for match_value in row.get("match_values") or []:
+            clean = str(match_value or "").strip()
+            if clean and clean not in bundle["match_values"]:
+                bundle["match_values"].append(clean)
+
+    for dc, row in filtered.items():
         row["ship_from"] = str(row.get("ship_from") or DEFAULT_KEHE_SHIP_FROM).strip() or DEFAULT_KEHE_SHIP_FROM
-        filtered[dc] = row
+        missing = [key for key in ("name", "delivery_address", "billing_address") if not str(row.get(key) or "").strip()]
+        if missing:
+            raise ValueError(f"KeHE DC directory {dc} is missing: {', '.join(missing)}")
     return filtered
 
 

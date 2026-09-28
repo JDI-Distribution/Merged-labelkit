@@ -1745,6 +1745,13 @@
       background: #f4f7f8;
     }
 
+    .mpl-product-shared-card > header p {
+      margin: 2px 0 0;
+      color: #647686;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
     .mpl-product-shared-card > header > div,
     .mpl-product-levels-card > header > div {
       display: grid;
@@ -1775,6 +1782,83 @@
       grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
       gap: 10px;
       padding: 14px;
+    }
+
+    .mpl-product-order-match {
+      display: grid;
+      grid-template-columns: minmax(190px, 0.8fr) minmax(260px, 1.5fr) minmax(150px, 0.7fr);
+      align-items: end;
+      gap: 12px;
+      margin: 0 14px 14px;
+      padding: 12px;
+      border-top: 1px solid #e1e7eb;
+      background: #f7f9fa;
+    }
+
+    .mpl-product-order-match > div {
+      display: grid;
+      gap: 4px;
+      align-self: center;
+    }
+
+    .mpl-product-order-match > div strong,
+    .mpl-product-order-match > label > span {
+      color: #385367;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+
+    .mpl-product-order-match > div span {
+      color: #6a7d8a;
+      font-size: 10.5px;
+      line-height: 1.4;
+    }
+
+    .mpl-product-order-match > label {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .mpl-product-display-sku-control {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .mpl-product-display-sku-control button {
+      width: auto;
+      min-height: 36px;
+      white-space: nowrap;
+    }
+
+    .mpl-product-advanced {
+      margin: 0 14px 14px;
+      border-top: 1px solid #e1e7eb;
+    }
+
+    .mpl-product-advanced summary {
+      padding: 10px 0 2px;
+      color: #607483;
+      font-size: 10.5px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .mpl-product-advanced .mpl-product-shared-grid {
+      padding: 10px 0 0;
+    }
+
+    .mpl-packaging-primary-grid small {
+      color: #6a7d8a;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.35;
+      text-transform: none;
+      letter-spacing: 0;
     }
 
     .mpl-product-shared-grid label,
@@ -1886,6 +1970,9 @@
       .mpl-packaging-level-header { align-items: stretch; flex-direction: column; }
       .mpl-product-level-add { width: 100%; }
       .mpl-product-description-field { grid-column: auto; }
+      .mpl-product-order-match { grid-template-columns: 1fr; }
+      .mpl-product-display-sku-control { grid-template-columns: minmax(0, 1fr); }
+      .mpl-product-display-sku-control button { width: 100%; }
       .mpl-packaging-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .mpl-product-final-heading { align-items: flex-start; flex-direction: column; }
       .mpl-product-final-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1935,30 +2022,113 @@
     }
 
     .saved-mpl-table {
-      min-width: 1180px;
+      width: 100%;
+      min-width: 0;
       table-layout: fixed;
     }
 
-    .saved-mpl-table th:nth-child(1) { width: 18%; }
-    .saved-mpl-table th:nth-child(2) { width: 10%; }
-    .saved-mpl-table th:nth-child(3) { width: 18%; }
-    .saved-mpl-table th:nth-child(4) { width: 7%; }
-    .saved-mpl-table th:nth-child(5) { width: 7%; }
-    .saved-mpl-table th:nth-child(6) { width: 14%; }
-    .saved-mpl-table th:nth-child(7) { width: 16%; }
-    .saved-mpl-table th:nth-child(8) { width: 5%; }
-    .saved-mpl-table th:nth-child(9) { width: 5%; }
+    .saved-mpl-table th:nth-child(1) { width: 19%; }
+    .saved-mpl-table th:nth-child(2) { width: 17%; }
+    .saved-mpl-table th:nth-child(3) { width: 20%; }
+    .saved-mpl-table th:nth-child(4) { width: 12%; }
+    .saved-mpl-table th:nth-child(5) { width: 16%; }
+    .saved-mpl-table th:nth-child(6) { width: 16%; }
 
     .saved-mpl-table td {
-      padding: 8px 9px;
+      padding: 7px 8px;
       vertical-align: middle;
+      overflow-wrap: anywhere;
     }
 
-    .saved-mpl-table .btn-table-preview,
-    .saved-mpl-table .table-action-btn {
-      min-height: 32px;
+    .saved-mpl-primary {
+      display: block;
+      color: #20394b;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .saved-mpl-secondary {
+      display: block;
+      margin-top: 3px;
+      color: #647584;
+      font-size: 10px;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .saved-mpl-ship-to {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+    }
+
+    .saved-mpl-action-cell {
+      min-width: 0;
+    }
+
+    .saved-mpl-action-cell .btn-table-preview,
+    .saved-mpl-action-cell .table-action-btn {
       width: 100%;
-      padding: 6px 8px;
+      min-height: 30px;
+      margin: 2px 0;
+      padding: 5px 7px;
+      white-space: nowrap;
+    }
+
+    #saved-mpl-modal .editor-body {
+      min-height: 0;
+    }
+
+    #saved-mpl-modal .kehe-product-master-scroll {
+      flex: 1 1 auto;
+      min-height: 280px;
+      min-width: 0;
+      overflow: auto;
+    }
+
+    #saved-mpl-modal .table-filter-toolbar {
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+
+    #saved-mpl-modal .table-filter-control {
+      min-width: 0;
+      flex: 1 1 170px;
+    }
+
+    @media (max-width: 980px) {
+      #saved-mpl-modal .editor-dialog {
+        width: min(100vw - 12px, 1200px);
+      }
+
+      .saved-mpl-table th:nth-child(3),
+      .saved-mpl-table td:nth-child(3) {
+        display: none;
+      }
+
+      .saved-mpl-table th:nth-child(1) { width: 25%; }
+      .saved-mpl-table th:nth-child(2) { width: 23%; }
+      .saved-mpl-table th:nth-child(4) { width: 15%; }
+      .saved-mpl-table th:nth-child(5) { width: 19%; }
+      .saved-mpl-table th:nth-child(6) { width: 18%; }
+    }
+
+    @media (max-width: 640px) {
+      .saved-mpl-table th:nth-child(4),
+      .saved-mpl-table td:nth-child(4) {
+        display: none;
+      }
+
+      .saved-mpl-table th:nth-child(1) { width: 34%; }
+      .saved-mpl-table th:nth-child(2) { width: 29%; }
+      .saved-mpl-table th:nth-child(5) { width: 19%; }
+      .saved-mpl-table th:nth-child(6) { width: 18%; }
+
+      .saved-mpl-action-cell .table-action-btn {
+        display: none;
+      }
     }
 
     /* ── KeHE reference table buttons: top-right tools ── */

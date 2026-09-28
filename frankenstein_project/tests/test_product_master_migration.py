@@ -4,7 +4,9 @@ from unittest.mock import patch
 from pipelines.kehe.common import (
     _apply_product_row_to_item,
     _default_copies,
+    _find_product_packaging_sibling,
     _is_kehe_pack_label_eligible,
+    _match_product_master_row,
     _mpl_build_tihi_entries,
     _normalize_product_master_rows,
 )
@@ -84,6 +86,38 @@ class ProductMasterMigrationTests(unittest.TestCase):
         self.assertEqual(("18", "12", "8"), (row["length_in"], row["width_in"], row["height_in"]))
         self.assertEqual("VERIFIED", row["verification_status"])
         self.assertTrue(row["is_active"])
+
+    def test_clean_product_and_address_template_headings_are_importable(self):
+        products = _canonicalize_import_rows([{
+            "Customer": "Example",
+            "Product Group ID": "GROUP-1",
+            "Display SKU": "DISPLAY-1",
+            "Incoming UOM": "Inner Pack",
+            "Level SKU": "INNER-1",
+            "Packaging Level": "Inner Pack",
+            "GTIN": "12345678",
+            "Eaches Contained": 6,
+            "Barcode Encoding": "GTIN_14",
+            "Packaged Weight (lb)": 2.5,
+        }], "mpl_product_master")
+
+        self.assertEqual("GROUP-1", products[0]["config_id"])
+        self.assertEqual("Inner Pack", products[0]["display_sku_uom"])
+        self.assertEqual("INNER-1", products[0]["sku"])
+        self.assertEqual("GTIN_14", products[0]["barcode_type"])
+        self.assertEqual("2.5", products[0]["gross_weight_lbs"])
+
+        addresses = _canonicalize_import_rows([{
+            "Customer": "Example",
+            "Location Code": "MAIN",
+            "Name": "Main Office",
+            "Address": "100 Main St",
+            "Roles": "SHIP_TO,BILL_TO",
+            "Default Label Template": "STANDARD_CASE_4X6",
+            "Active": True,
+        }], "mpl_directory")
+        self.assertEqual(["SHIP_TO", "BILL_TO"], addresses[0]["address_roles"])
+        self.assertEqual("STANDARD_CASE_4X6", addresses[0]["default_label_template_id"])
 
     def test_only_each_level_receives_an_inherent_quantity(self):
         each = normalize_product_master_row({"packaging_level": "Each", "sku": "A"})
@@ -193,6 +227,19 @@ class ProductMasterMigrationTests(unittest.TestCase):
             "is_active": True,
         }])
         self.assertEqual("", rows[0]["default_copies"])
+
+    def test_inner_pack_becomes_outermost_when_case_is_not_configured(self):
+        rows = _normalize_product_master_rows([
+            {"storefront": "Example", "config_id": "P-1", "packaging_level": "Each", "sku": "EACH-1", "gtin": "0001"},
+            {"storefront": "Example", "config_id": "P-1", "packaging_level": "Inner Pack", "sku": "INNER-1", "gtin": "0002", "case_qty": "6"},
+        ])
+
+        each = next(row for row in rows if row["packaging_level"] == "Each")
+        inner = next(row for row in rows if row["packaging_level"] == "Inner Pack")
+        self.assertFalse(each["in_packing_list"])
+        self.assertTrue(inner["in_packing_list"])
+        self.assertEqual("INNER-1", _match_product_master_row({"sku": "EACH-1"}, rows, packing_list_only=True)["sku"])
+        self.assertEqual("0001", _find_product_packaging_sibling(inner, rows, "Each")["gtin"])
 
 
 class _FakeTable:

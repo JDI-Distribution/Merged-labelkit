@@ -456,10 +456,15 @@
   let b2bSelectedDirectoryIndex = -1;
   let b2bSelectedTemplateId = '';
   let b2bOrderFallbackProducts = [];
+  let b2bOrderLabelJobs = [];
+  let b2bSelectedOrderJobIndex = -1;
+  let b2bResolvedOrderContext = null;
+  let b2bResolvedDirectoryFallback = {};
   let b2bCopiesTemplateId = '';
   let b2bSettingsProductIndex = -1;
   let b2bPreviewUrl = null;
   let partnerOrderPayload = null;
+  let partnerResolvedOrderContext = null;
   let partnerCustomerId = '';
   let partnerCustomerOverride = '';
   let partnerLabelJobs = [];
@@ -491,7 +496,6 @@
   };
   const B2B_PACKAGING_LEVELS = ['Each', 'Inner Pack', 'Case', 'Master Case', 'Pallet', 'Shipper Contents'];
   const B2B_BARCODE_TYPES = ['UPC_A', 'EAN_13', 'GTIN_14', 'NONE'];
-  const B2B_BARCODE_LEVELS = ['EACH', 'INNER_PACK', 'CASE', 'MASTER_CASE', 'PALLET', 'NONE'];
   const B2B_VERIFICATION_STATUSES = ['DRAFT', 'NEEDS_REVIEW', 'VERIFIED', 'BLOCKED'];
   const B2B_DIRECTORY_RECORD_TYPES = ['CUSTOMER_DEFAULT', 'DESTINATION', 'DISTRIBUTION_CENTER', 'SHIP_FROM', 'SHIP_TO', 'BILL_TO'];
   const mplLiveTiHiTimers = new Map();
@@ -663,7 +667,7 @@
   function applyPermissionUi() {
     const tableCrud = hasPermission('table_crud');
     const auditView = hasPermission('audit_view');
-    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"], button[onclick="toggleSharedDirectoryOriginEditor()"], button[onclick^="triggerExcelImport"]').forEach(btn => {
+    document.querySelectorAll('button[onclick="addMplProductRow()"], button[onclick="addMplDirectoryRow()"], button[onclick^="triggerExcelImport"]').forEach(btn => {
       btn.classList.toggle('hidden', !tableCrud);
       btn.disabled = !tableCrud;
     });
@@ -933,10 +937,13 @@
       return;
     }
     if (subpath === 'shared-product-master') {
+      if (!b2bLabelTemplates.length) await loadB2BLabelTemplates();
+      await loadMplProductMasterFromBackend();
       showMplProductMasterView();
       return;
     }
     if (subpath === 'shared-directory') {
+      await loadMplDirectoryFromBackend();
       showMplDirectoryView();
       return;
     }
@@ -1356,11 +1363,15 @@
   function findEachProductForCaseProduct(product) {
     if (!product) return null;
     const wantedSku = String(product.sku || '').trim().toLowerCase();
+    const wantedConfig = String(product.config_id || '').trim().toLowerCase();
     const wantedStorefront = normalizeStorefront(product.storefront || '').toLowerCase();
-    if (!wantedSku) return null;
+    if (!wantedSku && !wantedConfig) return null;
     const matches = getActiveAllProductMasterRows().filter(row => (
       normalizePackagingLevel(row.packaging_level) === 'Each'
-      && String(row.sku || '').trim().toLowerCase() === wantedSku
+      && (
+        (wantedConfig && String(row.config_id || '').trim().toLowerCase() === wantedConfig)
+        || (!wantedConfig && String(row.sku || '').trim().toLowerCase() === wantedSku)
+      )
       && normalizeStorefront(row.storefront || '').toLowerCase() === wantedStorefront
       && !!String(row.gtin || '').trim()
     ));
@@ -1709,7 +1720,7 @@
     const converted = Number(summary.converted_to_cases || 0);
     const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) + Number(summary.partial_case_items || 0);
     setStatus(
-      `Sales Order ${orderNumber} loaded with the ${MPL_TEMPLATE_CONFIG[normalizedTemplate].label} template: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${converted ? `, ${converted} converted from eaches to cases` : ''}, ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}.`,
+      `Sales Order ${orderNumber} calculated and palletized with the ${MPL_TEMPLATE_CONFIG[normalizedTemplate].label} template: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${converted ? `, ${converted} converted from eaches to cases` : ''}, ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}. Review the draft, then generate the PDF.`,
       needsReview ? 'info' : 'success'
     );
   }
@@ -1758,6 +1769,9 @@
     const orderDetails = payload?.order_details && typeof payload.order_details === 'object'
       ? payload.order_details
       : {};
+    const orderContext = resolveOrderContext(payload, {
+      customer: matchedStorefronts.length === 1 ? matchedStorefronts[0] : ''
+    });
     const analyticsBillTo = analyticsMplAddress(orderDetails, 'billing');
     const analyticsShipTo = analyticsMplAddress(orderDetails, 'shipping');
     const localOrderFile = String(payload?.source?.local_file || '').toLowerCase();
@@ -1771,6 +1785,7 @@
     mpl.customer_no = orderNumber;
     if (analyticsBillTo) mpl.bill_to = analyticsBillTo;
     if (analyticsShipTo) mpl.ship_to = analyticsShipTo;
+    applyResolvedOrderContextToMpl(mpl, orderContext);
     mpl.shipping_instructions = String(orderDetails.order_notes || '').trim();
     mpl.source_files = [`${orderSourceLabel} · ${payload?.source?.view_name || 'Order Data'}`];
     mpl.palletization_source = `${orderSourceLabel} + Product Master`;
@@ -1855,6 +1870,15 @@
     };
     draft.analytics_order_source = payload?.source || {};
     draft.analytics_order_details = orderDetails;
+    draft.resolved_order_context = {
+      customer: orderContext.customer,
+      ship_from_source: orderContext.shipFrom?.source || 'missing',
+      ship_to_source: orderContext.shipTo?.source || 'missing',
+      bill_to_source: orderContext.billTo?.source || 'missing',
+      ship_from_index: orderContext.shipFrom?.index ?? -1,
+      ship_to_index: orderContext.directoryShipTo?.index ?? -1,
+      bill_to_index: orderContext.directoryBillTo?.index ?? -1,
+    };
     draft.extracted_headers = [{
       sales_order_number: orderNumber,
       ...orderDetails
@@ -2105,28 +2129,21 @@
     const count = document.getElementById('saved-mpl-filter-count');
     if (count) count.textContent = `${filtered.length} of ${savedMplDrafts.length}`;
     if (!savedMplDrafts.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="13">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="6">No saved MPL drafts yet. Create an MPL, then use Save &amp; Generate PDF in the editor.</td></tr>';
       return;
     }
     if (!filtered.length) {
-      body.innerHTML = '<tr><td class="empty-row" colspan="13">No saved MPL drafts match these filters.</td></tr>';
+      body.innerHTML = '<tr><td class="empty-row" colspan="6">No saved MPL drafts match these filters.</td></tr>';
       return;
     }
     body.innerHTML = filtered.map(draft => `
       <tr>
-        <td>${escapeHtml(draft.name || 'Untitled MPL')}</td>
-        <td>${escapeHtml(draft.customer_code || '—')}</td>
-        <td>${escapeHtml(draft.order_number || '—')}</td>
-        <td>${escapeHtml(draft.customer_po_number || '—')}</td>
-        <td>${escapeHtml(draft.ship_to || '—')}</td>
-        <td>${escapeHtml(draft.total_pallets || '—')}</td>
-        <td>${escapeHtml(draft.item_count || '0')}</td>
-        <td>${escapeHtml(formatDateTime(draft.updated_at))}</td>
-        <td>${escapeHtml(savedMplCreatedByLabel(draft))}</td>
-        <td><span class="status-tag ${String(draft.status || 'DRAFT').toUpperCase() === 'APPROVED' ? 'success' : 'needs-review'}">${escapeHtml(String(draft.status || 'DRAFT'))}</span></td>
-        <td><button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open</button></td>
-        <td><button class="btn-secondary table-action-btn" type="button" onclick="duplicateSavedMplDraft('${jsString(draft.id)}')">Copy</button></td>
-        <td>${canDelete ? `<button class="btn-mini-danger table-action-btn" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : '—'}</td>
+        <td><strong class="saved-mpl-primary">${escapeHtml(draft.name || 'Untitled MPL')}</strong><span class="saved-mpl-secondary">PO ${escapeHtml(draft.customer_po_number || '—')}</span></td>
+        <td><strong class="saved-mpl-primary">${escapeHtml(draft.customer_code || '—')}</strong><span class="saved-mpl-secondary">Order ${escapeHtml(draft.order_number || '—')}</span></td>
+        <td class="saved-mpl-ship-to">${escapeHtml(draft.ship_to || '—')}</td>
+        <td><strong class="saved-mpl-primary">${escapeHtml(draft.total_pallets || '—')} pallets</strong><span class="saved-mpl-secondary">${escapeHtml(draft.item_count || '0')} items</span></td>
+        <td><span class="status-tag ${String(draft.status || 'DRAFT').toUpperCase() === 'APPROVED' ? 'success' : 'needs-review'}">${escapeHtml(String(draft.status || 'DRAFT'))}</span><span class="saved-mpl-secondary">${escapeHtml(formatDateTime(draft.updated_at || draft.created_at))}</span><span class="saved-mpl-secondary">${escapeHtml(savedMplCreatedByLabel(draft))}</span></td>
+        <td class="saved-mpl-action-cell"><button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open MPL</button><button class="btn-secondary table-action-btn" type="button" onclick="duplicateSavedMplDraft('${jsString(draft.id)}')">Copy</button>${canDelete ? `<button class="btn-mini-danger table-action-btn" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : ''}</td>
       </tr>
     `).join('');
   }
@@ -2222,10 +2239,10 @@
 
   function productMasterCsvHeader() {
     return [
-      'Customer / Storefront', 'Internal Configuration ID', 'Display SKU', 'Display SKU Represents', 'Level SKU', 'Customer Item Number', 'Product Description', 'Product Status',
+      'Customer', 'Product Group ID', 'Display SKU', 'Incoming UOM', 'Level SKU', 'Customer Item Number', 'Description', 'Verification Status',
       'Packaging Level', 'GTIN', 'Eaches Contained', 'Inner Packs per Case', 'Each Weight (g)',
-      'Total Weight with Packaging (lb)', 'Outermost Length (in)', 'Outermost Width/Breadth (in)', 'Outermost Height (in)',
-      'Label Template ID', 'Barcode Type', 'Barcode Level', 'Default Copies', 'Label Enabled', 'Level Active', 'Source Note'
+      'Total Product Weight (g)', 'Packaged Weight (lb)', 'Final Length (in)', 'Final Width (in)', 'Final Height (in)',
+      'Label Template ID', 'Barcode Encoding', 'Default Copies', 'Label Enabled', 'Level Active'
     ];
   }
 
@@ -2233,9 +2250,9 @@
     return [
       row.storefront, row.config_id, row.display_sku, row.display_sku_uom || 'Each', row.sku, row.customer_item_number, row.description, row.verification_status,
       row.packaging_level, row.gtin, row.packaging_level === 'Each' ? '1' : row.case_qty, row.inner_packs_per_case,
-      row.each_net_weight_g, row.gross_weight_lbs, row.length_in, row.width_in, row.height_in,
-      row.label_template_id, row.barcode_type, row.barcode_level, row.default_copies,
-      row.label_enabled, row.is_active, row.source_note,
+      row.each_net_weight_g, row.package_net_weight_g, row.gross_weight_lbs, row.length_in, row.width_in, row.height_in,
+      row.label_template_id, row.barcode_type, row.default_copies,
+      row.label_enabled, row.is_active,
     ];
   }
 
@@ -2250,9 +2267,8 @@
 
   function directoryCsvHeader() {
     return [
-      'Customer / Storefront', 'Code', 'Address Name', 'Address Roles', 'Address', 'Match Values',
-      'Default Label Template ID', 'Receiving Email', 'Docking Instructions',
-      'Manufacturer Name', 'Manufacturer Address', 'Verification Status', 'Source Note', 'Active'
+      'Customer', 'Location Code', 'Name', 'Address', 'Roles',
+      'Default Label Template', 'Verification Status', 'Active'
     ];
   }
 
@@ -2261,16 +2277,10 @@
       row.storefront,
       row.dc,
       row.name,
-      (row.address_roles || []).join(',') || row.address_type || row.record_type,
       row.address,
-      Array.isArray(row.match_values) ? row.match_values.join('\n') : row.match_values,
+      (row.address_roles || []).join(',') || row.address_type || row.record_type,
       row.default_label_template_id,
-      row.receiving_email,
-      row.docking_instructions,
-      row.manufacturer_name,
-      row.manufacturer_address,
       row.verification_status,
-      row.source_note,
       row.is_active,
     ];
   }
@@ -2291,9 +2301,8 @@
           directoryCsvHeader(),
           [
             'USAGE GUIDE — not imported', 'Reusable customer/location code', 'Customer, DC, store, warehouse, or origin name',
-            'One or more: SHIP_FROM, SHIP_TO, BILL_TO (comma-separated)', 'One reusable address per row', 'Optional GLN, city, ZIP, or aliases separated by line breaks',
-            'Optional saved label template', 'Optional receiving contact', 'Optional delivery instructions',
-            'Optional manufacturer override', 'Optional manufacturer address override', 'DRAFT / NEEDS_REVIEW / VERIFIED / BLOCKED', 'Optional source or review note', 'true/false'
+            'One reusable address per row', 'One or more: SHIP_FROM, SHIP_TO, BILL_TO (comma-separated)',
+            'Optional saved label template', 'DRAFT / NEEDS_REVIEW / VERIFIED / BLOCKED', 'true/false'
           ],
           directoryCsvRow(normalizeDcDirectoryRow({
             storefront: 'KeHE',
@@ -2301,7 +2310,6 @@
             name: 'KeHE Ontario DC',
             address_type: 'SHIP_TO',
             address: 'KeHE Distributors, LLC\n601 S Rockefeller Ave\nOntario, CA 91761\nUSA',
-            match_values: ['0569813430045', 'Ontario', '91761'],
             record_type: 'SHIP_TO',
             verification_status: 'DRAFT',
             is_active: true,
@@ -2323,8 +2331,8 @@
             'USAGE GUIDE — not imported', 'Repeat this system grouping ID for all rows of one product.',
             'Alternate order SKU shared by the product', 'How Display SKU quantity should be interpreted: Each, Inner Pack, or Case', 'Order SKU for this unit', 'Optional customer item', 'Shared description', 'Shared status',
             'Each is required; Inner Pack and Case are optional', 'Barcode for this unit', 'Total eaches in this unit', 'Used only on Case when an Inner Pack exists', 'Weight of one sellable each',
-            'Weight of the outermost unit including packaging', 'Outermost unit length', 'Outermost unit width', 'Outermost unit height',
-            'Level label template', 'Level barcode type', 'Level barcode level', 'Copies per unit', 'true/false', 'true/false', 'Optional notes'
+            'Product-only weight of the outermost unit', 'Weight of the outermost unit including packaging', 'Outermost unit length', 'Outermost unit width', 'Outermost unit height',
+            'Level label template', 'Barcode encoding for this level', 'Copies per unit', 'true/false', 'true/false'
           ],
           productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', display_sku_uom: 'Each', sku: 'TW-CRS109-CASE', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', inner_packs_per_case: '6', each_net_weight_g: '113', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '10', default_copies: '2', is_active: true })),
           productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-INNER', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', each_net_weight_g: '113', default_copies: '6', is_active: true })),
@@ -2661,112 +2669,6 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     return date.toLocaleString();
-  }
-
-  function renderManualMplSelect(label, optionsHtml) {
-    return `
-      <div class="manual-mpl-field">
-        <label>${escapeHtml(label)}</label>
-        ${optionsHtml}
-      </div>`;
-  }
-
-  function renderManualMplTools(mpl, mplIndex) {
-    if (!mpl?.manual_mpl && !activeKeheDocumentDraft?.manual_mpl) return '';
-    const dcRows = getActiveDcDirectoryRows();
-    const storefrontCheck = validateMplStorefrontConsistency(activeKeheDocumentDraft);
-    const selectedDcIndex = dcRows.findIndex(row =>
-      String(row.dc || '') === String(mpl.dc || '') &&
-      String(row.name || '') === String(mpl.dc_name || '') &&
-      (!isStandaloneMplReferenceMode() || normalizeStorefront(row.storefront || 'KeHE') === normalizeStorefront(mpl.storefront || activeKeheDocumentDraft?.storefront || 'KeHE'))
-    );
-    const dcSelect = dcRows.length
-      ? `<select onchange="applyManualMplDcRow(${mplIndex}, this.value)">
-          <option value="">Select DC / Name</option>
-          ${dcRows.map((row, index) => {
-            const label = isStandaloneMplReferenceMode()
-              ? `[${normalizeStorefront(row.storefront || 'KeHE')}] ${dcDirectoryDisplayName(row, index)}`
-              : dcDirectoryDisplayName(row, index);
-            return `<option value="${index}" ${index === selectedDcIndex ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-          }).join('')}
-        </select>`
-      : '<select disabled><option>No DC Directory rows</option></select>';
-
-    const addressSelect = (field, label) => {
-      const options = manualMplAddressOptions(field);
-      const selectedIndex = manualMplSelectedAddressIndex(field, mpl[field]);
-      const select = options.length
-        ? `<select onchange="applyManualMplAddress(${mplIndex}, '${jsString(field)}', this.value)">
-            <option value="">Select ${escapeHtml(label)}</option>
-            ${options.map((option, index) => {
-              const isDefaultOrigin = field === 'supplier_info' && option === getSharedMplDirectoryShipFrom();
-              const optionLabel = `${isDefaultOrigin ? 'Default — ' : ''}${firstLine(option) || option}`;
-              return `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escapeHtml(optionLabel)}</option>`;
-            }).join('')}
-          </select>`
-        : `<select disabled><option>No ${escapeHtml(label)} options</option></select>`;
-      return renderManualMplSelect(label, select);
-    };
-
-    return `
-      <div class="manual-mpl-tools">
-        <div class="manual-mpl-title">${isStandaloneMplReferenceMode() ? 'Packing List & Ti-Hi References' : 'Create MPL References'}</div>
-        <div class="manual-mpl-grid">
-          ${renderManualMplSelect('DC / Name', dcSelect)}
-          ${addressSelect('supplier_info', 'Ship From')}
-          ${addressSelect('ship_to', 'Ship To')}
-          ${addressSelect('bill_to', 'Bill To')}
-        </div>
-        ${storefrontCheck.ok ? '' : `<div class="manual-mpl-warning">${escapeHtml(storefrontCheck.message)}</div>`}
-      </div>`;
-  }
-
-  function applyManualMplDcRow(mplIndex, rowIndex) {
-    if (rowIndex === '') return;
-    const mpl = getMpl(mplIndex);
-    const row = getActiveDcDirectoryRows()[Number(rowIndex)];
-    if (!mpl || !row) return;
-    const nextStorefront = normalizeStorefront(row.storefront || 'KeHE');
-    const selectedStores = getMplSelectedStorefronts(mpl);
-    mpl.dc = row.dc || '';
-    mpl.dc_name = row.name || '';
-    mpl.storefront = nextStorefront;
-    if (activeKeheDocumentDraft) activeKeheDocumentDraft.storefront = nextStorefront;
-    mpl.supplier_info = row.ship_from || mpl.supplier_info || mplBrandSupplierInfo(mplBrandId(mpl));
-    mpl.ship_to = row.delivery_address || '';
-    mpl.bill_to = row.billing_address || '';
-    if (selectedStores.length && !selectedStores.includes(nextStorefront)) {
-      refreshManualMplAfterChange(mpl, `Warning: Directory storefront changed to ${nextStorefront}. Existing selected SKU storefronts must match before PDF generation.`);
-      return;
-    }
-    refreshManualMplAfterChange(mpl, 'DC Directory row applied to Create MPL.');
-  }
-
-  function applyManualMplAddress(mplIndex, field, optionIndex) {
-    if (optionIndex === '') return;
-    const mpl = getMpl(mplIndex);
-    if (!mpl) return;
-    const option = manualMplAddressOptions(field)[Number(optionIndex)];
-    if (!option) return;
-    mpl[field] = option;
-    refreshManualMplAfterChange(mpl, 'Create MPL address updated.');
-  }
-
-  function refreshManualMplAfterChange(mpl, message = '') {
-    if (!mpl || !activeKeheDocumentDraft) return;
-    ensureMplPalletState(mpl);
-    syncMplLineNumbers(mpl);
-    markMplPalletizationSource(
-      mpl,
-      'Manual',
-      isStandaloneMplReferenceMode()
-        ? 'Manual MPL created from standalone Product Master Table and Directory.'
-        : 'Manual MPL created from GTIN / Packaging Master Table and KeHE DC Directory.'
-    );
-    keheLastMplDraft = activeKeheDocumentDraft;
-    renderKeheUnifiedReport(activeKeheDocumentDraft);
-    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    if (message) setStatus(message, 'info');
   }
 
   function renderMplProductSelect(mplIndex, itemIndex, item) {
@@ -3213,6 +3115,10 @@
     activeKeheDocumentType = null;
     activeKeheDocumentDraft = null;
     b2bOrderFallbackProducts = [];
+    b2bOrderLabelJobs = [];
+    b2bSelectedOrderJobIndex = -1;
+    b2bResolvedOrderContext = null;
+    b2bResolvedDirectoryFallback = {};
     mplProductMasterRows = loadMplProductMasterFromStorage();
     mplDirectoryRows = loadMplDirectoryFromStorage();
 

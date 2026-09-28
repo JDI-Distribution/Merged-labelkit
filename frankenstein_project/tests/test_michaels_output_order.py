@@ -61,6 +61,41 @@ class MichaelsOutputOrderTests(unittest.TestCase):
         self.assertIn(pack.po, label_text)
         self.assertIn(pack.store, label_text)
 
+    def test_michaels_addresses_keep_default_lines_without_pipe_separators(self):
+        pack = pipeline.Pack(
+            sscc="000000000000000001",
+            po="63484",
+            store="100",
+            ship_from=pipeline.Address(
+                name="BAKELL LLC",
+                line1="1967 ESSEX CT",
+                city="REDLANDS",
+                state="CA",
+                zip="92373",
+            ),
+            ship_to=pipeline.Address(
+                name="Receiving Location",
+                line1="100 MAIN STREET",
+                city="ANYTOWN",
+                state="CA",
+                zip="90000",
+            ),
+        )
+
+        outputs = [
+            pipeline.render_gs1_label_page(pack, 1, 1),
+            pipeline.render_packing_list_pages(pack, 1, 1),
+        ]
+        for output in outputs:
+            with fitz.open(stream=output, filetype="pdf") as document:
+                text = "\n".join(page.get_text() for page in document)
+            self.assertNotIn(" | ", text)
+            address_lines = [line.strip() for line in text.splitlines()]
+            self.assertIn("BAKELL LLC", address_lines)
+            self.assertIn("1967 ESSEX CT", address_lines)
+            self.assertIn("REDLANDS", text)
+            self.assertIn("92373", text)
+
     def _render_with_order(self, tmp_path: Path, group_by_pdf: bool):
         pack_b = pipeline.Pack(
             sscc="000000000000000002",

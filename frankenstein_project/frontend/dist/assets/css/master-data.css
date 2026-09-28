@@ -112,7 +112,6 @@
 #mpl-directory-modal .product-master-add-action,
 #mpl-product-master-modal .editor-footer .btn-generate,
 #mpl-directory-modal .editor-footer .btn-generate,
-#mpl-directory-modal .directory-shared-origin-editor .btn-generate,
 #mpl-directory-modal .directory-origin-custom .btn-generate {
   border-color: var(--master-accent-strong);
   background: var(--master-accent-strong);
@@ -387,27 +386,6 @@
 }
 
 /* Directory list and editor */
-#mpl-directory-modal .directory-shared-origin {
-  min-width: 0;
-  border-color: #bdcbd6;
-  background: linear-gradient(135deg, #eef3f7 0%, #f8fafb 100%);
-  color: var(--master-text);
-}
-
-#mpl-directory-modal .directory-shared-origin-mark {
-  background: var(--master-accent);
-}
-
-#mpl-directory-modal .directory-shared-origin strong {
-  color: var(--master-accent-deep);
-}
-
-#mpl-directory-modal .directory-shared-origin-status {
-  border-color: #bdcbd6;
-  color: var(--master-accent-deep) !important;
-}
-
-#mpl-directory-modal .directory-shared-origin-editor,
 #mpl-directory-modal .directory-origin-custom {
   min-width: 0;
   border-color: #b8c8d4;
@@ -760,16 +738,14 @@ body[data-module] .editor-panel.master-record-editor-panel {
   line-height: 1.55;
 }
 
-.directory-record-role-list,
-.directory-record-token-list {
+.directory-record-role-list {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   margin-top: 15px;
 }
 
-.directory-record-role,
-.directory-record-token-list small {
+.directory-record-role {
   padding: 6px 9px;
   border: 1px solid #c7d6df;
   border-radius: 999px;
@@ -1182,7 +1158,6 @@ body[data-module] .editor-panel.master-record-editor-panel {
   #mpl-product-master-modal .product-master-command-bar,
   #mpl-directory-modal .product-master-command-bar,
   #mpl-product-master-modal .product-quality-toolbar,
-  #mpl-directory-modal .directory-shared-origin,
   #mpl-directory-modal .table-filter-toolbar,
   #mpl-product-master-modal .kehe-product-master-scroll,
   #mpl-directory-modal .mpl-directory-card-list {
@@ -1242,8 +1217,7 @@ body[data-module] .editor-panel.master-record-editor-panel {
     grid-column: auto;
   }
 
-  #mpl-product-master-modal .table-filter-summary-row,
-  #mpl-directory-modal .directory-shared-origin-actions {
+  #mpl-product-master-modal .table-filter-summary-row {
     min-width: 0;
   }
 
@@ -1299,19 +1273,6 @@ body[data-module] .editor-panel.master-record-editor-panel {
   #mpl-directory-modal .directory-origin-choice > button {
     grid-column: auto;
     justify-self: stretch;
-  }
-
-  #mpl-directory-modal .directory-shared-origin {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  #mpl-directory-modal .directory-shared-origin-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
-
-  #mpl-directory-modal .directory-shared-origin-status {
-    white-space: normal;
   }
 
   #mpl-directory-modal .directory-card-body {
