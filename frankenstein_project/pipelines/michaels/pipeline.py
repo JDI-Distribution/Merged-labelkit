@@ -89,6 +89,8 @@ from .renderers import (
     wrap_text,
 )
 
+OCR_PAGE_BATCH_SIZE = 16
+
 def _render_shipping_label_first(
     fitz_doc: fitz.Document,
     shipping_pdf_path: str,
@@ -101,6 +103,44 @@ def _render_shipping_label_first(
     ocr_dpi: int,
     group_by_shipping_pdf: bool = True,
     progress_callback: Optional[Any] = None,
+) -> Dict[str, Any]:
+    owned_documents: List[fitz.Document] = [fitz.open()]
+    try:
+        return _render_shipping_label_first_with_output(
+            fitz_doc=fitz_doc,
+            shipping_pdf_path=shipping_pdf_path,
+            all_packs=all_packs,
+            by_tracking=by_tracking,
+            by_po=by_po,
+            by_store=by_store,
+            by_po_store=by_po_store,
+            out_pdf=out_pdf,
+            ocr_dpi=ocr_dpi,
+            group_by_shipping_pdf=group_by_shipping_pdf,
+            progress_callback=progress_callback,
+            out_doc=owned_documents[0],
+            owned_documents=owned_documents,
+        )
+    finally:
+        for document in owned_documents:
+            if not document.is_closed:
+                document.close()
+
+
+def _render_shipping_label_first_with_output(
+    fitz_doc: fitz.Document,
+    shipping_pdf_path: str,
+    all_packs: List[Pack],
+    by_tracking: Dict[str, Pack],
+    by_po: Dict[str, List[Pack]],
+    by_store: Dict[str, List[Pack]],
+    by_po_store: Dict[Tuple[str, str], List[Pack]],
+    out_pdf: str,
+    ocr_dpi: int,
+    group_by_shipping_pdf: bool,
+    progress_callback: Optional[Any],
+    out_doc: fitz.Document,
+    owned_documents: List[fitz.Document],
 ) -> Dict[str, Any]:
     """
     Iterate shipping label pages one by one.
@@ -116,8 +156,7 @@ def _render_shipping_label_first(
     _status_log(f"  Shipping PDF has {n_pages} page(s). OCR-ing at {ocr_dpi} DPI...")
 
     pdf2image_kwargs = _pdf2image_kwargs()
-    images = convert_from_path(shipping_pdf_path, dpi=ocr_dpi, **pdf2image_kwargs)
-    total  = len(images)
+    total = n_pages
 
     # ── Phase 1: Parallel OCR ─────────────────────────────────────────────
     _status_log(f"  Running OCR on {total} page(s) in parallel…")
@@ -126,34 +165,58 @@ def _render_shipping_label_first(
 
     def _ocr_one_page(args: Tuple[int, Any]) -> Tuple[int, str, str, str]:
         page_idx, img = args
-        raw_text = _ocr_image(img)
-        tracking, po, store = _extract_page_identifiers(raw_text)
-        if not tracking and not po and not store:
-            _status_log(f"  Page {page_idx+1}: nothing at {ocr_dpi} DPI, retrying at 300…")
-            hd_imgs = convert_from_path(
-                shipping_pdf_path, dpi=300,
-                first_page=page_idx + 1, last_page=page_idx + 1,
-                **pdf2image_kwargs,
-            )
-            if hd_imgs:
-                raw_text = _ocr_image(hd_imgs[0])
-                tracking, po, store = _extract_page_identifiers(raw_text)
-        with ocr_lock:
-            ocr_done[0] += 1
-            done = ocr_done[0]
-        if progress_callback:
-            progress_callback(f"Scanning labels: {done} of {total} pages OCR'd…")
-        return page_idx, tracking, po, store
+        try:
+            raw_text = _ocr_image(img)
+            tracking, po, store = _extract_page_identifiers(raw_text)
+            if not tracking and not po and not store:
+                _status_log(f"  Page {page_idx+1}: nothing at {ocr_dpi} DPI, retrying at 300…")
+                hd_imgs = convert_from_path(
+                    shipping_pdf_path, dpi=300,
+                    first_page=page_idx + 1, last_page=page_idx + 1,
+                    **pdf2image_kwargs,
+                )
+                try:
+                    if hd_imgs:
+                        raw_text = _ocr_image(hd_imgs[0])
+                        tracking, po, store = _extract_page_identifiers(raw_text)
+                finally:
+                    for hd_img in hd_imgs:
+                        close = getattr(hd_img, "close", None)
+                        if callable(close):
+                            close()
+            with ocr_lock:
+                ocr_done[0] += 1
+                done = ocr_done[0]
+            if progress_callback:
+                progress_callback(f"Scanning labels: {done} of {total} pages OCR'd…")
+            return page_idx, tracking, po, store
+        finally:
+            close = getattr(img, "close", None)
+            if callable(close):
+                close()
 
-    workers = min(4, total)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        # map preserves submission order → results[i] corresponds to page i
-        ocr_results: List[Tuple[int, str, str, str]] = list(
-            executor.map(_ocr_one_page, enumerate(images))
+    _status_log(f"  Running OCR on {total} page(s) in batches…")
+    ocr_results: List[Tuple[int, str, str, str]] = []
+    for first_page in range(1, n_pages + 1, OCR_PAGE_BATCH_SIZE):
+        last_page = min(first_page + OCR_PAGE_BATCH_SIZE - 1, n_pages)
+        images = convert_from_path(
+            shipping_pdf_path,
+            dpi=ocr_dpi,
+            first_page=first_page,
+            last_page=last_page,
+            **pdf2image_kwargs,
         )
+        try:
+            page_args = ((first_page - 1 + offset, image) for offset, image in enumerate(images))
+            with ThreadPoolExecutor(max_workers=min(4, len(images))) as executor:
+                ocr_results.extend(executor.map(_ocr_one_page, page_args))
+        finally:
+            for image in images:
+                close = getattr(image, "close", None)
+                if callable(close):
+                    close()
 
     # ── Phase 2: Sequential match + render ───────────────────────────────
-    out_doc         = fitz.open()
     used_pack_ssccs: set[str] = set()
     matched_page_by_sscc: Dict[str, int] = {}
     unmatched_pages: List[int] = []
@@ -230,9 +293,7 @@ def _render_shipping_label_first(
         # ── 1. Shipping page — rasterised, guaranteed exactly one page ────
         bundle_start = out_doc.page_count
         ship_bytes = _shipping_page_to_bytes(fitz_doc, page_idx)
-        ship_fitz  = _bytes_to_fitz(ship_bytes)
-        out_doc.insert_pdf(ship_fitz, from_page=0, to_page=0)
-        ship_fitz.close()
+        _insert_pdf_bytes(out_doc, ship_bytes, from_page=0, to_page=0)
 
         # ── 2. GS1 label — always exactly one page ────────────────────────
         if pack:
@@ -246,16 +307,12 @@ def _render_shipping_label_first(
         else:
             pd_obj    = PageOcrData(page_idx=page_idx, tracking=tracking, po=po, store=store)
             gs1_bytes = render_no_xml_match_page(pd_obj)
-        gs1_fitz = _bytes_to_fitz(gs1_bytes)
-        out_doc.insert_pdf(gs1_fitz, from_page=0, to_page=0)
-        gs1_fitz.close()
+        _insert_pdf_bytes(out_doc, gs1_bytes, from_page=0, to_page=0)
 
         # ── 3. Packing list — one or more pages ───────────────────────────
         if pack:
             pl_bytes = render_packing_list_pages(pack, order_index=render_order_index, total_orders=total)
-            pl_fitz  = _bytes_to_fitz(pl_bytes)
-            out_doc.insert_pdf(pl_fitz)          # all pages
-            pl_fitz.close()
+            _insert_pdf_bytes(out_doc, pl_bytes)
             bundle_ranges.append(
                 {
                     "label_page": page_idx + 1,
@@ -294,7 +351,6 @@ def _render_shipping_label_first(
     )
 
     if unmatched_pages or unused_packs or duplicate_messages:
-        out_doc.close()
         raise MatchFailureError(
             _build_match_failure_message(
                 unmatched_details,
@@ -307,6 +363,7 @@ def _render_shipping_label_first(
 
     if not group_by_shipping_pdf:
         xml_order_doc = fitz.open()
+        owned_documents.append(xml_order_doc)
         next_output_page = 0
         for bundle in sorted(bundle_ranges, key=lambda item: item["rank"]):
             from_page = bundle["from_page"]
@@ -315,7 +372,6 @@ def _render_shipping_label_first(
             bundle["final_from_page"] = next_output_page
             bundle["final_to_page"] = next_output_page + (to_page - from_page)
             next_output_page = bundle["final_to_page"] + 1
-        out_doc.close()
         out_doc = xml_order_doc
     else:
         for bundle in bundle_ranges:
@@ -330,9 +386,27 @@ def _render_shipping_label_first(
             row["output_end_page"] = bundle["final_to_page"] + 1
 
     out_doc.save(out_pdf, garbage=4, deflate=True)
-    out_doc.close()
     _status_log(f"\n✓  All {n_pages} shipping page(s) matched to XML packs.")
     return report
+
+
+def _insert_pdf_bytes(
+    target: fitz.Document,
+    pdf_bytes: bytes,
+    *,
+    from_page: Optional[int] = None,
+    to_page: Optional[int] = None,
+) -> None:
+    source = _bytes_to_fitz(pdf_bytes)
+    try:
+        options: Dict[str, int] = {}
+        if from_page is not None:
+            options["from_page"] = from_page
+        if to_page is not None:
+            options["to_page"] = to_page
+        target.insert_pdf(source, **options)
+    finally:
+        source.close()
 
 
 # ===========================================================================
@@ -370,19 +444,22 @@ def run_pipeline(
         by_tracking, by_po, by_store, by_po_store = build_pack_indexes(all_packs)
         fitz_doc = fitz.open(shipping_pdf_path)
         _status_log(f"\nRendering output PDF: {out_pdf}")
-        report = _render_shipping_label_first(
-            fitz_doc           = fitz_doc,
-            shipping_pdf_path  = shipping_pdf_path,
-            all_packs          = all_packs,
-            by_tracking        = by_tracking,
-            by_po              = by_po,
-            by_store           = by_store,
-            by_po_store        = by_po_store,
-            out_pdf            = out_pdf,
-            ocr_dpi            = ocr_dpi,
-            group_by_shipping_pdf = group_by_shipping_pdf,
-            progress_callback  = progress_callback,
-        )
+        try:
+            report = _render_shipping_label_first(
+                fitz_doc           = fitz_doc,
+                shipping_pdf_path  = shipping_pdf_path,
+                all_packs          = all_packs,
+                by_tracking        = by_tracking,
+                by_po              = by_po,
+                by_store           = by_store,
+                by_po_store        = by_po_store,
+                out_pdf            = out_pdf,
+                ocr_dpi            = ocr_dpi,
+                group_by_shipping_pdf = group_by_shipping_pdf,
+                progress_callback  = progress_callback,
+            )
+        finally:
+            fitz_doc.close()
     else:
         # No shipping PDF — just GS1 + packing list, assembled with fitz
         _status_log(f"Rendering output PDF (no shipping labels): {out_pdf}")

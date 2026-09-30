@@ -10,6 +10,74 @@
     return orderContextClean(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
+  function orderInstanceCustomerLabel(instance = {}) {
+    return orderContextClean(
+      instance.storefront
+      || instance.billing_customer_name
+      || instance.email_id
+      || 'Customer not identified'
+    );
+  }
+
+  function orderInstanceOptionLabel(instance = {}) {
+    const id = orderContextClean(instance.ecomdash_id) || 'No record ID';
+    const customer = orderInstanceCustomerLabel(instance);
+    const date = orderContextClean(instance.invoice_date) || 'No date';
+    const skuCount = Number(instance.sku_count || 0);
+    const matchedCount = Number(instance.matched_sku_count || 0);
+    const recommended = instance.recommended ? 'Recommended · ' : '';
+    const match = matchedCount ? ` · ${matchedCount}/${skuCount} SKU matches` : ` · ${skuCount} SKU(s)`;
+    return `${recommended}${customer} · ${date}${match} · Record ${id}`;
+  }
+
+  function renderOrderInstanceTableRows(body, instances = [], selectionHandler) {
+    if (!body) return;
+    body.innerHTML = '';
+    (Array.isArray(instances) ? instances : []).forEach(instance => {
+      const id = orderContextClean(instance?.ecomdash_id);
+      const row = document.createElement('tr');
+      row.classList.toggle('recommended', !!instance?.recommended);
+      const cells = [
+        { value: orderInstanceCustomerLabel(instance), recommended: !!instance?.recommended, reason: orderContextClean(instance?.recommendation_reason) },
+        { value: orderContextClean(instance?.invoice_date) || '—' },
+        { value: `${Number(instance?.matched_sku_count || 0)}/${Number(instance?.sku_count || 0)} matched` },
+        { value: orderContextClean(instance?.billing_customer_name) || '—' },
+        { value: id || '—', className: 'mpl-order-instance-id' },
+      ];
+      cells.forEach(cellData => {
+        const cell = document.createElement('td');
+        if (cellData.className) cell.className = cellData.className;
+        if (cellData.recommended) {
+          const badge = document.createElement('span');
+          badge.className = 'order-instance-recommended';
+          badge.textContent = 'Recommended';
+          cell.appendChild(badge);
+        }
+        const text = document.createElement('span');
+        text.textContent = cellData.value;
+        cell.appendChild(text);
+        if (cellData.reason) {
+          const reason = document.createElement('small');
+          reason.textContent = cellData.reason;
+          cell.appendChild(reason);
+        }
+        row.appendChild(cell);
+      });
+      const selectCell = document.createElement('td');
+      selectCell.className = 'mpl-order-instance-select-column';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'mpl-order-instance-checkbox';
+      checkbox.value = id;
+      checkbox.disabled = !id;
+      checkbox.setAttribute('aria-label', `Select ${orderInstanceCustomerLabel(instance)}, record ${id || 'missing'}`);
+      checkbox.addEventListener('change', () => selectionHandler?.(checkbox));
+      selectCell.appendChild(checkbox);
+      row.appendChild(selectCell);
+      body.appendChild(row);
+    });
+  }
+
   function orderContextCustomerAliases(customer = '') {
     const normalized = normalizeStorefront(customer || '');
     const aliases = new Set([normalized]);

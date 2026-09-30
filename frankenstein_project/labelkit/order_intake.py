@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -81,6 +82,42 @@ def _analytics_order_details(rows: List[Dict[str, Any]]) -> Dict[str, str]:
 
 def _partner_customer_id_from_text(value: Any) -> str:
     return detect_customer_id(value, CUSTOMER_WORKFLOWS)
+
+
+def _partner_customer_id_from_order(
+    order_details: Optional[Dict[str, Any]],
+    items: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """Detect the configured customer from every reliable order signal."""
+    details = order_details if isinstance(order_details, dict) else {}
+    signals = [
+        details.get(field)
+        for field in (
+            "storefront",
+            "supplier",
+            "billing_customer_name",
+            "ship_to_name",
+            "email_id",
+            "email",
+        )
+    ]
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        product = item.get("product") if isinstance(item.get("product"), dict) else {}
+        candidate_storefronts = item.get("candidate_storefronts") or []
+        if not isinstance(candidate_storefronts, (list, tuple, set)):
+            candidate_storefronts = [candidate_storefronts]
+        signals.extend([
+            item.get("storefront"),
+            product.get("storefront"),
+            *candidate_storefronts,
+        ])
+    for value in signals:
+        detected = _partner_customer_id_from_text(value)
+        if detected:
+            return detected
+    return ""
 
 
 def _analytics_order_item_fallback(row: Dict[str, Any], sku: str) -> Dict[str, str]:
@@ -170,7 +207,78 @@ def _analytics_order_instance_summary(instance: Dict[str, Any]) -> Dict[str, Any
         "invoice_date": instance.get("invoice_date", ""),
         "line_count": instance.get("line_count", 0),
         "sku_count": instance.get("sku_count", 0),
+        "matched_sku_count": instance.get("matched_sku_count", 0),
+        "recommended": bool(instance.get("recommended")),
+        "recommendation_reason": str(instance.get("recommendation_reason") or ""),
     }
+
+
+def _order_instance_timestamp(value: Any) -> float:
+    raw = str(value or "").strip()
+    for pattern in (
+        "%d %b %Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y",
+        "%Y-%m-%d",
+    ):
+        for candidate in (raw, raw[:19]):
+            try:
+                return datetime.strptime(candidate, pattern).timestamp()
+            except ValueError:
+                continue
+    return 0.0
+
+
+def _rank_analytics_order_instances(
+    instances: List[Dict[str, Any]],
+    product_rows: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Rank reused order numbers without silently choosing one for the user."""
+    product_skus = {
+        key
+        for row in _dedupe_product_master_rows(product_rows or [])
+        if bool(row.get("is_active", True))
+        for key in (
+            _canonical_order_sku(row.get("sku")),
+            _canonical_order_sku(row.get("display_sku")),
+        )
+        if key
+    }
+    ranked: List[Dict[str, Any]] = []
+    for source in instances:
+        instance = dict(source)
+        instance_skus = {
+            _canonical_order_sku(_analytics_row_value(row, ANALYTICS_SKU_COLUMN))
+            for row in instance.get("rows", [])
+            if _canonical_order_sku(_analytics_row_value(row, ANALYTICS_SKU_COLUMN))
+        }
+        matched_skus = len(instance_skus & product_skus)
+        instance["matched_sku_count"] = matched_skus
+        instance["_rank"] = (
+            matched_skus,
+            bool(str(instance.get("storefront") or "").strip()),
+            bool(str(instance.get("billing_customer_name") or "").strip()),
+            _order_instance_timestamp(instance.get("invoice_date")),
+            int(instance.get("sku_count") or 0),
+        )
+        ranked.append(instance)
+    ranked.sort(key=lambda instance: instance["_rank"], reverse=True)
+    if ranked:
+        best = ranked[0]
+        best["recommended"] = True
+        if best.get("matched_sku_count"):
+            best["recommendation_reason"] = (
+                f"{best['matched_sku_count']} of {best.get('sku_count', 0)} SKUs match Product Master"
+            )
+        elif best.get("invoice_date"):
+            best["recommendation_reason"] = "Most recent complete order record"
+        else:
+            best["recommendation_reason"] = "Most complete order record"
+    for instance in ranked:
+        instance.pop("_rank", None)
+    return ranked
 
 
 def _validated_sales_order_number(payload: Any) -> str:
@@ -200,9 +308,13 @@ def _select_analytics_order_instance(
     analytics_rows: List[Dict[str, Any]],
     requested_ecomdash_id: str,
     sales_order_number: str,
+    product_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> tuple[List[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
     """Select one reused sales-order instance or return selector response data."""
-    order_instances = _analytics_order_instance_groups(analytics_rows)
+    order_instances = _rank_analytics_order_instances(
+        _analytics_order_instance_groups(analytics_rows),
+        product_rows,
+    )
     if requested_ecomdash_id:
         wanted_ecomdash_id = _canonical_order_number(requested_ecomdash_id)
         selected = next(
@@ -246,7 +358,7 @@ def _analytics_quantity(value: Any) -> Optional[float | int]:
         quantity = float(raw)
     except (TypeError, ValueError):
         return None
-    if quantity <= 0 or quantity != quantity:
+    if quantity <= 0 or not math.isfinite(quantity):
         return None
     return int(quantity) if quantity.is_integer() else round(quantity, 6)
 
@@ -302,18 +414,49 @@ def _b2b_analytics_order_items_for_products(
         if len(candidates) > 1:
             match_status = "ambiguous"
             product = None
+            match_reason_code = "ambiguous_product_groups"
+            match_reason = "This SKU belongs to more than one Product Master configuration."
         elif len(candidates) == 1:
             matching_rows = candidates[0]
-            product = next((row for row in matching_rows if _canonical_order_sku(row.get("sku")) == sku_key), None)
-            if product is None:
+            exact_sku_rows = [row for row in matching_rows if _canonical_order_sku(row.get("sku")) == sku_key]
+            exact_sku_levels = {
+                normalize_packaging_level(row.get("packaging_level"))
+                for row in exact_sku_rows
+            }
+            if len(exact_sku_levels) > 1:
+                product = None
+                match_status = "ambiguous"
+                match_reason_code = "duplicate_level_sku"
+                match_reason = (
+                    "The same Level SKU is assigned to multiple packaging levels; "
+                    "assign distinct Each, Inner Pack, and Case SKUs."
+                )
+            else:
+                product = exact_sku_rows[0] if exact_sku_rows else None
+            if product is None and not exact_sku_rows:
                 display_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
                 product = next((row for row in matching_rows if normalize_packaging_level(row.get("packaging_level")) == display_uom), None)
-            match_status = "matched" if product is not None else "unmatched"
+            if len(exact_sku_levels) <= 1:
+                match_status = "matched" if product is not None else "unmatched"
+            if product is not None and len(exact_sku_levels) <= 1:
+                matched_level = normalize_packaging_level(product.get("packaging_level"))
+                match_reason_code = "matched_level_sku" if _canonical_order_sku(product.get("sku")) == sku_key else "matched_display_sku"
+                match_reason = (
+                    f"Matched the {matched_level} SKU in Product Master."
+                    if match_reason_code == "matched_level_sku"
+                    else f"Matched the alternate incoming SKU and interpreted it as {matched_level}."
+                )
+            elif len(exact_sku_levels) <= 1:
+                match_reason_code = "missing_packaging_level"
+                match_reason = "The SKU matched a product group, but its incoming packaging level is not configured."
         else:
             match_status = "unmatched"
             product = None
+            match_reason_code = "no_product_master_sku"
+            match_reason = "No active Product Master Level SKU matches this order line."
 
         converted_order_item = dict(order_item)
+        packaging_summary: List[Dict[str, Any]] = []
         if product is not None:
             matched_config_id = str(product.get("config_id") or "").strip().lower()
             uses_level_specific_skus = bool(matched_config_id and any(
@@ -323,6 +466,32 @@ def _b2b_analytics_order_items_for_products(
                 for row in normalized_product_rows
             ))
             if uses_level_specific_skus:
+                group_rows = [
+                    row for row in normalized_product_rows
+                    if str(row.get("storefront") or "").strip().lower() == str(product.get("storefront") or "").strip().lower()
+                    and str(row.get("config_id") or "").strip().lower() == matched_config_id
+                ]
+                for level in ("Each", "Inner Pack", "Case"):
+                    level_row = next(
+                        (row for row in group_rows if normalize_packaging_level(row.get("packaging_level")) == level),
+                        None,
+                    )
+                    if level_row:
+                        packaging_summary.append({
+                            "packaging_level": level,
+                            "sku": str(level_row.get("sku") or "").strip(),
+                            "gtin": str(level_row.get("gtin") or "").strip(),
+                            "barcode_type": str(level_row.get("barcode_type") or "").strip(),
+                            "eaches_per_unit": 1 if level == "Each" else _analytics_quantity(level_row.get("case_qty")),
+                            "label_template_id": str(level_row.get("label_template_id") or "").strip(),
+                            "default_copies": str(level_row.get("default_copies") or "").strip(),
+                            "label_enabled": bool(level_row.get("label_enabled")),
+                            "label_template_available": bool(str(level_row.get("label_template_id") or "").strip()),
+                            "label_available": bool(level_row.get("label_enabled") and str(level_row.get("label_template_id") or "").strip()),
+                            "label_review_required": bool(level_row.get("label_enabled") and not str(level_row.get("label_template_id") or "").strip()),
+                            "verification_status": str(level_row.get("verification_status") or "").strip(),
+                            "dimensions_complete": all(str(level_row.get(field) or "").strip() for field in ("length_in", "width_in", "height_in")),
+                        })
                 conversion = _analytics_case_conversion(
                     order_item.get("quantity_ordered"),
                     product,
@@ -337,7 +506,16 @@ def _b2b_analytics_order_items_for_products(
             **converted_order_item,
             "quantity_ordered": int(converted_order_item["quantity_ordered"]) if float(converted_order_item["quantity_ordered"]).is_integer() else round(float(converted_order_item["quantity_ordered"]), 6),
             "match_status": match_status,
+            "match_reason_code": match_reason_code,
+            "match_reason": match_reason,
             "product": product,
+            "packaging_summary": packaging_summary,
+            "candidate_config_ids": sorted({
+                str(candidate.get("config_id") or candidate.get("sku") or "").strip()
+                for candidate_group in candidates
+                for candidate in candidate_group
+                if str(candidate.get("config_id") or candidate.get("sku") or "").strip()
+            }),
         }
         if product is not None:
             item["label_template_id"] = str(product.get("label_template_id") or "")

@@ -10,6 +10,7 @@ import pymupdf as fitz
 from fastapi import HTTPException, UploadFile
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_MICHAELS_OUTPUT_PAGES = 1000
 
 
 async def save_upload_file(upload: UploadFile, destination: Path) -> None:
@@ -58,7 +59,7 @@ def split_michaels_output_by_shipping_pdf(
     source_output = fitz.open(combined_output_path)
     output_dir = temp_dir / "separate_michaels_outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
-    generated: List[tuple[Path, str]] = []
+    generated_groups: List[List[tuple[Path, str]]] = []
     used_names: Dict[str, int] = {}
     first_label_page = 1
     display_names = (
@@ -90,53 +91,80 @@ def split_michaels_output_by_shipping_pdf(
                     f"Could not preserve output boundaries for {shipping_path.name}."
                 )
 
+            base_stem = sanitize_filename(shipping_path.stem).strip(" ._") or "shipping_labels"
+            occurrence = used_names.get(base_stem.lower(), 0) + 1
+            used_names[base_stem.lower()] = occurrence
+            suffix = f"_{occurrence}" if occurrence > 1 else ""
+            base_name = f"{base_stem}{suffix}_michaels_output"
+            split_parts: List[tuple[Path, str]] = []
             split_doc = fitz.open()
-            try:
-                for row in source_rows:
-                    split_doc.insert_pdf(
-                        source_output,
-                        from_page=int(row["output_start_page"]) - 1,
-                        to_page=int(row["output_end_page"]) - 1,
-                    )
+            part_index = 1
 
-                base_stem = sanitize_filename(shipping_path.stem).strip(" ._") or "shipping_labels"
-                occurrence = used_names.get(base_stem.lower(), 0) + 1
-                used_names[base_stem.lower()] = occurrence
-                suffix = f"_{occurrence}" if occurrence > 1 else ""
-                output_name = f"{base_stem}{suffix}_michaels_output.pdf"
+            def save_shipping_part(*, numbered: bool) -> None:
+                nonlocal split_doc, part_index
+                if split_doc.page_count < 1:
+                    return
+                output_name = (
+                    f"{base_name}_part_{part_index:03d}.pdf"
+                    if numbered
+                    else f"{base_name}.pdf"
+                )
                 output_path = output_dir / output_name
                 split_doc.save(output_path, garbage=4, deflate=True)
+                split_parts.append((output_path, output_name))
+                split_doc.close()
+                split_doc = fitz.open()
+                part_index += 1
+
+            try:
+                for row in source_rows:
+                    page_start = int(row["output_start_page"]) - 1
+                    page_end = int(row["output_end_page"]) - 1
+                    while page_start <= page_end:
+                        if split_doc.page_count == MAX_MICHAELS_OUTPUT_PAGES:
+                            save_shipping_part(numbered=True)
+                        capacity = MAX_MICHAELS_OUTPUT_PAGES - split_doc.page_count
+                        chunk_end = min(page_end, page_start + capacity - 1)
+                        split_doc.insert_pdf(source_output, from_page=page_start, to_page=chunk_end)
+                        page_start = chunk_end + 1
+                numbered = len(split_parts) > 0 or split_doc.page_count > MAX_MICHAELS_OUTPUT_PAGES
+                if numbered:
+                    save_shipping_part(numbered=True)
+                else:
+                    save_shipping_part(numbered=False)
             finally:
                 split_doc.close()
 
-            generated.append((output_path, output_name))
+            generated_groups.append(split_parts)
             first_label_page = last_label_page + 1
     finally:
         source_output.close()
 
     zip_path = temp_dir / "michaels_separate_outputs.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for output_path, output_name in generated:
-            archive.write(output_path, arcname=output_name)
+        for group in generated_groups:
+            for output_path, output_name in group:
+                archive.write(output_path, arcname=output_name)
 
     preview_path = temp_dir / "michaels_combined_preview_with_breaks.pdf"
     preview_doc = fitz.open()
     try:
-        for index, (output_path, _output_name) in enumerate(generated):
-            output_doc = fitz.open(output_path)
-            try:
-                preview_doc.insert_pdf(output_doc)
-            finally:
-                output_doc.close()
+        for index, group in enumerate(generated_groups):
+            for output_path, _output_name in group:
+                output_doc = fitz.open(output_path)
+                try:
+                    preview_doc.insert_pdf(output_doc)
+                finally:
+                    output_doc.close()
 
-            if index < len(generated) - 1:
+            if index < len(generated_groups) - 1:
                 append_michaels_pdf_boundary_page(
                     preview_doc,
                     ending_pdf_name=display_names[index],
                     starting_pdf_name=display_names[index + 1],
                     ending_pdf_number=index + 1,
                     starting_pdf_number=index + 2,
-                    total_pdfs=len(generated),
+                    total_pdfs=len(generated_groups),
                 )
         preview_doc.save(preview_path, garbage=4, deflate=True)
     finally:
@@ -144,9 +172,80 @@ def split_michaels_output_by_shipping_pdf(
 
     return (
         zip_path,
-        [output_name for _output_path, output_name in generated],
+        [output_name for group in generated_groups for _output_path, output_name in group],
         preview_path,
     )
+
+
+def split_michaels_output_by_page_limit(
+    combined_output_path: Path,
+    report: Dict[str, Any],
+    temp_dir: Path,
+    base_filename: str = "michaels_output",
+    max_pages: int = MAX_MICHAELS_OUTPUT_PAGES,
+) -> tuple[Path, List[str]]:
+    """Split generated output by complete label bundles into bounded PDFs in a ZIP."""
+    source = fitz.open(combined_output_path)
+    output_dir = temp_dir / "michaels_page_limited_outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = sorted(
+        (row for row in report.get("rows") or [] if row.get("output_start_page") and row.get("output_end_page")),
+        key=lambda row: int(row["output_start_page"]),
+    )
+    groups: List[List[tuple[int, int]]] = []
+    current_group: List[tuple[int, int]] = []
+    current_pages = 0
+    for row in rows:
+        bundle_start = int(row["output_start_page"])
+        bundle_end = int(row["output_end_page"])
+        bundle_pages = bundle_end - bundle_start + 1
+        if bundle_pages < 1:
+            source.close()
+            raise RuntimeError("Michaels output report contains an invalid page range.")
+        while bundle_start <= bundle_end:
+            remaining_capacity = max_pages - current_pages
+            if remaining_capacity == 0:
+                groups.append(current_group)
+                current_group = []
+                current_pages = 0
+                remaining_capacity = max_pages
+            chunk_end = min(bundle_end, bundle_start + remaining_capacity - 1)
+            current_group.append((bundle_start, chunk_end))
+            current_pages += chunk_end - bundle_start + 1
+            bundle_start = chunk_end + 1
+    if current_group:
+        groups.append(current_group)
+    if not groups:
+        source.close()
+        raise RuntimeError("Michaels output report did not contain any complete label page ranges.")
+
+    generated: List[tuple[Path, str]] = []
+    try:
+        for part_index, group in enumerate(groups, start=1):
+            part = fitz.open()
+            try:
+                for first_page, last_page in group:
+                    part.insert_pdf(
+                        source,
+                        from_page=first_page - 1,
+                        to_page=last_page - 1,
+                    )
+                if part.page_count > max_pages:
+                    raise RuntimeError("A single Michaels label bundle exceeds the PDF page limit.")
+                output_name = f"{sanitize_filename(base_filename)}_part_{part_index:03d}.pdf"
+                output_path = output_dir / output_name
+                part.save(output_path, garbage=4, deflate=True)
+            finally:
+                part.close()
+            generated.append((output_path, output_name))
+    finally:
+        source.close()
+
+    zip_path = temp_dir / f"{sanitize_filename(base_filename)}_parts.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for output_path, output_name in generated:
+            archive.write(output_path, arcname=output_name)
+    return zip_path, [name for _path, name in generated]
 
 
 def append_michaels_pdf_boundary_page(

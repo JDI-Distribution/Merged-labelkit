@@ -15,7 +15,10 @@ WEIGHT_FIELDS = ("each_net_weight_g", "gross_weight_lbs")
 
 
 def gtin_check_digit_valid(value: Any) -> bool:
-    digits = re.sub(r"\D", "", str(value or ""))
+    raw = str(value or "").strip()
+    if not raw or not re.fullmatch(r"[0-9\s-]+", raw):
+        return False
+    digits = re.sub(r"[\s-]", "", raw)
     if len(digits) not in GTIN_LENGTHS:
         return False
     body = [int(char) for char in digits[:-1]]
@@ -112,6 +115,18 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         for level, count in level_counts.items():
             if level != "Other" and count > 1:
                 group_issues.append(_issue("duplicate_level", f"Packaging hierarchy contains {count} {level} rows.", "duplicate"))
+        sku_levels: Dict[str, set[str]] = defaultdict(set)
+        for row in group_rows:
+            level_sku = str(row.get("sku") or "").strip().lower()
+            if level_sku:
+                sku_levels[level_sku].add(normalize_packaging_level(row.get("packaging_level")))
+        for level_sku, assigned_levels in sku_levels.items():
+            if len(assigned_levels) > 1:
+                group_issues.append(_issue(
+                    "duplicate_level_sku",
+                    f"Level SKU '{level_sku.upper()}' is assigned to multiple packaging levels.",
+                    "invalid",
+                ))
 
         def quantity(row: Dict[str, Any] | None) -> int | None:
             value = str((row or {}).get("case_qty") or "").strip()

@@ -6,15 +6,17 @@ from labelkit.product_quality import analyze_product_master_rows, gtin_check_dig
 class ProductQualityTests(unittest.TestCase):
     def test_gtin_check_digit_validation(self):
         self.assertTrue(gtin_check_digit_valid("10850068684998"))
+        self.assertTrue(gtin_check_digit_valid("1-08500-68684-998"))
         self.assertFalse(gtin_check_digit_valid("10850068684999"))
         self.assertFalse(gtin_check_digit_valid("12345"))
+        self.assertFalse(gtin_check_digit_valid("abc10850068684998xyz"))
 
     def test_complete_each_and_case_configuration_scores_ready(self):
         rows = [
             {
                 "storefront": "Example",
                 "config_id": "CFG-1",
-                "sku": "SKU-1",
+                "sku": "SKU-1-EACH",
                 "description": "Example product",
                 "packaging_level": "Each",
                 "gtin": "10850068684998",
@@ -25,7 +27,7 @@ class ProductQualityTests(unittest.TestCase):
             {
                 "storefront": "Example",
                 "config_id": "CFG-1",
-                "sku": "SKU-1",
+                "sku": "SKU-1-CASE",
                 "description": "Example product",
                 "packaging_level": "Case",
                 "gtin": "10850068684998",
@@ -82,6 +84,7 @@ class ProductQualityTests(unittest.TestCase):
 
         self.assertIn("duplicate_row", issue_codes)
         self.assertIn("duplicate_level", issue_codes)
+        self.assertIn("duplicate_level_sku", issue_codes)
         self.assertIn("invalid_dimensions", issue_codes)
         self.assertIn("hierarchy_conflict", issue_codes)
         self.assertGreater(quality["summary"]["invalid_rows"], 0)

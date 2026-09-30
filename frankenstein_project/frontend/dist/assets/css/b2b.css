@@ -314,6 +314,44 @@
       line-height: 1.35;
     }
 
+    .b2b-order-destination {
+      display: grid;
+      grid-template-columns: minmax(150px, .28fr) minmax(320px, 1fr) minmax(220px, .5fr);
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      padding: 10px 11px;
+      border: 1px solid #d5e2de;
+      border-radius: 9px;
+      background: rgba(255,255,255,.86);
+    }
+
+    .b2b-order-destination > span {
+      color: #446173;
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .b2b-order-destination textarea {
+      width: 100%;
+      min-width: 0;
+      min-height: 70px;
+      resize: vertical;
+      border: 1px solid #ccd7df;
+      border-radius: 7px;
+      background: #fff;
+      padding: 8px 10px;
+      color: #203d50;
+      font: 600 11px/1.4 'DM Sans', sans-serif;
+    }
+
+    .b2b-order-destination small {
+      color: #6d7d87;
+      font-size: 9px;
+      line-height: 1.4;
+    }
+
     .b2b-auto-resolution span {
       color: #657782;
       font-size: 9px;
@@ -1829,6 +1867,7 @@
       }
       .b2b-resolution-grid { grid-template-columns: 1fr; }
       .b2b-order-line-picker { grid-template-columns: 1fr; }
+      .b2b-order-destination { grid-template-columns: 1fr; }
       .b2b-resolution-top { grid-template-columns: 1fr; }
       .b2b-resolution-grid > div,
       .b2b-resolution-grid > div:nth-child(3),

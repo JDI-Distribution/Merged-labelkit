@@ -459,6 +459,8 @@
   let b2bOrderLabelJobs = [];
   let b2bSelectedOrderJobIndex = -1;
   let b2bOrderCustomerOverride = '';
+  let b2bOrderDestinationOverride = '';
+  let b2bOrderShipToName = '';
   let b2bResolvedOrderContext = null;
   let b2bResolvedDirectoryFallback = {};
   let b2bCopiesTemplateId = '';
@@ -503,6 +505,7 @@
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
   let embeddedAuthMounted = false;
+  let catalystBrowserSdkPromise = null;
   const pages = ['home', 'michaels', 'kehe', 'mpl', 'b2b', 'partners'];
 
   fetch('/health').catch(() => {});
@@ -541,6 +544,38 @@
     return user.email || user.name || 'Signed in';
   }
 
+  function loadBrowserScript(src) {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[data-labelkit-src="${src}"]`);
+      if (existing?.dataset.loaded === 'true') return resolve();
+      if (existing) {
+        existing.addEventListener('load', resolve, { once: true });
+        existing.addEventListener('error', reject, { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = false;
+      script.dataset.labelkitSrc = src;
+      script.addEventListener('load', () => { script.dataset.loaded = 'true'; resolve(); }, { once: true });
+      script.addEventListener('error', () => reject(new Error(`Could not load ${src}`)), { once: true });
+      document.head.appendChild(script);
+    });
+  }
+
+  function ensureCatalystBrowserSdk() {
+    if (window.catalyst?.auth) return Promise.resolve();
+    if (!catalystBrowserSdkPromise) {
+      catalystBrowserSdkPromise = loadBrowserScript('https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js')
+        .then(() => loadBrowserScript('/__catalyst/sdk/init.js'))
+        .catch(err => {
+          catalystBrowserSdkPromise = null;
+          throw err;
+        });
+    }
+    return catalystBrowserSdkPromise;
+  }
+
   async function loadAppRuntimeConfig() {
     try {
       const res = await fetchWithTimeout('/api/auth/session', { cache: 'no-store' }, 15000);
@@ -562,6 +597,13 @@
       keheDcDirectoryRows = [];
       mplProductMasterRows = [];
       mplDirectoryRows = [];
+    }
+    if (appRuntimeConfig.auth_required && appRuntimeConfig.auth_mode === 'embedded') {
+      try {
+        await ensureCatalystBrowserSdk();
+      } catch (_err) {
+        // The authenticated shell can still show a clear sign-in status if Catalyst is unavailable.
+      }
     }
     renderAuthState();
     return appRuntimeConfig;
@@ -1385,7 +1427,12 @@
     const qtyFallback = options.defaultQty || '1';
     const eachProduct = findEachProductForCaseProduct(product);
     const eachGtin = String(options.eachGtin || eachProduct?.gtin || '').trim();
-    item.item_number = eachGtin || product.sku || item.sku || item.item_number || '';
+    const customerItemNumber = String(product.customer_item_number || eachProduct?.customer_item_number || item.customer_item_number || '').trim();
+    const isKeheProduct = normalizeStorefront(product.storefront || '').toLowerCase() === 'kehe';
+    item.customer_item_number = customerItemNumber;
+    item.item_number = isKeheProduct
+      ? (eachGtin || product.sku || item.sku || item.item_number || '')
+      : (customerItemNumber || eachGtin || product.sku || item.sku || item.item_number || '');
     item.each_gtin = eachGtin;
     item.case_upc = product.gtin || item.case_upc || '';
     item.gtin = product.gtin || item.gtin || '';
@@ -1636,36 +1683,7 @@
     const button = document.getElementById('btn-load-selected-mpl-order');
     if (!picker || !body) return;
     const orderInstances = Array.isArray(instances) ? instances : [];
-    body.innerHTML = '';
-    orderInstances.forEach(instance => {
-      const ecomdashId = String(instance?.ecomdash_id || '').trim();
-      const row = document.createElement('tr');
-      const values = [
-        ecomdashId,
-        String(instance?.storefront || '').trim(),
-        String(instance?.billing_customer_name || '').trim(),
-        String(instance?.invoice_date || '').trim(),
-        String(Number(instance?.sku_count || 0))
-      ];
-      values.forEach((value, index) => {
-        const cell = document.createElement('td');
-        cell.textContent = value || '—';
-        if (index === 0) cell.className = 'mpl-order-instance-id';
-        row.appendChild(cell);
-      });
-      const selectCell = document.createElement('td');
-      selectCell.className = 'mpl-order-instance-select-column';
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.className = 'mpl-order-instance-checkbox';
-      checkbox.value = ecomdashId;
-      checkbox.disabled = !ecomdashId;
-      checkbox.setAttribute('aria-label', `Select ECOMDASH ID ${ecomdashId || 'missing'}`);
-      checkbox.addEventListener('change', () => selectMplOrderInstance(checkbox));
-      selectCell.appendChild(checkbox);
-      row.appendChild(selectCell);
-      body.appendChild(row);
-    });
+    renderOrderInstanceTableRows(body, orderInstances, selectMplOrderInstance);
     picker.dataset.salesOrderNumber = String(orderNumber || '').trim();
     delete picker.dataset.ecomdashId;
     if (count) count.textContent = `${orderInstances.length} unique order${orderInstances.length === 1 ? '' : 's'}`;
@@ -1688,7 +1706,7 @@
     else delete picker.dataset.ecomdashId;
     if (button) button.disabled = !ecomdashId;
     if (help) help.textContent = ecomdashId
-      ? `ECOMDASH ID ${ecomdashId} selected.`
+      ? `Order record ${ecomdashId} selected.`
       : 'Check one order to continue.';
   }
 
@@ -1697,7 +1715,7 @@
     const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
     const ecomdashId = String(picker?.dataset.ecomdashId || '').trim();
     if (!orderNumber || !ecomdashId) {
-      setStatus('Select an ECOMDASH ID before loading the order.', 'error');
+      setStatus('Select an order record before loading the order.', 'error');
       return;
     }
     loadMplOrderFromAnalytics(null, ecomdashId, orderNumber);
@@ -1838,11 +1856,11 @@
         }
       } else if (sourceItem?.match_status === 'ambiguous') {
         item.uom = 'EACHES';
-        item.notes = `SKU ${sku}: multiple Product Master matches; using order data. Select a product for case pack, weight, and TI-HI.`;
+        item.notes = `SKU ${sku}: ${sourceItem?.match_reason || 'multiple Product Master matches.'} Using order data; select a product for case pack, weight, and TI-HI.`;
         warnings.push(item.notes);
       } else {
         item.uom = 'EACHES';
-        item.notes = `SKU ${sku}: using order data; add Product Master data for GTIN, weight, and TI-HI.`;
+        item.notes = `SKU ${sku}: ${sourceItem?.match_reason || 'No Product Master match.'} Using order data; add Product Master data for GTIN, weight, and TI-HI.`;
         warnings.push(item.notes);
       }
       return item;
@@ -1937,7 +1955,7 @@
       if (payload.requires_order_selection) {
         closeWorkflowProgress();
         showMplOrderInstancePicker(orderNumber, payload.order_instances);
-        setStatus(`Sales Order ${orderNumber} matches multiple ECOMDASH IDs. Select the correct storefront/customer order.`, 'info');
+        setStatus(`Sales Order ${orderNumber} has multiple records. Select the correct customer order.`, 'info');
         return;
       }
       hideMplOrderInstancePicker();
@@ -2008,13 +2026,21 @@
   }
 
   function defaultMplDraftName(draft) {
+    if (draft?._default_draft_name) return String(draft._default_draft_name);
     const mpl = draft?.packing_lists?.[0] || {};
-    return String(
-      draft?._saved_draft_name ||
-      mpl.customer_po_number ||
-      mpl.id ||
-      'Untitled MPL'
-    ).trim();
+    if (draft?._saved_draft_name) return String(draft._saved_draft_name).trim();
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map(value => String(value).padStart(2, '0')).join('');
+    const customer = String(draft?.storefront || mpl.customer_name || mpl.dc_name || '').trim();
+    const order = String(draft?.summary?.sales_order_number || mpl.order_no || '').trim();
+    const po = String(mpl.customer_po_number || '').trim();
+    const parts = [customer || (draft?.manual_mpl ? 'Manual MPL' : 'Packing List')];
+    if (order) parts.push(`SO ${order}`);
+    else if (po) parts.push(`PO ${po}`);
+    parts.push(date, time);
+    draft._default_draft_name = parts.join(' · ');
+    return draft._default_draft_name;
   }
 
   function currentMplDraftName() {
@@ -2139,7 +2165,7 @@
     }
     body.innerHTML = filtered.map(draft => `
       <tr>
-        <td><strong class="saved-mpl-primary">${escapeHtml(draft.name || 'Untitled MPL')}</strong><span class="saved-mpl-secondary">PO ${escapeHtml(draft.customer_po_number || '—')}</span></td>
+        <td><strong class="saved-mpl-primary">${escapeHtml(draft.name || 'Untitled MPL')}</strong><span class="saved-mpl-secondary">PO ${escapeHtml(draft.customer_po_number || '—')}</span>${/^copy of\s/i.test(String(draft.name || '')) ? '<span class="status-tag needs-review">Copy</span>' : ''}</td>
         <td><strong class="saved-mpl-primary">${escapeHtml(draft.customer_code || '—')}</strong><span class="saved-mpl-secondary">Order ${escapeHtml(draft.order_number || '—')}</span></td>
         <td class="saved-mpl-ship-to">${escapeHtml(draft.ship_to || '—')}</td>
         <td><strong class="saved-mpl-primary">${escapeHtml(draft.total_pallets || '—')} pallets</strong><span class="saved-mpl-secondary">${escapeHtml(draft.item_count || '0')} items</span></td>
@@ -2240,18 +2266,18 @@
 
   function productMasterCsvHeader() {
     return [
-      'Customer', 'Product Group ID', 'Display SKU', 'Incoming UOM', 'Level SKU', 'Customer Item Number', 'Description', 'Verification Status',
+      'Customer', 'Product SKU', 'Level SKU', 'Customer Item Number', 'Description', 'Verification Status',
       'Packaging Level', 'GTIN', 'Eaches Contained', 'Inner Packs per Case', 'Each Weight (g)',
-      'Total Product Weight (g)', 'Packaged Weight (lb)', 'Final Length (in)', 'Final Width (in)', 'Final Height (in)',
+      'Packaged Weight (lb)', 'Level Length (in)', 'Level Width (in)', 'Level Height (in)',
       'Label Template ID', 'Barcode Encoding', 'Default Copies', 'Label Enabled', 'Level Active'
     ];
   }
 
   function productMasterCsvRow(row = {}) {
     return [
-      row.storefront, row.config_id, row.display_sku, row.display_sku_uom || 'Each', row.sku, row.customer_item_number, row.description, row.verification_status,
+      row.storefront, row.config_id, row.sku, row.customer_item_number, row.description, row.verification_status,
       row.packaging_level, row.gtin, row.packaging_level === 'Each' ? '1' : row.case_qty, row.inner_packs_per_case,
-      row.each_net_weight_g, row.package_net_weight_g, row.gross_weight_lbs, row.length_in, row.width_in, row.height_in,
+      row.each_net_weight_g, row.gross_weight_lbs, row.length_in, row.width_in, row.height_in,
       row.label_template_id, row.barcode_type, row.default_copies,
       row.label_enabled, row.is_active,
     ];
@@ -2329,15 +2355,15 @@
       : [
           productMasterCsvHeader(),
           [
-            'USAGE GUIDE — not imported', 'Repeat this system grouping ID for all rows of one product.',
-            'Alternate order SKU shared by the product', 'How Display SKU quantity should be interpreted: Each, Inner Pack, or Case', 'Order SKU for this unit', 'Optional customer item', 'Shared description', 'Shared status',
+            'USAGE GUIDE — not imported', 'Repeat this Product SKU on the Each, Inner Pack, and Case rows that belong together.',
+            'Exact incoming order SKU for this packaging level', 'Optional customer item', 'Shared description', 'Shared status',
             'Each is required; Inner Pack and Case are optional', 'Barcode for this unit', 'Total eaches in this unit', 'Used only on Case when an Inner Pack exists', 'Weight of one sellable each',
-            'Product-only weight of the outermost unit', 'Weight of the outermost unit including packaging', 'Outermost unit length', 'Outermost unit width', 'Outermost unit height',
+            'Weight of the outermost unit including packaging', 'Length of this packaging level', 'Width of this packaging level', 'Height of this packaging level',
             'Level label template', 'Barcode encoding for this level', 'Copies per unit', 'true/false', 'true/false'
           ],
           productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', display_sku_uom: 'Each', sku: 'TW-CRS109-CASE', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', inner_packs_per_case: '6', each_net_weight_g: '113', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '10', default_copies: '2', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-INNER', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', each_net_weight_g: '113', default_copies: '6', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-EACH', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', each_net_weight_g: '113', is_active: true }))
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-INNER', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', each_net_weight_g: '113', length_in: '8', width_in: '6', height_in: '4', default_copies: '6', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-EACH', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', each_net_weight_g: '113', length_in: '3', width_in: '3', height_in: '4', is_active: true }))
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
     setStatus(`${isDirectory ? 'Address Directory' : 'Product Master'} import template downloaded.`, 'success');
@@ -2388,7 +2414,7 @@
     if (rowModeLabel) {
       rowModeLabel.textContent = preview.target === 'dc-directory'
         ? 'Unique key: Customer + Code. Ship From is supplied automatically; matching destinations update the existing record.'
-        : 'Unique key: Storefront + Config ID + Packaging Level. Legacy rows without Config ID use Storefront + Packaging Level + SKU.';
+        : 'Unique key: Customer + Product SKU + Packaging Level. Legacy rows without Product SKU use Customer + Packaging Level + Level SKU.';
     }
     const body = document.getElementById('excel-import-body');
     const changes = Array.isArray(preview.changes) ? preview.changes : [];
@@ -3119,6 +3145,8 @@
     b2bOrderLabelJobs = [];
     b2bSelectedOrderJobIndex = -1;
     b2bOrderCustomerOverride = '';
+    b2bOrderDestinationOverride = '';
+    b2bOrderShipToName = '';
     b2bResolvedOrderContext = null;
     b2bResolvedDirectoryFallback = {};
     mplProductMasterRows = loadMplProductMasterFromStorage();
@@ -3848,6 +3876,17 @@
           blobUrl = URL.createObjectURL(await previewRes.blob());
           setDownloadReady(true, downloadBlobUrl);
           setPreviewReady(true);
+          const outputPages = Number(status.report?.summary?.output_pages || 0);
+          const perFileLimit = Number(status.report?.summary?.page_limit_per_file || 0);
+          const outputFileCount = Number(status.report?.summary?.separate_output_files || status.separate_output_names?.length || 0);
+          if (selectedKit === 'michaels' && status.report?.summary?.page_limited_split && outputPages > perFileLimit && perFileLimit > 0) {
+            const downloadParts = window.confirm(
+              `This Michaels output contains ${outputPages.toLocaleString()} pages, exceeding ${perFileLimit.toLocaleString()} pages per PDF. `
+              + `It has been split into ${outputFileCount} numbered PDFs in ${status.output_filename}. Download the ZIP now?`
+            );
+            if (downloadParts) document.getElementById('btn-download').click();
+            else setStatus(`Michaels output is ready: ${outputPages.toLocaleString()} pages in ${outputFileCount} PDFs. Use Download ZIP when ready.`, 'info');
+          }
         } else {
           blobUrl = downloadBlobUrl;
           setDownloadReady(true, blobUrl);

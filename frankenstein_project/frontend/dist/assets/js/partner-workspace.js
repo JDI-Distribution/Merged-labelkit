@@ -43,6 +43,10 @@
       return;
     }
     partnerReviewStage = stageId;
+    if (stageId === 'palletLabels') {
+      openMplPalletLabels(partnerMplDraft);
+      return;
+    }
     renderPartnerWorkspace();
   }
 
@@ -341,6 +345,8 @@
         },
         source_quantity: item?.quantity_ordered ?? '',
         match_status: item?.match_status || 'unmatched',
+        match_reason_code: item?.match_reason_code || '',
+        match_reason: item?.match_reason || '',
         line_index: index,
       };
     };
@@ -405,7 +411,7 @@
     const select = document.getElementById('partner-order-instance-select');
     if (!picker || !select) return;
     picker.dataset.salesOrderNumber = orderNumber;
-    select.innerHTML = (instances || []).map(instance => `<option value="${escapeHtml(instance.ecomdash_id || '')}">${escapeHtml(`${instance.ecomdash_id || 'No ID'} · ${instance.email_id || instance.storefront || instance.billing_customer_name || 'Unknown customer'} · ${instance.invoice_date || 'No date'} · ${instance.sku_count || 0} SKU(s)`)}</option>`).join('');
+    select.innerHTML = (instances || []).map(instance => `<option value="${escapeHtml(instance.ecomdash_id || '')}">${escapeHtml(orderInstanceOptionLabel(instance))}</option>`).join('');
     picker.classList.remove('hidden');
   }
 
@@ -452,9 +458,9 @@
       partnerCustomerOverride = '';
       partnerResolvedOrderContext = resolveOrderContext(payload, { customer: partnerCustomerLabel(customerId) });
       partnerLabelJobs = buildPartnerLabelJobs(payload, customerId);
-      resetPartnerReviewState();
       updateWorkflowProgress('Calculating cartons', 'Calculating label quantities and pallet details…');
       partnerMplDraft = buildPartnerMplDraft(payload, customerId);
+      resetPartnerReviewState();
       activeKeheDocumentType = 'masterPackingList';
       activeKeheDocumentDraft = partnerMplDraft;
       revokePartnerPreviewUrls();
@@ -787,7 +793,20 @@
       ['Destination', destination, context.shipTo?.address ? 'ready' : 'review'],
       ['Documents', `${partnerLabelJobs.length} label job(s) + packing list`, 'ready'],
     ];
-    container.innerHTML = cards.map(([label, value, state]) => `<div class="partner-resolution-item ${state}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+    const matrixRows = PARTNER_REVIEW_STAGES.map(stage => {
+      const jobs = partnerJobsForStage(stage.id);
+      const reviewState = partnerReviewState[stage.id] || 'needs_review';
+      const generated = stage.kind === 'masterPackingList'
+        ? !!partnerMplPreviewUrl && !partnerPreviewIsStale('masterPackingList')
+        : !!partnerLabelPreviewUrl(stage.kind) && !partnerPreviewIsStale(stage.kind);
+      const status = !jobs.length ? 'Not applicable' : generated ? 'PDF ready' : reviewState === 'reviewed' ? 'Reviewed' : 'Needs review';
+      const detail = stage.id === 'packingListTihi'
+        ? `${partnerMplDraft?.packing_lists?.[0]?.items?.length || 0} line(s) · ${partnerMplDraft?.packing_lists?.[0]?.total_pallets || 1} pallet(s)`
+        : `${jobs.length} configured output${jobs.length === 1 ? '' : 's'}`;
+      const dependency = stage.id === 'palletLabels' ? 'Uses the reviewed MPL pallet assignments' : '';
+      return `<div class="packaging-status-row ${!jobs.length ? 'muted' : generated || reviewState === 'reviewed' ? 'ready' : 'review'}"><div><strong>${escapeHtml(stage.label)}</strong><small>${escapeHtml(dependency || detail)}</small></div><span>${escapeHtml(detail)}</span><span class="packaging-status-state">${escapeHtml(status)}</span></div>`;
+    }).join('');
+    container.innerHTML = `<div class="partner-resolution-cards">${cards.map(([label, value, state]) => `<div class="partner-resolution-item ${state}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div><section class="packaging-status-matrix partner-status-matrix"><header><strong>Document status</strong><small>Every document uses the same resolved order, product, address, and pallet state.</small></header>${matrixRows}</section>`;
   }
 
   function renderPartnerWorkspace() {
@@ -841,6 +860,7 @@
     partnerResolvedOrderContext = resolveOrderContext(partnerOrderPayload, { customer: partnerCustomerLabel(customerId) });
     partnerLabelJobs = buildPartnerLabelJobs(partnerOrderPayload, customerId);
     partnerMplDraft = buildPartnerMplDraft(partnerOrderPayload, customerId);
+    resetPartnerReviewState();
     activeKeheDocumentType = 'masterPackingList';
     activeKeheDocumentDraft = partnerMplDraft;
     revokePartnerPreviewUrls();

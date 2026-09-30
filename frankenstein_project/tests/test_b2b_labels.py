@@ -1,12 +1,14 @@
 import asyncio
+import io
 import json
 import unittest
+import zipfile
 from pathlib import Path
 
 import pymupdf as fitz
 
 from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job
-from server import _render_b2b_batch_pdf, render_b2b_label_batch
+from server import _render_b2b_batch_pdf, _render_b2b_batch_zip, render_b2b_label_batch, render_b2b_label_batch_archive
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -145,6 +147,70 @@ class B2BLabelRendererTests(unittest.TestCase):
         job["run"].update({"carton_start": "4", "carton_end": "3", "carton_total": "3"})
         with self.assertRaisesRegex(ValueError, "Carton range"):
             render_b2b_label_pdf(job, template)
+
+    def test_render_rejects_page_counts_over_the_limit_before_rendering(self):
+        template = self.templates[0]
+        job = self._job(template)
+        job["run"].update({"carton_start": "1", "carton_end": "1001", "carton_total": "1001", "copies": "1"})
+
+        with self.assertRaisesRegex(ValueError, "cannot exceed 1000 pages"):
+            render_b2b_label_pdf(job, template)
+
+        job["run"].update({"carton_end": "1", "carton_total": "1", "copies": "1e999"})
+        with self.assertRaisesRegex(ValueError, "Copies must be a finite positive whole number"):
+            render_b2b_label_pdf(job, template)
+
+    def test_batch_enforces_one_aggregate_page_limit(self):
+        template = self.templates[0]
+        job = self._job(template)
+        job["run"].update({"carton_start": "1", "carton_end": "501", "carton_total": "501", "copies": "1"})
+
+        with self.assertRaisesRegex(ValueError, "cannot exceed 499 pages"):
+            _render_b2b_batch_pdf([job, job])
+
+    def test_large_batch_archive_splits_into_numbered_pdfs_at_page_limit(self):
+        template = self.templates[0]
+        job = self._job(template)
+        job["run"].update({"carton_start": "1", "carton_end": "1001", "carton_total": "1001", "copies": "1"})
+
+        archive_bytes, pages, parts, _warnings = _render_b2b_batch_zip([job], "SO-100_case_labels")
+
+        self.assertEqual(1001, pages)
+        self.assertEqual(2, parts)
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            self.assertEqual(["SO-100_case_labels_part_001.pdf", "SO-100_case_labels_part_002.pdf"], archive.namelist())
+            with fitz.open(stream=archive.read(archive.namelist()[0]), filetype="pdf") as first:
+                self.assertEqual(1000, first.page_count)
+            with fitz.open(stream=archive.read(archive.namelist()[1]), filetype="pdf") as second:
+                self.assertEqual(1, second.page_count)
+
+    def test_archive_endpoint_refuses_runs_that_fit_one_pdf(self):
+        template = self.templates[0]
+        job = self._job(template)
+        job["run"].update({"carton_start": "1", "carton_end": "1", "carton_total": "1", "copies": "1"})
+
+        from fastapi import HTTPException
+        from unittest.mock import patch
+
+        with patch("server._require_permission"):
+            with self.assertRaisesRegex(HTTPException, "fits in one PDF"):
+                asyncio.run(render_b2b_label_batch_archive(object(), {"jobs": [job], "order_number": "SO-1"}))
+
+    def test_archive_endpoint_returns_zip_and_split_metadata(self):
+        template = self.templates[0]
+        job = self._job(template)
+        job["run"].update({"carton_start": "1", "carton_end": "1001", "carton_total": "1001", "copies": "1"})
+
+        from unittest.mock import patch
+
+        with patch("server._require_permission"):
+            response = asyncio.run(render_b2b_label_batch_archive(object(), {"jobs": [job], "order_number": "SO-1"}))
+
+        self.assertEqual("application/zip", response.media_type)
+        self.assertEqual("1001", response.headers["X-B2B-Page-Count"])
+        self.assertEqual("2", response.headers["X-B2B-Part-Count"])
+        with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+            self.assertEqual(2, len(archive.namelist()))
 
     def test_quantity_uses_case_qty_text(self):
         template = next(t for t in self.templates if t["template_id"] == "DECOPAC_CASE_4X6")

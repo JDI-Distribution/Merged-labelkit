@@ -28,10 +28,10 @@ FastAPI routes in server.py
 ```
 
 - The frontend is a bundled HTML/CSS/JavaScript application served by FastAPI; there is no separate frontend build server.
-- Frontend features are split into `reference-data.js`, `mpl-tihi.js`, `b2b-workspace.js`, `partner-workspace.js`, and `document-editor.js`. They are loaded as classic scripts to preserve the established global HTML handlers while keeping implementation ownership separate.
+- Frontend features are split into `reference-data.js`, `mpl-tihi.js`, `b2b-order-jobs.js`, `b2b-workspace.js`, `partner-workspace.js`, and `document-editor.js`. They are loaded as classic scripts to preserve the established global HTML handlers while keeping implementation ownership separate.
 - Frontend styles retain their original cascade order but are separated into core, operations, document-editor, preview, B2B, responsive, and module-theme files. All five modules use the same responsive component language; customer colors remain token-driven accents rather than separate layouts.
 - Product Master and Customer Directory are global header actions beside the signed-in user controls. They are available from every workflow without duplicating maintenance cards inside each module.
-- Product Master stores one shared product configuration (customer, Product Group ID, display SKU/incoming UOM, description, customer item number, each/product/packaged weights, final dimensions, and verification status) plus level records for Each, optional Inner Pack, and optional Case. Each level owns only its SKU, GTIN, barcode encoding, contained quantity, and label settings. The outermost configured level supplies packing-list weight and dimensions automatically.
+- Product Master stores one shared identity (customer, Product SKU, product name, customer item number, and verification status) plus level records for required Each and optional Inner Pack and Case. Product name and customer item number are entered once and shared by every level. Each level owns its exact incoming Level SKU, GTIN, contained quantity, dimensions, barcode encoding, and label settings. Each weight is stored on the Each level; the outermost configured level supplies packaged weight and packing-list dimensions. Product SKU groups the hierarchy, while the exact Level SKU determines whether an order quantity represents Each, Inner Pack, or Case.
 - Customer Directory stores one reusable address per record with one or more Ship From, Ship To, and Bill To roles. Matching values, an optional default label template, verification status, and active state remain on that address. Legacy three-address rows are accepted at the API/import boundary and normalized for current workflows.
 - PDF.js 3.11.174 is pinned under `frontend/dist/assets/vendor/` so PDF previews do not depend on a public CDN at runtime.
 - Backend upload/PDF file operations live in `labelkit/file_operations.py`, reference-data normalization lives in `labelkit/reference_data.py`, and reusable Analytics order matching/conversion lives in `labelkit/order_intake.py`.
@@ -40,7 +40,7 @@ FastAPI routes in server.py
 - Local master data is stored under `frankenstein_project/data/`. Catalyst uses the configured Data Store tables and does not fall back to bundled JSON in strict cloud mode.
 - Generated PDFs are prepared by the module-specific Python pipelines, exposed through the shared result endpoints, and previewed/downloaded by the browser. The B2B editable canvas mirrors the selected renderer, while Section 4 remains the authoritative production-PDF proof.
 - Packing List and B2B order lookup use the field label `Sales Order Number`. Catalyst reads the Zoho Analytics order view through the `orderdata` connection.
-- Missing Product Master data produces one short review warning instead of blocking output. Packing lists use the order SKU as Item Number, carry the order Product Name into Item Description, and use order-provided weight fields when present. Lines without safe case dimensions or case-pack data remain excluded from TI-HI.
+- Missing Product Master data produces one short review warning instead of blocking output. Non-KeHE packing lists use the shared customer item number when it is available, then fall back to verified GTIN/SKU order data; KeHE retains its required Each-GTIN Item Number behavior. Product Name feeds the item description, and order-provided weight fields remain available as fallbacks. Lines without safe outer-level dimensions or package quantities remain excluded from TI-HI.
 - `data/customer_workflows.json` is the single customer registry for DecoPac, Dutch Bros, and Fancy. It drives the browser selector, Email aliases, packing-list template, and supported label-template IDs so the frontend and backend do not maintain separate customer lists.
 - B2B and Packing List order lookups share the same sales-order validation, reused-order selection, and Zoho/local source metadata helpers.
 
@@ -407,7 +407,7 @@ exact release; `latest` is refreshed to point to the same image:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.09.21-master-data-workflows"
+$release = "2026.09.30-product-hierarchy"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 ```
 
@@ -476,7 +476,7 @@ Deploy from repo root:
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
 catalyst project:use 27327000000040032
-$release = "2026.09.21-master-data-workflows"
+$release = "2026.09.30-product-hierarchy"
 docker build --pull --build-arg APP_VERSION=$release -t "merged-labelkit:$release" -t merged-labelkit:latest .
 catalyst deploy appsail --name merged-labelkit --source docker://merged-labelkit:latest --port 9000
 ```
@@ -653,6 +653,12 @@ python -m unittest discover -s tests -v
 Set-Location ".."
 ```
 
+B2B order-job conversion regression:
+
+```powershell
+node ".\frankenstein_project\tests\test_b2b_order_jobs.cjs"
+```
+
 Read-only local deployment smoke test:
 
 ```powershell
@@ -822,6 +828,7 @@ Tracked app source:
     |           |   `-- workflow-enhancements.css
     |           |-- js
     |           |   |-- app.js
+    |           |   |-- b2b-order-jobs.js
     |           |   |-- b2b-workspace.js
     |           |   |-- document-editor.js
     |           |   |-- mpl-draft-sync.js
@@ -848,6 +855,7 @@ Tracked app source:
     |   `-- security.py
     |-- tests
     |   |-- test_b2b_labels.py
+    |   |-- test_b2b_order_jobs.cjs
     |   |-- test_customer_workflows.py
     |   |-- test_kehe_gs1_label.py
     |   |-- test_michaels_output_order.py

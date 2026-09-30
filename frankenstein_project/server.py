@@ -29,8 +29,9 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import pymupdf as fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -57,7 +58,7 @@ from pipelines.kehe_pipeline import (  # noqa: E402
     render_kehe_pack_label_pdf,
     load_kehe_dc_directory,
 )
-from pipelines.b2b_labels import render_b2b_label_pdf  # noqa: E402
+from pipelines.b2b_labels import MAX_B2B_RENDER_PAGES, b2b_job_page_plan, render_b2b_label_pdf  # noqa: E402
 from labelkit.customer_workflows import load_customer_workflows  # noqa: E402
 from labelkit.draft_storage import (  # noqa: E402
     bounded_versions,
@@ -66,11 +67,13 @@ from labelkit.draft_storage import (  # noqa: E402
     normalize_document_type as normalize_draft_document_type,
 )
 from labelkit.file_operations import (  # noqa: E402
+    MAX_MICHAELS_OUTPUT_PAGES,
     MAX_UPLOAD_BYTES,
     combine_shipping_pdfs,
     normalize_kit,
     sanitize_filename,
     save_upload_file,
+    split_michaels_output_by_page_limit,
     split_michaels_output_by_shipping_pdf,
     unique_upload_destination,
 )
@@ -105,6 +108,7 @@ from labelkit.order_intake import (  # noqa: E402
     _b2b_analytics_order_items_for_products,
     _canonical_order_number,
     _canonical_order_sku,
+    _partner_customer_id_from_order,
     _partner_customer_id_from_text,
     _product_each_gtin,
     _select_analytics_order_instance,
@@ -126,6 +130,7 @@ APP_ID = "merged-labelkit"
 MAX_CACHED_REPORTS = 25
 RESULT_REPORTS: Dict[str, Dict[str, Any]] = {}
 RESULT_JOBS: Dict[str, Dict[str, Any]] = {}
+RESULT_JOBS_LOCK = threading.RLock()
 LOGGER = logging.getLogger("labelkit")
 
 
@@ -498,34 +503,47 @@ def health() -> Dict[str, Any]:
 # BACKEND SECTION 3: shared job cache used by both kit workflows.
 # ---------------------------------------------------------------------------
 def _prune_old_results() -> None:
-    while len(RESULT_JOBS) > MAX_CACHED_REPORTS:
-        oldest_key = next(iter(RESULT_JOBS))
-        job = RESULT_JOBS.pop(oldest_key, None)
-        RESULT_REPORTS.pop(oldest_key, None)
-        if job and job.get("temp_dir"):
-            shutil.rmtree(job["temp_dir"], ignore_errors=True)
+    with RESULT_JOBS_LOCK:
+        while len(RESULT_JOBS) > MAX_CACHED_REPORTS:
+            evictable_key = next(
+                (
+                    result_id
+                    for result_id, job in RESULT_JOBS.items()
+                    if str(job.get("status") or "").lower() != "processing"
+                ),
+                None,
+            )
+            if evictable_key is None:
+                return
+            job = RESULT_JOBS.pop(evictable_key, None)
+            RESULT_REPORTS.pop(evictable_key, None)
+            if job and job.get("temp_dir"):
+                shutil.rmtree(job["temp_dir"], ignore_errors=True)
 
 
 def create_result_job(temp_dir: Path, kit: str, output_filename: Optional[str] = None) -> str:
     result_id = uuid.uuid4().hex
-    RESULT_JOBS[result_id] = {
-        "kit": kit,
-        "status": "processing",
-        "detail": "Files uploaded. Starting generation…",
-        "report": None,
-        "output_path": None,
-        "output_filename": output_filename,
-        "temp_dir": str(temp_dir),
-        "created_at": time.time(),
-    }
+    with RESULT_JOBS_LOCK:
+        RESULT_JOBS[result_id] = {
+            "kit": kit,
+            "status": "processing",
+            "detail": "Files uploaded. Starting generation…",
+            "report": None,
+            "output_path": None,
+            "output_filename": output_filename,
+            "temp_dir": str(temp_dir),
+            "created_at": time.time(),
+        }
     _prune_old_results()
     return result_id
 
 
 def update_result_job(result_id: str, **changes: Any) -> None:
-    job = RESULT_JOBS.get(result_id)
-    if job is not None:
-        job.update(changes)
+    with RESULT_JOBS_LOCK:
+        job = RESULT_JOBS.get(result_id)
+        if job is not None:
+            job.update(changes)
+    _prune_old_results()
 
 
 # ---------------------------------------------------------------------------
@@ -564,12 +582,18 @@ def run_michaels_generation_job(
 
         if not output_path.exists():
             raise RuntimeError("Output PDF was not generated.")
+        rendered_pdf = fitz.open(output_path)
+        try:
+            output_page_count = rendered_pdf.page_count
+        finally:
+            rendered_pdf.close()
 
         download_path = output_path
         download_filename = KIT_CONFIG["michaels"]["output_filename"]
         download_media_type = "application/pdf"
         separate_output_names = [download_filename]
         preview_path = output_path
+        page_limited_split = False
         if len(pdf_paths) > 1:
             (
                 download_path,
@@ -584,7 +608,22 @@ def run_michaels_generation_job(
             )
             download_filename = "michaels_separate_outputs.zip"
             download_media_type = "application/zip"
+            page_limited_split = len(separate_output_names) > len(pdf_paths)
+        elif output_page_count > MAX_MICHAELS_OUTPUT_PAGES:
+            download_path, separate_output_names = split_michaels_output_by_page_limit(
+                    combined_output_path=output_path,
+                    report=report,
+                    temp_dir=temp_dir,
+                    base_filename=Path(download_filename).stem,
+            )
+            download_filename = "michaels_output_parts.zip"
+            download_media_type = "application/zip"
+            page_limited_split = True
 
+        report.setdefault("summary", {})["output_pages"] = output_page_count
+        report["summary"]["page_limit_per_file"] = MAX_MICHAELS_OUTPUT_PAGES
+        report["summary"]["page_limited_split"] = page_limited_split
+        report.setdefault("summary", {})["separate_output_files"] = len(separate_output_names)
         report.setdefault("summary", {})["output_files"] = len(separate_output_names)
         report["output_files"] = separate_output_names
 
@@ -592,7 +631,11 @@ def run_michaels_generation_job(
         update_result_job(
             result_id,
             status="complete",
-            detail="Michaels labels generated successfully.",
+            detail=(
+                f"Michaels generated {output_page_count} output pages in {len(separate_output_names)} files."
+                if page_limited_split
+                else "Michaels labels generated successfully."
+            ),
             report=report,
             output_path=str(download_path),
             output_filename=download_filename,
@@ -785,6 +828,18 @@ def _role_from_catalyst(role_name: str = "", role_id: str = "") -> str:
 
 
 def _request_user_from_headers(request: Request) -> Dict[str, Any]:
+    if AUTH_REQUIRED:
+        return {
+            "authenticated": False,
+            "name": "",
+            "email": "",
+            "user_id": "",
+            "role": "User",
+            "role_name": "User",
+            "role_id": "",
+            "source": "unauthenticated",
+        }
+
     headers = request.headers
     role_name = (
         headers.get("x-zc-user-role")
@@ -1510,17 +1565,18 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     if not analytics_rows:
         raise HTTPException(status_code=404, detail=f"No rows were found for Sales Order Number '{sales_order_number}'.")
 
+    product_rows = _datastore_load_product_master(request)
+    if product_rows is None:
+        product_rows = _shared_product_master_file_read()
+
     analytics_rows, selected_ecomdash_id, selection = _select_analytics_order_instance(
         analytics_rows,
         requested_ecomdash_id,
         sales_order_number,
+        product_rows,
     )
     if selection is not None:
         return JSONResponse(content=selection)
-
-    product_rows = _datastore_load_product_master(request)
-    if product_rows is None:
-        product_rows = _shared_product_master_file_read()
 
     order_details = _analytics_order_details(analytics_rows)
     try:
@@ -1537,7 +1593,7 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     return JSONResponse(content={
         "sales_order_number": sales_order_number,
         "order_details": order_details,
-        "detected_partner_customer": _partner_customer_id_from_text(order_details.get("email_id")),
+        "detected_partner_customer": _partner_customer_id_from_order(order_details, items),
         "source": _analytics_source_metadata(ecomdash_id=selected_ecomdash_id),
         "summary": summary,
         "items": items,
@@ -1558,7 +1614,7 @@ async def render_b2b_labels(request: Request, payload: Dict[str, Any]) -> Respon
     if template is None:
         raise HTTPException(status_code=400, detail="Select a supported B2B label template.")
     try:
-        result = render_b2b_label_pdf(payload, template)
+        result = render_b2b_label_pdf(payload, template, max_pages=MAX_B2B_RENDER_PAGES)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1607,7 +1663,7 @@ def _render_b2b_batch_pdf(jobs: List[Dict[str, Any]]) -> tuple[bytes, int, List[
             template = _find_b2b_label_template(raw_job.get("template_id"))
             if template is None:
                 raise ValueError(f"Label line {index} does not use a supported template.")
-            result = render_b2b_label_pdf(raw_job, template)
+            result = render_b2b_label_pdf(raw_job, template, max_pages=MAX_B2B_RENDER_PAGES - pages)
             source = fitz.open(stream=result["pdf_bytes"], filetype="pdf")
             try:
                 output.insert_pdf(source)
@@ -1621,6 +1677,112 @@ def _render_b2b_batch_pdf(jobs: List[Dict[str, Any]]) -> tuple[bytes, int, List[
         return output.tobytes(garbage=3, deflate=True), pages, warnings
     finally:
         output.close()
+
+
+def _render_b2b_batch_zip(jobs: List[Dict[str, Any]], base_filename: str = "b2b_order_labels") -> tuple[bytes, int, int, List[str]]:
+    """Render large order batches into ordered PDF parts, each within the page limit."""
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("At least one label job is required.")
+    if len(jobs) > 100:
+        raise ValueError("A label run can contain no more than 100 line items.")
+
+    requested_pages = 0
+    for index, raw_job in enumerate(jobs, start=1):
+        if not isinstance(raw_job, dict) or not raw_job.get("print_selected", True):
+            continue
+        template = _find_b2b_label_template(raw_job.get("template_id"))
+        if template is None:
+            raise ValueError(f"Label line {index} does not use a supported template.")
+        requested_pages += b2b_job_page_plan(raw_job, template)["pages"]
+    if requested_pages <= MAX_B2B_RENDER_PAGES:
+        raise ValueError("This run fits in one PDF. Use the standard PDF render endpoint.")
+
+    output_buffer = io.BytesIO()
+    warnings: List[str] = []
+    total_pages = 0
+    part_count = 0
+    part_document = fitz.open()
+
+    def write_part(archive: zipfile.ZipFile) -> None:
+        nonlocal part_document, part_count
+        if part_document.page_count < 1:
+            return
+        part_count += 1
+        part_name = f"{base_filename}_part_{part_count:03d}.pdf"
+        archive.writestr(part_name, part_document.tobytes(garbage=3, deflate=True))
+        part_document.close()
+        part_document = fitz.open()
+
+    try:
+        with zipfile.ZipFile(output_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for index, raw_job in enumerate(jobs, start=1):
+                if not isinstance(raw_job, dict) or not raw_job.get("print_selected", True):
+                    continue
+                template = _find_b2b_label_template(raw_job.get("template_id"))
+                if template is None:
+                    raise ValueError(f"Label line {index} does not use a supported template.")
+                plan = b2b_job_page_plan(raw_job, template)
+                carton_start = plan["carton_start"]
+                carton_end = plan["carton_end"]
+                copies = plan["copies"]
+                run = raw_job.get("run") if isinstance(raw_job.get("run"), dict) else {}
+                label = str(raw_job.get("product", {}).get("sku") or f"line {index}").strip()
+                for carton in range(carton_start, carton_end + 1):
+                    remaining_copies = copies
+                    while remaining_copies:
+                        room = MAX_B2B_RENDER_PAGES - part_document.page_count
+                        copies_this_render = min(remaining_copies, room)
+                        chunk_job = dict(raw_job)
+                        chunk_job["run"] = {
+                            **run,
+                            "carton_start": str(carton),
+                            "carton_end": str(carton),
+                            "copies": str(copies_this_render),
+                        }
+                        result = render_b2b_label_pdf(
+                            chunk_job,
+                            template,
+                            max_pages=MAX_B2B_RENDER_PAGES,
+                        )
+                        source = fitz.open(stream=result["pdf_bytes"], filetype="pdf")
+                        try:
+                            part_document.insert_pdf(source)
+                        finally:
+                            source.close()
+                        warnings.extend(f"{label}: {warning}" for warning in result.get("warnings") or [])
+                        rendered = int(result.get("pages") or 0)
+                        total_pages += rendered
+                        remaining_copies -= rendered
+                        if part_document.page_count == MAX_B2B_RENDER_PAGES:
+                            write_part(archive)
+            write_part(archive)
+            if total_pages < 1:
+                raise ValueError("Select at least one label line to print.")
+        return output_buffer.getvalue(), total_pages, part_count, warnings
+    finally:
+        part_document.close()
+
+
+@app.post("/api/b2b/render-batch-archive")
+async def render_b2b_label_batch_archive(request: Request, payload: Dict[str, Any]) -> Response:
+    """Render a large order as a ZIP of page-limited PDFs."""
+    _require_permission(request, "generate")
+    order_number = re.sub(r"[^A-Za-z0-9_-]+", "_", str(payload.get("order_number") or "order")).strip("_") or "order"
+    try:
+        archive_bytes, pages, parts, warnings = _render_b2b_batch_zip(
+            payload.get("jobs") or [],
+            f"{order_number}_case_labels",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    headers = {
+        "Content-Disposition": f'attachment; filename="{order_number}_case_labels.zip"',
+        "X-B2B-Page-Count": str(pages),
+        "X-B2B-Part-Count": str(parts),
+        "X-B2B-Warning-Count": str(len(warnings)),
+        "Access-Control-Expose-Headers": "X-B2B-Page-Count, X-B2B-Part-Count, X-B2B-Warning-Count",
+    }
+    return Response(content=archive_bytes, media_type="application/zip", headers=headers)
 
 
 @app.post("/api/partner/render-labels")
@@ -2204,10 +2366,17 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             detail=f"No rows were found for Sales Order Number '{sales_order_number}'.",
         )
 
+    product_rows = _datastore_load_product_master(request)
+    product_source = "datastore"
+    if product_rows is None:
+        product_rows = _shared_product_master_file_read()
+        product_source = "file"
+
     analytics_rows, selected_ecomdash_id, selection = _select_analytics_order_instance(
         analytics_rows,
         requested_ecomdash_id,
         sales_order_number,
+        product_rows,
     )
     if selection is not None:
         return JSONResponse(content=selection)
@@ -2244,11 +2413,6 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             ),
         )
 
-    product_rows = _datastore_load_product_master(request)
-    product_source = "datastore"
-    if product_rows is None:
-        product_rows = _shared_product_master_file_read()
-        product_source = "file"
     normalized_product_rows = _dedupe_product_master_rows(product_rows)
     eligible_products = [
         row
@@ -2295,19 +2459,14 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                 for row in exact_sku_rows
             }
             if len(exact_sku_levels) > 1:
-                incoming_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
-                exact_sku_row = next(
-                    (row for row in exact_sku_rows if normalize_packaging_level(row.get("packaging_level")) == incoming_uom),
-                    None,
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"SKU '{order_item.get('sku')}' is shared by multiple packaging levels; "
+                        "assign a distinct Level SKU to Each, Inner Pack, and Case so LabelKit can "
+                        f"identify the incoming quantity. Conflicting levels: {', '.join(sorted(exact_sku_levels))}."
+                    ),
                 )
-                if exact_sku_row is None:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            f"SKU '{order_item.get('sku')}' is shared by multiple packaging levels; "
-                            f"configure Incoming UOM as one of {', '.join(sorted(exact_sku_levels))}."
-                        ),
-                    )
             else:
                 exact_sku_row = exact_sku_rows[0] if exact_sku_rows else None
             if exact_sku_row is None:
@@ -2324,15 +2483,26 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                             f"but that packaging level is not configured in Product Master."
                         ),
                     )
+            matched_level = normalize_packaging_level(exact_sku_row.get("packaging_level"))
+            match_reason_code = "matched_level_sku" if _canonical_order_sku(exact_sku_row.get("sku")) == sku_key else "matched_display_sku"
+            match_reason = (
+                f"Matched the {matched_level} SKU in Product Master."
+                if match_reason_code == "matched_level_sku"
+                else f"Matched the alternate incoming SKU and interpreted it as {matched_level}."
+            )
         elif len(candidates) > 1:
             ambiguous_count += 1
             match_status = "ambiguous"
             product = None
             exact_sku_row = None
+            match_reason_code = "ambiguous_product_groups"
+            match_reason = "This SKU belongs to more than one Product Master configuration."
         else:
             match_status = "unmatched"
             product = None
             exact_sku_row = None
+            match_reason_code = "no_product_master_sku"
+            match_reason = "No active Product Master Level SKU matches this order line."
         converted_order_item = dict(order_item)
         try:
             matched_config_id = str((exact_sku_row or {}).get("config_id") or "").strip().lower()
@@ -2362,6 +2532,8 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
         items.append({
             **converted_order_item,
             "match_status": match_status,
+            "match_reason_code": match_reason_code,
+            "match_reason": match_reason,
             "product": product,
             "each_gtin": each_gtin,
             "candidate_storefronts": sorted({
@@ -2370,6 +2542,12 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                 for candidate in candidate_group
                 if str(candidate.get("storefront") or "").strip()
             }),
+            "candidate_config_ids": sorted({
+                str(candidate.get("config_id") or candidate.get("sku") or "").strip()
+                for candidate_group in candidates
+                for candidate in candidate_group
+                if str(candidate.get("config_id") or candidate.get("sku") or "").strip()
+            }),
         })
 
     order_details = _analytics_order_details(analytics_rows)
@@ -2377,7 +2555,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     return JSONResponse(content={
         "sales_order_number": sales_order_number,
         "order_details": order_details,
-        "detected_partner_customer": _partner_customer_id_from_text(order_details.get("email_id")),
+        "detected_partner_customer": _partner_customer_id_from_order(order_details, items),
         "source": _analytics_source_metadata(
             ecomdash_id=selected_ecomdash_id,
             product_master=product_source,
@@ -2497,6 +2675,7 @@ def _canonical_import_key(header: str, table: str) -> str:
         "inner_packs_per_case": "inner_packs_per_case",
         "inners_per_case": "inner_packs_per_case",
         "config_id": "config_id",
+        "product_sku": "config_id",
         "product_group_id": "config_id",
         "configuration_id": "config_id",
         "internal_configuration_id": "config_id",
@@ -2508,11 +2687,14 @@ def _canonical_import_key(header: str, table: str) -> str:
         "barcode_encoding": "barcode_type",
         "barcode_level": "barcode_level",
         "length_in": "length_in",
+        "level_length_in": "length_in",
         "width_in": "width_in",
+        "level_width_in": "width_in",
         "width_breadth_in": "width_in",
         "breadth_in": "width_in",
         "breadth": "width_in",
         "height_in": "height_in",
+        "level_height_in": "height_in",
         "final_length_in": "length_in",
         "final_width_in": "width_in",
         "final_width_breadth_in": "width_in",
@@ -3611,15 +3793,16 @@ async def generate_for_kit(
 # BACKEND SECTION 6B: KeHE document prepare endpoints (draft JSON only).
 # These parse XML and return editable JSON. They do NOT generate PDFs.
 # ---------------------------------------------------------------------------
-@app.post("/prepare/kehe/pallet-label")
-async def prepare_kehe_pallet_label(
-    request: Request,
-    xml_files: List[UploadFile] = File(...),
+async def _with_kehe_prepare_xml_files(
+    xml_files: List[UploadFile],
+    *,
+    temp_prefix: str,
+    error_message: str,
+    operation: Callable[[List[str]], Dict[str, Any]],
 ) -> JSONResponse:
-    _require_permission(request, "generate")
     if not xml_files:
         raise HTTPException(status_code=400, detail="At least one XML file is required.")
-    temp_dir = Path(tempfile.mkdtemp(prefix="kehe_pallet_prepare_"))
+    temp_dir = Path(tempfile.mkdtemp(prefix=temp_prefix))
     try:
         xml_paths: List[str] = []
         for upload in xml_files:
@@ -3628,37 +3811,51 @@ async def prepare_kehe_pallet_label(
             out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
             await save_upload_file(upload, out_path)
             xml_paths.append(str(out_path))
-        _sync_kehe_dc_directory_for_pipeline(request)
-        draft = build_kehe_pallet_label_draft(xml_paths)
-        # Attach extracted_headers for the frontend Extracted Data table
-        draft["extracted_headers"] = [
-            {
-                "source_file":             p.get("id", ""),
-                "customer_po_numbers":     p.get("customer_po_numbers", ""),
-                "pro_number":              p.get("pro_number", ""),
-                "bol_number":              p.get("bol_number", ""),
-                "ship_date":               p.get("date", ""),
-                "expected_delivery_date":  p.get("expected_delivery_date", ""),
-                "carrier":                 p.get("carrier", ""),
-                "total_weight":            "",
-                "carton_count":            p.get("carton_count", ""),
-                "total_pallets":           p.get("total_pallets", ""),
-                "ship_via":                p.get("carrier", ""),
-                "dc":                      p.get("dc", ""),
-                "ship_to_name":            (p.get("ship_to") or "").split("\n")[0],
-            }
-            for p in (draft.get("pallets") or [])
-        ]
-        return JSONResponse(content=draft)
+        return JSONResponse(content=operation(xml_paths))
     except HTTPException:
         raise
     except Exception as exc:
-        print(f"DEBUG prepare_kehe_pallet_label error: {exc}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error preparing pallet label draft: {str(exc)}")
+        LOGGER.exception("%s", error_message)
+        raise HTTPException(status_code=500, detail=f"{error_message}: {str(exc)}") from exc
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.post("/prepare/kehe/pallet-label")
+async def prepare_kehe_pallet_label(
+    request: Request,
+    xml_files: List[UploadFile] = File(...),
+) -> JSONResponse:
+    _require_permission(request, "generate")
+    def build_draft(xml_paths: List[str]) -> Dict[str, Any]:
+        _sync_kehe_dc_directory_for_pipeline(request)
+        draft = build_kehe_pallet_label_draft(xml_paths)
+        draft["extracted_headers"] = [
+            {
+                "source_file": pallet.get("id", ""),
+                "customer_po_numbers": pallet.get("customer_po_numbers", ""),
+                "pro_number": pallet.get("pro_number", ""),
+                "bol_number": pallet.get("bol_number", ""),
+                "ship_date": pallet.get("date", ""),
+                "expected_delivery_date": pallet.get("expected_delivery_date", ""),
+                "carrier": pallet.get("carrier", ""),
+                "total_weight": "",
+                "carton_count": pallet.get("carton_count", ""),
+                "total_pallets": pallet.get("total_pallets", ""),
+                "ship_via": pallet.get("carrier", ""),
+                "dc": pallet.get("dc", ""),
+                "ship_to_name": (pallet.get("ship_to") or "").split("\n")[0],
+            }
+            for pallet in (draft.get("pallets") or [])
+        ]
+        return draft
+
+    return await _with_kehe_prepare_xml_files(
+        xml_files,
+        temp_prefix="kehe_pallet_prepare_",
+        error_message="Error preparing pallet label draft",
+        operation=build_draft,
+    )
 
 
 @app.post("/prepare/kehe/master-packing-list")
@@ -3668,17 +3865,8 @@ async def prepare_kehe_master_packing_list(
     product_master_json: Optional[str] = Form(default="[]"),
 ) -> JSONResponse:
     _require_permission(request, "generate")
-    if not xml_files:
-        raise HTTPException(status_code=400, detail="At least one XML file is required.")
-    temp_dir = Path(tempfile.mkdtemp(prefix="kehe_mpl_prepare_"))
-    try:
-        xml_paths: List[str] = []
-        for upload in xml_files:
-            if not (upload.filename or "").lower().endswith(".xml"):
-                raise HTTPException(status_code=400, detail=f"Invalid XML file: {upload.filename}")
-            out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
-            await save_upload_file(upload, out_path)
-            xml_paths.append(str(out_path))
+
+    def build_draft(xml_paths: List[str]) -> Dict[str, Any]:
         product_master_rows = parse_product_master_json(product_master_json)
         if not product_master_rows:
             product_master_rows = _datastore_load_product_master(request)
@@ -3708,16 +3896,14 @@ async def prepare_kehe_master_packing_list(
             }
             for m in (draft.get("packing_lists") or [])
         ]
-        return JSONResponse(content=draft)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        print(f"DEBUG prepare_kehe_master_packing_list error: {exc}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error preparing master packing list draft: {str(exc)}")
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        return draft
+
+    return await _with_kehe_prepare_xml_files(
+        xml_files,
+        temp_prefix="kehe_mpl_prepare_",
+        error_message="Error preparing master packing list draft",
+        operation=build_draft,
+    )
 
 
 @app.post("/prepare/kehe/pack-labels")
@@ -3727,18 +3913,8 @@ async def prepare_kehe_pack_labels(
     product_master_json: Optional[str] = Form(default="[]"),
 ) -> JSONResponse:
     _require_permission(request, "generate")
-    if not xml_files:
-        raise HTTPException(status_code=400, detail="At least one XML file is required.")
-    temp_dir = Path(tempfile.mkdtemp(prefix="kehe_pack_labels_prepare_"))
-    try:
-        xml_paths: List[str] = []
-        for upload in xml_files:
-            if not (upload.filename or "").lower().endswith(".xml"):
-                raise HTTPException(status_code=400, detail=f"Invalid XML file: {upload.filename}")
-            out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
-            await save_upload_file(upload, out_path)
-            xml_paths.append(str(out_path))
 
+    def build_draft(xml_paths: List[str]) -> Dict[str, Any]:
         product_master_rows = parse_product_master_json(product_master_json)
         if not product_master_rows:
             product_master_rows = _datastore_load_product_master(request)
@@ -3748,17 +3924,14 @@ async def prepare_kehe_pack_labels(
         else:
             product_master_rows = _kehe_product_master_rows(product_master_rows)
         _sync_kehe_dc_directory_for_pipeline(request)
-        draft = build_kehe_pack_label_draft(xml_paths, product_master_rows=product_master_rows)
-        return JSONResponse(content=draft)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        print(f"DEBUG prepare_kehe_pack_labels error: {exc}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error preparing pack label draft: {str(exc)}")
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        return build_kehe_pack_label_draft(xml_paths, product_master_rows=product_master_rows)
+
+    return await _with_kehe_prepare_xml_files(
+        xml_files,
+        temp_prefix="kehe_pack_labels_prepare_",
+        error_message="Error preparing pack label draft",
+        operation=build_draft,
+    )
 
 
 # ---------------------------------------------------------------------------

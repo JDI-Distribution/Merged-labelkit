@@ -36,7 +36,7 @@ from .tihi import _render_mpl_tihi_pages
 
 
 def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> List[str]:
-    """Return MPL rows that still have no visible Item Number.
+    """Add warnings for MPL rows that still have no visible Item Number.
 
     Missing Product Master data is advisory for MPL rendering. The enrichment
     pass marks affected lists as Needs Review and preserves the order SKU as a
@@ -45,6 +45,7 @@ def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> List[str]:
     """
     missing: List[str] = []
     for mpl in draft.get("packing_lists") or []:
+        mpl_missing: List[str] = []
         for item in mpl.get("items") or []:
             has_identity = any(
                 _mpl_clean(item.get(key))
@@ -61,6 +62,13 @@ def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> List[str]:
             )
             if identity not in missing:
                 missing.append(identity)
+            if identity not in mpl_missing:
+                mpl_missing.append(identity)
+        if mpl_missing:
+            warnings = mpl.setdefault("warnings", [])
+            message = f"Item Number is missing for: {', '.join(mpl_missing)}."
+            if message not in warnings:
+                warnings.append(message)
     return missing
 
 

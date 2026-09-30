@@ -209,6 +209,27 @@
         </div>`).join('')}`;
   }
 
+  function openMplPalletLabels(draft = null) {
+    const sourceDraft = Array.isArray(draft?.packing_lists)
+      ? draft
+      : (draft && !Array.isArray(draft?.pallets) ? { packing_lists: [draft] } : keheLastMplDraft);
+    if (!sourceDraft?.packing_lists?.length) {
+      setStatus('Open or create a packing list before reviewing pallet labels.', 'info');
+      return;
+    }
+    sourceDraft.packing_lists.forEach(mpl => ensureMplPalletState(mpl));
+    const palletDraft = buildPalletLabelDraftFromMplDraft(sourceDraft);
+    palletDraft.table_preview = false;
+    keheLastMplDraft = sourceDraft;
+    keheLastPalletLabelDraft = palletDraft;
+    keheMplPalletizationSource = sourceDraft.packing_lists[0]?.palletization_source || keheMplPalletizationSource || 'MPL';
+    kehePalletLabelSource = palletDraft.palletization_source || 'MPL';
+    activeKeheDocumentType = 'palletLabel';
+    activeKeheDocumentDraft = palletDraft;
+    renderDocumentEditor('palletLabel', palletDraft);
+    openDocumentEditor();
+  }
+
   function renderMplInfoCell(path, label, value, placeholder = '') {
     return `
       <div class="mpl-info-cell">
@@ -361,7 +382,7 @@
           <table class="mpl-pdf-table">
             <thead>
               <tr>
-                ${configurable ? columns.map((column, columnIndex) => renderMplEditableColumnHeader(mplIndex, column, columnIndex)).join('') : `<th>Item Number</th>
+                ${configurable ? columns.map(column => renderMplEditableColumnHeader(mplIndex, column)).join('') : `<th>Item Number</th>
                 <th>Pallet Weight &amp;<br>Item Description</th>
                 <th>UOM</th>
                 <th>Qty On<br>Pallet</th>
@@ -497,13 +518,13 @@
       visible: column.visible !== false,
       custom: true,
     }));
-    const orderedKeys = saved.map(column => String(column?.key || '')).filter(Boolean);
-    const all = [...defaults, ...custom];
-    all.sort((left, right) => {
-      const leftIndex = orderedKeys.indexOf(left.key);
-      const rightIndex = orderedKeys.indexOf(right.key);
-      return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
-    });
+    const byKey = new Map([...defaults, ...custom].map(column => [column.key, column]));
+    const orderedKeys = [...new Set([
+      ...saved.map(column => String(column?.key || '')).filter(key => byKey.has(key)),
+      ...defaults.map(column => column.key),
+      ...custom.map(column => column.key),
+    ])];
+    const all = orderedKeys.map(key => byKey.get(key)).filter(Boolean);
     mpl.column_config = all;
     return all;
   }
@@ -516,11 +537,13 @@
     return item[column.key] || '';
   }
 
-  function renderMplEditableColumnHeader(mplIndex, column, columnIndex) {
-    return `<th class="mpl-editable-column-head">
+  function renderMplEditableColumnHeader(mplIndex, column) {
+    const key = jsString(column.key);
+    return `<th class="mpl-editable-column-head" ondragover="dragOverMplColumn(event)" ondragleave="dragLeaveMplColumn(event)" ondrop="dropMplColumn(event, ${mplIndex}, '${key}')">
       <div>
-        <input data-mpl-column-key="${escapeHtml(column.key)}" aria-label="Rename ${escapeHtml(column.label)} column" value="${escapeHtml(column.label)}" onfocus="captureMplHistoryCheckpoint()" onchange="renameMplColumn(${mplIndex}, ${columnIndex}, this.value)">
-        <button type="button" onclick="hideMplColumn(${mplIndex}, ${columnIndex})" title="Remove this column" aria-label="Remove ${escapeHtml(column.label)} column">−</button>
+        <button class="mpl-column-drag-handle" type="button" draggable="true" ondragstart="dragMplColumn(event, ${mplIndex}, '${key}')" title="Drag to reorder column" aria-label="Drag ${escapeHtml(column.label)} column">⋮⋮</button>
+        <input data-mpl-column-key="${escapeHtml(column.key)}" aria-label="Rename ${escapeHtml(column.label)} column" value="${escapeHtml(column.label)}" onfocus="captureMplHistoryCheckpoint()" onchange="renameMplColumn(${mplIndex}, '${key}', this.value)">
+        <button type="button" onclick="hideMplColumn(${mplIndex}, '${key}')" title="Remove this column" aria-label="Remove ${escapeHtml(column.label)} column">−</button>
       </div>
     </th>`;
   }
@@ -530,8 +553,9 @@
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
   }
 
-  function hideMplColumn(mplIndex, columnIndex) {
+  function hideMplColumn(mplIndex, columnKey) {
     const columns = ensurePartnerMplColumns(getMpl(mplIndex));
+    const columnIndex = columns.findIndex(column => column.key === columnKey);
     if (!columns[columnIndex]) return;
     if (columns.filter(column => column.visible).length <= 1) {
       setStatus('Keep at least one packing-list column.', 'error');
@@ -542,10 +566,51 @@
     captureMplHistoryCheckpoint();
     refreshPartnerMplColumns(mplIndex);
   }
-  function renameMplColumn(mplIndex, columnIndex, label) {
+  function renameMplColumn(mplIndex, columnKey, label) {
     const columns = ensurePartnerMplColumns(getMpl(mplIndex));
-    if (!columns[columnIndex]) return;
-    columns[columnIndex].label = String(label || '').trim() || 'Column';
+    const column = columns.find(item => item.key === columnKey);
+    if (!column) return;
+    column.label = String(label || '').trim() || 'Column';
+    captureMplHistoryCheckpoint();
+    refreshPartnerMplColumns(mplIndex);
+  }
+
+  function dragMplColumn(event, mplIndex, columnKey) {
+    event.dataTransfer.setData('application/x-labelkit-mpl-column', JSON.stringify({ mplIndex, columnKey }));
+    event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function dragOverMplColumn(event) {
+    if (Array.from(event.dataTransfer.types || []).includes('application/x-labelkit-mpl-column')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      event.currentTarget.classList.add('mpl-column-drop-target');
+    }
+  }
+
+  function dragLeaveMplColumn(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      event.currentTarget.classList.remove('mpl-column-drop-target');
+    }
+  }
+
+  function dropMplColumn(event, mplIndex, targetKey) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('mpl-column-drop-target');
+    let payload;
+    try {
+      payload = JSON.parse(event.dataTransfer.getData('application/x-labelkit-mpl-column') || '{}');
+    } catch (_err) {
+      return;
+    }
+    if (Number(payload.mplIndex) !== Number(mplIndex) || !payload.columnKey || payload.columnKey === targetKey) return;
+    const columns = ensurePartnerMplColumns(getMpl(mplIndex));
+    const sourceIndex = columns.findIndex(column => column.key === payload.columnKey);
+    const targetIndex = columns.findIndex(column => column.key === targetKey);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    captureMplHistoryCheckpoint();
+    const [column] = columns.splice(sourceIndex, 1);
+    columns.splice(columns.findIndex(item => item.key === targetKey), 0, column);
     captureMplHistoryCheckpoint();
     refreshPartnerMplColumns(mplIndex);
   }
@@ -618,7 +683,7 @@
       .filter(({ item }) => normalizePalletId(item.location_on_pallet) === palletId);
     return `<div class="decopac-table-wrap">
       <table class="decopac-table">
-        <thead><tr>${columns.map((column, columnIndex) => renderMplEditableColumnHeader(mplIndex, column, columnIndex)).join('')}<th class="mpl-action-column-head"><span>Action</span><button type="button" onclick="addMplCustomColumnQuick(${mplIndex})" title="Add a column" aria-label="Add a column">+</button></th></tr></thead>
+        <thead><tr>${columns.map(column => renderMplEditableColumnHeader(mplIndex, column)).join('')}<th class="mpl-action-column-head"><span>Action</span><button type="button" onclick="addMplCustomColumnQuick(${mplIndex})" title="Add a column" aria-label="Add a column">+</button></th></tr></thead>
         <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
           const itemBase = `${base}.items.${itemIndex}`;
           return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
@@ -1290,7 +1355,7 @@
     if (!pallets.length) {
       warnings.push('No MPL palletization found. Use Auto Palletize or generate MPL first.');
     }
-    const source = palletSourceLabel(keheMplPalletizationSource || lists[0]?.palletization_source || 'MPL');
+    const source = palletSourceLabel(lists[0]?.palletization_source || keheMplPalletizationSource || 'MPL');
     return {
       document_type: 'kehe_pallet_label',
       version: 3,

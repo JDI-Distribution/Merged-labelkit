@@ -8,7 +8,8 @@ from unittest import mock
 import pymupdf as fitz
 
 from pipelines.michaels import pipeline
-from server import split_michaels_output_by_shipping_pdf
+from labelkit.file_operations import MAX_MICHAELS_OUTPUT_PAGES, split_michaels_output_by_page_limit
+from server import RESULT_JOBS, run_michaels_generation_job, split_michaels_output_by_shipping_pdf
 
 
 def _one_page_pdf(text: str) -> bytes:
@@ -21,6 +22,117 @@ def _one_page_pdf(text: str) -> bytes:
 
 
 class MichaelsOutputOrderTests(unittest.TestCase):
+    def test_shipping_pdf_over_500_pages_is_not_rejected_before_batched_rasterization(self):
+        class OversizedDocument:
+            page_count = 501
+
+        def batch_images(_pdf_path, **kwargs):
+            count = kwargs["last_page"] - kwargs["first_page"] + 1
+            return [mock.Mock() for _ in range(count)]
+
+        with mock.patch.object(
+            pipeline,
+            "convert_from_path",
+            side_effect=batch_images,
+        ) as convert:
+            with mock.patch.object(pipeline, "_ocr_image", return_value=""), mock.patch.object(
+                pipeline,
+                "_extract_page_identifiers",
+                return_value=("1ZAAAAAAAAAAAAAAAA", "", ""),
+            ), mock.patch.object(
+                pipeline,
+                "_shipping_page_to_bytes",
+                side_effect=RuntimeError("reached output assembly"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "reached output assembly"):
+                    pipeline._render_shipping_label_first(
+                        fitz_doc=OversizedDocument(),
+                        shipping_pdf_path="large.pdf",
+                        all_packs=[],
+                        by_tracking={},
+                        by_po={},
+                        by_store={},
+                        by_po_store={},
+                        out_pdf="out.pdf",
+                        ocr_dpi=200,
+                    )
+
+        self.assertEqual(32, convert.call_count)
+
+    def test_oversized_michaels_output_splits_into_numbered_pdf_parts(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            output_path = temp_path / "combined.pdf"
+            source = fitz.open()
+            for _ in range(1001):
+                source.new_page(width=288, height=432)
+            source.save(output_path)
+            source.close()
+            report = {"rows": [{"output_start_page": 1, "output_end_page": 1001}]}
+
+            archive_path, output_names = split_michaels_output_by_page_limit(
+                output_path,
+                report,
+                temp_path,
+                base_filename="michaels_output",
+            )
+
+            self.assertEqual(["michaels_output_part_001.pdf", "michaels_output_part_002.pdf"], output_names)
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(output_names, archive.namelist())
+                first = fitz.open(stream=archive.read(output_names[0]), filetype="pdf")
+                second = fitz.open(stream=archive.read(output_names[1]), filetype="pdf")
+                try:
+                    self.assertEqual(1000, first.page_count)
+                    self.assertEqual(1, second.page_count)
+                finally:
+                    first.close()
+                    second.close()
+
+    def test_michaels_worker_sets_zip_and_page_limit_report_for_large_single_upload(self):
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            result_id = "michaels-large-output-test"
+            output_path = temp_path / "michaels_dts_output.pdf"
+            RESULT_JOBS[result_id] = {"temp_dir": str(temp_path), "status": "processing"}
+
+            def render_large_output(*, out_pdf, **_kwargs):
+                output_doc = fitz.open()
+                try:
+                    for _ in range(MAX_MICHAELS_OUTPUT_PAGES + 1):
+                        output_doc.new_page(width=288, height=432)
+                    output_doc.save(out_pdf)
+                finally:
+                    output_doc.close()
+                return {
+                    "summary": {},
+                    "rows": [{"output_start_page": 1, "output_end_page": MAX_MICHAELS_OUTPUT_PAGES + 1}],
+                }
+
+            try:
+                with mock.patch("server.run_michaels_pipeline", side_effect=render_large_output):
+                    run_michaels_generation_job(result_id, ["order.xml"], ["shipping.pdf"])
+
+                job = RESULT_JOBS[result_id]
+                self.assertEqual("complete", job["status"], job.get("detail"))
+                self.assertEqual("application/zip", job["media_type"])
+                self.assertEqual(2, len(job["separate_output_names"]))
+                self.assertTrue(job["report"]["summary"]["page_limited_split"])
+                self.assertEqual(MAX_MICHAELS_OUTPUT_PAGES + 1, job["report"]["summary"]["output_pages"])
+                self.assertTrue(Path(job["preview_path"]).exists())
+            finally:
+                RESULT_JOBS.pop(result_id, None)
+
+    def test_packing_list_rejects_row_too_tall_to_fit_instead_of_paging_forever(self):
+        pack = pipeline.Pack(
+            sscc="000000000000000001",
+            po="40000001",
+            items=[pipeline.Item(vendor_item="VENDOR", michaels_sku="SKU", description="TOO LONG " * 2000, qty=1)],
+        )
+
+        with self.assertRaisesRegex(ValueError, "too tall to fit on a page"):
+            pipeline.render_packing_list_pages(pack, 1, 1)
+
     def test_long_generated_label_and_packing_list_text_is_preserved(self):
         description = "LONGMICHAELSDESCRIPTION" * 7
         vendor_item = "VENDORITEM" * 8

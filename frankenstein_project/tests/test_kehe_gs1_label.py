@@ -3,10 +3,16 @@ import unittest
 
 import pymupdf as fitz
 
-from pipelines.kehe.common import Address, Item, Pack, render_gs1_label_page
+from pipelines.kehe.common import Address, Item, Pack, normalize_sscc, render_gs1_label_page
 
 
 class KeheGs1LabelTests(unittest.TestCase):
+    def test_sscc_normalization_requires_valid_length_and_check_digit(self):
+        self.assertEqual("001234567890123452", normalize_sscc("001234567890123452"))
+        self.assertEqual("001234567890123452", normalize_sscc("00001234567890123452"))
+        self.assertEqual("", normalize_sscc("001234567890123457"))
+        self.assertEqual("", normalize_sscc("12345678901234567"))
+
     def _render_text(self, pack: Pack) -> str:
         pdf_bytes = render_gs1_label_page(pack, order_index=1, total_orders=1)
         with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
@@ -14,7 +20,7 @@ class KeheGs1LabelTests(unittest.TestCase):
 
     def test_ship_to_name_wraps_without_truncating_kehe_distributors(self):
         pack = Pack(
-            sscc="001234567890123457",
+            sscc="001234567890123452",
             store="46",
             ship_from=Address(
                 name="BAKELL LLC",
@@ -41,7 +47,7 @@ class KeheGs1LabelTests(unittest.TestCase):
 
     def test_traceability_rows_show_available_values(self):
         pack = Pack(
-            sscc="001234567890123457",
+            sscc="001234567890123452",
             ship_to=Address(name="KEHE DISTRIBUTORS", zip="97008"),
             items=[
                 Item(

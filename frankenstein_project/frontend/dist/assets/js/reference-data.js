@@ -621,7 +621,7 @@
           mplProductMasterRows = savedRows;
           saveMplProductMasterToStorage();
           renderMplProductMasterTable();
-          setStatus('Product Master duplicate key merged. Unique key is Storefront + Config ID + Packaging Level (or legacy Storefront + Packaging Level + SKU).', 'info');
+          setStatus('Product Master duplicate key merged. Unique key is Customer + Product SKU + Packaging Level (or legacy Customer + Packaging Level + Level SKU).', 'info');
         } else {
           saveMplProductMasterToStorage();
         }
@@ -742,13 +742,28 @@
     return formatNumberString(eachWeight * mplProductEachesPerOutermost(entries));
   }
 
+  function mplProductWeightGramsToPounds(value) {
+    const grams = parsePositiveNumber(value);
+    if (!grams) return '';
+    return formatNumberString(Number((grams / 453.59237).toFixed(3)));
+  }
+
+  function mplCalculatedProductWeightLbs(entries) {
+    return mplProductWeightGramsToPounds(mplCalculatedProductWeight(entries));
+  }
+
   function syncMplCalculatedPackageNetWeight(entries, previousCalculated) {
     const outermost = mplProductOutermostEntry(entries);
     if (!outermost) return;
-    const current = String(outermost.row.package_net_weight_g || '').trim();
     const nextCalculated = mplCalculatedProductWeight(entries);
-    if (nextCalculated && (!current || current === String(previousCalculated || '').trim())) {
+    if (nextCalculated) {
       mplProductMasterRows[outermost.index].package_net_weight_g = nextCalculated;
+    }
+    const currentPounds = String(outermost.row.gross_weight_lbs || '').trim();
+    const previousPounds = mplProductWeightGramsToPounds(previousCalculated);
+    const nextPounds = mplProductWeightGramsToPounds(nextCalculated);
+    if (nextPounds && (!currentPounds || currentPounds === previousPounds)) {
+      mplProductMasterRows[outermost.index].gross_weight_lbs = nextPounds;
     }
   }
 
@@ -784,12 +799,16 @@
     if (!entries.length) return;
     const previousCalculated = mplCalculatedProductWeight(entries);
     if (key === 'each_net_weight_g') {
-      entries.forEach(({ index }) => { mplProductMasterRows[index][key] = value; });
+      const normalizedValue = formatNumberString(parsePositiveNumber(value));
+      entries.forEach(({ index }) => { mplProductMasterRows[index][key] = normalizedValue; });
       syncMplCalculatedPackageNetWeight(mplProductEntriesForGroup(groupKey), previousCalculated);
     } else {
       const outermost = mplProductOutermostEntry(entries);
       if (!outermost) return;
-      mplProductMasterRows[outermost.index][key] = value;
+      mplProductMasterRows[outermost.index][key] = formatNumberString(parsePositiveNumber(value));
+      if (key === 'gross_weight_lbs' && !mplProductMasterRows[outermost.index][key]) {
+        mplProductMasterRows[outermost.index][key] = mplCalculatedProductWeightLbs(entries);
+      }
     }
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
@@ -840,6 +859,7 @@
       : '';
     const quantityValue = isCaseWithInner ? (row.inner_packs_per_case || inferredInnerPacks) : row.case_qty;
     const isEach = row.packaging_level === 'Each';
+    const groupKey = mplProductGroupKey(row, index);
     const quantityLabel = isEach ? 'Quantity' : (isCaseWithInner ? 'Inner Packs per Case' : (row.packaging_level === 'Inner Pack' ? 'Eaches per Inner Pack' : 'Eaches per Case'));
     return `<article class="mpl-packaging-level-card" data-product-row-index="${index}">
       <header class="mpl-packaging-level-header">
@@ -849,12 +869,24 @@
           ${canEdit && !isEach ? `<button class="btn-mini-danger" type="button" onclick="deleteMplProductRow(${index})">Remove level</button>` : ''}
         </div>
       </header>
-      <div class="mpl-packaging-primary-grid">
+      <div class="mpl-packaging-primary-grid ${isEach ? 'is-each' : ''}">
         <label>${escapeHtml(row.packaging_level)} SKU <input ${editDisabled} value="${escapeHtml(row.sku)}" placeholder="SKU used for this package" onchange="updateMplProductRow(${index}, 'sku', this.value)">${isEach ? '<small>Matches orders sold as Each.</small>' : '<small>Matches orders sold at this package level.</small>'}</label>
         <label>GTIN <input ${editDisabled} value="${escapeHtml(row.gtin)}" onchange="updateMplProductRow(${index}, 'gtin', this.value)"></label>
         <label>${escapeHtml(quantityLabel)} <input ${editDisabled} ${isEach ? 'readonly' : ''} type="number" min="1" step="1" value="${escapeHtml(isEach ? '1' : quantityValue)}" onchange="validateProductNumericInput(this, true); updateMplProductLevelQuantity(${index}, this.value)">${isEach ? '<small>Base sellable unit</small>' : ''}</label>
+        ${isEach ? `<label>Each Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.each_net_weight_g || '')}" placeholder="0.00" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(groupKey)}', 'each_net_weight_g', this.value)"><small>Weight of one sellable Each.</small></label>` : ''}
         <label class="mpl-toggle-field">Label enabled <input ${editDisabled} type="checkbox" ${row.label_enabled ? 'checked' : ''} onchange="updateMplProductRow(${index}, 'label_enabled', this.checked)"></label>
       </div>
+      <section class="mpl-packaging-dimensions" aria-label="${escapeHtml(row.packaging_level)} dimensions">
+        <div class="mpl-packaging-dimensions-heading">
+          <strong>${escapeHtml(row.packaging_level)} dimensions</strong>
+          <span>Stored for this packaging level</span>
+        </div>
+        <div class="mpl-packaging-dimension-grid">
+          <label>Length (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.length_in || '')}" placeholder="0.00" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'length_in', this.value)"></label>
+          <label>Width (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.width_in || '')}" placeholder="0.00" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'width_in', this.value)"></label>
+          <label>Height (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(row.height_in || '')}" placeholder="0.00" onchange="validateProductNumericInput(this); updateMplProductRow(${index}, 'height_in', this.value)"></label>
+        </div>
+      </section>
       <details class="mpl-packaging-advanced">
         <summary>Label settings</summary>
         <div class="mpl-unified-fields-grid">
@@ -908,45 +940,48 @@
     const levelEntries = entries
       .filter(entry => ['Each', 'Inner Pack', 'Case'].includes(normalizePackagingLevel(entry.row.packaging_level)))
       .sort((left, right) => ['Each', 'Inner Pack', 'Case'].indexOf(left.row.packaging_level) - ['Each', 'Inner Pack', 'Case'].indexOf(right.row.packaging_level));
+    const levelSkuAssignments = new Map();
+    levelEntries.forEach(({ row }) => {
+      const levelSku = String(row.sku || '').trim().toLowerCase();
+      if (!levelSku) return;
+      if (!levelSkuAssignments.has(levelSku)) levelSkuAssignments.set(levelSku, []);
+      levelSkuAssignments.get(levelSku).push(row.packaging_level);
+    });
+    const duplicateLevelSkus = [...levelSkuAssignments.entries()].filter(([_sku, assignedLevels]) => assignedLevels.length > 1);
     const calculatedProductWeight = mplCalculatedProductWeight(entries);
+    const calculatedProductWeightLbs = mplCalculatedProductWeightLbs(entries);
+    const packagedWeight = outer.gross_weight_lbs || calculatedProductWeightLbs;
+    const storedProductSku = String(shared.config_id || '').trim();
+    const eachSkuSuffix = shared.sku ? `-${shared.sku}` : '';
+    const productSku = storedProductSku.startsWith('ORDER-') && eachSkuSuffix && storedProductSku.endsWith(eachSkuSuffix)
+      ? shared.sku
+      : (storedProductSku || shared.sku || '');
     const title = document.getElementById('mpl-product-editor-title');
-    if (title) title.textContent = `${shared.sku || 'New product'} · Product setup`;
-    const displayUomOptions = ['Each', 'Inner Pack', 'Case']
-      .filter(level => level === 'Each' || levels.includes(level) || level === shared.display_sku_uom)
-      .map(level => `<option value="${level}" ${shared.display_sku_uom === level ? 'selected' : ''}>${level}</option>`)
-      .join('');
+    if (title) title.textContent = `${productSku || 'New product'} · Product setup`;
     body.innerHTML = `<div class="master-record-form-stack">
       <section class="mpl-product-shared-card">
-        <header><div><span>Product identity</span><h3>${escapeHtml(shared.sku || 'New product')}</h3><p>Enter the SKU used for each package level. Order SKUs are matched to these automatically.</p></div><span class="directory-autosave-badge">Auto-save on</span></header>
+        <header><div><span>Product identity</span><h3>${escapeHtml(productSku || 'New product')}</h3><p>Name the product and give the complete packaging hierarchy one shared Product SKU.</p></div><span class="directory-autosave-badge">Saves to Product Master</span></header>
         <div class="mpl-product-shared-grid master-product-shared-grid">
           <label>Customer <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'storefront', this.value)">${selectOptionsHtml(b2bCustomerOptions(outer.storefront), outer.storefront, 'Select customer')}</select></label>
-          <label class="mpl-product-description-field">Product name <input ${editDisabled} value="${escapeHtml(shared.description || '')}" placeholder="Name shown on labels and packing lists" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'description', this.value)"></label>
-          <label>Each Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(shared.each_net_weight_g || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'each_net_weight_g', this.value)"></label>
-        </div>
-        <details class="mpl-product-advanced">
-          <summary>Advanced matching details</summary>
-          <div class="mpl-product-shared-grid master-product-shared-grid">
-            <label><span>Alternate incoming SKU</span><div class="mpl-product-display-sku-control"><input ${editDisabled} data-mpl-product-display-sku value="${escapeHtml(shared.display_sku || '')}" placeholder="Optional; level SKUs match automatically" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'display_sku', this.value)"><button ${editDisabled} type="button" class="btn-secondary" onclick="copyMplEachSkuToDisplay('${jsString(mplProductEditorGroupKey)}')">Use Each SKU</button></div><small>Only set this when the order uses a code not listed on a packaging level.</small></label>
-            <label><span>Incoming SKU unit</span><select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'display_sku_uom', this.value)">${displayUomOptions}</select><small>Used only with the alternate incoming SKU.</small></label>
-            <label>Product Group ID <input ${editDisabled} value="${escapeHtml(shared.config_id || '')}" placeholder="Generated automatically" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'config_id', this.value)"><small>Keep unchanged to group package levels together.</small></label>
-            <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(outer.customer_item_number || '')}" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'customer_item_number', this.value)"></label>
-            <label>Verification Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, outer.verification_status, 'Select status')}</select></label>
-          </div>
-        </details>
-        <div class="mpl-product-final-details">
-          <div class="mpl-product-final-heading"><span>Final shipping measurements · ${escapeHtml(outer.packaging_level || 'Each')}</span><strong>Stored once for the outermost unit</strong></div>
-          <div class="mpl-product-final-grid">
-            <label>Total Product Weight (g) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.package_net_weight_g || '')}" placeholder="Calculated: ${escapeHtml(calculatedProductWeight)}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'package_net_weight_g', this.value)"><small>Auto-calculated from Each weight × pack quantity. Enter a value only to override.</small></label>
-            <label>Packaged Weight (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.gross_weight_lbs || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'gross_weight_lbs', this.value)"><small>Outermost unit including packaging.</small></label>
-            <label>Length (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.length_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'length_in', this.value)"></label>
-            <label>Width (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.width_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'width_in', this.value)"></label>
-            <label>Height (in) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(outer.height_in || '')}" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'height_in', this.value)"></label>
-          </div>
+          <label>Product SKU <input ${editDisabled} value="${escapeHtml(productSku)}" placeholder="Example: ABC100" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'config_id', this.value)"><small>Groups all levels. Orders match the exact level SKU below: ABC100 can be Each while ABC100-100 can be Case.</small></label>
+          <label class="mpl-product-description-field">Product name <input ${editDisabled} value="${escapeHtml(shared.description || '')}" placeholder="Name shown on labels and packing lists" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'description', this.value)"><small>Shared by Each, Inner Pack, and Case. The same product name is available to labels and packing lists.</small></label>
+          <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(shared.customer_item_number || '')}" placeholder="Optional customer-facing item number" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'customer_item_number', this.value)"><small>Shared by Each, Inner Pack, and Case. Used as the customer-facing Item #; the Level SKU still determines the order UOM.</small></label>
         </div>
       </section>
       <section class="mpl-product-levels-card">
-        <header><div><span>Packaging levels</span><strong>Each is always present. Add Inner Pack or Case only when required.</strong></div>${canEdit ? `<select class="mpl-product-level-add" data-no-search onchange="addMplProductLevel('${jsString(mplProductEditorGroupKey)}', this.value); this.value=''"><option value="">+ Add level</option>${['Inner Pack', 'Case'].filter(level => !levels.includes(level)).map(level => `<option value="${level}">${level}</option>`).join('')}</select>` : ''}</header>
+        <header><div><span>Packaging levels</span><strong>Use the exact incoming order SKU for each level. The matching SKU determines whether the quantity is Each, Inner Pack, or Case.</strong></div>${canEdit ? `<select class="mpl-product-level-add" data-no-search onchange="addMplProductLevel('${jsString(mplProductEditorGroupKey)}', this.value); this.value=''"><option value="">+ Add level</option>${['Inner Pack', 'Case'].filter(level => !levels.includes(level)).map(level => `<option value="${level}">${level}</option>`).join('')}</select>` : ''}</header>
+        ${duplicateLevelSkus.length ? `<div class="mpl-product-level-sku-warning"><strong>Level SKU conflict</strong><span>${duplicateLevelSkus.map(([sku, assignedLevels]) => `${sku.toUpperCase()} is used for ${assignedLevels.join(' and ')}`).join(' · ')}. Assign a different SKU to every configured level so order quantities are interpreted correctly.</span></div>` : ''}
         <div class="mpl-packaging-level-list">${levelEntries.map(entry => mplProductEditorLevelCard(entry, entries, canEdit)).join('')}</div>
+      </section>
+      <section class="mpl-product-final-details mpl-product-summary-card">
+        <div class="mpl-product-final-heading"><span>Product summary</span><strong>Calculated from the packaging levels above</strong></div>
+        <div class="mpl-product-summary-grid">
+          <div class="mpl-product-summary-value"><span>Outermost level</span><strong>${escapeHtml(outer.packaging_level || 'Each')}</strong></div>
+          <div class="mpl-product-summary-value"><span>Eaches in outermost</span><strong>${escapeHtml(mplFormatPackageQuantity(mplProductEachesPerOutermost(entries)))}</strong></div>
+          <div class="mpl-product-summary-value"><span>Calculated product weight</span><strong>${escapeHtml(calculatedProductWeight || '—')} g</strong><small>${calculatedProductWeightLbs ? `${escapeHtml(calculatedProductWeightLbs)} lb` : 'Enter Each weight to calculate'}</small></div>
+          <label>Packaged Weight (lb) <input ${editDisabled} type="number" min="0" step="0.01" value="${escapeHtml(packagedWeight)}" placeholder="Calculated from product weight" onchange="validateProductNumericInput(this); updateMplProductFinalField('${jsString(mplProductEditorGroupKey)}', 'gross_weight_lbs', this.value)"><small>Starts with the converted product weight; adjust for packaging.</small></label>
+          <label>Verification Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, outer.verification_status, 'Select status')}</select><small>Applies to the complete product configuration.</small></label>
+        </div>
       </section>
       ${canEdit ? '<div class="master-record-danger-zone"><div><strong>Delete configuration</strong><span>Removes the Each, Inner Pack, and Case records for this product.</span></div><button class="btn-mini-danger" type="button" onclick="deleteMplProductConfiguration()">Delete product</button></div>' : ''}
     </div>`;
@@ -1023,6 +1058,18 @@
       const outermostLabel = primaryRow.packaging_level || 'Each';
       const groupQuality = quality?.groups?.get(group.key) || { score: 0, issues: [] };
       const qualityState = groupQuality.score === 100 ? 'ready' : groupQuality.issues?.some(issue => issue.severity === 'invalid') ? 'invalid' : 'review';
+      const capabilityBadges = Object.values(groupQuality.capabilities || {}).map(capability => `<span class="product-capability-badge ${escapeHtml(capability.state)}">${escapeHtml(capability.label)}</span>`).join('');
+      const levelBadges = ['Each', 'Inner Pack', 'Case'].map(level => {
+        const entry = mplProductLevelEntry(group.entries, level);
+        if (!entry) return `<span class="product-level-badge not-configured">${escapeHtml(level)} · not configured</span>`;
+        const row = entry.row;
+        const quantityReady = level === 'Each' || Number(row.case_qty) > 0;
+        const state = row.sku && quantityReady ? 'ready' : 'review';
+        const labelState = row.label_enabled ? (row.label_template_id ? 'label ready' : 'template needed') : 'label off';
+        const dimensionsReady = [row.length_in, row.width_in, row.height_in].every(value => Number(value) > 0);
+        const dimensionState = dimensionsReady ? 'dimensions ready' : 'dimensions needed';
+        return `<span class="product-level-badge ${state}">${escapeHtml(level)} · ${escapeHtml(row.sku || 'SKU needed')} · ${escapeHtml(dimensionState)} · ${escapeHtml(labelState)}</span>`;
+      }).join('');
       return `
         <tr class="mpl-product-group-row">
           <td colspan="2">
@@ -1034,7 +1081,7 @@
                   <span>${escapeHtml(sharedRow.description || primaryRow.description || 'Description not set')}</span>
                 </span>
                 <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · Outermost: ${escapeHtml(outermostLabel)} · ${escapeHtml(verification)} <span class="product-quality-badge ${qualityState}" title="${escapeHtml((groupQuality.issues || []).map(issue => issue.message).join(' · ') || 'Complete')}">${groupQuality.score}% complete</span></span>
-                <span class="mpl-product-group-summary">${escapeHtml(groupSummary)}</span>
+                <span class="mpl-product-group-summary"><span>${escapeHtml(groupSummary)}</span><span class="product-capability-strip">${capabilityBadges}</span><span class="product-level-strip">${levelBadges}</span></span>
                 <span class="mpl-product-group-action">Review &amp; edit</span>
               </button>
             </div>
@@ -1091,12 +1138,12 @@
       packaging_level: level,
       sku: '',
       gtin: '',
-      length_in: primary.length_in || '',
-      width_in: primary.width_in || '',
-      height_in: primary.height_in || '',
+      length_in: '',
+      width_in: '',
+      height_in: '',
       each_net_weight_g: '',
-      package_net_weight_g: primary.package_net_weight_g || '',
-      gross_weight_lbs: primary.gross_weight_lbs || '',
+      package_net_weight_g: '',
+      gross_weight_lbs: '',
       case_qty: level === 'Each' ? '1' : '',
       inner_packs_per_case: '',
       default_copies: '',
@@ -1105,11 +1152,12 @@
       is_active: true,
     });
     if (previousOutermost) {
-      ['length_in', 'width_in', 'height_in', 'package_net_weight_g', 'gross_weight_lbs'].forEach(key => {
+      ['package_net_weight_g', 'gross_weight_lbs'].forEach(key => {
         mplProductMasterRows[previousOutermost.index][key] = '';
       });
     }
     mplProductMasterRows.push(newRow);
+    syncMplCalculatedPackageNetWeight(mplProductEntriesForGroup(groupKey), '');
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
     renderMplProductMasterTable();
@@ -1128,17 +1176,8 @@
     const groupKey = mplProductGroupKey(current, index);
     const entries = mplProductEntriesForGroup(groupKey);
     const removedDisplayUom = normalizePackagingLevel(current.packaging_level) === normalizePackagingLevel(entries[0]?.row?.display_sku_uom || 'Each');
-    const outermost = mplProductOutermostEntry(entries);
-    const finalFields = ['length_in', 'width_in', 'height_in', 'package_net_weight_g', 'gross_weight_lbs'];
-    const finalValues = outermost?.index === index
-      ? Object.fromEntries(finalFields.map(key => [key, current[key] || '']))
-      : null;
     mplProductMasterRows.splice(index, 1);
-    if (finalValues) {
-      const remainingEntries = mplProductEntriesForGroup(groupKey);
-      const nextOutermost = mplProductOutermostEntry(remainingEntries);
-      if (nextOutermost) Object.assign(mplProductMasterRows[nextOutermost.index], finalValues);
-    }
+    syncMplCalculatedPackageNetWeight(mplProductEntriesForGroup(groupKey), '');
     if (removedDisplayUom) {
       mplProductEntriesForGroup(groupKey).forEach(entry => { mplProductMasterRows[entry.index].display_sku_uom = 'Each'; });
     }

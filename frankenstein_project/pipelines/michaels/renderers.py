@@ -286,13 +286,20 @@ def render_packing_list_pages(pack: Pack, order_index: int, total_orders: int) -
     def estimate_total_pages() -> int:
         total = 1
         y = H - margin - 1.70 * inch
+        continuation_y = H - margin - 0.60 * inch - 26
+        bottom_limit = margin + 0.25 * inch
         for it in items:
             desc_lines = hard_wrap(it.description, "Helvetica", font_desc, w_desc - 4)
             vend_lines = hard_wrap(it.vendor_item,  "Helvetica", font,      w_vendor - 4)
             sku_lines = hard_wrap(format_michaels_item_number(it.michaels_sku), "Helvetica", font, w_sku - 4)
             row_height = max(len(vend_lines), len(sku_lines), len(desc_lines), 1) * line_h + 6
+            if continuation_y - row_height < bottom_limit:
+                raise ValueError(
+                    f"Packing-list item {it.michaels_sku or it.vendor_item or '(unknown)'} "
+                    "is too tall to fit on a page. Shorten its description or item number."
+                )
             if y - row_height < margin + 0.25 * inch:
-                y = H - margin - 0.60 * inch
+                y = continuation_y
                 total += 1
             y -= row_height
         return total

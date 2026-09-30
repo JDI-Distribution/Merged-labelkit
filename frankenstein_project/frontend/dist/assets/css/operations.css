@@ -270,6 +270,33 @@
       background: #e8f7f4;
       box-shadow: inset 3px 0 0 #0f766e;
     }
+    .mpl-order-instance-table tbody tr.recommended {
+      background: #f2f8f6;
+      box-shadow: inset 3px 0 0 #3f7664;
+    }
+    .mpl-order-instance-table td > span,
+    .mpl-order-instance-table td > small {
+      display: block;
+    }
+    .mpl-order-instance-table td > small {
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+    .order-instance-recommended {
+      display: inline-flex !important;
+      width: fit-content;
+      margin-bottom: 5px;
+      border-radius: 999px;
+      background: #dcefe7;
+      color: #285d4d;
+      padding: 3px 7px;
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
     .mpl-order-instance-id {
       color: #0f766e;
       font-weight: 800;
@@ -1863,10 +1890,12 @@
 
     .mpl-product-shared-grid label,
     .mpl-packaging-primary-grid label,
+    .mpl-packaging-dimension-grid label,
     .mpl-packaging-advanced label {
       display: grid;
-      align-content: end;
+      align-content: start;
       gap: 5px;
+      min-width: 0;
       color: #526779;
       font-size: 9.5px;
       font-weight: 800;
@@ -1878,6 +1907,7 @@
     .mpl-product-shared-grid select,
     .mpl-packaging-primary-grid input,
     .mpl-packaging-primary-grid select,
+    .mpl-packaging-dimension-grid input,
     .mpl-packaging-advanced input,
     .mpl-packaging-advanced select {
       min-height: 36px;
@@ -1898,9 +1928,66 @@
     .mpl-product-final-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid #e1e7eb; }
     .mpl-product-final-heading span { color: #18354c; font-size: 11px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
     .mpl-product-final-heading strong { color: #647686; font-size: 10.5px; font-weight: 650; }
-    .mpl-product-final-grid { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 10px; padding: 12px; }
+    .mpl-product-final-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; padding: 12px; }
     .mpl-product-final-grid label { display: grid; align-content: end; gap: 5px; color: #587080; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
     .mpl-product-final-grid input { min-height: 36px; width: 100%; border: 1px solid #cfd9df; border-radius: 7px; background: #fff; color: #18354c; padding: 7px 9px; font: inherit; font-size: 12px; font-weight: 650; }
+
+    .mpl-product-summary-card { margin: 0; }
+    .mpl-product-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+    .mpl-product-summary-value,
+    .mpl-product-summary-grid label {
+      display: grid;
+      align-content: start;
+      gap: 5px;
+      min-width: 0;
+      padding: 10px 11px;
+      border: 1px solid #d9e2e7;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .mpl-product-summary-value span,
+    .mpl-product-summary-grid label {
+      color: #587080;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .mpl-product-summary-value strong {
+      color: #18354c;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .mpl-product-summary-value small,
+    .mpl-product-summary-grid label small {
+      color: #6a7d8a;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.35;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .mpl-product-summary-grid input,
+    .mpl-product-summary-grid select {
+      width: 100%;
+      min-width: 0;
+      min-height: 36px;
+      border: 1px solid #cfd9df;
+      border-radius: 7px;
+      background: #fff;
+      color: #18354c;
+      padding: 7px 9px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0;
+      text-transform: none;
+    }
 
     .mpl-product-level-add {
       width: auto;
@@ -1916,6 +2003,26 @@
     }
 
     .mpl-packaging-level-list { display: grid; gap: 10px; padding: 12px; }
+    .mpl-product-level-sku-warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin: 12px 12px 0;
+      padding: 10px 12px;
+      border: 1px solid #e7c98e;
+      border-radius: 8px;
+      background: #fff7df;
+      color: #735516;
+      font-size: 10.5px;
+      line-height: 1.4;
+    }
+    .mpl-product-level-sku-warning strong {
+      flex: 0 0 auto;
+      color: #694b0d;
+      font-size: 10px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
     .mpl-packaging-level-card {
       overflow: hidden;
       border: 1px solid #dce4e9;
@@ -1939,15 +2046,60 @@
     .mpl-packaging-level-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
     .mpl-packaging-level-actions button { width: auto; min-height: 31px; }
 
-    .mpl-packaging-primary-grid { grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(120px, .6fr); padding: 12px; }
+    .mpl-packaging-primary-grid { grid-template-columns: minmax(220px, 1.5fr) minmax(180px, 1fr) minmax(160px, .8fr) minmax(130px, .55fr); padding: 12px; }
+    .mpl-packaging-primary-grid.is-each { grid-template-columns: minmax(220px, 1.45fr) minmax(170px, 1fr) minmax(125px, .62fr) minmax(150px, .75fr) minmax(125px, .5fr); }
     .mpl-packaging-primary-grid .mpl-toggle-field,
     .mpl-packaging-advanced .mpl-toggle-field { align-content: center; justify-items: start; }
+    .mpl-packaging-primary-grid .mpl-toggle-field {
+      align-self: stretch;
+      padding: 9px 11px;
+      border: 1px solid #dce4e9;
+      border-radius: 8px;
+      background: #f7f9fa;
+    }
     .mpl-packaging-primary-grid input[type="checkbox"],
     .mpl-packaging-advanced input[type="checkbox"] {
       width: 17px;
       height: 17px;
       min-height: 17px;
       margin: 2px 0;
+    }
+
+    .mpl-packaging-dimensions {
+      display: grid;
+      gap: 10px;
+      margin: 0 12px 12px;
+      padding: 11px 12px 12px;
+      border: 1px solid #dce4e9;
+      border-radius: 9px;
+      background: #f7f9fa;
+    }
+
+    .mpl-packaging-dimensions-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .mpl-packaging-dimensions-heading strong {
+      color: #24485f;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .mpl-packaging-dimensions-heading span {
+      color: #6a7d8a;
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .mpl-packaging-dimension-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
     }
 
     .mpl-packaging-advanced { border-top: 1px solid #e2e8ec; background: #ffffff; }
@@ -1961,7 +2113,9 @@
     .mpl-packaging-advanced .mpl-unified-fields-grid { padding: 0 12px 12px; }
 
     @media (max-width: 1250px) {
-      .mpl-product-final-grid { grid-template-columns: repeat(3, minmax(135px, 1fr)); }
+      .mpl-packaging-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mpl-packaging-primary-grid.is-each { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mpl-product-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
 
     @media (max-width: 760px) {
@@ -1976,13 +2130,18 @@
       .mpl-packaging-primary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .mpl-product-final-heading { align-items: flex-start; flex-direction: column; }
       .mpl-product-final-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mpl-product-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mpl-packaging-dimensions-heading { align-items: flex-start; flex-direction: column; }
       .mpl-packaging-level-actions { justify-content: flex-start; }
     }
 
     @media (max-width: 460px) {
       .mpl-product-shared-grid,
       .mpl-product-final-grid,
-      .mpl-packaging-primary-grid { grid-template-columns: 1fr; }
+      .mpl-packaging-primary-grid,
+      .mpl-packaging-primary-grid.is-each,
+      .mpl-packaging-dimension-grid,
+      .mpl-product-summary-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 980px) {

@@ -69,6 +69,16 @@
       levelCounts.forEach((count, name) => {
         if (name !== 'Other' && count > 1) groupIssues.push(qualityIssue('duplicate_row', `${count} ${name} rows exist in this configuration.`, 'duplicate'));
       });
+      const skuLevels = new Map();
+      entries.forEach(({ row }) => {
+        const levelSku = String(row.sku || '').trim().toLowerCase();
+        if (!levelSku) return;
+        if (!skuLevels.has(levelSku)) skuLevels.set(levelSku, new Set());
+        skuLevels.get(levelSku).add(normalizePackagingLevel(row.packaging_level));
+      });
+      skuLevels.forEach((assignedLevels, levelSku) => {
+        if (assignedLevels.size > 1) groupIssues.push(qualityIssue('duplicate_level_sku', `Level SKU '${levelSku.toUpperCase()}' is assigned to multiple packaging levels.`, 'invalid'));
+      });
       const eachQty = Number(each?.case_qty || 0);
       const innerQty = Number(inner?.case_qty || 0);
       const caseQty = Number(caseRow?.case_qty || 0);
@@ -89,6 +99,30 @@
         label_template: primary.label_enabled ? !!primary.label_template_id : true,
         verified: String(primary.verification_status || '').toUpperCase() === 'VERIFIED',
         hierarchy: !groupIssues.some(issue => ['invalid', 'duplicate'].includes(issue.severity)),
+      };
+      const enabledLabelRows = entries.map(entry => entry.row).filter(row => row.label_enabled);
+      const hasOrderMatchKey = !!(each?.sku || each?.display_sku || primary.sku || primary.display_sku);
+      const capabilities = {
+        order_match: {
+          state: hasOrderMatchKey ? 'ready' : 'review',
+          label: hasOrderMatchKey ? 'Order match ready' : 'Order SKU needed',
+        },
+        packing_list: {
+          state: criteria.identity && criteria.description && criteria.package_quantity ? 'ready' : 'review',
+          label: criteria.identity && criteria.description && criteria.package_quantity ? 'Packing list ready' : 'Packing list review',
+        },
+        labels: {
+          state: !enabledLabelRows.length ? 'not-configured' : enabledLabelRows.every(row => row.label_template_id && row.gtin && gtinValid(row.gtin)) ? 'ready' : 'review',
+          label: !enabledLabelRows.length ? 'Labels off' : enabledLabelRows.every(row => row.label_template_id && row.gtin && gtinValid(row.gtin)) ? 'Labels ready' : 'Label setup needed',
+        },
+        tihi: {
+          state: criteria.dimensions && criteria.weight ? 'ready' : 'review',
+          label: criteria.dimensions && criteria.weight ? 'Ti-Hi ready' : 'Ti-Hi data needed',
+        },
+        verification: {
+          state: criteria.verified ? 'ready' : 'review',
+          label: criteria.verified ? 'Verified' : 'Needs review',
+        },
       };
       const score = Math.round(100 * Object.values(criteria).filter(Boolean).length / Object.keys(criteria).length);
       const commonIssues = [...groupIssues];
@@ -115,7 +149,7 @@
           : rowResults[index].issues.some(issue => issue.severity === 'duplicate') ? 'duplicate'
           : rowResults[index].issues.length ? 'review' : 'ready';
       });
-      groupResults.set(key, { key, entries, primary, score, criteria, issues: commonIssues });
+      groupResults.set(key, { key, entries, primary, score, criteria, capabilities, issues: commonIssues });
     });
     const groupsList = [...groupResults.values()];
     return {
@@ -146,6 +180,30 @@
     target.innerHTML = `<strong>${summary.average_score}% average completeness</strong> · ${summary.ready_configurations}/${summary.configurations} ready · ${summary.needs_review_rows} row(s) need review${shown === null ? '' : ` · ${shown} shown`}`;
   }
 
+  window.focusNextProductIssue = () => {
+    const quality = productQualitySnapshot();
+    const priority = ['hierarchy_conflict', 'duplicate_row', 'invalid_gtin', 'missing_gtin', 'missing_label_template', 'missing_case_quantity', 'missing_dimensions', 'missing_weight', 'needs_review'];
+    const candidates = [...quality.groups.values()].filter(group => group.score < 100 || group.issues.length);
+    candidates.sort((left, right) => {
+      const issueRank = group => Math.min(...group.issues.map(issue => priority.indexOf(issue.code)).filter(rank => rank >= 0), priority.length);
+      return issueRank(left) - issueRank(right) || left.score - right.score;
+    });
+    const next = candidates[0];
+    if (!next) {
+      setStatus('Every Product Master configuration is complete.', 'success');
+      return;
+    }
+    const search = document.getElementById('mpl-product-search');
+    const customer = document.getElementById('mpl-product-storefront-filter');
+    const filter = document.getElementById('mpl-product-quality-filter');
+    if (search) search.value = '';
+    if (customer) customer.value = '';
+    if (filter) filter.value = 'all';
+    renderMplProductMasterTable();
+    openMplProductEditor(next.key);
+    setStatus(`Opened the next configuration needing attention: ${next.issues[0]?.message || 'review required'}`, 'info');
+  };
+
   function readinessItem(sku, message, category, index = -1) { return { sku: sku || 'Unidentified SKU', message, category, index }; }
   function collectPartnerReadiness() {
     const issues = [];
@@ -153,7 +211,7 @@
       if (!job.print_selected) return;
       const product = job.product || {};
       const sku = product.sku || product.customer_item_number || `Line ${index + 1}`;
-      if (!['matched', 'run_only'].includes(job.match_status)) issues.push(readinessItem(sku, 'Product Master configuration was not matched.', 'product', index));
+      if (!['matched', 'run_only'].includes(job.match_status)) issues.push(readinessItem(sku, job.match_reason || 'Product Master configuration was not matched.', 'product', index));
       if (!isPartnerPalletLabelJob(job) && job.run?.print_barcode && (!product.gtin || !gtinValid(product.gtin))) issues.push(readinessItem(sku, 'Barcode GTIN is missing or invalid.', 'barcode', index));
       if (!positive(product.case_qty, true) && !isPartnerPalletLabelJob(job)) issues.push(readinessItem(sku, 'Case-pack quantity is missing.', 'case', index));
       if (!isPartnerPalletLabelJob(job) && !['length_in', 'width_in', 'height_in'].every(field => positive(product[field]))) issues.push(readinessItem(sku, 'Dimensions are incomplete.', 'dimensions', index));
@@ -170,7 +228,7 @@
         const product = job.product || {};
         const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
         const sku = product.sku || product.customer_item_number || `Order line ${index + 1}`;
-        if (job.match_status !== 'matched') issues.push(readinessItem(sku, 'Product Master configuration was not matched; order data will be used.', 'product', index));
+        if (job.match_status !== 'matched') issues.push(readinessItem(sku, job.match_reason || 'Product Master configuration was not matched; order data will be used.', 'product', index));
         (template.required_product_fields || []).forEach(field => {
           if (!String(product[field] ?? '').trim()) issues.push(readinessItem(sku, `${String(field).replace(/_/g, ' ')} is missing.`, /gtin|barcode/i.test(field) ? 'barcode' : /case|quantity/i.test(field) ? 'case' : 'product', index));
         });
@@ -516,7 +574,7 @@
     showReadiness('b2b');
     setStatus('The edited order values will be used for this label run only.', 'info');
   };
-  window.saveB2BProductConfiguration = () => {
+  window.saveB2BProductConfiguration = (options = {}) => {
     if (b2bSelectedProductIndex > -1000 || !hasPermission('table_crud')) return;
     const product = normalizeProductRow({
       ...(getSelectedB2BProduct() || {}),
@@ -528,11 +586,19 @@
     mplProductMasterRows.push(product);
     b2bSelectedProductIndex = mplProductMasterRows.length - 1;
     b2bSelectedGroupKey = mplProductGroupKey(product, b2bSelectedProductIndex);
+    const selectedJob = b2bOrderLabelJobs?.[b2bSelectedOrderJobIndex];
+    if (selectedJob) {
+      selectedJob.product = { ...selectedJob.product, ...product };
+      selectedJob.match_status = 'matched';
+      selectedJob.match_reason_code = 'created_from_order';
+      selectedJob.match_reason = 'Draft Product Master configuration created from this order line.';
+    }
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
     renderB2BCreator();
-    showReadiness('b2b');
+    if (options.showReadinessAfter !== false) showReadiness('b2b');
     setStatus(`${product.sku || 'Product'} added to Product Master for review.`, 'success');
+    return product;
   };
   window.openProductConfigurationForIssue = sku => {
     closeWorkflowReadiness(false);
@@ -610,7 +676,7 @@
 
   window.downloadMissingProductInformation = () => {
     const quality = productQualitySnapshot();
-    const rows = [['Storefront', 'Config ID', 'SKU', 'Packaging Level', 'GTIN', 'Completeness', 'Missing or invalid information']];
+    const rows = [['Customer', 'Product SKU', 'Level SKU', 'Packaging Level', 'GTIN', 'Completeness', 'Missing or invalid information']];
     quality.rows.forEach(result => {
       if (!result.issues.length) return;
       const product = normalizeProductRow(mplProductMasterRows[result.index] || {});
@@ -628,7 +694,7 @@
   window.downloadImportMissingInformation = () => {
     const preview = activeExcelImportPreview || {};
     const qualityRows = preview.quality?.rows || [];
-    const rows = [['Row', 'Storefront', 'Config ID', 'SKU', 'Packaging Level', 'GTIN', 'Completeness', 'Missing or invalid information']];
+    const rows = [['Row', 'Customer', 'Product SKU', 'Level SKU', 'Packaging Level', 'GTIN', 'Completeness', 'Missing or invalid information']];
     qualityRows.forEach(result => {
       if (!result.issues?.length) return;
       const product = preview.rows?.[result.index] || {};
@@ -646,7 +712,8 @@
       const draft = cloneDraft(record.draft || {});
       delete draft._saved_draft_id;
       delete draft._saved_draft_revision;
-      draft._saved_draft_name = `Copy of ${record.name || 'MPL'}`;
+      const copyTime = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      draft._saved_draft_name = `Copy of ${record.name || 'MPL'} · ${copyTime}`;
       draft.review_status = 'DRAFT';
       (draft.packing_lists || []).forEach(mpl => { mpl.review_status = 'DRAFT'; });
       activeKeheDocumentType = 'masterPackingList';

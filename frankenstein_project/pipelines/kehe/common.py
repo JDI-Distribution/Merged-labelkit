@@ -31,6 +31,7 @@ from .asn_parser import (
     _format_edi_date,
     _get_elem,
     _normalize,
+    _normalize_sscc,
     _parse_shipment_group,
     _scan_dates,
     _scan_ref_values,
@@ -125,12 +126,7 @@ def _draw_fitted_line(
 
 
 def normalize_sscc(sscc_raw: str) -> str:
-    digits = re.sub(r"\D", "", sscc_raw or "")
-    if len(digits) >= 20 and digits.startswith("00"):
-        return digits[2:20]
-    if len(digits) == 18:
-        return digits
-    return digits[-18:] if len(digits) > 18 else digits
+    return _normalize_sscc(sscc_raw)
 
 
 def format_sscc_groups(sscc18: str) -> str:

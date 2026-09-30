@@ -90,7 +90,7 @@ class ProductMasterMigrationTests(unittest.TestCase):
     def test_clean_product_and_address_template_headings_are_importable(self):
         products = _canonicalize_import_rows([{
             "Customer": "Example",
-            "Product Group ID": "GROUP-1",
+            "Product SKU": "GROUP-1",
             "Display SKU": "DISPLAY-1",
             "Incoming UOM": "Inner Pack",
             "Level SKU": "INNER-1",
@@ -99,6 +99,9 @@ class ProductMasterMigrationTests(unittest.TestCase):
             "Eaches Contained": 6,
             "Barcode Encoding": "GTIN_14",
             "Packaged Weight (lb)": 2.5,
+            "Level Length (in)": 8,
+            "Level Width (in)": 6,
+            "Level Height (in)": 4,
         }], "mpl_product_master")
 
         self.assertEqual("GROUP-1", products[0]["config_id"])
@@ -106,6 +109,11 @@ class ProductMasterMigrationTests(unittest.TestCase):
         self.assertEqual("INNER-1", products[0]["sku"])
         self.assertEqual("GTIN_14", products[0]["barcode_type"])
         self.assertEqual("2.5", products[0]["gross_weight_lbs"])
+        self.assertEqual(("8", "6", "4"), (
+            products[0]["length_in"],
+            products[0]["width_in"],
+            products[0]["height_in"],
+        ))
 
         addresses = _canonicalize_import_rows([{
             "Customer": "Example",

@@ -350,8 +350,8 @@
           <div class="mpl-order-instance-picker hidden" id="mpl-order-instance-picker">
             <div class="mpl-order-instance-heading">
               <div>
-                <strong>Multiple ECOMDASH IDs found</strong>
-                <span>Select the storefront and customer order you want to load.</span>
+                <strong>Multiple order records found</strong>
+                <span>Compare the customer, date, and Product Master matches, then choose one.</span>
               </div>
               <span class="mpl-order-instance-count" id="mpl-order-instance-count"></span>
             </div>
@@ -359,11 +359,11 @@
               <table class="mpl-order-instance-table">
                 <thead>
                   <tr>
-                    <th scope="col">ECOMDASH ID</th>
-                    <th scope="col">Storefront</th>
-                    <th scope="col">Billing Customer Name</th>
-                    <th scope="col">Invoice Date</th>
-                    <th scope="col">SKUs</th>
+                    <th scope="col">Customer / storefront</th>
+                    <th scope="col">Invoice date</th>
+                    <th scope="col">Product matches</th>
+                    <th scope="col">Billing customer</th>
+                    <th scope="col">Record ID</th>
                     <th scope="col" class="mpl-order-instance-select-column">Select</th>
                   </tr>
                 </thead>
@@ -395,6 +395,11 @@
           <button class="mpl-tool-card" type="button" onclick="openSavedMplModal()">
             <span class="mpl-tool-icon" aria-hidden="true">SV</span>
             <span><small>Saved work</small><strong>Open Saved MPL</strong><em>Resume or reprint a previous packing list</em></span>
+            <b aria-hidden="true">&#8594;</b>
+          </button>
+          <button class="mpl-tool-card" type="button" onclick="openMplPalletLabels()">
+            <span class="mpl-tool-icon" aria-hidden="true">PL</span>
+            <span><small>Shared palletization</small><strong>Open Pallet Labels</strong><em>Review pallet placards from the active MPL and TI-HI assignments</em></span>
             <b aria-hidden="true">&#8594;</b>
           </button>
         </div>
@@ -437,8 +442,8 @@
           <div class="mpl-order-instance-picker hidden" id="b2b-order-instance-picker">
             <div class="mpl-order-instance-heading">
               <div>
-                <strong>Multiple ECOMDASH IDs found</strong>
-                <span>Select the storefront and customer order you want to load.</span>
+                <strong>Multiple order records found</strong>
+                <span>Compare the customer, date, and Product Master matches, then choose one.</span>
               </div>
               <span class="mpl-order-instance-count" id="b2b-order-instance-count"></span>
             </div>
@@ -446,11 +451,11 @@
               <table class="mpl-order-instance-table">
                 <thead>
                   <tr>
-                    <th scope="col">ECOMDASH ID</th>
-                    <th scope="col">Storefront</th>
-                    <th scope="col">Billing Customer Name</th>
-                    <th scope="col">Invoice Date</th>
-                    <th scope="col">SKUs</th>
+                    <th scope="col">Customer / storefront</th>
+                    <th scope="col">Invoice date</th>
+                    <th scope="col">Product matches</th>
+                    <th scope="col">Billing customer</th>
+                    <th scope="col">Record ID</th>
                     <th scope="col" class="mpl-order-instance-select-column">Select</th>
                   </tr>
                 </thead>
@@ -557,7 +562,7 @@
                   <h3>Edit the label</h3>
                 </div>
               </div>
-              <span class="b2b-save-state" id="b2b-product-save-state">Changes save to Product Master</span>
+              <span class="b2b-save-state" id="b2b-product-save-state">Order values stay separate from Product Master</span>
             </div>
             <div class="b2b-label-editor-meta" id="b2b-label-editor-meta">Select a packaging level to load its print layout.</div>
             <div class="b2b-section-empty" id="b2b-label-editor-empty">Your editable label will appear after Section 1 is complete.</div>
@@ -592,9 +597,9 @@
                   <label data-b2b-setting-field="each_net_weight_g">Each Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
                   <label data-b2b-setting-field="package_net_weight_g">Total Product Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
                   <label data-b2b-setting-field="gross_weight_lbs">Total Weight with Packaging (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
-                  <label data-b2b-setting-field="length_in">Final Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
-                  <label data-b2b-setting-field="width_in">Final Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
-                  <label data-b2b-setting-field="height_in">Final Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
+                  <label data-b2b-setting-field="length_in">Level Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
+                  <label data-b2b-setting-field="width_in">Level Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
+                  <label data-b2b-setting-field="height_in">Level Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
                   <label data-b2b-setting-field="verification_status">Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
                   <label class="b2b-setting-toggle" data-b2b-setting-field="label_enabled">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
                 </div>
@@ -739,6 +744,7 @@
                 <div class="partner-mpl-review-actions">
                   <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Review &amp; Edit Master Packing List</span><small>Open the full packing-list editor</small></button>
                   <button class="btn-generate" id="btn-generate-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')">Generate &amp; Open PDF</button>
+                  <button class="btn-document" id="btn-partner-pallet-labels" type="button" onclick="openMplPalletLabels(partnerMplDraft)"><span>Review Pallet Labels</span><small>Use the same reviewed pallet assignments</small></button>
                 </div>
               </div>
             </section>
@@ -988,7 +994,7 @@
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div>
           <div class="editor-title">Product Master Table</div>
-          <div class="kehe-product-master-subtitle">Maintain one product record with required Each data, optional Inner Pack and Case levels, and one automatically selected outermost shipping unit.</div>
+          <div class="kehe-product-master-subtitle">Maintain required Each data, optional Inner Pack and Case levels, and dimensions for every configured packaging level.</div>
         </div>
         <button class="btn-secondary" onclick="closeMplProductMasterModal()">Close</button>
       </div>
@@ -997,7 +1003,7 @@
         <div class="kehe-product-master-toolbar product-master-command-bar">
           <div class="product-master-command-copy">
             <div class="kehe-product-master-title">Editable Product Data</div>
-            <div class="kehe-product-master-subtitle">Each is the required base. Add Inner Pack or Case only when used; the outermost available unit holds packaged weight and dimensions.</div>
+            <div class="kehe-product-master-subtitle">Enter the product identity, configure Each and any optional packaging levels, then review the calculated summary.</div>
           </div>
           <div class="product-master-command-actions" aria-label="Product Master actions">
             <div class="product-master-action-group">
@@ -1022,6 +1028,7 @@
         <div class="product-quality-toolbar">
           <div class="table-filter-summary-row">
             <div class="product-quality-summary" id="product-quality-summary">Calculating Product Master completeness…</div>
+            <button class="btn-generate" type="button" onclick="focusNextProductIssue()">Fix next</button>
             <button class="btn-secondary" type="button" onclick="downloadMissingProductInformation()">Download Missing Information</button>
           </div>
           <div class="table-filter-toolbar table-filter-toolbar--flush" role="group" aria-label="Product Master filters">
@@ -1102,7 +1109,7 @@
             <div class="kehe-product-master-title">Address data</div>
             <div class="kehe-product-master-subtitle">
               <span>Ship From is applied automatically.</span>
-              <span>Shared Ship From · <strong id="mpl-shared-origin-address">Loading shared origin…</strong></span>
+              <span>Shared Ship From · Applied automatically · <strong id="mpl-shared-origin-address">Loading shared origin…</strong></span>
               <span class="product-master-origin-actions">
                 <button class="btn-secondary product-master-action" type="button" aria-label="Edit shared origin" onclick="openSharedMplDirectoryEditor()">Edit shared origin</button>
               </span>
@@ -1440,12 +1447,11 @@
 </div>
 
 <script src="/assets/vendor/pdfjs-3.11.174/pdf.min.js"></script>
-<script src="https://static.zohocdn.com/catalyst/sdk/js/4.5.0-beta/catalystWebSDK.js"></script>
-<script src="/__catalyst/sdk/init.js"></script>
   <script src="/assets/js/mpl-draft-sync.js"></script>
   <script src="/assets/js/reference-data.js"></script>
   <script src="/assets/js/order-context.js"></script>
   <script src="/assets/js/mpl-tihi.js"></script>
+  <script src="/assets/js/b2b-order-jobs.js"></script>
   <script src="/assets/js/b2b-workspace.js"></script>
   <script src="/assets/js/partner-workspace.js"></script>
   <script src="/assets/js/document-editor.js"></script>

@@ -12,6 +12,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from labelkit.product_quality import gtin_check_digit_valid
+
 from .common import (
     _boolish,
     _canonical_id,
@@ -463,6 +465,10 @@ def render_kehe_pack_label_pdf(
             status = "Needs Review"
             if "GTIN must be 14 digits for ITF-14." not in warnings:
                 warnings.append("GTIN must be 14 digits for ITF-14.")
+        elif not gtin_check_digit_valid(gtin):
+            status = "Needs Review"
+            if "GTIN-14 check digit is invalid." not in warnings:
+                warnings.append("GTIN-14 check digit is invalid.")
         if not str(label.get("description") or "").strip():
             status = "Needs Review"
             if "Description is blank." not in warnings:

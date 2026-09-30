@@ -475,12 +475,18 @@ def _item_signature(item: Item) -> Tuple[Any, ...]:
 
 
 def _normalize_sscc(value: str) -> str:
-    digits = re.sub(r"\D", "", value or "")
-    if len(digits) == 20 and digits.startswith("00"):
-        digits = digits[2:]
-    if len(digits) == 17:
-        digits = "0" + digits
-    return digits
+    raw = str(value or "").strip()
+    if len(raw) == 20 and raw.startswith("00"):
+        raw = raw[2:]
+    if len(raw) != 18 or not raw.isdigit():
+        return ""
+    body = raw[:-1]
+    weighted_sum = sum(
+        int(digit) * (3 if offset % 2 == 0 else 1)
+        for offset, digit in enumerate(reversed(body))
+    )
+    expected_check_digit = (10 - weighted_sum % 10) % 10
+    return raw if int(raw[-1]) == expected_check_digit else ""
 
 def _merge_duplicate_physical_packs(packs: List[Pack]) -> List[Pack]:
     """Merge repeated SSCC rows into one physical label/pallet while preserving POs/items."""
@@ -689,6 +695,11 @@ def _parse_shipment_group(
                 raise ValueError(
                     f"Missing KeHE GS1 SSCC for PO {order.po}: expected MAN01=GM and MAN02 with the 20-digit GS1-128 value."
                 )
+            normalized_sscc = _normalize_sscc(sscc)
+            if not normalized_sscc:
+                raise ValueError(
+                    f"Invalid KeHE SSCC for PO {order.po}: expected an 18-digit SSCC or AI 00 plus 18 digits with a valid check digit."
+                )
 
             pack_plant = _plant_from_n1loops(hl)
             pack_refs = _scan_ref_values(hl, deep=False)
@@ -716,7 +727,7 @@ def _parse_shipment_group(
                 package_type = "CTN"
 
             pack = Pack(
-                sscc=sscc,
+                sscc=normalized_sscc,
                 tracking=pack_tracking,
                 po=order.po,
                 store=order.store,

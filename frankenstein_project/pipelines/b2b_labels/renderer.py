@@ -9,6 +9,7 @@ run-specific and are never written back by the renderer.
 from __future__ import annotations
 
 import io
+import math
 import re
 from functools import partial
 from pathlib import Path
@@ -30,6 +31,7 @@ SUPPORTED_RENDERERS = {
     "standard_case_4x6",
     "standard_case_vertical_4x6",
 }
+MAX_B2B_RENDER_PAGES = 1000
 
 
 def _text(value: Any) -> str:
@@ -51,8 +53,21 @@ def _positive_int(value: Any, default: int = 1) -> int:
     try:
         parsed = int(float(_text(value)))
         return parsed if parsed > 0 else default
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return default
+
+
+def _render_positive_int(value: Any, field: str, default: int = 1) -> int:
+    raw = _text(value)
+    if not raw:
+        return default
+    try:
+        number = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite positive whole number.") from exc
+    if not math.isfinite(number) or number <= 0 or not number.is_integer():
+        raise ValueError(f"{field} must be a finite positive whole number.")
+    return int(number)
 
 
 def _wrap(text: str, font: str, size: float, max_width: float, max_lines: int = 4) -> List[str]:
@@ -641,10 +656,32 @@ def validate_b2b_job(job: Dict[str, Any], template: Dict[str, Any]) -> List[str]
     return warnings
 
 
+def b2b_job_page_plan(job: Dict[str, Any], template: Dict[str, Any]) -> Dict[str, int]:
+    start = _render_positive_int(_job_value(job, "carton_start"), "Carton start")
+    end = _render_positive_int(_job_value(job, "carton_end"), "Carton end", start)
+    total = _render_positive_int(_job_value(job, "carton_total"), "Carton total", end)
+    if not (1 <= start <= end <= total):
+        raise ValueError("Carton range must satisfy 1 <= start <= end <= total.")
+    copies = _render_positive_int(
+        _job_value(job, "copies"),
+        "Copies",
+        _positive_int(template.get("default_copies"), 1),
+    )
+    return {
+        "carton_start": start,
+        "carton_end": end,
+        "carton_total": total,
+        "copies": copies,
+        "pages": (end - start + 1) * copies,
+    }
+
+
 def render_b2b_label_pdf(
     job: Dict[str, Any],
     template: Dict[str, Any],
     out_pdf: str | Path | None = None,
+    *,
+    max_pages: int = MAX_B2B_RENDER_PAGES,
 ) -> Dict[str, Any]:
     renderer = _renderer_for(template)
     render_job = dict(job)
@@ -655,14 +692,14 @@ def render_b2b_label_pdf(
         render_run["print_barcode"] = policy in {"OPTIONAL", "REQUIRED"} or bool(options.get("show_barcode"))
     render_job["run"] = render_run
     width, height = _page_size(template)
-    start = _positive_int(_job_value(render_job, "carton_start"), 1)
-    end = _positive_int(_job_value(render_job, "carton_end"), start)
-    total = _positive_int(_job_value(render_job, "carton_total"), end)
-    if not (1 <= start <= end <= total):
-        raise ValueError("Carton range must satisfy 1 <= start <= end <= total.")
-
-    default_copies = _positive_int(template.get("default_copies"), 1)
-    copies = _positive_int(_job_value(render_job, "copies"), default_copies)
+    page_plan = b2b_job_page_plan(render_job, template)
+    start = page_plan["carton_start"]
+    end = page_plan["carton_end"]
+    total = page_plan["carton_total"]
+    copies = page_plan["copies"]
+    page_count = page_plan["pages"]
+    if page_count > max_pages:
+        raise ValueError(f"A B2B label render cannot exceed {max_pages} pages.")
     buffer = io.BytesIO()
     target: Any = str(out_pdf) if out_pdf else buffer
     pdf = canvas.Canvas(target, pagesize=(width, height), pageCompression=1)
