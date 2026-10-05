@@ -15,7 +15,11 @@ from pipelines.kehe.gs1_labels import run_pipeline
 from pipelines.kehe.mpl import build_kehe_master_packing_list_draft, render_kehe_master_packing_list_pdf
 from pipelines.kehe.pack_labels import build_kehe_pack_label_draft, render_kehe_pack_label_pdf
 from pipelines.kehe.pallet_labels import build_kehe_pallet_label_draft, render_kehe_pallet_label_pdf
-from server import prepare_kehe_master_packing_list, prepare_kehe_pack_labels, prepare_kehe_pallet_label
+from labelkit.routes.generation import (
+    prepare_kehe_master_packing_list,
+    prepare_kehe_pack_labels,
+    prepare_kehe_pallet_label,
+)
 
 
 def _segment(parent: ET.Element, segment_id: str, **values: str) -> ET.Element:
@@ -43,13 +47,14 @@ class KeheDocumentHeaderTests(unittest.TestCase):
                     created_paths.append(Path(path))
                     return path
 
-                with patch("server._require_permission"), patch("server.tempfile.mkdtemp", side_effect=make_temp_dir):
-                    with patch("server._sync_kehe_dc_directory_for_pipeline"), \
-                         patch("server._datastore_load_product_master", return_value=[]), \
-                         patch("server._shared_product_master_file_read", return_value=[]), \
-                         patch("server.build_kehe_pallet_label_draft", return_value={"pallets": []}), \
-                         patch("server.build_kehe_master_packing_list_draft", return_value={"packing_lists": []}), \
-                         patch("server.build_kehe_pack_label_draft", return_value={"pack_labels": []}):
+                module = "labelkit.routes.generation"
+                with patch(f"{module}._require_permission"), patch("tempfile.mkdtemp", side_effect=make_temp_dir):
+                    with patch(f"{module}._sync_kehe_dc_directory_for_pipeline"), \
+                         patch(f"{module}._datastore_load_product_master", return_value=[]), \
+                         patch(f"{module}._shared_product_master_file_read", return_value=[]), \
+                         patch(f"{module}.build_kehe_pallet_label_draft", return_value={"pallets": []}), \
+                         patch(f"{module}.build_kehe_master_packing_list_draft", return_value={"packing_lists": []}), \
+                         patch(f"{module}.build_kehe_pack_label_draft", return_value={"pack_labels": []}):
                         upload = UploadFile(filename="prepared.xml", file=io.BytesIO(b"<Root/>"))
                         response = asyncio.run(endpoint(request, [upload], **kwargs))
 

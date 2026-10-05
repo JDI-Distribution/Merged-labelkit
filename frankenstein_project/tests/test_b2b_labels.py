@@ -8,7 +8,8 @@ from pathlib import Path
 import pymupdf as fitz
 
 from pipelines.b2b_labels import render_b2b_label_pdf, validate_b2b_job
-from server import _render_b2b_batch_pdf, _render_b2b_batch_zip, render_b2b_label_batch, render_b2b_label_batch_archive
+from labelkit.b2b_orders import _render_b2b_batch_pdf, _render_b2b_batch_zip
+from labelkit.routes.b2b import render_b2b_label_batch, render_b2b_label_batch_archive
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -192,7 +193,7 @@ class B2BLabelRendererTests(unittest.TestCase):
         from fastapi import HTTPException
         from unittest.mock import patch
 
-        with patch("server._require_permission"):
+        with patch("labelkit.routes.b2b._require_permission"):
             with self.assertRaisesRegex(HTTPException, "fits in one PDF"):
                 asyncio.run(render_b2b_label_batch_archive(object(), {"jobs": [job], "order_number": "SO-1"}))
 
@@ -203,7 +204,7 @@ class B2BLabelRendererTests(unittest.TestCase):
 
         from unittest.mock import patch
 
-        with patch("server._require_permission"):
+        with patch("labelkit.routes.b2b._require_permission"):
             response = asyncio.run(render_b2b_label_batch_archive(object(), {"jobs": [job], "order_number": "SO-1"}))
 
         self.assertEqual("application/zip", response.media_type)
@@ -292,7 +293,7 @@ class B2BLabelRendererTests(unittest.TestCase):
 
         from unittest.mock import patch
 
-        with patch("server._require_permission"):
+        with patch("labelkit.routes.b2b._require_permission"):
             response = asyncio.run(render_b2b_label_batch(object(), {"jobs": jobs}))
 
         self.assertEqual("application/pdf", response.media_type)

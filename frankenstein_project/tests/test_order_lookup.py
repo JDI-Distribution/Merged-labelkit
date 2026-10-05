@@ -7,39 +7,35 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from server import (
-    FRONTEND_DIST,
-    MAX_CACHED_REPORTS,
-    RESULT_JOBS,
-    RESULT_REPORTS,
-    _analytics_case_conversion,
-    _apply_shared_directory_ship_from,
-    _analytics_order_details,
-    _analytics_quantity,
-    _analytics_order_instance_groups,
-    _analytics_kehe_case_conversion,
-    _b2b_analytics_order_items_for_products,
-    _hydrate_saved_mpl_record,
-    _product_each_gtin,
+from labelkit.b2b_orders import _resolve_b2b_order_customer
+from labelkit.draft_store import (
     _datastore_row_to_mpl_draft,
     _datastore_save_mpl_drafts,
+    _hydrate_saved_mpl_record,
     _mpl_draft_for_storage,
     _mpl_draft_to_datastore_row,
+)
+from labelkit.jobs import MAX_CACHED_REPORTS, RESULT_JOBS, RESULT_REPORTS, _prune_old_results
+from labelkit.order_intake import (
+    _analytics_case_conversion,
+    _analytics_kehe_case_conversion,
+    _analytics_order_details,
+    _analytics_order_instance_groups,
+    _analytics_quantity,
+    _b2b_analytics_order_items_for_products,
     _partner_customer_id_from_order,
     _partner_customer_id_from_text,
-    _resolve_b2b_order_customer,
-    _refresh_mpl_render_product_master,
+    _product_each_gtin,
     _select_analytics_order_instance,
     _validated_sales_order_number,
-    _with_kehe_prepare_xml_files,
-    _current_project_user,
-    _prune_old_results,
-    _require_permission,
-    lookup_order_documents,
-    lookup_mpl_order,
-    normalize_product_master_row,
-    serve_frontend_index,
 )
+from labelkit.reference_data import normalize_product_master_row
+from labelkit.reference_import import _apply_shared_directory_ship_from
+from labelkit.routes.b2b import lookup_order_documents
+from labelkit.routes.generation import _refresh_mpl_render_product_master, _with_kehe_prepare_xml_files
+from labelkit.routes.orders import lookup_mpl_order
+from labelkit.routes.system import serve_frontend_index
+from labelkit.runtime import FRONTEND_DIST, _current_project_user, _require_permission
 from labelkit.draft_storage import MPL_VERSION_LIMIT, bounded_versions
 from labelkit.reference_data import DEFAULT_DIRECTORY_SHIP_FROM, _dedupe_dc_directory_rows, normalize_dc_directory_row
 from pipelines.kehe.common import (
@@ -68,7 +64,7 @@ class AuthenticationHeaderTrustTests(unittest.TestCase):
             "http_version": "1.1",
         })
 
-        with patch("server.AUTH_REQUIRED", True), patch("server._init_catalyst_user_app", return_value=None):
+        with patch("labelkit.runtime.AUTH_REQUIRED", True), patch("labelkit.runtime._init_catalyst_user_app", return_value=None):
             user = _current_project_user(request)
             self.assertFalse(user["authenticated"])
             self.assertEqual("User", user["role"])
@@ -120,7 +116,7 @@ class KehePrepareHelperTests(unittest.TestCase):
             created_dirs.append(Path(path))
             return path
 
-        with patch("server.tempfile.mkdtemp", side_effect=make_temp_dir):
+        with patch("tempfile.mkdtemp", side_effect=make_temp_dir):
             with self.assertRaisesRegex(HTTPException, "Invalid XML file") as raised:
                 import asyncio
                 asyncio.run(_with_kehe_prepare_xml_files(
@@ -149,7 +145,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         request = Request({"type": "http", "method": "POST", "path": "/api/order-documents/orders/lookup", "headers": []})
         payload = {"sales_order_number": "70001"}
         sentinel = object()
-        with patch("server.lookup_b2b_order", return_value=sentinel) as lookup:
+        with patch("labelkit.routes.b2b.lookup_b2b_order", return_value=sentinel) as lookup:
             result = lookup_order_documents(request, payload)
         self.assertIs(result, sentinel)
         lookup.assert_called_once_with(request, payload)
@@ -693,9 +689,9 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         }]
 
         with (
-            patch("server._require_permission"),
-            patch("server._analytics_export_order_rows", return_value=order_rows),
-            patch("server._datastore_load_product_master", return_value=products),
+            patch("labelkit.routes.orders._require_permission"),
+            patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
+            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "70913"})
 
@@ -736,9 +732,9 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         ]
 
         with (
-            patch("server._require_permission"),
-            patch("server._analytics_export_order_rows", return_value=order_rows),
-            patch("server._datastore_load_product_master", return_value=products),
+            patch("labelkit.routes.orders._require_permission"),
+            patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
+            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "DISPLAY-1"})
 
@@ -796,9 +792,9 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         ]
 
         with (
-            patch("server._require_permission"),
-            patch("server._analytics_export_order_rows", return_value=order_rows),
-            patch("server._datastore_load_product_master", return_value=products),
+            patch("labelkit.routes.orders._require_permission"),
+            patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
+            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "SHARED-LEVEL-SKU"})
 
@@ -865,9 +861,9 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         ]
 
         with (
-            patch("server._require_permission"),
-            patch("server._analytics_export_order_rows", return_value=order_rows),
-            patch("server._datastore_load_product_master", return_value=products),
+            patch("labelkit.routes.orders._require_permission"),
+            patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
+            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "LEVEL-SPECIFIC-SKUS"})
 
@@ -1037,7 +1033,7 @@ class KeheMplItemNumberTests(unittest.TestCase):
             },
         ]
 
-        with patch("server._datastore_load_product_master", return_value=authoritative_rows):
+        with patch("labelkit.routes.generation._datastore_load_product_master", return_value=authoritative_rows):
             refreshed = _refresh_mpl_render_product_master(object(), stale_draft)
 
         item = refreshed["packing_lists"][0]["items"][0]
@@ -1102,7 +1098,7 @@ class MplDraftStorageTests(unittest.TestCase):
             "draft": {"packing_lists": [{"id": "MPL-1", "items": [{"sku": "ABC"}]}]},
         }]
 
-        with patch("server._mpl_drafts_datastore_table", return_value=table):
+        with patch("labelkit.draft_store._mpl_drafts_datastore_table", return_value=table):
             saved = _datastore_save_mpl_drafts(object(), wanted, "MPL")
 
         self.assertTrue(saved)

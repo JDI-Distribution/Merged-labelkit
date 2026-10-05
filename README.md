@@ -328,6 +328,14 @@ Do not update the lock file opportunistically during unrelated changes.
 
 Backend responsibilities:
 
+- `server.py`: FastAPI app, CORS/security middleware, static mount, and router registration.
+- `labelkit/routes/`: feature routers (`system`, `reference`, `b2b`, `orders`, `drafts`, `generation`).
+- `labelkit/runtime.py`: configuration, authentication glue, and Catalyst datastore access.
+- `labelkit/jobs.py`: in-memory result jobs and background generation workers.
+- `labelkit/product_store.py`, `directory_store.py`, `draft_store.py`, `audit_log.py`: persistence.
+- `labelkit/reference_import.py`, `spreadsheets.py`: Excel/CSV import parsing and previews.
+- `labelkit/b2b_orders.py`: B2B templates, customer resolution, and batch rendering helpers.
+- `labelkit/analytics.py`: Zoho Analytics order lookup client.
 - `labelkit/order_intake.py`: shared Analytics order matching and quantity conversion.
 - `labelkit/reference_data.py`: Product Master and Directory normalization.
 - `labelkit/draft_storage.py`: compact draft/version serialization.

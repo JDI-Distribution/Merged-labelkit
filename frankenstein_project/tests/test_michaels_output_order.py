@@ -9,7 +9,8 @@ import pymupdf as fitz
 
 from pipelines.michaels import pipeline
 from labelkit.file_operations import MAX_MICHAELS_OUTPUT_PAGES, split_michaels_output_by_page_limit
-from server import RESULT_JOBS, run_michaels_generation_job, split_michaels_output_by_shipping_pdf
+from labelkit.file_operations import split_michaels_output_by_shipping_pdf
+from labelkit.jobs import RESULT_JOBS, run_michaels_generation_job
 
 
 def _one_page_pdf(text: str) -> bytes:
@@ -110,7 +111,7 @@ class MichaelsOutputOrderTests(unittest.TestCase):
                 }
 
             try:
-                with mock.patch("server.run_michaels_pipeline", side_effect=render_large_output):
+                with mock.patch("labelkit.jobs.run_michaels_pipeline", side_effect=render_large_output):
                     run_michaels_generation_job(result_id, ["order.xml"], ["shipping.pdf"])
 
                 job = RESULT_JOBS[result_id]

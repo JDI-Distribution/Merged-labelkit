@@ -14,15 +14,14 @@ from pipelines.kehe.common import (
     _normalize_product_master_rows,
 )
 from pipelines.kehe.pack_labels import _label_weight_lbs
-from server import (
-    _canonicalize_import_rows,
+from labelkit.product_store import (
     _datastore_save_product_rows,
-    _product_to_datastore_row,
-    normalize_product_master_row,
     _product_master_file_read,
     _product_master_file_write,
+    _product_to_datastore_row,
 )
-from labelkit.reference_data import normalize_dc_directory_row
+from labelkit.reference_data import normalize_dc_directory_row, normalize_product_master_row
+from labelkit.reference_import import _canonicalize_import_rows
 from labelkit.reference_models import (
     CURRENT_ADDRESS_SCHEMA_VERSION,
     CURRENT_PRODUCT_SCHEMA_VERSION,
@@ -401,7 +400,7 @@ class ProductMasterDatastoreWriteTests(unittest.TestCase):
             "gross_weight_lbs": "4.5",
             "is_active": True,
         }]
-        with patch("server._product_datastore_table", return_value=table):
+        with patch("labelkit.product_store._product_datastore_table", return_value=table):
             _datastore_save_product_rows(object(), wanted, "mpl_product_master", "datastore", include_storefront=True)
 
         self.assertEqual(1, len(table.updated))
