@@ -105,6 +105,7 @@ from labelkit.auth import (  # noqa: E402
     role_from_catalyst,
     role_from_name,
 )
+from labelkit.catalyst import datastore_unavailable, get_raw_rows, store_requires_datastore, table_named  # noqa: E402
 from labelkit.order_intake import (  # noqa: E402
     _analytics_case_conversion,
     _analytics_order_details,
@@ -836,38 +837,15 @@ def _require_permission(request: Request, permission: str = "view") -> Dict[str,
 
 
 def _store_requires_datastore(store_mode: str) -> bool:
-    return str(store_mode or "").strip().lower() == "datastore"
+    return store_requires_datastore(store_mode)
 
 
 def _raise_datastore_unavailable(table_name: str, action: str, exc: Optional[Exception] = None) -> None:
-    detail = (
-        f"Cloud data unavailable for Catalyst Data Store table '{table_name}' while trying to {action}. "
-        "Store mode is 'datastore', so local JSON fallback is disabled."
-    )
-    if exc is not None:
-        LOGGER.exception("Catalyst Data Store failure table=%s action=%s", table_name, action, exc_info=exc)
-    if exc is not None and APP_ENV != "production":
-        detail += f" {exc.__class__.__name__}: {exc}"
-    raise HTTPException(status_code=503, detail=detail)
+    datastore_unavailable(table_name, action, exc, app_env=APP_ENV, logger=LOGGER)
 
 
 def _datastore_table_named(request: Request, table_name: str, store_mode: str) -> Any:
-    store_mode = str(store_mode or "auto").strip().lower()
-    if store_mode == "file":
-        return None
-
-    catalyst_app = _init_catalyst_app(request)
-    if catalyst_app is None:
-        if _store_requires_datastore(store_mode):
-            _raise_datastore_unavailable(table_name, "connect to it")
-        return None
-
-    try:
-        return catalyst_app.datastore().table(table_name)
-    except Exception as exc:
-        if _store_requires_datastore(store_mode):
-            _raise_datastore_unavailable(table_name, "open it", exc)
-        return None
+    return table_named(request, table_name, store_mode, _init_catalyst_app, app_env=APP_ENV, logger=LOGGER)
 
 
 def _product_datastore_table(request: Request, table_name: str, store_mode: str) -> Any:
@@ -875,35 +853,7 @@ def _product_datastore_table(request: Request, table_name: str, store_mode: str)
 
 
 def _datastore_get_raw_rows(table_service: Any) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    next_token: Optional[str] = None
-    more_records = True
-
-    while more_records:
-        try:
-            if next_token:
-                page = table_service.get_paged_rows(next_token, max_rows=100)
-            else:
-                page = table_service.get_paged_rows(max_rows=100)
-        except TypeError:
-            page = table_service.get_paged_rows(next_token, 100)
-
-        content = []
-        if isinstance(page, dict):
-            raw_content = page.get("content")
-            if isinstance(raw_content, list):
-                content = raw_content
-            elif isinstance(page.get("data"), list):
-                content = page.get("data", [])
-        elif isinstance(page, list):
-            content = page
-        rows.extend([r for r in content if isinstance(r, dict)])
-        more_records = bool(page.get("more_records")) if isinstance(page, dict) else False
-        next_token = page.get("next_token") if isinstance(page, dict) else None
-        if not next_token:
-            more_records = False
-
-    return rows
+    return get_raw_rows(table_service)
 
 
 @app.get("/api/admin/diagnostics")
