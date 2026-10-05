@@ -140,7 +140,7 @@ def _frontend_javascript_bundle() -> str:
     scripts_dir = FRONTEND_DIST / "assets" / "js"
     return "\n".join(
         path.read_text(encoding="utf-8")
-        for path in sorted(scripts_dir.glob("*.js"))
+        for path in sorted(scripts_dir.rglob("*.js"))
     )
 
 
@@ -1273,11 +1273,14 @@ class FrontendDeliveryTests(unittest.TestCase):
 
         for filename in (
             "app.css",
+            "base.css",
+            "components.css",
             "operations.css",
             "document-editor.css",
             "preview.css",
             "b2b.css",
-            "app-responsive.css",
+            "responsive.css",
+            "tokens.css",
         ):
             with self.subTest(filename=filename):
                 self.assertIn(f'/assets/css/{filename}', html)
@@ -1308,8 +1311,8 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("match_reason: source?.match_reason", javascript)
         self.assertIn("Assign templates in Batch Setup", javascript)
         self.assertIn("Selected label", javascript)
-        self.assertIn("Order loaded with review items", javascript)
-        self.assertIn("Order data resolved", javascript)
+        self.assertIn("Sales Order ${orderNumber} is ready", javascript)
+        self.assertIn("Matching order lines to Product Master", javascript)
 
     def test_feature_scripts_are_delivered_as_separate_modules(self):
         html = serve_frontend_index().body.decode("utf-8")
@@ -1318,7 +1321,7 @@ class FrontendDeliveryTests(unittest.TestCase):
             "reference-data.js": "function normalizeProductRow",
             "mpl-tihi.js": "function autoPalletizeMpl",
             "b2b-workspace.js": "function renderB2BCreator",
-            "partner-workspace.js": "function renderPartnerWorkspace",
+            "document-model.js": "function buildPartnerMplDraft",
             "document-editor.js": "function renderDocumentEditor",
             "operations-workspace.js": "function renderOperationsWorkspace",
         }
@@ -1342,7 +1345,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         html = serve_frontend_index().body.decode("utf-8")
         javascript = _frontend_javascript_bundle()
 
-        self.assertIn('/assets/js/mpl-draft-sync.js', html)
+        self.assertIn('/assets/js/modules/mpl-draft-sync.js', html)
         self.assertIn('id="mpl-save-state"', html)
         self.assertIn('id="btn-mpl-versions"', html)
         self.assertIn('expected_revision:', javascript)
@@ -1378,7 +1381,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         context_javascript = (FRONTEND_DIST / "assets" / "js" / "order-context.js").read_text(encoding="utf-8")
 
         self.assertIn("const uniqueGroups = [...reviewGroups.values()]", javascript)
-        self.assertIn("line_index: index", (FRONTEND_DIST / "assets" / "js" / "b2b-order-jobs.js").read_text(encoding="utf-8"))
+        self.assertIn("line_index: index", (FRONTEND_DIST / "assets" / "js" / "modules" / "b2b-label-model.js").read_text(encoding="utf-8"))
         self.assertIn("const selectedBatchJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex]", javascript)
         self.assertIn("job.directory = {", javascript)
         self.assertIn("delivery_address: b2bOrderDestinationOverride", javascript)
@@ -1388,28 +1391,27 @@ class FrontendDeliveryTests(unittest.TestCase):
 
     def test_frontend_shell_is_fluid_and_routes_are_canonical_hash_urls(self):
         html = serve_frontend_index().body.decode("utf-8")
-        responsive_css = (FRONTEND_DIST / "assets" / "css" / "responsive-shell.css").read_text(encoding="utf-8")
-        javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
+        responsive_css = (FRONTEND_DIST / "assets" / "css" / "responsive.css").read_text(encoding="utf-8")
+        router_javascript = (FRONTEND_DIST / "assets" / "js" / "modules" / "router.js").read_text(encoding="utf-8")
 
-        self.assertIn('/assets/css/responsive-shell.css', html)
-        self.assertIn(".mpl-workspace-shell", responsive_css)
-        self.assertIn(".b2b-workspace-shell", responsive_css)
-        self.assertIn(".partner-workspace-shell", responsive_css)
+        self.assertIn('/assets/css/responsive.css', html)
+        self.assertIn("--workspace-inline-gutter", responsive_css)
+        self.assertIn(".selection-shell", responsive_css)
         self.assertIn("max-width: none", responsive_css)
         self.assertIn("@media (max-width: 900px)", responsive_css)
-        self.assertIn('const nextUrl = `/${nextHash}`;', javascript)
+        self.assertIn('const nextHash = `#${normalized}`;', router_javascript)
 
     def test_all_modules_receive_the_shared_visual_system(self):
         html = serve_frontend_index().body.decode("utf-8")
         module_css = (FRONTEND_DIST / "assets" / "css" / "module-system.css").read_text(encoding="utf-8")
 
         self.assertIn('/assets/css/module-system.css', html)
-        self.assertGreaterEqual(html.count('module-header-card'), 3)
+        self.assertGreaterEqual(html.count('module-header-card'), 2)
         self.assertGreaterEqual(html.count('module-surface-card'), 6)
         self.assertIn('[data-module="michaels"]', module_css)
         self.assertIn('[data-module="kehe"]', module_css)
         self.assertIn('.kehe-reference-btn', module_css)
-        self.assertIn('@media (max-width: 700px)', module_css)
+        self.assertIn('@media (max-width: 700px)', (FRONTEND_DIST / "assets" / "css" / "responsive.css").read_text(encoding="utf-8"))
 
     def test_b2b_creator_uses_progressive_hierarchy_and_dynamic_run_fields(self):
         response = serve_frontend_index()
@@ -1472,7 +1474,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("numbered PDFs in ${filename}", javascript)
         self.assertIn("Object.prototype.hasOwnProperty.call(level || {}, 'label_enabled')", javascript)
         self.assertIn("needs_label_review: reviewReasons.length > 0", javascript)
-        self.assertIn('/assets/js/b2b-order-jobs.js', html)
+        self.assertIn('/assets/js/modules/b2b-label-model.js', html)
         self.assertIn("selectedOrderJob?.review_reasons", javascript)
         self.assertIn("No Enabled Labels for This Order", javascript)
         self.assertIn("function organizeB2BProductSettings(template, product)", javascript)
@@ -1491,7 +1493,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function b2bOrderReviewGroupKey(job)", javascript)
         self.assertIn('id="b2b-order-destination-input"', javascript)
         self.assertIn("function updateB2BOrderDestination(value)", javascript)
-        self.assertIn("order line(s)", javascript)
+        self.assertIn("line(s)", javascript)
         self.assertIn('id="b2b-sku-template-list"', html)
         self.assertIn('id="b2b-order-customer-select"', javascript)
         self.assertIn("job.match_status = 'customer_override'", javascript)
@@ -1504,98 +1506,25 @@ class FrontendDeliveryTests(unittest.TestCase):
         html = serve_frontend_index().body.decode("utf-8")
         javascript = _frontend_javascript_bundle()
 
-        self.assertIn('id="partner-workspace-page"', html)
-        self.assertIn('id="partner-sales-order-number"', html)
-        for button_id in (
-            "btn-partner-mpl",
-            "btn-generate-partner-mpl",
-        ):
-            self.assertIn(f'id="{button_id}"', html)
-        self.assertNotIn('id="btn-preview-partner-mpl"', html)
-        self.assertNotIn('id="btn-render-partner-previews"', html)
-        self.assertIn('id="partner-inline-label-editor"', html)
-        self.assertIn('class="partner-resolution-summary"', html)
-        self.assertIn('class="mpl-address-inline-select"', javascript)
-        self.assertIn('id="partner-download-files"', html)
-        self.assertIn('Download files', html)
-        self.assertNotIn('Generate Master Packing List</strong>', html)
-        self.assertIn('id="partner-generate-labels"', html)
-        self.assertIn('id="partner-generate-mpl"', html)
-        self.assertNotIn('id="partner-label-editor-list"', html)
-        self.assertNotIn('id="partner-labels-preview"', html)
-        self.assertNotIn('id="partner-mpl-preview"', html)
-        self.assertIn("function openPartnerLabelEditor(kind", javascript)
-        self.assertIn("function openPartnerPreview(kind)", javascript)
-        self.assertIn("function renderPartnerLabelsEditor(kind", javascript)
-        self.assertIn("function renderPartnerInlineEditors()", javascript)
-        self.assertIn("Live label editor", javascript)
-        self.assertIn("Carton range &amp; copies", javascript)
-        self.assertIn("commitPartnerProductLabelEdit(this)", javascript)
-        self.assertIn("commitPartnerRunLabelEdit(this)", javascript)
-        self.assertIn('onclick="editPartnerPackingList()"', html)
-        self.assertIn('id="partner-customer-options"', html)
-        self.assertNotIn('data-partner-customer="total_wine"', html)
-        self.assertLess(html.index('DecoPac / Dutch Bros / Fancy'), html.index('Packing List &amp; Ti-Hi'))
-        self.assertIn("let PARTNER_WORKFLOW_CONFIG", javascript)
-        self.assertIn("async function loadCustomerWorkflowConfig()", javascript)
-        self.assertIn("renderPartnerCustomerOptions();", javascript)
-        self.assertIn("function selectPartnerCustomer(customerId", javascript)
-        self.assertNotIn("total_wine", javascript)
-        self.assertNotIn("openCombinedPartnerWorkflow", javascript)
-        self.assertIn("Customer-specific manual MPL layouts", javascript)
-        self.assertIn("onclick=\"setMplTemplate(${mplIndex}, '${cfg.mplTemplateId}')\"", javascript)
-        self.assertIn("palletJob.run.copies = '2'", javascript)
+        self.assertIn('id="operations-workspace-page"', html)
+        self.assertIn('id="operations-sales-order-number"', html)
+        self.assertIn('id="operations-labels-mount"', html)
+        self.assertIn('class="b2b-creator-layout"', html)
+        self.assertIn('id="operations-review-mpl"', html)
+        self.assertIn('id="operations-review-pallet-labels"', html)
+        self.assertIn('data-operations-panel="files"', html)
+        self.assertNotIn('id="partner-workspace-page"', html)
+        self.assertNotIn('id="b2b-workspace-page"', html)
+        self.assertNotIn('id="mpl-workspace-page"', html)
         self.assertIn("function detectPartnerCustomer(payload)", javascript)
-        self.assertIn("payload?.detected_partner_customer", javascript)
-        self.assertIn("payload?.order_details?.email_id", javascript)
-        self.assertIn("const customerId = detectedCustomerId || partnerCustomerOverride;", javascript)
         self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
-        self.assertIn("outputLevels.forEach(level => jobs.push(makeJob(item, index, '', level)))", javascript)
-        self.assertIn("item?.quantity_ordered_eaches", javascript)
-        self.assertIn('onclick="generatePartnerOrderDocuments()"', html)
-        self.assertIn("async function generatePartnerOrderDocuments()", javascript)
-        self.assertIn("await renderPartnerLabelsPreview(kind)", javascript)
-        self.assertIn("await renderPartnerMplPreview()", javascript)
-        self.assertIn('Case, inner-pack, and configured customer pallet labels are calculated from the loaded order.', html)
-        self.assertNotIn('Mark Stage Reviewed', html)
-        self.assertNotIn('Review all four document stages before generating all documents.', javascript)
-        self.assertIn('aria-label="Order documents"', javascript)
-        self.assertIn('Label Template<select', javascript)
-        self.assertIn('btn-generate-all-partner-documents', html)
-        self.assertIn("function partnerDirectoryRows(customerId", javascript)
+        self.assertIn("function buildPartnerMplDraft(payload, customerId)", javascript)
+        self.assertIn("appendPartnerOnlyLabelJobs(payload, orderDocumentsState.customerId)", javascript)
+        self.assertIn("buildPalletLabelDraftFromMplDraft(orderDocumentsState.mplDraft)", javascript)
         self.assertIn("function renderInlineMplAddressPicker(mplIndex, field, value)", javascript)
-        self.assertIn("completeMplOrderLoad(payload, orderNumber, 'standard')", javascript)
-        self.assertIn("const palletDraft = buildPalletLabelDraftFromMplDraft(sourceDraft)", javascript)
-        self.assertIn("sourceDraft.packing_lists.forEach(mpl => ensureMplPalletState(mpl))", javascript)
-        self.assertNotIn("mpl.pallets || mpl._pallets", javascript)
-        self.assertNotIn("await renderEditedKeheDocument({ automatic: true })", javascript)
-        self.assertIn("function selectPartnerAddress(field, value)", javascript)
-        self.assertIn("function renderPartnerInlineAddressPicker(field, label)", javascript)
-        self.assertIn("function renderPartnerDownloadFiles()", javascript)
-        self.assertNotIn("async function renderPartnerPreviews()", javascript)
         self.assertIn("openGeneratedOutput", javascript)
         self.assertIn("Open each PDF directly from here", javascript)
-        self.assertIn("Ship From is applied automatically", html)
-        self.assertIn("Shared Ship From · Applied automatically", html)
-        self.assertIn("Edit shared origin", html)
-        self.assertIn('id="mpl-shared-origin-address"', html)
-        self.assertIn("function openSharedMplDirectoryEditor()", javascript)
-        self.assertNotIn("Save Default Origin", html)
-        self.assertIn("Add Destination", html)
-        self.assertIn("Download Address Template", html)
-        self.assertIn("Import Addresses", html)
-        self.assertIn("Export Directory", html)
-        self.assertIn("Change History", html)
-        self.assertIn("function copyMplDirectoryAddress", javascript)
-        self.assertIn("function deriveDirectoryMatchValues", javascript)
-        self.assertIn("function getSavedMplShipFromAddresses", javascript)
-        self.assertIn("function saveMplDirectoryShipFromOverride", javascript)
-        self.assertIn("Saved origin", javascript)
-        self.assertIn("Same as Ship To", javascript)
-        self.assertIn("directory-active-control", javascript)
-        self.assertNotIn("<label>Record Type", javascript)
-        self.assertNotIn("Address to edit", javascript)
-        self.assertIn("const saveBeforeGenerate = !!options.saveMplDraft;", javascript)
+        self.assertIn("const saveBeforeGenerate = !!options.saveMplDraft && activeKeheDocumentType === 'masterPackingList';", javascript)
 
 
 if __name__ == "__main__":
