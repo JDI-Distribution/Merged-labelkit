@@ -2,23 +2,27 @@ FROM python:3.11.9-slim-bookworm AS wheels
 
 WORKDIR /build
 
-COPY frankenstein_project/requirements.txt ./requirements.txt
+COPY frankenstein_project/requirements.txt frankenstein_project/requirements.lock ./
 RUN python -m pip install --no-cache-dir --upgrade "pip>=25.2,<26" && \
-    python -m pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+    python -m pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.lock
 
 
 FROM python:3.11.9-slim-bookworm
 
 ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
 
 LABEL org.opencontainers.image.title="Label Kits" \
     org.opencontainers.image.description="Michaels, KeHE, MPL, Ti-Hi, B2B, and automatic customer-order document workflows" \
     org.opencontainers.image.source="https://github.com/JDI-Distribution/Merged-labelkit" \
-    org.opencontainers.image.version="${APP_VERSION}"
+    org.opencontainers.image.version="${APP_VERSION}" \
+    org.opencontainers.image.revision="${GIT_SHA}"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_NAME="Label Kits" \
+    APP_VERSION="${APP_VERSION}" \
+    GIT_SHA="${GIT_SHA}" \
     PORT=9000
 
 WORKDIR /app

@@ -6,6 +6,15 @@ _sop_work/
 **/*.pyo
 **/*.pyd
 node_modules/
+frankenstein_project/package.json
+frankenstein_project/package-lock.json
+frankenstein_project/playwright.config.cjs
+frankenstein_project/test-results/
+frankenstein_project/playwright-report/
+frankenstein_project/.pytest_cache/
+frankenstein_project/.coverage
+frankenstein_project/coverage.xml
+frankenstein_project/htmlcov/
 check_frontend.js
 tmp/
 frankenstein_project/.catalystrc

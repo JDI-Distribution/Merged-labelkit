@@ -82,7 +82,6 @@ from labelkit.reference_data import (  # noqa: E402
     _dc_directory_base_key,
     _dedupe_dc_directory_rows,
     _dedupe_product_master_rows,
-    _is_kehe_storefront,
     _kehe_dc_directory_rows,
     _kehe_product_master_rows,
     _format_decimal_string,
@@ -98,9 +97,7 @@ from labelkit.product_quality import analyze_product_master_rows  # noqa: E402
 from labelkit.security import allowed_origins, apply_security_headers  # noqa: E402
 from labelkit.order_intake import (  # noqa: E402
     _analytics_case_conversion,
-    _analytics_kehe_case_conversion,
     _analytics_order_details,
-    _analytics_order_instance_groups,
     _analytics_order_item_fallback,
     _analytics_quantity,
     _analytics_row_value,
@@ -128,6 +125,8 @@ FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 DEFAULT_PORT = int(os.getenv("X_ZOHO_CATALYST_LISTEN_PORT", os.getenv("PORT", "9000")))
 APP_NAME = "Merged LabelKit"
 APP_ID = "merged-labelkit"
+APP_VERSION = str(os.getenv("APP_VERSION", "dev") or "dev").strip()
+GIT_SHA = str(os.getenv("GIT_SHA", "unknown") or "unknown").strip()
 MAX_CACHED_REPORTS = 25
 RESULT_REPORTS: Dict[str, Dict[str, Any]] = {}
 RESULT_JOBS: Dict[str, Dict[str, Any]] = {}
@@ -487,6 +486,8 @@ def health() -> Dict[str, Any]:
         "status": "ok",
         "app": APP_NAME,
         "app_id": APP_ID,
+        "version": APP_VERSION,
+        "git_sha": GIT_SHA,
         "frontend_found": (FRONTEND_DIST / "index.html").exists(),
         "frontend_entry": "frontend/dist/index.html",
         "backend_entry": "server.py",
@@ -1077,6 +1078,8 @@ async def admin_diagnostics(request: Request) -> JSONResponse:
     checks: Dict[str, Any] = {
         "profile": LABELKIT_CONFIG_PROFILE,
         "app_env": APP_ENV,
+        "version": APP_VERSION,
+        "git_sha": GIT_SHA,
         "frontend": (FRONTEND_DIST / "index.html").exists(),
         "analytics_source": ANALYTICS_ORDER_SOURCE,
         "tables": {},
