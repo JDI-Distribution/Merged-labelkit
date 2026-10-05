@@ -472,16 +472,8 @@
   let partnerOrderPayload = null;
   let partnerResolvedOrderContext = null;
   let partnerCustomerId = '';
-  let partnerCustomerOverride = '';
   let partnerLabelJobs = [];
   let partnerMplDraft = null;
-  let partnerLabelsPreviewUrl = null;
-  let partnerPalletLabelsPreviewUrl = null;
-  let partnerMplPreviewUrl = null;
-  let partnerEditingLabelKind = '';
-  let partnerEditingMpl = false;
-  let partnerInlineLabelKind = 'packLabels';
-  let partnerInlineLabelIndex = -1;
   // Baseline shape for every run-settings field; used to reset b2bRunFields so
   // stale values never leak between SKU/template combinations in the queue.
   const B2B_RUN_FIELD_DEFAULTS = Object.freeze({
@@ -615,15 +607,6 @@
     return appRuntimeConfig;
   }
 
-  function renderPartnerCustomerOptions() {
-    const container = document.getElementById('partner-customer-options');
-    if (!container) return;
-    container.innerHTML = PARTNER_CUSTOMER_IDS.map(customerId => {
-      const config = PARTNER_WORKFLOW_CONFIG[customerId];
-      return `<button type="button" data-partner-customer="${escapeHtml(customerId)}" role="radio" aria-checked="false" onclick="selectPartnerCustomer('${jsString(customerId)}')"><span>${escapeHtml(config.label)}</span><small>${escapeHtml(config.selectorHint || 'Packing lists and labels')}</small></button>`;
-    }).join('');
-  }
-
   async function loadCustomerWorkflowConfig() {
     const res = await fetchWithTimeout('/api/customer-workflows', { cache: 'no-store' }, 15000);
     const payload = await res.json().catch(() => ({}));
@@ -641,7 +624,6 @@
       }]));
     PARTNER_CUSTOMER_IDS = Object.keys(PARTNER_WORKFLOW_CONFIG);
     if (!PARTNER_CUSTOMER_IDS.length) throw new Error('No customer workflows are configured.');
-    renderPartnerCustomerOptions();
     return PARTNER_WORKFLOW_CONFIG;
   }
 
@@ -899,12 +881,15 @@
     } else if (normalized === 'mpl') {
       await selectOperationsWorkspace(false);
       selectOperationsTab('packing', false);
+      setHistoryRoute('operations/packing', true);
     } else if (normalized === 'b2b') {
       await selectOperationsWorkspace(false);
       selectOperationsTab('labels', false);
+      setHistoryRoute('operations/labels', true);
     } else if (normalized === 'partners') {
       await selectOperationsWorkspace(false);
       selectOperationsTab('labels', false);
+      setHistoryRoute('operations/labels', true);
     } else {
       selectKit(normalized, false);
     }
@@ -1589,7 +1574,7 @@
   }
 
   function buildManualMasterPackingListDraft(options = {}) {
-    const standalone = ['mpl', 'partners', 'operations'].includes(selectedKit);
+    const standalone = selectedKit === 'operations';
     const requestedTemplate = String(options.templateId || '').trim().toLowerCase();
     const templateId = standalone && MPL_STANDALONE_TEMPLATE_IDS.includes(requestedTemplate)
       ? requestedTemplate
@@ -1668,102 +1653,6 @@
         warnings: firstDc.delivery_address ? [] : ['Select a Ship To address from the DC Directory or enter it manually before printing.']
       }]
     };
-  }
-
-  function setMplOrderLookupBusy(busy) {
-    const input = document.getElementById('mpl-sales-order-number');
-    const button = document.getElementById('btn-load-mpl-order');
-    if (input) input.disabled = !!busy;
-    if (button) {
-      button.disabled = !!busy;
-      button.textContent = busy ? 'Loading…' : 'Load Order';
-    }
-  }
-
-  function hideMplOrderInstancePicker() {
-    const picker = document.getElementById('mpl-order-instance-picker');
-    const body = document.getElementById('mpl-order-instance-body');
-    const count = document.getElementById('mpl-order-instance-count');
-    const button = document.getElementById('btn-load-selected-mpl-order');
-    const help = document.getElementById('mpl-order-instance-selection-help');
-    if (picker) {
-      picker.classList.add('hidden');
-      picker.closest('.mpl-order-lookup-card')?.classList.remove('mpl-order-selection-open');
-      delete picker.dataset.salesOrderNumber;
-      delete picker.dataset.ecomdashId;
-    }
-    if (body) body.innerHTML = '';
-    if (count) count.textContent = '';
-    if (button) button.disabled = true;
-    if (help) help.textContent = 'Check one order to continue.';
-  }
-
-  function showMplOrderInstancePicker(orderNumber, instances) {
-    const picker = document.getElementById('mpl-order-instance-picker');
-    const body = document.getElementById('mpl-order-instance-body');
-    const count = document.getElementById('mpl-order-instance-count');
-    const button = document.getElementById('btn-load-selected-mpl-order');
-    if (!picker || !body) return;
-    const orderInstances = Array.isArray(instances) ? instances : [];
-    renderOrderInstanceTableRows(body, orderInstances, selectMplOrderInstance);
-    picker.dataset.salesOrderNumber = String(orderNumber || '').trim();
-    delete picker.dataset.ecomdashId;
-    if (count) count.textContent = `${orderInstances.length} unique order${orderInstances.length === 1 ? '' : 's'}`;
-    if (button) button.disabled = true;
-    picker.classList.remove('hidden');
-    picker.closest('.mpl-order-lookup-card')?.classList.add('mpl-order-selection-open');
-  }
-
-  function selectMplOrderInstance(selectedCheckbox) {
-    const picker = document.getElementById('mpl-order-instance-picker');
-    const button = document.getElementById('btn-load-selected-mpl-order');
-    const help = document.getElementById('mpl-order-instance-selection-help');
-    if (!picker || !selectedCheckbox) return;
-    picker.querySelectorAll('.mpl-order-instance-checkbox').forEach(checkbox => {
-      if (checkbox !== selectedCheckbox) checkbox.checked = false;
-      checkbox.closest('tr')?.classList.toggle('selected', checkbox.checked);
-    });
-    const ecomdashId = selectedCheckbox.checked ? String(selectedCheckbox.value || '').trim() : '';
-    if (ecomdashId) picker.dataset.ecomdashId = ecomdashId;
-    else delete picker.dataset.ecomdashId;
-    if (button) button.disabled = !ecomdashId;
-    if (help) help.textContent = ecomdashId
-      ? `Order record ${ecomdashId} selected.`
-      : 'Check one order to continue.';
-  }
-
-  function loadSelectedMplOrderInstance() {
-    const picker = document.getElementById('mpl-order-instance-picker');
-    const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
-    const ecomdashId = String(picker?.dataset.ecomdashId || '').trim();
-    if (!orderNumber || !ecomdashId) {
-      setStatus('Select an order record before loading the order.', 'error');
-      return;
-    }
-    loadMplOrderFromAnalytics(null, ecomdashId, orderNumber);
-  }
-
-  function completeMplOrderLoad(payload, orderNumber, templateId) {
-    const requestedTemplate = String(templateId || '').trim().toLowerCase();
-    const normalizedTemplate = MPL_STANDALONE_TEMPLATE_IDS.includes(requestedTemplate)
-      ? requestedTemplate
-      : 'standard';
-    activeKeheDocumentType = 'masterPackingList';
-    activeKeheDocumentDraft = buildAnalyticsOrderMplDraft(payload, normalizedTemplate);
-    keheLastMplDraft = activeKeheDocumentDraft;
-    const palletization = autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
-    keheMplPalletizationSource = activeKeheDocumentDraft.packing_lists?.[0]?.palletization_source || 'Order Data + Product Master';
-    renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
-    openDocumentEditor();
-
-    const summary = payload.summary || {};
-    const matched = Number(summary.matched_products || 0);
-    const converted = Number(summary.converted_to_cases || 0);
-    const needsReview = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) + Number(summary.partial_case_items || 0);
-    setStatus(
-      `Sales Order ${orderNumber} calculated and palletized with the ${MPL_TEMPLATE_CONFIG[normalizedTemplate].label} template: ${payload.items?.length || 0} line item(s), ${matched} Product Master match(es)${converted ? `, ${converted} converted from eaches to cases` : ''}, ${Number(palletization.palletCount || 0)} pallet(s)${needsReview ? `, ${needsReview} need review` : ''}. Review the draft, then generate the PDF.`,
-      needsReview ? 'info' : 'success'
-    );
   }
 
   function analyticsOrderQuantity(value) {
@@ -1941,55 +1830,6 @@
     syncMplLineNumbers(mpl);
     applyProductMasterToDraft(draft, false);
     return draft;
-  }
-
-  async function loadMplOrderFromAnalytics(event, selectedEcomdashId = '', selectedOrderNumber = '') {
-    if (event) event.preventDefault();
-    if (selectedKit !== 'mpl') return;
-    const input = document.getElementById('mpl-sales-order-number');
-    const orderNumber = String(selectedOrderNumber || input?.value || '').trim();
-    const ecomdashId = String(selectedEcomdashId || '').trim();
-    if (!orderNumber) {
-      setStatus('Enter a Sales Order Number.', 'error');
-      if (input) input.focus();
-      return;
-    }
-
-    setMplOrderLookupBusy(true);
-    if (!ecomdashId) hideMplOrderInstancePicker();
-    setStatus(`Searching order data for Sales Order ${orderNumber}…`, 'info');
-    showWorkflowProgress(0, `Loading Sales Order ${orderNumber}…`);
-    try {
-      await ensureKeheReferenceDataLoaded();
-      updateWorkflowProgress('Matching SKUs', 'Loading Product Master and matching order SKUs…');
-      const response = await fetch('/api/mpl/orders/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sales_order_number: orderNumber,
-          ecomdash_id: ecomdashId
-        })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.detail || 'The sales order could not be loaded.');
-      }
-      if (payload.requires_order_selection) {
-        closeWorkflowProgress();
-        showMplOrderInstancePicker(orderNumber, payload.order_instances);
-        setStatus(`Sales Order ${orderNumber} has multiple records. Select the correct customer order.`, 'info');
-        return;
-      }
-      hideMplOrderInstancePicker();
-      updateWorkflowProgress('Calculating cartons', 'Calculating cartons, weights, and palletization…');
-      completeMplOrderLoad(payload, orderNumber, 'standard');
-      closeWorkflowProgress();
-    } catch (err) {
-      closeWorkflowProgress();
-      setStatus('Error: ' + (err?.message || 'The sales order could not be loaded.'), 'error');
-    } finally {
-      setMplOrderLookupBusy(false);
-    }
   }
 
   async function ensureKeheReferenceDataLoaded() {
@@ -3032,9 +2872,6 @@
     document.title = cfg.headerName;
     document.getElementById('kit-selection').classList.add('hidden');
     document.getElementById('upload-page').classList.remove('hidden');
-    document.getElementById('mpl-workspace-page').classList.add('hidden');
-    document.getElementById('b2b-workspace-page').classList.add('hidden');
-    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
 
@@ -3094,133 +2931,14 @@
     }
   }
 
-  async function selectMplWorkspace(updateHistory = true) {
-    selectedKit = 'mpl';
-    document.body.dataset.module = 'mpl';
-    xmlFiles = [];
-    pdfFiles = [];
-    currentResultId = null;
-    currentReport = null;
-    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
-    downloadBlobUrl = null;
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
-    blobUrl = null;
-    activeKeheDocumentType = null;
-    activeKeheDocumentDraft = null;
-    keheProductMasterRows = loadKeheProductMasterFromStorage();
-    keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
-    mplProductMasterRows = loadMplProductMasterFromStorage();
-    mplDirectoryRows = loadMplDirectoryFromStorage();
-    keheLastMplDraft = null;
-    keheLastPalletLabelDraft = null;
-    keheMplPalletizationSource = 'Manual';
-    kehePalletLabelSource = 'Not generated';
-
-    document.title = 'Packing List & Ti-Hi · LabelKit';
-    document.getElementById('kit-selection').classList.add('hidden');
-    document.getElementById('upload-page').classList.add('hidden');
-    document.getElementById('b2b-workspace-page').classList.add('hidden');
-    document.getElementById('partner-workspace-page').classList.add('hidden');
-    document.getElementById('operations-workspace-page')?.classList.add('hidden');
-    document.getElementById('mpl-workspace-page').classList.remove('hidden');
-    document.getElementById('btn-change-kit').classList.add('visible');
-    document.getElementById('header-app-name').textContent = 'Packing List & Ti-Hi';
-    document.getElementById('header-app-sub').textContent = '';
-    document.getElementById('header-app-sub').classList.add('hidden');
-
-    resetKeheXmlDerivedState();
-    toggleKeheExtractedPanel(false);
-    toggleKeheProductMasterPanel(false);
-    setDownloadReady(false);
-    setExportReady(false);
-    setPreviewReady(false);
-    resetPreviewSurface();
-    closePreview();
-    hideAllRouteViews();
-    setStatus('', '');
-
-    mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
-    mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
-    try {
-      await Promise.allSettled([
-        mplProductMasterLoadPromise,
-        mplDirectoryLoadPromise
-      ]);
-    } finally {
-      renderMplProductMasterTable();
-      renderMplDirectoryTable();
-    }
-
-    if (updateHistory) {
-      setHistoryPage('mpl');
-    }
-  }
-
-  async function selectB2BWorkspace(updateHistory = true) {
-    selectedKit = 'b2b';
-    document.body.dataset.module = 'b2b';
-    xmlFiles = [];
-    pdfFiles = [];
-    currentResultId = null;
-    currentReport = null;
-    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
-    downloadBlobUrl = null;
-    if (blobUrl && blobUrl !== b2bPreviewUrl) URL.revokeObjectURL(blobUrl);
-    blobUrl = null;
-    activeKeheDocumentType = null;
-    activeKeheDocumentDraft = null;
-    b2bOrderFallbackProducts = [];
-    b2bOrderLabelJobs = [];
-    b2bTemplateRunFields = {};
-    b2bSelectedOrderJobIndex = -1;
-    b2bOrderCustomerOverride = '';
-    b2bOrderDestinationOverride = '';
-    b2bOrderShipToName = '';
-    b2bResolvedOrderContext = null;
-    b2bResolvedDirectoryFallback = {};
-    mplProductMasterRows = loadMplProductMasterFromStorage();
-    mplDirectoryRows = loadMplDirectoryFromStorage();
-
-    document.title = 'B2B Case-Pack Labels · LabelKit';
-    document.getElementById('kit-selection').classList.add('hidden');
-    document.getElementById('upload-page').classList.add('hidden');
-    document.getElementById('mpl-workspace-page').classList.add('hidden');
-    document.getElementById('partner-workspace-page').classList.add('hidden');
-    document.getElementById('operations-workspace-page')?.classList.add('hidden');
-    document.getElementById('b2b-workspace-page').classList.remove('hidden');
-    document.getElementById('btn-change-kit').classList.add('visible');
-    document.getElementById('header-app-name').textContent = 'B2B Case-Pack Labels';
-    document.getElementById('header-app-sub').textContent = '';
-    document.getElementById('header-app-sub').classList.add('hidden');
-
-    setDownloadReady(false);
-    setExportReady(false);
-    setPreviewReady(false);
-    resetPreviewSurface();
-    closePreview();
-    hideAllRouteViews();
-    setStatus('', '');
-
-    mplProductMasterLoadPromise = loadMplProductMasterFromBackend();
-    mplDirectoryLoadPromise = loadMplDirectoryFromBackend();
-    await Promise.allSettled([mplProductMasterLoadPromise, mplDirectoryLoadPromise, loadB2BLabelTemplates()]);
-    renderB2BCreator();
-
-    if (updateHistory) {
-      setHistoryPage('b2b');
-    }
-  }
-
   async function openB2BProductMaster() {
     if (!b2bLabelTemplates.length) await loadB2BLabelTemplates();
-    const page = selectedKit === 'operations' ? 'operations' : selectedKit === 'partners' ? 'partners' : 'b2b';
-    await navigateToRoute(`${page}/product-master`);
+    await navigateToRoute('operations/product-master');
     showMplProductMasterView();
   }
 
   async function openB2BDirectory() {
-    const page = selectedKit === 'operations' ? 'operations' : selectedKit === 'partners' ? 'partners' : 'b2b';
-    await navigateToRoute(`${page}/directory`);
+    await navigateToRoute('operations/directory');
     showMplDirectoryView();
   }
 
@@ -3239,22 +2957,14 @@
 
   function resetToSelection(updateHistory = true) {
     if (typeof resetOperationsWorkspaceState === 'function') resetOperationsWorkspaceState();
-    revokePartnerPreviewUrls();
     partnerOrderPayload = null;
     partnerCustomerId = '';
-    partnerCustomerOverride = '';
     partnerLabelJobs = [];
     partnerMplDraft = null;
-    partnerEditingMpl = false;
-    partnerEditingLabelKind = '';
-    delete document.body.dataset.partnerCustomer;
     selectedKit = null;
     document.body.dataset.module = 'home';
     document.title = 'JDI Label Kits';
     document.getElementById('upload-page').classList.add('hidden');
-    document.getElementById('mpl-workspace-page').classList.add('hidden');
-    document.getElementById('b2b-workspace-page').classList.add('hidden');
-    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('kit-selection').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.remove('visible');
@@ -3427,25 +3137,18 @@
 
   function setStatus(msg, type) {
     const defaultEl = document.getElementById('status-bar');
-    const mplEl = document.getElementById('mpl-status-bar');
-    const b2bEl = document.getElementById('b2b-status-bar');
-    const partnerEl = document.getElementById('partner-status-bar');
     const operationsEl = document.getElementById('operations-status-bar');
     const el = selectedKit === 'operations' && operationsEl
       ? operationsEl
-      : selectedKit === 'partners' && partnerEl
-      ? partnerEl
-      : selectedKit === 'b2b' && b2bEl
-      ? b2bEl
-      : (selectedKit === 'mpl' && mplEl ? mplEl : defaultEl);
+      : defaultEl;
     if (!msg) {
-      [defaultEl, mplEl, b2bEl, partnerEl, operationsEl].filter(Boolean).forEach(target => {
+      [defaultEl, operationsEl].filter(Boolean).forEach(target => {
         target.textContent = '';
         target.className = 'status-bar';
       });
       return;
     }
-    [defaultEl, mplEl, b2bEl, partnerEl, operationsEl].filter(Boolean).forEach(target => {
+    [defaultEl, operationsEl].filter(Boolean).forEach(target => {
       if (target !== el) {
         target.textContent = '';
         target.className = 'status-bar';

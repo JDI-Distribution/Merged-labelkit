@@ -277,7 +277,7 @@
   }
 
   function isStandaloneMplReferenceMode() {
-    return ['mpl', 'b2b', 'partners', 'operations'].includes(selectedKit) || !!activeKeheDocumentDraft?.standalone_mpl;
+    return selectedKit === 'operations' || !!activeKeheDocumentDraft?.standalone_mpl;
   }
 
   function mplTemplateId(mpl) {
@@ -386,27 +386,6 @@
           </div>
           <div class="mpl-template-picker-description">${escapeHtml(cfg.description)}</div>
           <span class="mpl-template-lock">KeHE only</span>
-        </div>`;
-    }
-    if (selectedKit === 'partners') {
-      return `
-        <div class="mpl-template-picker partner-customer-template-picker">
-          <div>
-            <div class="mpl-template-picker-kicker">Customer layout</div>
-            <div class="mpl-template-picker-title">DecoPac / Dutch Bros / Fancy</div>
-          </div>
-          <div class="mpl-template-picker-description">The editor and document engine stay shared; only the selected customer's layout rules are applied.</div>
-          <div class="mpl-template-options" role="radiogroup" aria-label="Customer packing-list layout">
-            ${PARTNER_CUSTOMER_IDS.map(id => {
-              const cfg = PARTNER_WORKFLOW_CONFIG[id];
-              const selected = cfg.mplTemplateId === templateId;
-              return `
-                <button class="mpl-template-option partner-customer-option customer-${escapeHtml(id)}${selected ? ' selected' : ''}" type="button" role="radio" aria-checked="${selected ? 'true' : 'false'}" onclick="selectPartnerCustomer('${id}', { fromEditor: true })">
-                  <span>${escapeHtml(cfg.label)}</span>
-                  <small>Customer-specific packing list and labels</small>
-                </button>`;
-            }).join('')}
-          </div>
         </div>`;
     }
     const generalTemplateIds = ['kehe', 'standard'];

@@ -692,14 +692,9 @@
 
   function b2bEditableValue(product, field, placeholder, className = '', context = {}) {
     const value = String(product?.[field] ?? '').trim();
-    const isPartnerEditor = Number.isInteger(context.partnerIndex);
-    const editable = !!product && (isPartnerEditor || b2bSelectedProductIndex <= -1000 || hasPermission('table_crud'));
-    const fieldAttribute = isPartnerEditor ? 'data-partner-product-edit' : 'data-b2b-product-edit';
-    const partnerAttribute = isPartnerEditor ? `data-partner-label-index="${context.partnerIndex}"` : '';
-    const commitHandler = isPartnerEditor ? 'commitPartnerProductLabelEdit(this)' : 'commitB2BLabelEdit(this)';
+    const editable = !!product && (b2bSelectedProductIndex <= -1000 || hasPermission('table_crud'));
     return `<span class="b2b-label-editable ${className} ${value ? '' : 'is-empty'} ${editable ? '' : 'is-readonly'}"
-      ${fieldAttribute}="${escapeHtml(field)}"
-      ${partnerAttribute}
+      data-b2b-product-edit="${escapeHtml(field)}"
       data-placeholder="${escapeHtml(placeholder)}"
       contenteditable="${editable ? 'true' : 'false'}"
       role="textbox"
@@ -707,19 +702,14 @@
       spellcheck="false"
       onkeydown="handleB2BEditorKeydown(event)"
       onfocus="this.classList.remove('is-empty')"
-      onblur="${commitHandler}">${escapeHtml(value)}</span>`;
+      onblur="commitB2BLabelEdit(this)">${escapeHtml(value)}</span>`;
   }
 
   function b2bEditableRunValue(field, placeholder, className = '', context = {}) {
     const runFields = context.runFields || b2bRunFields;
     const value = String(runFields?.[field] ?? '').trim();
-    const isPartnerEditor = Number.isInteger(context.partnerIndex);
-    const fieldAttribute = isPartnerEditor ? 'data-partner-run-edit' : 'data-b2b-run-edit';
-    const partnerAttribute = isPartnerEditor ? `data-partner-label-index="${context.partnerIndex}"` : '';
-    const commitHandler = isPartnerEditor ? 'commitPartnerRunLabelEdit(this)' : 'commitB2BRunLabelEdit(this)';
     return `<span class="b2b-label-editable b2b-label-run-editable ${className} ${value ? '' : 'is-empty'}"
-      ${fieldAttribute}="${escapeHtml(field)}"
-      ${partnerAttribute}
+      data-b2b-run-edit="${escapeHtml(field)}"
       data-placeholder="${escapeHtml(placeholder)}"
       contenteditable="true"
       role="textbox"
@@ -727,7 +717,7 @@
       spellcheck="false"
       onkeydown="handleB2BEditorKeydown(event)"
       onfocus="this.classList.remove('is-empty')"
-      onblur="${commitHandler}">${escapeHtml(value)}</span>`;
+      onblur="commitB2BRunLabelEdit(this)">${escapeHtml(value)}</span>`;
   }
 
   function b2bLabelEditorHtml(template, product, directory, context = {}) {
@@ -960,51 +950,6 @@
     });
     const empty = document.getElementById('b2b-run-fields-empty');
     if (empty) empty.classList.toggle('hidden', !!template);
-  }
-
-  function showB2BOrderInstancePicker(orderNumber, orderInstances = []) {
-    const picker = document.getElementById('b2b-order-instance-picker');
-    const count = document.getElementById('b2b-order-instance-count');
-    const button = document.getElementById('btn-load-selected-b2b-order');
-    const body = document.getElementById('b2b-order-instance-body');
-    if (!picker || !body) return;
-    renderOrderInstanceTableRows(body, orderInstances, selectB2BOrderInstance);
-    picker.dataset.salesOrderNumber = String(orderNumber || '').trim();
-    delete picker.dataset.ecomdashId;
-    if (count) count.textContent = `${orderInstances.length} unique order${orderInstances.length === 1 ? '' : 's'}`;
-    if (button) button.disabled = true;
-    picker.classList.remove('hidden');
-  }
-
-  function hideB2BOrderInstancePicker() {
-    const picker = document.getElementById('b2b-order-instance-picker');
-    if (picker) picker.classList.add('hidden');
-  }
-
-  function selectB2BOrderInstance(selectedCheckbox) {
-    const picker = document.getElementById('b2b-order-instance-picker');
-    const button = document.getElementById('btn-load-selected-b2b-order');
-    const help = document.getElementById('b2b-order-instance-selection-help');
-    if (!picker || !selectedCheckbox) return;
-    picker.querySelectorAll('.mpl-order-instance-checkbox').forEach(checkbox => {
-      if (checkbox !== selectedCheckbox) checkbox.checked = false;
-    });
-    const ecomdashId = selectedCheckbox.checked ? String(selectedCheckbox.value || '').trim() : '';
-    if (ecomdashId) picker.dataset.ecomdashId = ecomdashId;
-    else delete picker.dataset.ecomdashId;
-    if (button) button.disabled = !ecomdashId;
-    if (help) help.textContent = ecomdashId ? `Order record ${ecomdashId} selected.` : 'Check one order to continue.';
-  }
-
-  function loadSelectedB2BOrderInstance() {
-    const picker = document.getElementById('b2b-order-instance-picker');
-    const orderNumber = String(picker?.dataset.salesOrderNumber || '').trim();
-    const ecomdashId = String(picker?.dataset.ecomdashId || '').trim();
-    if (!orderNumber || !ecomdashId) {
-      setStatus('Select an order record before loading the order.', 'error');
-      return;
-    }
-    loadB2BOrderFromAnalytics(null, ecomdashId, orderNumber);
   }
 
   function detectB2BOrderCustomer(payload, matchedProduct) {
@@ -1504,81 +1449,6 @@
     details.dataset.userOpened = details.open ? 'true' : '';
   }
 
-  async function loadB2BOrderFromAnalytics(event, selectedEcomdashId = '', selectedOrderNumber = '') {
-    if (event) event.preventDefault();
-    const input = document.getElementById('b2b-sales-order-number');
-    const orderNumber = String(selectedOrderNumber || input?.value || '').trim();
-    const ecomdashId = String(selectedEcomdashId || '').trim();
-    if (!orderNumber) {
-      setStatus('Enter a Sales Order Number.', 'error');
-      if (input) input.focus();
-      return;
-    }
-
-    setStatus(`Searching order data for Sales Order ${orderNumber}…`, 'info');
-    try {
-      const response = await fetch('/api/b2b/orders/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sales_order_number: orderNumber, ecomdash_id: ecomdashId })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || 'The sales order could not be loaded.');
-      if (payload.requires_order_selection) {
-        showB2BOrderInstancePicker(orderNumber, payload.order_instances || []);
-        setStatus(`Sales Order ${orderNumber} has multiple records. Select the correct customer order.`, 'info');
-        return;
-      }
-      hideB2BOrderInstancePicker();
-      completeB2BOrderLoad(payload, orderNumber);
-    } catch (err) {
-      setStatus('Error: ' + (err?.message || 'The sales order could not be loaded.'), 'error');
-    }
-  }
-
-  function renderB2BLabelCoverage() {
-    const body = document.getElementById('b2b-label-coverage-body');
-    const summary = document.getElementById('b2b-coverage-summary');
-    if (!body) return;
-    const entries = getB2BProductEntries('');
-    const allRows = b2bLabelTemplates.map(template => {
-      const templateEntries = entries.filter(entry => entry.row.label_template_id === template.template_id);
-      const configurations = new Set(templateEntries.map(entry => mplProductGroupKey(entry.row, entry.index)));
-      const levels = uniqueTextValues(templateEntries.map(entry => entry.row.packaging_level));
-      const customers = uniqueTextValues(templateEntries.map(entry => entry.row.storefront));
-      return {
-        template,
-        configurations: configurations.size,
-        levels,
-        customer: customers.join(', ') || template.customer || 'Generic B2B',
-      };
-    });
-    const search = String(document.getElementById('b2b-coverage-search')?.value || '').trim().toLowerCase();
-    const status = String(document.getElementById('b2b-coverage-status-filter')?.value || '').trim().toLowerCase();
-    const rows = allRows.filter(({ template, configurations, levels, customer }) => {
-      const haystack = [customer, template.name, template.template_id, template.physical_width_in, template.physical_height_in, levels].join(' ').toLowerCase();
-      return (!search || haystack.includes(search))
-        && (!status || (status === 'configured' ? configurations > 0 : configurations === 0));
-    });
-    body.innerHTML = rows.length
-      ? rows.map(({ template, configurations, levels, customer }) => `
-          <tr>
-            <td><strong>${escapeHtml(customer)}</strong></td>
-            <td>${escapeHtml(template.name || template.template_id)}<br><small>${escapeHtml(template.template_id)}</small></td>
-            <td>${escapeHtml(`${template.physical_width_in} × ${template.physical_height_in} in`)}</td>
-            <td><span class="b2b-coverage-count">${configurations}</span></td>
-            <td>${escapeHtml(levels.join(', ') || 'No SKU configured yet')}</td>
-          </tr>`).join('')
-      : `<tr><td colspan="5">${allRows.length ? 'No label templates match these filters.' : 'No B2B label templates are configured.'}</td></tr>`;
-    const count = document.getElementById('b2b-coverage-filter-count');
-    if (count) count.textContent = `${rows.length} of ${allRows.length} labels`;
-    if (summary) {
-      const configured = allRows.filter(row => row.configurations > 0).length;
-      const configurationCount = allRows.reduce((total, row) => total + row.configurations, 0);
-      summary.textContent = `${allRows.length} label types · ${configured} with product data · ${configurationCount} SKU configurations`;
-    }
-  }
-
   function renderB2BCreator() {
     if (!['b2b', 'operations'].includes(selectedKit)) return;
     const loadedOrder = !!String(b2bRunFields.order_number || '').trim();
@@ -1604,7 +1474,6 @@
       if (action) action.textContent = 'Template gallery';
     }
     renderB2BTemplateGallery();
-    renderB2BLabelCoverage();
     const customers = uniqueTextValues([
       ...b2bLabelTemplates.map(template => template?.customer),
       ...getB2BProductEntries('').map(entry => entry.row.storefront),

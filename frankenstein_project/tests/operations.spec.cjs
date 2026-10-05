@@ -202,3 +202,18 @@ test('Operations remains within responsive viewport widths', async ({ page }) =>
     expect(layout.heroHeight).toBeGreaterThan(layout.navigationHeight);
   }
 });
+
+test('Legacy workflow hashes redirect into the matching Order Documents tab', async ({ page }) => {
+  const redirects = [
+    ['mpl', 'operations/packing'],
+    ['b2b', 'operations/labels'],
+    ['partners', 'operations/labels'],
+  ];
+  for (const [legacy, canonical] of redirects) {
+    await page.goto(`/#${legacy}`);
+    await expect(page).toHaveURL(new RegExp(`#${canonical}$`));
+    await expect(page.locator('#operations-workspace-page')).toBeVisible();
+  }
+  await expect(page.locator('#operations-labels-mount > .b2b-creator-layout')).toHaveCount(1);
+  await expect(page.locator('#mpl-workspace-page, #b2b-workspace-page, #partner-workspace-page')).toHaveCount(0);
+});

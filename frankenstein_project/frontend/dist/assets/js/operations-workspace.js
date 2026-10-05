@@ -22,12 +22,6 @@
     finalizing: false,
   };
 
-  function mountOperationsLabelEditor() {
-    const mount = document.getElementById('operations-labels-mount');
-    const creator = document.querySelector('#b2b-workspace-page .b2b-creator-layout');
-    if (mount && creator && creator.parentElement !== mount) mount.appendChild(creator);
-  }
-
   function resetOperationsWorkspaceState() {
     Object.assign(orderDocumentsState, {
       payload: null,
@@ -526,7 +520,6 @@
       button.classList.toggle('is-active', button.dataset.operationsTab === orderDocumentsState.activeTab);
     });
     document.querySelectorAll('[data-operations-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.operationsPanel !== orderDocumentsState.activeTab));
-    mountOperationsLabelEditor();
     orderDocumentsState.rendering = true;
     try {
       renderB2BCreator();
@@ -543,17 +536,12 @@
     document.title = 'Order Documents · LabelKit';
     document.getElementById('kit-selection').classList.add('hidden');
     document.getElementById('upload-page').classList.add('hidden');
-    document.getElementById('mpl-workspace-page').classList.add('hidden');
-    document.getElementById('b2b-workspace-page').classList.add('hidden');
-    document.getElementById('partner-workspace-page').classList.add('hidden');
     document.getElementById('operations-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'Order Documents';
     document.getElementById('header-app-sub').textContent = '';
     document.getElementById('header-app-sub').classList.add('hidden');
     hideAllRouteViews();
-    mountOperationsLabelEditor();
-
     if (!orderDocumentsState.initialized) {
       mplProductMasterRows = loadMplProductMasterFromStorage();
       mplDirectoryRows = loadMplDirectoryFromStorage();
@@ -690,7 +678,6 @@
     completeB2BOrderLoad(payload, orderNumber);
     partnerOrderPayload = payload;
     partnerCustomerId = orderDocumentsState.customerId;
-    partnerCustomerOverride = '';
     partnerResolvedOrderContext = resolveOrderContext(payload, { customer: orderDocumentsState.customerName });
     appendPartnerOnlyLabelJobs(payload, orderDocumentsState.customerId);
 

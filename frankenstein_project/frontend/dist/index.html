@@ -395,7 +395,176 @@
         </nav>
 
         <section class="operations-panel" data-operations-panel="labels">
-          <div id="operations-labels-mount"></div>
+          <div id="operations-labels-mount">
+          <div class="b2b-creator-layout">
+            <div class="b2b-creator-form">
+              <section class="b2b-card">
+                <div class="b2b-card-heading">
+                  <div class="b2b-heading-with-step">
+                    <span class="b2b-step-number">01</span>
+                    <div>
+                      <div class="b2b-card-kicker" id="b2b-configuration-kicker">Label configuration</div>
+                      <h3 id="b2b-configuration-title">Choose what to print</h3>
+                    </div>
+                  </div>
+                  <span class="b2b-state-badge" id="b2b-configuration-status">Loading</span>
+                </div>
+                <div class="b2b-auto-resolution" id="b2b-auto-resolution"></div>
+                <details class="b2b-selection-overrides" id="b2b-selection-overrides" open ontoggle="if(typeof rememberB2BOverrideState === 'function') rememberB2BOverrideState(this)">
+                  <summary><span><strong>Manual label setup</strong><small>Choose a customer, product, packaging level, destination, and template.</small></span><span class="b2b-override-action">Set up label</span></summary>
+                <section class="b2b-template-gallery hidden" id="b2b-template-gallery" aria-label="Label template gallery">
+                  <div class="b2b-template-gallery-heading">
+                    <div><span>Start with a template</span><strong>Choose the label design</strong><small>Select one or more labels. Selecting a card opens that label in the manual editor.</small></div>
+                    <span class="b2b-template-gallery-count" id="b2b-template-gallery-count">0 templates</span>
+                  </div>
+                  <div class="b2b-template-gallery-filters">
+                    <label class="b2b-template-gallery-search"><span>Search templates</span><input id="b2b-template-gallery-search" type="search" placeholder="Search by label or customer" oninput="renderB2BTemplateGallery()"></label>
+                    <label><span>Customer</span><select id="b2b-template-gallery-customer" onchange="renderB2BTemplateGallery()"><option value="">All customers</option></select></label>
+                    <label><span>Label type</span><select id="b2b-template-gallery-type" onchange="renderB2BTemplateGallery()"><option value="">All types</option><option value="case">Case / pack</option><option value="inner">Inner pack</option><option value="pallet">Pallet</option><option value="other">Other</option></select></label>
+                    <label><span>Print size</span><select id="b2b-template-gallery-size" onchange="renderB2BTemplateGallery()"><option value="">All sizes</option></select></label>
+                    <button class="btn-secondary" type="button" onclick="clearB2BTemplateGalleryFilters()">Clear</button>
+                  </div>
+                  <div class="b2b-template-gallery-grid" id="b2b-template-gallery-grid"></div>
+                </section>
+                <div class="b2b-selector-grid">
+                  <label data-b2b-selector-wrap="customer">Customer
+                    <select id="b2b-customer-select" onchange="selectB2BCustomer(this.value)"></select>
+                  </label>
+                  <label class="hidden" data-b2b-selector-wrap="product">Product / Configuration
+                    <select id="b2b-product-select" onchange="selectB2BProduct(this.value)"></select>
+                  </label>
+                  <label class="hidden" data-b2b-selector-wrap="level">Packaging Level
+                    <select id="b2b-level-select" onchange="selectB2BLevel(this.value)"></select>
+                  </label>
+                  <div class="hidden b2b-template-field" data-b2b-selector-wrap="template">
+                    <span>Label Templates</span>
+                    <div id="b2b-template-picker"></div>
+                  </div>
+                  <label class="hidden" data-b2b-selector-wrap="directory">Destination / Customer Record
+                    <select id="b2b-directory-select" onchange="selectB2BDirectory(this.value)"></select>
+                  </label>
+                </div>
+                </details>
+                <div class="b2b-template-summary" id="b2b-template-summary">Select a customer and configuration.</div>
+              </section>
+
+              <div class="b2b-workbench-grid">
+              <section class="b2b-label-queue hidden" id="b2b-label-queue" aria-label="Selected label editing queue">
+                <div class="b2b-label-queue-heading">
+                  <div><span>Batch setup</span><strong id="b2b-label-queue-title">Select templates to build the queue</strong><small id="b2b-label-queue-help">Each SKU and selected template appears once.</small></div>
+                </div>
+                <div class="b2b-sku-template-list" id="b2b-sku-template-list"></div>
+              </section>
+              <section class="b2b-card b2b-label-editor-card" id="b2b-label-editor-card">
+                <div class="b2b-card-heading">
+                  <div class="b2b-heading-with-step">
+                    <span class="b2b-step-number">02</span>
+                    <div>
+                      <div class="b2b-card-kicker">Live label editor</div>
+                      <h3 id="b2b-label-editor-title">Edit the label</h3>
+                    </div>
+                  </div>
+                  <span class="b2b-save-state" id="b2b-product-save-state">Order values stay separate from Product Master</span>
+                </div>
+                <nav class="b2b-editor-navigator hidden" id="b2b-editor-navigator" aria-label="Label editing queue">
+                  <button type="button" id="b2b-label-previous" aria-label="Previous label" onclick="moveB2BWorkItem(-1)"><span aria-hidden="true">←</span><span>Previous</span></button>
+                  <div class="b2b-editor-queue-center">
+                    <div class="b2b-editor-current-label">
+                      <span id="b2b-label-queue-position">0 of 0</span>
+                      <strong id="b2b-editor-queue-name">Select a label to edit</strong>
+                    </div>
+                    <div class="b2b-editor-queue-track hidden" id="b2b-editor-queue-track" aria-label="Labels selected for this batch"></div>
+                  </div>
+                  <button type="button" id="b2b-label-next" aria-label="Next label" onclick="moveB2BWorkItem(1)"><span>Next</span><span aria-hidden="true">→</span></button>
+                </nav>
+                <div class="b2b-editor-work-area">
+                <div class="b2b-editor-preview-pane">
+                <div class="b2b-label-editor-meta" id="b2b-label-editor-meta">Select a packaging level to load its print layout.</div>
+                <div class="b2b-section-empty" id="b2b-label-editor-empty">Your editable label will appear after Section 1 is complete.</div>
+                <div class="b2b-label-editor-stage hidden" id="b2b-label-editor-stage">
+                  <div id="b2b-label-editor-canvas"></div>
+                </div>
+                </div>
+                <aside class="b2b-run-settings-panel">
+                  <div class="b2b-run-settings-heading">
+                    <div>
+                      <div class="b2b-card-kicker">Label settings</div>
+                      <h4 id="b2b-run-title">Carton range &amp; copies</h4>
+                      <small>These values apply only to the active label in the queue.</small>
+                    </div>
+                  </div>
+                  <div class="b2b-section-empty" id="b2b-run-fields-empty">Complete Section 1 to set the print quantity.</div>
+                  <div class="b2b-field-grid" id="b2b-run-fields">
+                    <label data-b2b-run-wrap="carton_total">Carton Total <input data-b2b-run-field="carton_total" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_total', this.value)"></label>
+                    <label data-b2b-run-wrap="carton_start">Start Carton <input data-b2b-run-field="carton_start" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_start', this.value)"></label>
+                    <label data-b2b-run-wrap="carton_end">End Carton <input data-b2b-run-field="carton_end" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_end', this.value)"></label>
+                    <label data-b2b-run-wrap="copies">Copies per Carton <input data-b2b-run-field="copies" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('copies', this.value)"></label>
+                    <label class="b2b-barcode-toggle" data-b2b-run-wrap="print_barcode">Include Barcode
+                      <span><input data-b2b-run-field="print_barcode" type="checkbox" onchange="updateB2BRunField('print_barcode', this.checked)"> Print the configured GTIN / UPC</span>
+                    </label>
+                  </div>
+                  <section class="b2b-product-settings hidden" id="b2b-product-settings">
+                    <div class="b2b-product-settings-heading">
+                      <span class="b2b-settings-summary-copy">
+                        <span class="b2b-settings-icon">⚙</span>
+                        <span><strong>Product &amp; Barcode Settings</strong><small>Fields used by this label remain visible while you edit.</small></span>
+                      </span>
+                      <span class="b2b-settings-status" id="b2b-settings-status">Review setup</span>
+                    </div>
+                    <div class="b2b-settings-body">
+                      <div class="b2b-settings-note" id="b2b-settings-note">Fields used by the selected label stay visible. Additional Product Master data is optional for this label and supports other labels, barcodes, and TI-HI.</div>
+                      <section class="b2b-settings-current-section">
+                        <header><strong>Used on this label</strong><small>Required fields are marked.</small></header>
+                        <div class="b2b-settings-grid" id="b2b-product-settings-current"></div>
+                      </section>
+                      <details class="b2b-settings-additional" id="b2b-product-settings-additional-details">
+                        <summary>Other Product Master fields <small>Not needed for the selected label</small></summary>
+                        <div class="b2b-settings-grid" id="b2b-product-settings-additional"></div>
+                      </details>
+                      <div class="b2b-settings-grid hidden" id="b2b-product-settings-source">
+                        <label class="b2b-setting-wide" data-b2b-setting-field="description">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
+                        <label data-b2b-setting-field="sku">Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
+                        <label data-b2b-setting-field="customer_item_number">Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
+                        <label data-b2b-setting-field="gtin">GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
+                        <label data-b2b-setting-field="barcode_type">Barcode Encoding <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select><small>Applied to the selected packaging level.</small></label>
+                        <label data-b2b-setting-field="case_qty">Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
+                        <label data-b2b-setting-field="each_net_weight_g">Each Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
+                        <label data-b2b-setting-field="package_net_weight_g">Total Product Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
+                        <label data-b2b-setting-field="gross_weight_lbs">Total Weight with Packaging (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
+                        <label data-b2b-setting-field="length_in">Level Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
+                        <label data-b2b-setting-field="width_in">Level Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
+                        <label data-b2b-setting-field="height_in">Level Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
+                        <label data-b2b-setting-field="verification_status">Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
+                        <label class="b2b-setting-toggle" data-b2b-setting-field="label_enabled">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
+                      </div>
+                    </div>
+                  </section>
+                </aside>
+                </div>
+              </section>
+
+              <section class="b2b-preview-card b2b-output-card">
+              <div class="b2b-card-heading">
+                <div class="b2b-heading-with-step">
+                  <span class="b2b-step-number">03</span>
+                  <div>
+                    <div class="b2b-card-kicker">Production PDF</div>
+                    <h3 id="b2b-preview-title">Generate print-ready PDF</h3>
+                  </div>
+                </div>
+                <span class="b2b-proof-note">Final render</span>
+              </div>
+              <div class="b2b-output-row">
+                <div class="b2b-output-copy">
+                  <span>Creates one production PDF containing every selected label job in this batch.</span>
+                </div>
+                <button class="btn-generate" id="b2b-render-button" type="button" onclick="generateB2BPreview(true)">Generate &amp; Open PDF</button>
+              </div>
+              </section>
+              </div>
+            </div>
+          </div>
+          </div>
         </section>
 
         <section class="operations-panel hidden" data-operations-panel="packing">
@@ -436,476 +605,6 @@
       </div>
 
       <div class="status-bar" id="operations-status-bar"></div>
-    </div>
-  </section>
-
-  <!-- FRONTEND: Legacy standalone Packing List & Ti-Hi route retained for compatibility. -->
-  <section class="mpl-workspace-page hidden" id="mpl-workspace-page">
-    <div class="mpl-workspace-shell">
-      <div class="workspace-overview mpl-workspace-overview module-header-card">
-        <div class="workspace-overview-copy">
-          <div class="workspace-eyebrow">Packing operations</div>
-          <h1>Packing List &amp; Ti-Hi</h1>
-          <p>Turn sales-order data into a reviewed, print-ready master packing list.</p>
-        </div>
-      </div>
-
-      <div class="mpl-order-lookup-card module-surface-card">
-        <div class="mpl-order-lookup-copy">
-          <div class="mpl-order-lookup-kicker">Step 1 &middot; Order data</div>
-          <h2>Start with a sales order</h2>
-          <p>Load an order to match SKUs, convert quantities, and palletize the draft automatically. Review or edit it before generating the PDF.</p>
-        </div>
-        <form class="mpl-order-lookup-form" onsubmit="loadMplOrderFromAnalytics(event)">
-          <label for="mpl-sales-order-number">Sales Order Number</label>
-          <div class="mpl-order-lookup-controls">
-            <input id="mpl-sales-order-number" type="text" maxlength="120" autocomplete="off" placeholder="Enter order number" required />
-            <button class="btn-generate" id="btn-load-mpl-order" type="submit">Load Order</button>
-          </div>
-          <div class="mpl-order-instance-picker hidden" id="mpl-order-instance-picker">
-            <div class="mpl-order-instance-heading">
-              <div>
-                <strong>Multiple order records found</strong>
-                <span>Compare the customer, date, and Product Master matches, then choose one.</span>
-              </div>
-              <span class="mpl-order-instance-count" id="mpl-order-instance-count"></span>
-            </div>
-            <div class="mpl-order-instance-table-wrap">
-              <table class="mpl-order-instance-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Customer / storefront</th>
-                    <th scope="col">Invoice date</th>
-                    <th scope="col">Product matches</th>
-                    <th scope="col">Billing customer</th>
-                    <th scope="col">Record ID</th>
-                    <th scope="col" class="mpl-order-instance-select-column">Select</th>
-                  </tr>
-                </thead>
-                <tbody id="mpl-order-instance-body"></tbody>
-              </table>
-            </div>
-            <div class="mpl-order-instance-actions">
-              <span id="mpl-order-instance-selection-help">Check one order to continue.</span>
-              <button class="btn-secondary" id="btn-load-selected-mpl-order" type="button" onclick="loadSelectedMplOrderInstance()" disabled>Load Selected Order</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <section class="mpl-tools-panel module-surface-card">
-        <div class="mpl-tools-heading">
-          <div>
-            <div class="workspace-eyebrow">Tools &amp; records</div>
-            <h2>Create or reopen a packing list</h2>
-          </div>
-          <p>Product Master and Customer Directory are available in the header.</p>
-        </div>
-        <div class="mpl-tool-grid">
-          <button class="mpl-tool-card mpl-tool-card-primary" type="button" onclick="openManualMasterPackingList()">
-            <span class="mpl-tool-icon" aria-hidden="true">+</span>
-            <span><small>Manual workflow</small><strong>Create an MPL</strong><em>Build a packing list without an order lookup</em></span>
-            <b aria-hidden="true">&#8594;</b>
-          </button>
-          <button class="mpl-tool-card" type="button" onclick="openSavedMplModal()">
-            <span class="mpl-tool-icon" aria-hidden="true">SV</span>
-            <span><small>Saved work</small><strong>Open Saved MPL</strong><em>Resume or reprint a previous packing list</em></span>
-            <b aria-hidden="true">&#8594;</b>
-          </button>
-          <button class="mpl-tool-card" type="button" onclick="openMplPalletLabels()">
-            <span class="mpl-tool-icon" aria-hidden="true">PL</span>
-            <span><small>Shared palletization</small><strong>Open Pallet Labels</strong><em>Review pallet placards from the active MPL and TI-HI assignments</em></span>
-            <b aria-hidden="true">&#8594;</b>
-          </button>
-        </div>
-      </section>
-
-      <div class="status-bar" id="mpl-status-bar"></div>
-    </div>
-  </section>
-
-  <section class="mpl-workspace-page hidden" id="b2b-workspace-page">
-    <div class="mpl-workspace-shell b2b-workspace-shell">
-      <div class="b2b-page-header module-header-card">
-        <div class="b2b-page-title">
-          <div class="mpl-order-lookup-kicker">B2B Creator</div>
-          <h2>B2B Case-Pack Labels</h2>
-          <p>Load an order to calculate carton counts for every line. Review the batch, then generate all labels.</p>
-        </div>
-      </div>
-
-      <div class="b2b-workflow-strip" aria-label="B2B label workflow">
-        <div class="b2b-workflow-step"><span>01</span><div><strong>Select configuration</strong><small>Customer, product, and label</small></div></div>
-        <div class="b2b-workflow-connector" aria-hidden="true"></div>
-        <div class="b2b-workflow-step"><span>02</span><div><strong>Edit &amp; configure</strong><small>Review labels and print quantities</small></div></div>
-        <div class="b2b-workflow-connector" aria-hidden="true"></div>
-        <div class="b2b-workflow-step"><span>03</span><div><strong>Generate &amp; print</strong><small>Create the production PDF</small></div></div>
-      </div>
-
-      <div class="mpl-order-lookup-card b2b-order-lookup-card module-surface-card">
-        <div class="mpl-order-lookup-copy">
-          <div class="mpl-order-lookup-kicker">Sales order data</div>
-          <h2>Start with a sales order</h2>
-          <p>Enter the sales order number to match products and calculate each line. Review or customize the batch before generating.</p>
-        </div>
-        <form class="mpl-order-lookup-form" onsubmit="loadB2BOrderFromAnalytics(event)">
-          <label for="b2b-sales-order-number">Sales Order Number</label>
-          <div class="mpl-order-lookup-controls">
-            <input id="b2b-sales-order-number" type="text" maxlength="120" autocomplete="off" placeholder="Enter order number" required />
-            <button class="btn-generate" id="btn-load-b2b-order" type="submit">Load Order</button>
-          </div>
-          <div class="mpl-order-instance-picker hidden" id="b2b-order-instance-picker">
-            <div class="mpl-order-instance-heading">
-              <div>
-                <strong>Multiple order records found</strong>
-                <span>Compare the customer, date, and Product Master matches, then choose one.</span>
-              </div>
-              <span class="mpl-order-instance-count" id="b2b-order-instance-count"></span>
-            </div>
-            <div class="mpl-order-instance-table-wrap">
-              <table class="mpl-order-instance-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Customer / storefront</th>
-                    <th scope="col">Invoice date</th>
-                    <th scope="col">Product matches</th>
-                    <th scope="col">Billing customer</th>
-                    <th scope="col">Record ID</th>
-                    <th scope="col" class="mpl-order-instance-select-column">Select</th>
-                  </tr>
-                </thead>
-                <tbody id="b2b-order-instance-body"></tbody>
-              </table>
-            </div>
-            <div class="mpl-order-instance-actions">
-              <span id="b2b-order-instance-selection-help">Check one order to continue.</span>
-              <button class="btn-secondary" id="btn-load-selected-b2b-order" type="button" onclick="loadSelectedB2BOrderInstance()" disabled>Load Selected Order</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <details class="b2b-card b2b-coverage-card">
-        <summary class="b2b-coverage-heading">
-          <div>
-            <div class="b2b-card-kicker">Current coverage</div>
-            <h3>Label catalog and configured SKUs</h3>
-          </div>
-          <div class="b2b-coverage-heading-meta">
-            <span class="b2b-save-state" id="b2b-coverage-summary">Loading label catalog</span>
-            <span class="b2b-coverage-toggle" aria-hidden="true">View catalog</span>
-          </div>
-        </summary>
-        <div class="table-filter-toolbar table-filter-toolbar--embedded" aria-label="B2B label catalog filters">
-          <label class="table-filter-control table-filter-control--search">
-            <span>Search catalog</span>
-            <input id="b2b-coverage-search" type="search" placeholder="Customer, label, template, or level" oninput="renderB2BLabelCoverage()">
-          </label>
-          <label class="table-filter-control">
-            <span>Configuration</span>
-            <select id="b2b-coverage-status-filter" onchange="renderB2BLabelCoverage()">
-              <option value="">All labels</option>
-              <option value="configured">Configured SKUs</option>
-              <option value="unconfigured">Missing SKU setup</option>
-            </select>
-          </label>
-          <button class="btn-secondary table-filter-reset" type="button" onclick="clearTableFilters(renderB2BLabelCoverage, 'b2b-coverage-search', 'b2b-coverage-status-filter')">Clear filters</button>
-          <span class="table-filter-count" id="b2b-coverage-filter-count" aria-live="polite"></span>
-        </div>
-        <div class="b2b-coverage-scroll">
-          <table class="b2b-coverage-table">
-            <thead>
-              <tr>
-                <th>Customer / Storefront</th>
-                <th>Label</th>
-                <th>Print Size</th>
-                <th>SKU Configurations</th>
-                <th>Packaging Levels</th>
-              </tr>
-            </thead>
-            <tbody id="b2b-label-coverage-body">
-              <tr><td colspan="5">Loading supported labels…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </details>
-
-      <div class="b2b-creator-layout">
-        <div class="b2b-creator-form">
-          <section class="b2b-card">
-            <div class="b2b-card-heading">
-              <div class="b2b-heading-with-step">
-                <span class="b2b-step-number">01</span>
-                <div>
-                  <div class="b2b-card-kicker" id="b2b-configuration-kicker">Label configuration</div>
-                  <h3 id="b2b-configuration-title">Choose what to print</h3>
-                </div>
-              </div>
-              <span class="b2b-state-badge" id="b2b-configuration-status">Loading</span>
-            </div>
-            <div class="b2b-auto-resolution" id="b2b-auto-resolution"></div>
-            <details class="b2b-selection-overrides" id="b2b-selection-overrides" open ontoggle="if(typeof rememberB2BOverrideState === 'function') rememberB2BOverrideState(this)">
-              <summary><span><strong>Manual label setup</strong><small>Choose a customer, product, packaging level, destination, and template.</small></span><span class="b2b-override-action">Set up label</span></summary>
-            <section class="b2b-template-gallery hidden" id="b2b-template-gallery" aria-label="Label template gallery">
-              <div class="b2b-template-gallery-heading">
-                <div><span>Start with a template</span><strong>Choose the label design</strong><small>Select one or more labels. Selecting a card opens that label in the manual editor.</small></div>
-                <span class="b2b-template-gallery-count" id="b2b-template-gallery-count">0 templates</span>
-              </div>
-              <div class="b2b-template-gallery-filters">
-                <label class="b2b-template-gallery-search"><span>Search templates</span><input id="b2b-template-gallery-search" type="search" placeholder="Search by label or customer" oninput="renderB2BTemplateGallery()"></label>
-                <label><span>Customer</span><select id="b2b-template-gallery-customer" onchange="renderB2BTemplateGallery()"><option value="">All customers</option></select></label>
-                <label><span>Label type</span><select id="b2b-template-gallery-type" onchange="renderB2BTemplateGallery()"><option value="">All types</option><option value="case">Case / pack</option><option value="inner">Inner pack</option><option value="pallet">Pallet</option><option value="other">Other</option></select></label>
-                <label><span>Print size</span><select id="b2b-template-gallery-size" onchange="renderB2BTemplateGallery()"><option value="">All sizes</option></select></label>
-                <button class="btn-secondary" type="button" onclick="clearB2BTemplateGalleryFilters()">Clear</button>
-              </div>
-              <div class="b2b-template-gallery-grid" id="b2b-template-gallery-grid"></div>
-            </section>
-            <div class="b2b-selector-grid">
-              <label data-b2b-selector-wrap="customer">Customer
-                <select id="b2b-customer-select" onchange="selectB2BCustomer(this.value)"></select>
-              </label>
-              <label class="hidden" data-b2b-selector-wrap="product">Product / Configuration
-                <select id="b2b-product-select" onchange="selectB2BProduct(this.value)"></select>
-              </label>
-              <label class="hidden" data-b2b-selector-wrap="level">Packaging Level
-                <select id="b2b-level-select" onchange="selectB2BLevel(this.value)"></select>
-              </label>
-              <div class="hidden b2b-template-field" data-b2b-selector-wrap="template">
-                <span>Label Templates</span>
-                <div id="b2b-template-picker"></div>
-              </div>
-              <label class="hidden" data-b2b-selector-wrap="directory">Destination / Customer Record
-                <select id="b2b-directory-select" onchange="selectB2BDirectory(this.value)"></select>
-              </label>
-            </div>
-            </details>
-            <div class="b2b-template-summary" id="b2b-template-summary">Select a customer and configuration.</div>
-          </section>
-
-          <div class="b2b-workbench-grid">
-          <section class="b2b-label-queue hidden" id="b2b-label-queue" aria-label="Selected label editing queue">
-            <div class="b2b-label-queue-heading">
-              <div><span>Batch setup</span><strong id="b2b-label-queue-title">Select templates to build the queue</strong><small id="b2b-label-queue-help">Each SKU and selected template appears once.</small></div>
-            </div>
-            <div class="b2b-sku-template-list" id="b2b-sku-template-list"></div>
-          </section>
-          <section class="b2b-card b2b-label-editor-card" id="b2b-label-editor-card">
-            <div class="b2b-card-heading">
-              <div class="b2b-heading-with-step">
-                <span class="b2b-step-number">02</span>
-                <div>
-                  <div class="b2b-card-kicker">Live label editor</div>
-                  <h3 id="b2b-label-editor-title">Edit the label</h3>
-                </div>
-              </div>
-              <span class="b2b-save-state" id="b2b-product-save-state">Order values stay separate from Product Master</span>
-            </div>
-            <nav class="b2b-editor-navigator hidden" id="b2b-editor-navigator" aria-label="Label editing queue">
-              <button type="button" id="b2b-label-previous" aria-label="Previous label" onclick="moveB2BWorkItem(-1)"><span aria-hidden="true">←</span><span>Previous</span></button>
-              <div class="b2b-editor-queue-center">
-                <div class="b2b-editor-current-label">
-                  <span id="b2b-label-queue-position">0 of 0</span>
-                  <strong id="b2b-editor-queue-name">Select a label to edit</strong>
-                </div>
-                <div class="b2b-editor-queue-track hidden" id="b2b-editor-queue-track" aria-label="Labels selected for this batch"></div>
-              </div>
-              <button type="button" id="b2b-label-next" aria-label="Next label" onclick="moveB2BWorkItem(1)"><span>Next</span><span aria-hidden="true">→</span></button>
-            </nav>
-            <div class="b2b-editor-work-area">
-            <div class="b2b-editor-preview-pane">
-            <div class="b2b-label-editor-meta" id="b2b-label-editor-meta">Select a packaging level to load its print layout.</div>
-            <div class="b2b-section-empty" id="b2b-label-editor-empty">Your editable label will appear after Section 1 is complete.</div>
-            <div class="b2b-label-editor-stage hidden" id="b2b-label-editor-stage">
-              <div id="b2b-label-editor-canvas"></div>
-            </div>
-            </div>
-            <aside class="b2b-run-settings-panel">
-              <div class="b2b-run-settings-heading">
-                <div>
-                  <div class="b2b-card-kicker">Label settings</div>
-                  <h4 id="b2b-run-title">Carton range &amp; copies</h4>
-                  <small>These values apply only to the active label in the queue.</small>
-                </div>
-              </div>
-              <div class="b2b-section-empty" id="b2b-run-fields-empty">Complete Section 1 to set the print quantity.</div>
-              <div class="b2b-field-grid" id="b2b-run-fields">
-                <label data-b2b-run-wrap="carton_total">Carton Total <input data-b2b-run-field="carton_total" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_total', this.value)"></label>
-                <label data-b2b-run-wrap="carton_start">Start Carton <input data-b2b-run-field="carton_start" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_start', this.value)"></label>
-                <label data-b2b-run-wrap="carton_end">End Carton <input data-b2b-run-field="carton_end" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('carton_end', this.value)"></label>
-                <label data-b2b-run-wrap="copies">Copies per Carton <input data-b2b-run-field="copies" type="number" min="1" step="1" value="1" oninput="updateB2BRunField('copies', this.value)"></label>
-                <label class="b2b-barcode-toggle" data-b2b-run-wrap="print_barcode">Include Barcode
-                  <span><input data-b2b-run-field="print_barcode" type="checkbox" onchange="updateB2BRunField('print_barcode', this.checked)"> Print the configured GTIN / UPC</span>
-                </label>
-              </div>
-              <section class="b2b-product-settings hidden" id="b2b-product-settings">
-                <div class="b2b-product-settings-heading">
-                  <span class="b2b-settings-summary-copy">
-                    <span class="b2b-settings-icon">⚙</span>
-                    <span><strong>Product &amp; Barcode Settings</strong><small>Fields used by this label remain visible while you edit.</small></span>
-                  </span>
-                  <span class="b2b-settings-status" id="b2b-settings-status">Review setup</span>
-                </div>
-                <div class="b2b-settings-body">
-                  <div class="b2b-settings-note" id="b2b-settings-note">Fields used by the selected label stay visible. Additional Product Master data is optional for this label and supports other labels, barcodes, and TI-HI.</div>
-                  <section class="b2b-settings-current-section">
-                    <header><strong>Used on this label</strong><small>Required fields are marked.</small></header>
-                    <div class="b2b-settings-grid" id="b2b-product-settings-current"></div>
-                  </section>
-                  <details class="b2b-settings-additional" id="b2b-product-settings-additional-details">
-                    <summary>Other Product Master fields <small>Not needed for the selected label</small></summary>
-                    <div class="b2b-settings-grid" id="b2b-product-settings-additional"></div>
-                  </details>
-                  <div class="b2b-settings-grid hidden" id="b2b-product-settings-source">
-                    <label class="b2b-setting-wide" data-b2b-setting-field="description">Description <input id="b2b-product-description" onchange="updateB2BProductField('description', this.value)"></label>
-                    <label data-b2b-setting-field="sku">Internal SKU <input id="b2b-product-sku" onchange="updateB2BProductField('sku', this.value)"></label>
-                    <label data-b2b-setting-field="customer_item_number">Customer Item <input id="b2b-product-customer-item" onchange="updateB2BProductField('customer_item_number', this.value)"></label>
-                    <label data-b2b-setting-field="gtin">GTIN / UPC <input id="b2b-product-gtin" inputmode="numeric" onchange="updateB2BProductField('gtin', this.value)"></label>
-                    <label data-b2b-setting-field="barcode_type">Barcode Encoding <select id="b2b-product-barcode-type" onchange="updateB2BProductField('barcode_type', this.value)"></select><small>Applied to the selected packaging level.</small></label>
-                    <label data-b2b-setting-field="case_qty">Eaches / Package <input id="b2b-product-case-qty" type="number" min="1" step="1" onchange="updateB2BProductField('case_qty', this.value)"></label>
-                    <label data-b2b-setting-field="each_net_weight_g">Each Weight (g) <input id="b2b-product-each-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('each_net_weight_g', this.value)"></label>
-                    <label data-b2b-setting-field="package_net_weight_g">Total Product Weight (g) <input id="b2b-product-package-net" type="number" min="0" step="0.01" onchange="updateB2BProductField('package_net_weight_g', this.value)"></label>
-                    <label data-b2b-setting-field="gross_weight_lbs">Total Weight with Packaging (lb) <input id="b2b-product-gross" type="number" min="0" step="0.01" onchange="updateB2BProductField('gross_weight_lbs', this.value)"></label>
-                    <label data-b2b-setting-field="length_in">Level Length (in) <input id="b2b-product-length" type="number" min="0" step="0.01" onchange="updateB2BProductField('length_in', this.value)"></label>
-                    <label data-b2b-setting-field="width_in">Level Width (in) <input id="b2b-product-width" type="number" min="0" step="0.01" onchange="updateB2BProductField('width_in', this.value)"></label>
-                    <label data-b2b-setting-field="height_in">Level Height (in) <input id="b2b-product-height" type="number" min="0" step="0.01" onchange="updateB2BProductField('height_in', this.value)"></label>
-                    <label data-b2b-setting-field="verification_status">Data Status <select id="b2b-product-verification" onchange="updateB2BProductField('verification_status', this.value)"></select></label>
-                    <label class="b2b-setting-toggle" data-b2b-setting-field="label_enabled">Available in Label Creator <input id="b2b-product-enabled" type="checkbox" onchange="updateB2BProductField('label_enabled', this.checked)"></label>
-                  </div>
-                </div>
-              </section>
-            </aside>
-            </div>
-          </section>
-
-          <section class="b2b-preview-card b2b-output-card">
-          <div class="b2b-card-heading">
-            <div class="b2b-heading-with-step">
-              <span class="b2b-step-number">03</span>
-              <div>
-                <div class="b2b-card-kicker">Production PDF</div>
-                <h3 id="b2b-preview-title">Generate print-ready PDF</h3>
-              </div>
-            </div>
-            <span class="b2b-proof-note">Final render</span>
-          </div>
-          <div class="b2b-output-row">
-            <div class="b2b-output-copy">
-              <span>Creates one production PDF containing every selected label job in this batch.</span>
-            </div>
-            <button class="btn-generate" id="b2b-render-button" type="button" onclick="generateB2BPreview(true)">Generate &amp; Open PDF</button>
-          </div>
-          </section>
-          </div>
-        </div>
-      </div>
-
-      <div class="status-bar" id="b2b-status-bar"></div>
-    </div>
-  </section>
-
-  <section class="mpl-workspace-page hidden" id="partner-workspace-page">
-    <div class="mpl-workspace-shell partner-workspace-shell">
-      <div class="b2b-page-header partner-page-header module-header-card">
-        <div class="b2b-page-title">
-          <div class="mpl-order-lookup-kicker">Automatic order documents</div>
-          <h2>DecoPac / Dutch Bros / Fancy</h2>
-          <p>Enter one sales order, confirm the customer layout, and prepare the matching packing list and labels in one editable workflow.</p>
-        </div>
-      </div>
-
-      <div class="mpl-order-lookup-card partner-order-card module-surface-card">
-        <div class="mpl-order-lookup-copy">
-          <div class="mpl-order-lookup-kicker">Step 1 &middot; Sales order</div>
-          <h2>Load an order</h2>
-          <p>LabelKit detects the customer from the order. Choose a customer below when you need to confirm or override the detected layout.</p>
-        </div>
-        <form class="mpl-order-lookup-form" onsubmit="loadPartnerOrder(event)">
-          <label for="partner-sales-order-number">Sales Order Number</label>
-          <div class="mpl-order-lookup-controls">
-            <input id="partner-sales-order-number" type="text" maxlength="120" autocomplete="off" placeholder="Enter order number" required />
-            <button class="btn-generate" id="btn-load-partner-order" type="submit">Load Order</button>
-          </div>
-          <div class="partner-instance-picker hidden" id="partner-order-instance-picker">
-            <label for="partner-order-instance-select">Multiple order records found</label>
-            <div class="mpl-order-lookup-controls">
-              <select id="partner-order-instance-select"></select>
-              <button class="btn-secondary" type="button" onclick="loadSelectedPartnerOrder()">Load Selected</button>
-            </div>
-          </div>
-        </form>
-        <div class="partner-customer-selector" aria-labelledby="partner-customer-selector-title">
-          <div class="partner-customer-selector-copy">
-            <span>Customer layout</span>
-            <strong id="partner-customer-selector-title">DecoPac / Dutch Bros / Fancy</strong>
-            <small id="partner-customer-selection-help">Load an order for automatic detection, or select its customer now.</small>
-          </div>
-          <div class="partner-customer-options" id="partner-customer-options" role="radiogroup" aria-label="Customer layout"></div>
-        </div>
-      </div>
-
-      <div class="partner-empty-state" id="partner-empty-state">
-        <strong>No order loaded</strong>
-        <span>Enter a sales order above to build the editable labels and packing list.</span>
-      </div>
-
-      <div class="partner-order-workspace hidden" id="partner-order-workspace">
-        <section class="partner-order-summary">
-          <div><span>Customer / layout</span><strong id="partner-detected-customer">-</strong></div>
-          <div><span>Sales order</span><strong id="partner-loaded-order">-</strong></div>
-          <div><span>Order lines</span><strong id="partner-line-count">0</strong></div>
-          <div><span>Review status</span><strong id="partner-review-status">Ready</strong></div>
-        </section>
-        <div id="partner-review-stages"></div>
-        <section class="partner-resolution-summary" id="partner-resolution-summary" aria-label="Automatic order resolution"></section>
-
-        <section class="b2b-card partner-documents-card">
-          <div class="b2b-card-heading">
-            <div class="b2b-heading-with-step">
-              <span class="b2b-step-number">02</span>
-              <div><div class="b2b-card-kicker">Review &amp; generate</div><h3>Order documents</h3></div>
-            </div>
-            <span class="b2b-save-state">Changes stay with this order</span>
-            <button class="btn-generate" id="btn-generate-all-partner-documents" type="button" onclick="generatePartnerOrderDocuments()" disabled>Generate All Documents</button>
-          </div>
-          <div class="partner-document-sections" id="partner-document-actions">
-            <section class="partner-workflow-section partner-label-workflow-section">
-              <header class="partner-workflow-section-header">
-                <label class="partner-document-select"><input id="partner-generate-labels" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Customer Labels</strong><small>Case, inner-pack, and configured customer pallet labels are calculated from the loaded order.</small></span></label>
-                <span class="partner-section-state">Changes stay with this order</span>
-              </header>
-              <div class="partner-inline-label-editor" id="partner-inline-label-editor"></div>
-            </section>
-            <section class="partner-workflow-section partner-mpl-workflow-section">
-              <header class="partner-workflow-section-header">
-                <label class="partner-document-select"><input id="partner-generate-mpl" type="checkbox" checked onchange="renderPartnerSelectionState()"><span><strong>Packing List &amp; Ti-Hi</strong><small>Quantities and palletization are calculated on load. Review or edit before generation.</small></span></label>
-                <span class="partner-section-state">Master Packing List</span>
-              </header>
-              <div class="partner-mpl-review-section">
-                <div class="partner-mpl-review-copy">
-                  <div class="b2b-card-kicker">Review &amp; edit</div>
-                  <h4>Master Packing List</h4>
-                  <p>Review item quantities, pallet assignments, weights, addresses, and TI-Hi details.</p>
-                  <div class="partner-mpl-metrics"><span><strong id="partner-mpl-item-count">0</strong> items</span><span><strong id="partner-mpl-pallet-count">0</strong> pallets</span><span id="partner-mpl-edit-status">Ready to review</span></div>
-                </div>
-                <div class="partner-mpl-review-actions">
-                  <button class="btn-document" id="btn-partner-mpl" type="button" onclick="editPartnerPackingList()" disabled><span>Review &amp; Edit Master Packing List</span><small>Open the full packing-list editor</small></button>
-                  <button class="btn-generate" id="btn-generate-partner-mpl" type="button" onclick="openPartnerPreview('masterPackingList')">Generate &amp; Open PDF</button>
-                  <button class="btn-document" id="btn-partner-pallet-labels" type="button" onclick="openMplPalletLabels(partnerMplDraft)"><span>Review Pallet Labels</span><small>Use the same reviewed pallet assignments</small></button>
-                </div>
-              </div>
-            </section>
-          </div>
-          <section class="partner-download-panel" aria-labelledby="partner-download-title">
-            <div class="partner-download-heading">
-              <div><div class="b2b-card-kicker">Finished documents</div><h4 id="partner-download-title">Download files</h4></div>
-              <span>Generated PDFs appear here after you generate the reviewed order.</span>
-            </div>
-            <div class="partner-download-files" id="partner-download-files"></div>
-          </section>
-        </section>
-      </div>
-
-      <div class="status-bar" id="partner-status-bar"></div>
     </div>
   </section>
 
@@ -1578,7 +1277,7 @@
     <div class="editor-dialog workflow-popup-dialog">
       <div class="editor-toolbar"><div><div class="editor-title">Label Job Summary</div><div class="kehe-product-master-subtitle">Labels grouped by SKU and label type.</div></div><button class="btn-secondary" type="button" onclick="closeLabelJobSummary()">Close</button></div>
       <div class="editor-body" id="workflow-label-summary-body"></div>
-      <div class="editor-footer"><span id="workflow-label-batch-actions" class="workflow-inline-actions"><button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(true)">Select All</button><button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(false)">Clear All</button><button class="btn-secondary" type="button" onclick="resetPartnerLabelCopies()">Reset Copies</button></span><button class="btn-generate" type="button" onclick="closeLabelJobSummary()">Done</button></div>
+      <div class="editor-footer"><button class="btn-generate" type="button" onclick="closeLabelJobSummary()">Done</button></div>
     </div>
   </div>
 
@@ -1599,7 +1298,7 @@
   <script src="/assets/js/mpl-tihi.js"></script>
   <script src="/assets/js/b2b-order-jobs.js"></script>
   <script src="/assets/js/b2b-workspace.js"></script>
-  <script src="/assets/js/partner-workspace.js"></script>
+  <script src="/assets/js/document-model.js"></script>
   <script src="/assets/js/document-editor.js"></script>
   <script src="/assets/js/app.js"></script>
   <script src="/assets/js/operations-workspace.js"></script>

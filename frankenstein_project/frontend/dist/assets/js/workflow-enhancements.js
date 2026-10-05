@@ -10,12 +10,10 @@
     'Opening preview',
   ];
   const generatedOutputs = new Map();
-  const partnerStaleKinds = new Set();
   let readinessResolve = null;
   let mplHistoryDraftRef = null;
   let mplHistory = [];
   let mplHistoryIndex = -1;
-  let singlePartnerPreviewUrl = null;
   let generatedOutputPreviewUrl = null;
 
   function digits(value) { return String(value || '').replace(/\D/g, ''); }
@@ -205,21 +203,6 @@
   };
 
   function readinessItem(sku, message, category, index = -1) { return { sku: sku || 'Unidentified SKU', message, category, index }; }
-  function collectPartnerReadiness() {
-    const issues = [];
-    (partnerLabelJobs || []).forEach((job, index) => {
-      if (!job.print_selected) return;
-      const product = job.product || {};
-      const sku = product.sku || product.customer_item_number || `Line ${index + 1}`;
-      if (!['matched', 'run_only'].includes(job.match_status)) issues.push(readinessItem(sku, job.match_reason || 'Product Master configuration was not matched.', 'product', index));
-      if (!isPartnerPalletLabelJob(job) && job.run?.print_barcode && (!product.gtin || !gtinValid(product.gtin))) issues.push(readinessItem(sku, 'Barcode GTIN is missing or invalid.', 'barcode', index));
-      if (!positive(product.case_qty, true) && !isPartnerPalletLabelJob(job)) issues.push(readinessItem(sku, 'Case-pack quantity is missing.', 'case', index));
-      if (!isPartnerPalletLabelJob(job) && !['length_in', 'width_in', 'height_in'].every(field => positive(product[field]))) issues.push(readinessItem(sku, 'Dimensions are incomplete.', 'dimensions', index));
-      if (!isPartnerPalletLabelJob(job) && !positive(product.gross_weight_lbs)) issues.push(readinessItem(sku, 'Gross weight is missing.', 'dimensions', index));
-      if (String(product.verification_status || '').toUpperCase() !== 'VERIFIED') issues.push(readinessItem(sku, `Product status is ${product.verification_status || 'not set'}.`, 'review', index));
-    });
-    return readinessResult(issues);
-  }
   function collectB2BReadiness() {
     if (Array.isArray(b2bOrderLabelJobs) && b2bOrderLabelJobs.length) {
       const issues = [];
@@ -348,7 +331,6 @@
       ).issues);
       return readinessResult(issues);
     }
-    if (scope === 'partners') return collectPartnerReadiness();
     if (scope === 'b2b') return collectB2BReadiness();
     if (scope === 'kehe') return collectKeheLabelReadiness();
     return collectMplReadiness();
@@ -370,8 +352,6 @@
         <div class="workflow-warning-details">
           <ul>${group.issues.map(issue => `<li>${escapeHtml(issue.message)}</li>`).join('')}</ul>
           <span class="workflow-warning-actions">
-          ${scope === 'partners' && group.index >= 0 ? `<button class="btn-secondary" type="button" onclick="usePartnerProductForRun(${group.index})">Use current values</button>` : ''}
-          ${scope === 'partners' && group.index >= 0 && hasPermission('table_crud') ? `<button class="btn-secondary" type="button" onclick="savePartnerProductConfiguration(${group.index})">Save to Product Master</button>` : ''}
           ${scope === 'b2b' && b2bSelectedProductIndex <= -1000 ? '<button class="btn-secondary" type="button" onclick="useB2BProductForRun()">Use for this run</button>' : ''}
           ${scope === 'b2b' && b2bSelectedProductIndex <= -1000 && hasPermission('table_crud') ? '<button class="btn-secondary" type="button" onclick="saveB2BProductConfiguration()">Save configuration</button>' : ''}
           <button class="btn-secondary" type="button" onclick="openProductConfigurationForIssue('${jsString(group.sku)}')">Open Product Master</button>
@@ -393,8 +373,7 @@
   }
 
   window.openDocumentReadiness = scope => showReadiness(scope || (
-    selectedKit === 'partners' ? 'partners'
-      : selectedKit === 'operations' ? 'operations'
+    selectedKit === 'operations' ? 'operations'
       : selectedKit === 'b2b' ? 'b2b'
         : activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe'
   ));
@@ -460,9 +439,7 @@
       const label = output.labelType || 'Labels';
       labelCounts.set(label, (labelCounts.get(label) || 0) + Number(output.labels || 0));
     });
-    const summaryJobs = scope === 'partners'
-      ? (partnerLabelJobs || []).filter(job => job.print_selected !== false)
-      : ['b2b', 'operations'].includes(scope) && b2bOrderLabelJobs.length
+    const summaryJobs = ['b2b', 'operations'].includes(scope) && b2bOrderLabelJobs.length
         ? window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs).filter(job => job.print_selected !== false)
         : scope === 'b2b' && getSelectedB2BProduct?.()
           ? (b2bSelectedTemplateIds || []).map(templateId => ({ product: getSelectedB2BProduct(), template_id: templateId, run: b2bRunFields }))
@@ -477,25 +454,24 @@
       jobGroups.get(key).copies += copies;
     });
     const isB2BSummary = scope === 'b2b';
-    const isPartnerSummary = scope === 'partners';
     const isOperationsSummary = scope === 'operations';
-    const isCompactLabelSummary = isB2BSummary || isPartnerSummary || isOperationsSummary;
+    const isCompactLabelSummary = isB2BSummary || isOperationsSummary;
     const modal = document.getElementById('workflow-print-summary-modal');
     modal?.classList.toggle('workflow-print-summary-compact', isCompactLabelSummary);
-    modal?.classList.toggle('workflow-print-summary-partner', isPartnerSummary);
+    modal?.classList.remove('workflow-print-summary-partner');
     const title = document.getElementById('workflow-print-summary-title');
     const subtitle = document.getElementById('workflow-print-summary-subtitle');
     const done = document.getElementById('workflow-print-summary-done');
-    if (title) title.textContent = isB2BSummary ? 'Labels ready' : (isPartnerSummary || isOperationsSummary) ? 'Documents ready' : 'Final Print Summary';
+    if (title) title.textContent = isB2BSummary ? 'Labels ready' : isOperationsSummary ? 'Documents ready' : 'Final Print Summary';
     if (subtitle) subtitle.textContent = isB2BSummary
       ? 'Confirm this job, then continue to the PDF preview.'
-      : (isPartnerSummary || isOperationsSummary)
+      : isOperationsSummary
         ? 'The selected PDFs were created and are ready for review.'
         : 'Final generated output and remaining review items.';
-    if (done) done.textContent = isB2BSummary ? 'View PDF' : (isPartnerSummary || isOperationsSummary) ? 'Close' : 'Done';
+    if (done) done.textContent = isB2BSummary ? 'View PDF' : isOperationsSummary ? 'Close' : 'Done';
     const metricRows = isB2BSummary
       ? [['PDF files', metrics.files], ['Pages', metrics.pages], ['Labels', metrics.labels], ['Needs review', metrics.review]]
-      : (isPartnerSummary || isOperationsSummary)
+      : isOperationsSummary
         ? [['PDF files', metrics.files], ['Pages', metrics.pages], ['Labels', metrics.labels], ['Pallets', metrics.pallets], ['Needs review', metrics.review]]
       : [['PDF files', metrics.files], ['Total pages', metrics.pages], ['Labels', metrics.labels], ['Pallets', metrics.pallets], ['SKUs requiring review', metrics.review]];
     document.getElementById('workflow-print-summary-body').innerHTML = `<div class="print-summary-grid">${metricRows
@@ -521,11 +497,9 @@
   };
 
   window.openLabelJobSummary = scope => {
-    const jobs = scope === 'partners'
-      ? (partnerLabelJobs || [])
-      : (b2bOrderLabelJobs.length
+    const jobs = b2bOrderLabelJobs.length
         ? window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs)
-        : (getSelectedB2BProduct?.() ? (b2bSelectedTemplateIds || []).map(templateId => ({ print_selected: true, product: getSelectedB2BProduct(), template_id: templateId, run: b2bRunFields })) : []));
+        : (getSelectedB2BProduct?.() ? (b2bSelectedTemplateIds || []).map(templateId => ({ print_selected: true, product: getSelectedB2BProduct(), template_id: templateId, run: b2bRunFields })) : []);
     const groups = new Map();
     jobs.forEach((job, index) => {
       const sku = job.product?.sku || job.product?.customer_item_number || `Line ${index + 1}`;
@@ -539,69 +513,9 @@
     });
     document.getElementById('workflow-label-summary-body').innerHTML = groups.size ? `<table class="label-summary-table"><thead><tr><th>SKU</th><th>Label type</th><th>Jobs</th><th>Selected</th><th>Estimated copies</th></tr></thead><tbody>${[...groups.values()].map(group => `<tr><td>${escapeHtml(group.sku)}</td><td>${escapeHtml(group.type)}</td><td>${group.jobs}</td><td>${group.selected}</td><td>${group.copies}</td></tr>`).join('')}</tbody></table>` : '<div class="empty-row">Load or select a label job first.</div>';
     document.getElementById('workflow-label-summary-modal').dataset.scope = scope;
-    document.getElementById('workflow-label-batch-actions')?.classList.toggle('hidden', scope !== 'partners');
     document.getElementById('workflow-label-summary-modal').classList.add('visible');
   };
   window.closeLabelJobSummary = () => document.getElementById('workflow-label-summary-modal')?.classList.remove('visible');
-  window.selectAllPartnerLabels = (selected, kind = '') => {
-    const refreshSummary = document.getElementById('workflow-label-summary-modal')?.classList.contains('visible');
-    partnerLabelJobs.forEach(job => {
-      if (!kind || isPartnerPalletLabelJob(job) === (kind === 'palletLabel')) job.print_selected = !!selected;
-    });
-    partnerStaleKinds.add('packLabels'); partnerStaleKinds.add('palletLabel');
-    renderPartnerSelectionState();
-    if (refreshSummary) openLabelJobSummary('partners');
-  };
-  window.resetPartnerLabelCopies = (kind = '') => {
-    const refreshSummary = document.getElementById('workflow-label-summary-modal')?.classList.contains('visible');
-    partnerLabelJobs.forEach(job => {
-      if (kind && isPartnerPalletLabelJob(job) !== (kind === 'palletLabel')) return;
-      const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
-      job.run.copies = String(job.template_id === 'FANCY_PALLET_3X3' ? 2 : job.product?.default_copies || template.default_copies || 1);
-    });
-    partnerStaleKinds.add('packLabels'); partnerStaleKinds.add('palletLabel');
-    renderPartnerSelectionState();
-    if (refreshSummary) openLabelJobSummary('partners');
-  };
-  window.markPartnerPreviewStale = kind => { partnerStaleKinds.add(kind); renderPartnerSelectionState(); };
-  window.clearPartnerPreviewStale = kind => partnerStaleKinds.delete(kind);
-  window.partnerPreviewIsStale = kind => partnerStaleKinds.has(kind);
-
-  window.regeneratePartnerLabel = async index => {
-    const job = partnerLabelJobs[index];
-    if (!job) return;
-    try {
-      showWorkflowProgress(3, `Preparing ${job.product?.sku || 'label'}…`);
-      const response = await fetch('/api/partner/render-labels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobs: [{ ...job, print_selected: true }] }) });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Label could not be rendered.');
-      const blob = await response.blob();
-      if (singlePartnerPreviewUrl) URL.revokeObjectURL(singlePartnerPreviewUrl);
-      singlePartnerPreviewUrl = URL.createObjectURL(blob);
-      closeWorkflowProgress();
-      blobUrl = singlePartnerPreviewUrl;
-      setDownloadReady(true, singlePartnerPreviewUrl);
-      document.getElementById('btn-download').download = `${job.product?.sku || 'label'}_${job.template_id || 'label'}.pdf`;
-      resetPreviewSurface();
-      await openPreview();
-    } catch (error) { closeWorkflowProgress(); setStatus(`Label generation failed: ${error.message}`, 'error'); }
-  };
-
-  window.usePartnerProductForRun = index => {
-    const job = partnerLabelJobs[index];
-    if (!job) return;
-    job.match_status = 'run_only';
-    showReadiness('partners');
-    setStatus(`${job.product?.sku || 'Order item'} will use the current values for this run only.`, 'info');
-  };
-  window.savePartnerProductConfiguration = index => {
-    const job = partnerLabelJobs[index];
-    if (!job || !hasPermission('table_crud')) return;
-    const product = { ...(job.product || {}), verification_status: job.product?.verification_status || 'NEEDS_REVIEW', label_enabled: !!job.template_id, label_template_id: job.template_id || job.product?.label_template_id || '', source_note: `Created from Sales Order ${partnerOrderPayload?.sales_order_number || ''}` };
-    addMplProductRow(product);
-    job.match_status = 'matched';
-    showReadiness('partners');
-    setStatus(`${product.sku || 'Product'} added to Product Master for review.`, 'success');
-  };
   window.useB2BProductForRun = () => {
     showReadiness('b2b');
     setStatus('The edited order values will be used for this label run only.', 'info');
@@ -678,7 +592,6 @@
     mplHistoryIndex = index;
     activeKeheDocumentDraft = cloneDraft(mplHistory[index]);
     mplHistoryDraftRef = activeKeheDocumentDraft;
-    if (selectedKit === 'partners') partnerMplDraft = activeKeheDocumentDraft;
     renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
     mplDraftSync?.schedule();
     updateHistoryButtons();
@@ -808,6 +721,5 @@
     renderProductQualitySummary,
     gtinValid,
     generatedOutputs,
-    partnerStaleKinds,
   };
 })();
