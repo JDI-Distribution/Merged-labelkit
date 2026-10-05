@@ -6,6 +6,8 @@ const vm = require('node:vm');
 
 const sourcePath = path.join(__dirname, '..', 'frontend', 'dist', 'assets', 'js', 'operations-workspace.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
+const modelPath = path.join(__dirname, '..', 'frontend', 'dist', 'assets', 'js', 'modules', 'order-documents-model.js');
+const modelSource = fs.readFileSync(modelPath, 'utf8').replace(/\bexport\s+(?=(?:function|const|class)\b)/g, '');
 
 function createOperationsContext(selected = {}) {
   const controls = {
@@ -17,6 +19,8 @@ function createOperationsContext(selected = {}) {
     document: { getElementById: id => controls[id] || null },
     window: {},
   });
+  context.window = context;
+  vm.runInContext(modelSource, context, { filename: modelPath });
   vm.runInContext(source, context, { filename: sourcePath });
   vm.runInContext(`
     let b2bSelectedCustomer = '';

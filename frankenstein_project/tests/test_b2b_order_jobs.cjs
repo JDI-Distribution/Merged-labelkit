@@ -4,8 +4,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 globalThis.window = globalThis;
-const modulePath = path.join(__dirname, '..', 'frontend', 'dist', 'assets', 'js', 'b2b-order-jobs.js');
-vm.runInThisContext(fs.readFileSync(modulePath, 'utf8'), { filename: modulePath });
+const modulePath = path.join(__dirname, '..', 'frontend', 'dist', 'assets', 'js', 'modules', 'b2b-label-model.js');
+const moduleSource = fs.readFileSync(modulePath, 'utf8').replace(/\bexport\s+(?=(?:function|const|class)\b)/g, '');
+vm.runInThisContext(moduleSource, { filename: modulePath });
 const { buildB2BOrderLabelJobs, resolveB2BTemplateChoice, selectedTemplateIds, expandB2BTemplateJobs } = globalThis.LabelKitB2BOrderJobs;
 
 const normalizeProduct = row => ({ ...row, storefront: row.storefront || 'Customer', packaging_level: row.packaging_level || 'Case' });
