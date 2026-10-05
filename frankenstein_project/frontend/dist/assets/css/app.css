@@ -45,7 +45,7 @@
     .hidden { display: none !important; }
 
     /* ── Header ── */
-    header {
+    body > header {
       background: linear-gradient(100deg, #25282b 0%, #303438 58%, #292c2f 100%);
       color: white;
       padding: 0 32px;
@@ -4899,7 +4899,7 @@
       .dutch-bros-header > .mpl-brand-logo-wrap { justify-self: start; }
     }
     @media (max-width: 700px) {
-      header { padding: 0 18px; }
+      body > header { padding: 0 18px; }
       .header-brand { padding-right: 12px; margin-right: 12px; }
       .header-app-sub { display: none; }
       .selection-page { padding: 20px; }
@@ -5896,7 +5896,7 @@
     }
 
     @media (max-width: 700px) {
-      header {
+      body > header {
         min-width: 0;
         padding: 0 12px;
       }
@@ -6008,7 +6008,7 @@
       --module-tint: #fff1ee;
     }
 
-    header::after {
+    body > header::after {
       content: "";
       position: absolute;
       inset: auto 0 0;
@@ -6017,7 +6017,7 @@
       opacity: 0.82;
     }
 
-    body[data-module="home"] header::after {
+    body[data-module="home"] > header::after {
       background: linear-gradient(90deg, #e8442a 0 25%, #138a82 25% 50%, #4b5563 50% 75%, #956044 75% 100%);
     }
 

@@ -277,7 +277,7 @@
   }
 
   function isStandaloneMplReferenceMode() {
-    return selectedKit === 'mpl' || selectedKit === 'b2b' || selectedKit === 'partners' || !!activeKeheDocumentDraft?.standalone_mpl;
+    return ['mpl', 'b2b', 'partners', 'operations'].includes(selectedKit) || !!activeKeheDocumentDraft?.standalone_mpl;
   }
 
   function mplTemplateId(mpl) {
@@ -1094,7 +1094,9 @@
 
   function addMplProductRow(seed = {}) {
     if (!hasPermission('table_crud')) return;
-    const defaultStorefront = selectedKit === 'b2b' && b2bSelectedCustomer ? b2bSelectedCustomer : 'KeHE';
+    const defaultStorefront = ['b2b', 'operations'].includes(selectedKit)
+      ? (b2bSelectedCustomer || 'New Customer')
+      : 'KeHE';
     const configId = String(seed.config_id || `DRAFT-${Date.now()}`).trim();
     const newRow = normalizeProductRow({
       storefront: defaultStorefront,
@@ -1775,8 +1777,8 @@
     const footer = document.getElementById('mpl-directory-editor-footer');
     if (footer) footer.innerHTML = `
       <div class="directory-record-footer-actions">
-        ${selectedKit === 'b2b' && directoryHasRole(row, 'SHIP_TO') ? `<button class="btn-secondary" type="button" onclick="useMplDirectoryForB2B(${index})">Use in Label Creator</button>` : ''}
-        ${selectedKit !== 'b2b' && directoryHasRole(row, 'SHIP_TO') ? `<button class="btn-secondary" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview label</button>` : ''}
+        ${['b2b', 'operations'].includes(selectedKit) && directoryHasRole(row, 'SHIP_TO') ? `<button class="btn-secondary" type="button" onclick="useMplDirectoryForB2B(${index})">Use in Label Creator</button>` : ''}
+        ${!['b2b', 'operations'].includes(selectedKit) && directoryHasRole(row, 'SHIP_TO') ? `<button class="btn-secondary" type="button" onclick="openManualMplDcPalletLabel(${index})">Preview label</button>` : ''}
         ${canEdit ? `<button class="btn-generate" type="button" onclick="editMplDirectoryRecord()">Edit address</button>` : ''}
       </div>`;
     return `<div class="directory-record-view">
@@ -1926,7 +1928,7 @@
     if (!hasPermission('table_crud')) return;
     const filteredStorefront = String(document.getElementById('mpl-directory-storefront-filter')?.value || '').trim();
     const newRow = normalizeDcDirectoryRow({
-      storefront: filteredStorefront || (selectedKit === 'b2b' ? (b2bSelectedCustomer || 'New Customer') : 'KeHE'),
+      storefront: filteredStorefront || (['b2b', 'operations'].includes(selectedKit) ? (b2bSelectedCustomer || 'New Customer') : 'KeHE'),
       dc: `DRAFT-${Date.now()}`,
       record_type: 'SHIP_TO',
       address_type: 'SHIP_TO',
@@ -1978,7 +1980,7 @@
     b2bSelectedCustomer = normalizeStorefront(row.storefront);
     closeMplDirectoryEditor();
     closeMplDirectoryModal(false);
-    await navigateToRoute('b2b', true);
+    await navigateToRoute(selectedKit === 'operations' ? 'operations/labels' : 'b2b', true);
   }
 
   function deleteMplDirectoryRow(index) {

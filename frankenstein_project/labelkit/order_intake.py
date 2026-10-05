@@ -363,6 +363,28 @@ def _analytics_quantity(value: Any) -> Optional[float | int]:
     return int(quantity) if quantity.is_integer() else round(quantity, 6)
 
 
+def _preferred_shared_level_sku_row(
+    exact_sku_rows: List[Dict[str, Any]],
+    matching_rows: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Choose a deterministic incoming UOM when legacy levels reuse one SKU."""
+    if not exact_sku_rows:
+        return None
+    by_level = {
+        normalize_packaging_level(row.get("packaging_level")): row
+        for row in exact_sku_rows
+    }
+    if by_level.get("Each") is not None:
+        return by_level["Each"]
+    display_uom = normalize_packaging_level((matching_rows or exact_sku_rows)[0].get("display_sku_uom") or "Each")
+    if by_level.get(display_uom) is not None:
+        return by_level[display_uom]
+    for level in ("Inner Pack", "Case", "Master Case", "Shipper Contents", "Pallet"):
+        if by_level.get(level) is not None:
+            return by_level[level]
+    return exact_sku_rows[0]
+
+
 def _b2b_analytics_order_items_for_products(
     analytics_rows: List[Dict[str, Any]],
     product_rows: List[Dict[str, Any]],
@@ -402,6 +424,7 @@ def _b2b_analytics_order_items_for_products(
 
     items: List[Dict[str, Any]] = []
     for sku_key, order_item in aggregated.items():
+        needs_match_review = False
         raw_candidates = products_by_sku.get(sku_key, [])
         candidates_by_group: Dict[str, List[Dict[str, Any]]] = {}
         for candidate in raw_candidates:
@@ -424,15 +447,18 @@ def _b2b_analytics_order_items_for_products(
                 for row in exact_sku_rows
             }
             if len(exact_sku_levels) > 1:
-                product = None
-                match_status = "ambiguous"
-                match_reason_code = "duplicate_level_sku"
+                product = _preferred_shared_level_sku_row(exact_sku_rows, matching_rows)
+                matched_level = normalize_packaging_level((product or {}).get("packaging_level"))
+                match_status = "matched"
+                match_reason_code = "shared_level_sku_defaulted"
                 match_reason = (
-                    "The same Level SKU is assigned to multiple packaging levels; "
-                    "assign distinct Each, Inner Pack, and Case SKUs."
+                    f"The Level SKU is shared by multiple packaging levels. Incoming quantity defaulted to {matched_level}; "
+                    "assign distinct level SKUs when available."
                 )
+                needs_match_review = True
             else:
                 product = exact_sku_rows[0] if exact_sku_rows else None
+                needs_match_review = False
             if product is None and not exact_sku_rows:
                 display_uom = normalize_packaging_level(matching_rows[0].get("display_sku_uom") or "Each")
                 product = next((row for row in matching_rows if normalize_packaging_level(row.get("packaging_level")) == display_uom), None)
@@ -454,6 +480,7 @@ def _b2b_analytics_order_items_for_products(
             product = None
             match_reason_code = "no_product_master_sku"
             match_reason = "No active Product Master Level SKU matches this order line."
+            needs_match_review = False
 
         converted_order_item = dict(order_item)
         packaging_summary: List[Dict[str, Any]] = []
@@ -508,6 +535,7 @@ def _b2b_analytics_order_items_for_products(
             "match_status": match_status,
             "match_reason_code": match_reason_code,
             "match_reason": match_reason,
+            "needs_match_review": bool(needs_match_review),
             "product": product,
             "packaging_summary": packaging_summary,
             "candidate_config_ids": sorted({

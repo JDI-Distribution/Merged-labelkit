@@ -131,6 +131,16 @@
       : normalizeDcDirectoryRow(b2bResolvedDirectoryFallback || {});
   }
 
+  function getDefaultB2BShipFrom() {
+    const origins = mplDirectoryRows
+      .map(normalizeDcDirectoryRow)
+      .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+    return origins.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM')
+      || origins.find(row => normalizeStorefront(row.storefront).toLowerCase() === 'bakell')
+      || origins[0]
+      || {};
+  }
+
   function getSelectedB2BShipFrom() {
     const selected = getSelectedB2BDirectory();
     if (String(b2bRunFields.order_number || '').trim() && (selected.ship_from || selected.ship_from_name)) {
@@ -144,13 +154,361 @@
       .map(normalizeDcDirectoryRow)
       .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
     return origins.find(row => normalizeStorefront(row.storefront).toLowerCase() === wantedCustomer)
-      || origins.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM')
-      || origins[0]
-      || {};
+      || getDefaultB2BShipFrom();
   }
 
   function getSelectedB2BTemplate() {
     return b2bLabelTemplates.find(template => String(template.template_id || '') === b2bSelectedTemplateId) || null;
+  }
+
+  function b2bTemplateIdsForJob(job = null) {
+    if (job) return window.LabelKitB2BOrderJobs.selectedTemplateIds(job);
+    return [...new Set([...(b2bSelectedTemplateIds || []), b2bSelectedTemplateId]
+      .map(value => String(value || '').trim())
+      .filter(Boolean))];
+  }
+
+  function isB2BTemplateGalleryMode() {
+    return selectedKit === 'operations'
+      && typeof orderDocumentsState === 'object'
+      && orderDocumentsState.customMode === 'labels'
+      && !String(b2bRunFields.order_number || '').trim();
+  }
+
+  function b2bTemplateGalleryType(template = {}) {
+    const value = `${template.name || ''} ${template.template_id || ''} ${template.renderer_key || ''}`.toLowerCase();
+    if (value.includes('pallet') || value.includes('placard')) return 'pallet';
+    if (value.includes('inner')) return 'inner';
+    if (value.includes('case') || value.includes('pack') || value.includes('srd')) return 'case';
+    return 'other';
+  }
+
+  function b2bTemplateGallerySize(template = {}) {
+    return `${template.physical_width_in || '?'} × ${template.physical_height_in || '?'} in`;
+  }
+
+  function renderB2BTemplateGallery() {
+    const gallery = document.getElementById('b2b-template-gallery');
+    const grid = document.getElementById('b2b-template-gallery-grid');
+    if (!gallery || !grid) return;
+    const active = isB2BTemplateGalleryMode();
+    gallery.classList.toggle('hidden', !active);
+    if (!active) return;
+
+    const search = String(document.getElementById('b2b-template-gallery-search')?.value || '').trim().toLowerCase();
+    const customerSelect = document.getElementById('b2b-template-gallery-customer');
+    const typeSelect = document.getElementById('b2b-template-gallery-type');
+    const sizeSelect = document.getElementById('b2b-template-gallery-size');
+    const selectedCustomerFilter = String(customerSelect?.value || '');
+    const selectedType = String(typeSelect?.value || '');
+    const selectedSize = String(sizeSelect?.value || '');
+    const activeTemplates = (b2bLabelTemplates || []).filter(template => String(template.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+    const customers = uniqueTextValues(activeTemplates.map(template => template.customer).filter(Boolean));
+    const sizes = uniqueTextValues(activeTemplates.map(b2bTemplateGallerySize));
+    if (customerSelect) {
+      customerSelect.innerHTML = `<option value="">All customers</option>${customers.map(customer => `<option value="${escapeHtml(customer)}" ${customer === selectedCustomerFilter ? 'selected' : ''}>${escapeHtml(customer)}</option>`).join('')}`;
+      customerSelect.value = customers.includes(selectedCustomerFilter) ? selectedCustomerFilter : '';
+    }
+    if (sizeSelect) {
+      sizeSelect.innerHTML = `<option value="">All sizes</option>${sizes.map(size => `<option value="${escapeHtml(size)}" ${size === selectedSize ? 'selected' : ''}>${escapeHtml(size)}</option>`).join('')}`;
+      sizeSelect.value = sizes.includes(selectedSize) ? selectedSize : '';
+    }
+    const customerFilter = String(customerSelect?.value || '');
+    const sizeFilter = String(sizeSelect?.value || '');
+    const templates = activeTemplates.filter(template => {
+      const haystack = `${template.name || ''} ${template.template_id || ''} ${template.customer || ''} ${b2bTemplateGallerySize(template)}`.toLowerCase();
+      return (!search || haystack.includes(search))
+        && (!customerFilter || String(template.customer || '') === customerFilter)
+        && (!selectedType || b2bTemplateGalleryType(template) === selectedType)
+        && (!sizeFilter || b2bTemplateGallerySize(template) === sizeFilter);
+    });
+    const selectedIds = new Set(b2bTemplateIdsForJob());
+    grid.innerHTML = templates.length ? templates.map(template => {
+      const templateId = String(template.template_id || '');
+      const selected = selectedIds.has(templateId);
+      const editing = selected && templateId === b2bSelectedTemplateId;
+      const type = b2bTemplateGalleryType(template);
+      return `<label class="b2b-template-gallery-card ${selected ? 'selected' : ''} ${editing ? 'editing' : ''}">
+        <input type="checkbox" ${selected ? 'checked' : ''} onchange="selectB2BGalleryTemplate('${jsString(templateId)}', this.checked)">
+        <span class="b2b-template-gallery-preview b2b-template-gallery-preview-${escapeHtml(type)}" aria-hidden="true"><i></i><b></b><em></em></span>
+        <span class="b2b-template-gallery-copy"><small>${escapeHtml(template.customer || 'General')}</small><strong>${escapeHtml(template.name || templateId)}</strong><span>${escapeHtml(b2bTemplateGallerySize(template))} · ${escapeHtml(type === 'case' ? 'Case / pack' : type === 'inner' ? 'Inner pack' : type === 'pallet' ? 'Pallet' : 'Other')}</span></span>
+        <span class="b2b-template-gallery-state">${editing ? 'Editing' : selected ? 'Selected' : 'Select'}</span>
+      </label>`;
+    }).join('') : '<div class="b2b-template-gallery-empty">No templates match these filters. Clear one or more filters to see the full catalog.</div>';
+    const count = document.getElementById('b2b-template-gallery-count');
+    if (count) count.textContent = `${templates.length} shown · ${selectedIds.size} selected`;
+  }
+
+  function clearB2BTemplateGalleryFilters() {
+    ['b2b-template-gallery-search', 'b2b-template-gallery-customer', 'b2b-template-gallery-type', 'b2b-template-gallery-size'].forEach(id => {
+      const control = document.getElementById(id);
+      if (control) control.value = '';
+    });
+    renderB2BTemplateGallery();
+  }
+
+  function selectB2BGalleryTemplate(templateId, selected = true) {
+    const cleanId = String(templateId || '').trim();
+    const template = b2bLabelTemplates.find(candidate => String(candidate.template_id || '') === cleanId);
+    if (!template) return;
+    const templateCustomer = String(template.customer || '').trim();
+    const customerChanged = templateCustomer
+      && normalizeStorefront(templateCustomer).toLowerCase() !== normalizeStorefront(b2bSelectedCustomer).toLowerCase();
+    if (customerChanged) {
+      b2bSelectedCustomer = templateCustomer;
+      b2bSelectedGroupKey = '';
+      b2bSelectedProductIndex = -1;
+      b2bSelectedDirectoryIndex = -1;
+      b2bSelectedTemplateIds = [];
+      b2bTemplateRunFields = {};
+    }
+    const currentIds = b2bTemplateIdsForJob().filter(id => {
+      const candidate = b2bLabelTemplates.find(item => String(item.template_id || '') === id);
+      return !templateCustomer || normalizeStorefront(candidate?.customer).toLowerCase() === normalizeStorefront(templateCustomer).toLowerCase();
+    });
+    b2bSelectedTemplateIds = selected ? uniqueTextValues([...currentIds, cleanId]) : currentIds.filter(id => id !== cleanId);
+    b2bSelectedTemplateId = selected ? cleanId : (b2bSelectedTemplateIds[0] || '');
+    if (selected && !b2bTemplateRunFields[cleanId]) {
+      b2bTemplateRunFields[cleanId] = { ...B2B_RUN_FIELD_DEFAULTS, copies: String(template.default_copies || 1) };
+    }
+    if (b2bSelectedTemplateId) loadB2BActiveRunFields(null, b2bSelectedTemplateId);
+    clearB2BPreview();
+    renderB2BCreator();
+    if (selected && getSelectedB2BProduct()) {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => focusB2BLabelEditor()));
+    } else if (selected) {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => document.getElementById('b2b-product-select')?.focus({ preventScroll: true })));
+    }
+  }
+
+  function b2bTemplatePickerHtml(options, selectedIds, helpText, context = 'manual', jobIndex = null, autoOpen = true, rowKey = jobIndex, compatibleIds = []) {
+    const selected = new Set((selectedIds || []).map(String));
+    const selectedTemplates = (options || []).filter(template => selected.has(String(template.template_id)));
+    const compatible = new Set((compatibleIds || []).map(String));
+    const primaryTemplates = (options || []).filter(template => compatible.has(String(template.template_id)) || selected.has(String(template.template_id)));
+    const otherTemplates = (options || []).filter(template => !primaryTemplates.includes(template));
+    const summary = selectedTemplates.length
+      ? `${selectedTemplates.length} template${selectedTemplates.length === 1 ? '' : 's'} selected`
+      : 'Choose label templates';
+    const jobIndexArg = jobIndex === null ? 'null' : String(jobIndex);
+    const rowKeyArg = rowKey === null ? 'null' : `'${jsString(String(rowKey))}'`;
+    const forceOpen = rowKey !== null && String(rowKey) === String(b2bOpenSkuRowIndex ?? '');
+    const optionHtml = template => {
+      const templateId = String(template.template_id || '');
+      const checked = selected.has(templateId);
+      const active = checked && templateId === b2bSelectedTemplateId && (jobIndex === null || jobIndex === b2bSelectedOrderJobIndex);
+      const templateName = template.name || templateId;
+      return `<div class="b2b-template-option ${checked ? 'selected' : ''} ${active ? 'active' : ''}"><label><input type="checkbox" aria-label="Select ${escapeHtml(templateName)}" ${checked ? 'checked' : ''} onchange="toggleB2BTemplate('${jsString(templateId)}', this.checked, '${context}', ${jobIndexArg})"><span><strong>${escapeHtml(templateName)}</strong><small>${escapeHtml(`${template.physical_width_in || '?'} × ${template.physical_height_in || '?'} in${active ? ' · open in editor' : ''}`)}</small></span></label>${checked ? `<button type="button" aria-label="Edit ${escapeHtml(templateName)}" ${active ? 'disabled' : ''} onclick="${jobIndex === null ? `selectB2BTemplate('${jsString(templateId)}', true)` : `reviewB2BProductMatch(${jobIndex}, '${jsString(templateId)}')`}">${active ? 'Editing' : 'Edit'}</button>` : ''}</div>`;
+    };
+    return `<details class="b2b-template-picker" data-b2b-row-key="${escapeHtml(String(rowKey ?? 'manual'))}" ${(forceOpen || (autoOpen && !selectedTemplates.length)) ? 'open' : ''} ontoggle="rememberB2BSkuRowOpenState(this, ${rowKeyArg})">
+      <summary><span>${escapeHtml(summary)}</span><small>${escapeHtml(selectedTemplates.map(template => template.name || template.template_id).join(', ') || 'None selected')}</small></summary>
+      <div class="b2b-template-picker-popover"><div class="b2b-template-picker-menu" role="group" aria-label="Available label templates">${primaryTemplates.length ? primaryTemplates.map(optionHtml).join('') : '<div class="b2b-template-empty">No customer-matched templates were found.</div>'}${otherTemplates.length ? `<div class="b2b-template-group-label"><span>Other available templates</span><small>${otherTemplates.length}</small></div>${otherTemplates.map(optionHtml).join('')}` : ''}</div>
+      <p>${escapeHtml(helpText || 'Check every template required for this label job. The most recently checked template opens in the live editor.')}</p>
+      </div></details>`;
+  }
+
+  function rememberB2BSkuRowOpenState(details, rowKey) {
+    if (rowKey === null) return;
+    b2bOpenSkuRowIndex = details.open ? rowKey : (b2bOpenSkuRowIndex === rowKey ? null : b2bOpenSkuRowIndex);
+  }
+
+  function resetB2BManualWorkspaceState() {
+    b2bSelectedCustomer = '';
+    b2bSelectedGroupKey = '';
+    b2bSelectedProductIndex = -1;
+    b2bSelectedDirectoryIndex = -1;
+    b2bSelectedTemplateId = '';
+    b2bSelectedTemplateIds = [];
+    b2bTemplateRunFields = {};
+    b2bOrderFallbackProducts = [];
+    b2bOrderLabelJobs = [];
+    b2bSelectedOrderJobIndex = -1;
+    b2bOrderCustomerOverride = '';
+    b2bOrderDestinationOverride = '';
+    b2bOrderShipToName = '';
+    b2bResolvedOrderContext = null;
+    b2bResolvedDirectoryFallback = {};
+    b2bCopiesTemplateId = '';
+    b2bSettingsProductIndex = -1;
+    b2bOpenSkuRowIndex = null;
+    b2bRunFields = { ...B2B_RUN_FIELD_DEFAULTS };
+    ['b2b-template-gallery-search', 'b2b-template-gallery-customer', 'b2b-template-gallery-type', 'b2b-template-gallery-size'].forEach(id => {
+      const control = document.getElementById(id);
+      if (control) control.value = '';
+    });
+  }
+
+  function getB2BWorkItems() {
+    if (b2bOrderLabelJobs.length && String(b2bRunFields.order_number || '').trim()) {
+      return b2bOrderLabelJobs.flatMap((job, jobIndex) => b2bTemplateIdsForJob(job).map(templateId => ({
+        job,
+        jobIndex,
+        templateId,
+      })));
+    }
+    const product = getSelectedB2BProduct();
+    return product ? b2bTemplateIdsForJob().map(templateId => ({ job: null, jobIndex: -1, templateId })) : [];
+  }
+
+  function persistB2BActiveRunFields() {
+    const templateId = String(b2bSelectedTemplateId || '').trim();
+    if (!templateId) return;
+    // Read the visible controls before changing queue items. This makes label
+    // navigation resilient even when a browser has not yet dispatched an
+    // input/change event for the last edit.
+    document.querySelectorAll('[data-b2b-run-field]').forEach(input => {
+      if (input.disabled) return;
+      b2bRunFields[input.dataset.b2bRunField] = input.type === 'checkbox'
+        ? String(input.checked)
+        : String(input.value ?? '');
+    });
+    const snapshot = { ...b2bRunFields };
+    const selectedJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex];
+    if (!selectedJob) {
+      b2bTemplateRunFields[templateId] = snapshot;
+      return;
+    }
+    const selectedGroupKey = b2bOrderReviewGroupKey(selectedJob);
+    b2bOrderLabelJobs.forEach((job, index) => {
+      if (b2bOrderReviewGroupKey(job) !== selectedGroupKey || !b2bTemplateIdsForJob(job).includes(templateId)) return;
+      const existing = job.template_runs?.[templateId] || job.run || {};
+      const nextRun = { ...existing, ...snapshot };
+      if (index !== b2bSelectedOrderJobIndex) {
+        ['carton_total', 'carton_start', 'carton_end'].forEach(field => {
+          if (String(existing[field] ?? '').trim()) nextRun[field] = existing[field];
+        });
+      }
+      job.template_runs = { ...(job.template_runs || {}), [templateId]: nextRun };
+    });
+  }
+
+  function loadB2BActiveRunFields(job, templateId) {
+    const saved = job
+      ? job.template_runs?.[templateId] || job.run
+      : b2bTemplateRunFields[templateId];
+    // Reset first so a label without its own saved run never inherits
+    // leftover edits from whichever SKU/template was active before it.
+    Object.assign(b2bRunFields, B2B_RUN_FIELD_DEFAULTS);
+    if (saved) Object.assign(b2bRunFields, saved);
+    const template = b2bLabelTemplates.find(candidate => candidate.template_id === templateId);
+    if (!saved && template) {
+      b2bRunFields.copies = String(template.default_copies || 1);
+      b2bRunFields.print_barcode = String(b2bBarcodeConfigured());
+    }
+  }
+
+  function renderB2BLabelQueue() {
+    const queue = document.getElementById('b2b-label-queue');
+    if (!queue) return;
+    const loadedOrder = !!String(b2bRunFields.order_number || '').trim();
+    const items = getB2BWorkItems();
+    const hasSkuList = loadedOrder ? b2bOrderLabelJobs.length > 0 : !!getSelectedB2BProduct();
+    queue.classList.toggle('hidden', !hasSkuList);
+    const productGroups = new Map();
+    b2bOrderLabelJobs.forEach(job => {
+      const key = b2bOrderReviewGroupKey(job);
+      if (!productGroups.has(key)) productGroups.set(key, []);
+      productGroups.get(key).push(job);
+    });
+    const unresolvedProducts = [...productGroups.values()].filter(group => group.some(job => !b2bTemplateIdsForJob(job).length)).length;
+    const totalProducts = loadedOrder ? productGroups.size : (hasSkuList ? 1 : 0);
+    const configuredProducts = Math.max(0, totalProducts - unresolvedProducts);
+    const title = document.getElementById('b2b-label-queue-title');
+    const help = document.getElementById('b2b-label-queue-help');
+    const position = document.getElementById('b2b-label-queue-position');
+    const navigator = document.getElementById('b2b-editor-navigator');
+    const editorQueue = document.getElementById('b2b-editor-queue-track');
+    const editorQueueName = document.getElementById('b2b-editor-queue-name');
+    if (title) title.textContent = loadedOrder
+      ? `${configuredProducts} of ${totalProducts} products configured · ${items.length} label job${items.length === 1 ? '' : 's'}`
+      : `${items.length} selected label${items.length === 1 ? '' : 's'}`;
+    if (help) help.textContent = unresolvedProducts
+      ? `${unresolvedProducts} product${unresolvedProducts === 1 ? '' : 's'} still need a template. Open a row below to finish setup.`
+      : 'Every product has a template. Use the editing queue below to review each label.';
+    if (!items.length) {
+      if (position) position.textContent = '0 of 0';
+      if (editorQueueName) editorQueueName.textContent = 'Select a template to create the first label job';
+      const editorTitle = document.getElementById('b2b-label-editor-title');
+      const runTitle = document.getElementById('b2b-run-title');
+      if (editorTitle) editorTitle.textContent = 'Edit the label';
+      if (runTitle) runTitle.textContent = 'Carton range & copies';
+      if (navigator) navigator.classList.add('hidden');
+      if (editorQueue) {
+        editorQueue.classList.add('hidden');
+        editorQueue.innerHTML = '';
+      }
+      const previous = document.getElementById('b2b-label-previous');
+      const next = document.getElementById('b2b-label-next');
+      if (previous) previous.disabled = true;
+      if (next) next.disabled = true;
+      return;
+    }
+    let activeIndex = items.findIndex(item => item.jobIndex === b2bSelectedOrderJobIndex && item.templateId === b2bSelectedTemplateId);
+    if (activeIndex < 0 && !b2bOrderLabelJobs.length) activeIndex = items.findIndex(item => item.templateId === b2bSelectedTemplateId);
+    if (position) position.textContent = activeIndex >= 0 ? `Label ${activeIndex + 1} of ${items.length}` : `0 of ${items.length}`;
+    if (navigator) navigator.classList.remove('hidden');
+    if (editorQueue) {
+      editorQueue.classList.remove('hidden');
+      editorQueue.innerHTML = items.map((item, index) => {
+        const itemProduct = item.job?.product || getSelectedB2BProduct() || {};
+        const itemTemplate = b2bLabelTemplates.find(template => template.template_id === item.templateId) || {};
+        const isActive = index === activeIndex;
+        return `<button type="button" class="b2b-editor-queue-item ${isActive ? 'active' : ''}" aria-label="Edit label ${index + 1}: ${escapeHtml(itemProduct.sku || 'SKU')} using ${escapeHtml(itemTemplate.name || item.templateId)}" onclick="selectB2BWorkItem(${item.jobIndex}, '${jsString(item.templateId)}')"><span>${index + 1}</span><strong>${escapeHtml(itemProduct.sku || itemProduct.customer_item_number || 'SKU')}</strong><small>${escapeHtml(itemTemplate.name || item.templateId)}</small></button>`;
+      }).join('');
+      window.requestAnimationFrame(() => {
+        const activeItem = editorQueue.querySelector('.active');
+        if (!activeItem) return;
+        const targetLeft = activeItem.offsetLeft - ((editorQueue.clientWidth - activeItem.offsetWidth) / 2);
+        editorQueue.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+      });
+    }
+    const previous = document.getElementById('b2b-label-previous');
+    const next = document.getElementById('b2b-label-next');
+    if (previous) previous.disabled = activeIndex <= 0;
+    if (next) next.disabled = activeIndex >= items.length - 1;
+    const editorTitle = document.getElementById('b2b-label-editor-title');
+    const runTitle = document.getElementById('b2b-run-title');
+    const activeItem = activeIndex >= 0 ? items[activeIndex] : null;
+    const activeProduct = activeItem?.job?.product || getSelectedB2BProduct() || {};
+    const activeTemplate = b2bLabelTemplates.find(template => template.template_id === activeItem?.templateId) || {};
+    const activeName = activeItem
+      ? `${activeProduct.sku || activeProduct.customer_item_number || 'SKU'} · ${activeTemplate.name || activeItem.templateId}`
+      : 'Select a label from the queue';
+    if (editorQueueName) editorQueueName.textContent = activeName;
+    if (editorTitle) editorTitle.textContent = activeName;
+    if (runTitle) runTitle.textContent = 'Carton range & copies';
+  }
+
+  function selectB2BWorkItem(jobIndex, templateId) {
+    persistB2BActiveRunFields();
+    if (jobIndex >= 0) selectB2BOrderJob(String(jobIndex), templateId);
+    else {
+      b2bSelectedTemplateId = String(templateId || '');
+      loadB2BActiveRunFields(null, b2bSelectedTemplateId);
+      clearB2BPreview();
+      renderB2BCreator();
+    }
+  }
+
+  function moveB2BWorkItem(direction) {
+    const items = getB2BWorkItems();
+    if (!items.length) return;
+    let activeIndex = items.findIndex(item => item.jobIndex === b2bSelectedOrderJobIndex && item.templateId === b2bSelectedTemplateId);
+    if (activeIndex < 0 && !b2bOrderLabelJobs.length) activeIndex = items.findIndex(item => item.templateId === b2bSelectedTemplateId);
+    const nextIndex = Math.max(0, Math.min(items.length - 1, (activeIndex < 0 ? 0 : activeIndex) + Number(direction || 0)));
+    const next = items[nextIndex];
+    if (next) selectB2BWorkItem(next.jobIndex, next.templateId);
+  }
+
+  function resolveB2BTemplateOptions(job = {}, customer = '') {
+    const product = normalizeProductRow(job.product || getSelectedB2BProduct() || {});
+    return window.LabelKitB2BOrderJobs.resolveB2BTemplateChoice({
+      templates: b2bLabelTemplates,
+      customer: customer || product.storefront || b2bSelectedCustomer,
+      currentTemplateId: job.template_id || b2bSelectedTemplateId,
+      productTemplateId: product.label_template_id,
+      directoryTemplateId: job.directory?.default_label_template_id || getSelectedB2BDirectory().default_label_template_id,
+    });
   }
 
   function setNativeSelectOptions(select, options, selectedValue, blankLabel = '') {
@@ -285,7 +643,6 @@
     if (!panel) return;
     panel.classList.toggle('hidden', !product);
     if (!product) {
-      panel.open = false;
       b2bSettingsProductIndex = -1;
       return;
     }
@@ -330,10 +687,7 @@
       else status.textContent = 'Setup complete';
       status.className = `b2b-settings-status ${needsAttention ? 'review' : barcodeRequested ? 'ready' : 'neutral'}`;
     }
-    if (b2bSettingsProductIndex !== b2bSelectedProductIndex) {
-      panel.open = needsAttention;
-      b2bSettingsProductIndex = b2bSelectedProductIndex;
-    }
+    if (b2bSettingsProductIndex !== b2bSelectedProductIndex) b2bSettingsProductIndex = b2bSelectedProductIndex;
   }
 
   function b2bEditableValue(product, field, placeholder, className = '', context = {}) {
@@ -655,6 +1009,8 @@
 
   function detectB2BOrderCustomer(payload, matchedProduct) {
     const details = payload?.order_details || {};
+    const resolvedCustomer = String(payload?.detected_customer?.name || '').trim();
+    if (resolvedCustomer) return resolvedCustomer;
     const backendCustomerId = String(payload?.detected_partner_customer || '').trim();
     if (backendCustomerId && PARTNER_WORKFLOW_CONFIG[backendCustomerId]?.label) {
       return PARTNER_WORKFLOW_CONFIG[backendCustomerId].label;
@@ -678,7 +1034,7 @@
       return customer && normalizedSignals.some(signal => signal && (signal === customer || signal.includes(customer) || customer.includes(signal)));
     });
     if (matchingTemplate?.customer) return normalizeStorefront(matchingTemplate.customer);
-    return String(details.storefront || details.billing_customer_name || details.ship_to_name || matchedProduct?.storefront || '').trim()
+    return String(matchedProduct?.storefront || details.billing_customer_name || details.ship_to_name || details.storefront || '').trim()
       || 'Order Customer';
   }
 
@@ -689,10 +1045,16 @@
     const matchedProducts = Number(summary.matched_products || 0);
     const unmatchedProducts = Number(summary.unmatched_products || 0);
     const ambiguousProducts = Number(summary.ambiguous_products || 0);
+    const defaultedLevelSkus = Number(summary.defaulted_level_skus || 0);
     const firstMatched = analyticsItems.find(item => item?.product && item.match_status === 'matched');
     const matchedProduct = firstMatched?.product ? normalizeProductRow(firstMatched.product) : null;
     const preliminaryCustomer = detectB2BOrderCustomer(payload, matchedProduct);
     b2bResolvedOrderContext = resolveOrderContext(payload, { customer: preliminaryCustomer });
+    b2bResolvedOrderContext.customerResolution = payload?.detected_customer || {
+      name: preliminaryCustomer,
+      source: matchedProduct?.storefront ? 'product_master' : 'order_fallback',
+      confidence: matchedProduct?.storefront ? 'exact' : 'review',
+    };
     const orderCustomer = b2bResolvedOrderContext.customer || preliminaryCustomer;
     b2bOrderFallbackProducts = analyticsItems.map((item, index) => normalizeProductRow({
       ...(item?.product || {}),
@@ -715,7 +1077,7 @@
     b2bSelectedCustomer = orderCustomer;
     b2bOrderCustomerOverride = '';
     const resolvedShipToRow = b2bResolvedOrderContext.directoryShipTo?.row || {};
-    const resolvedShipFromRow = b2bResolvedOrderContext.shipFrom?.row || {};
+    const resolvedShipFromRow = getDefaultB2BShipFrom();
     b2bOrderDestinationOverride = analyticsMplAddress(orderDetails, 'shipping')
       || b2bResolvedOrderContext.shipTo?.address
       || resolvedShipToRow.address
@@ -724,7 +1086,10 @@
     b2bOrderShipToName = String(orderDetails.ship_to_name || '').trim()
       || String(resolvedShipToRow.name || '').trim()
       || String(resolvedShipToRow.dc || '').trim();
-    b2bSelectedDirectoryIndex = b2bResolvedOrderContext.directoryShipTo?.index ?? -1;
+    b2bSelectedDirectoryIndex = -1;
+    const orderBillTo = analyticsMplAddress(orderDetails, 'billing')
+      || b2bResolvedOrderContext.billTo?.address
+      || '';
     b2bResolvedDirectoryFallback = {
       ...resolvedShipToRow,
       storefront: orderCustomer,
@@ -732,9 +1097,9 @@
       dc: resolvedShipToRow.dc || '',
       address: b2bResolvedOrderContext.shipTo?.address || '',
       delivery_address: b2bResolvedOrderContext.shipTo?.address || '',
-      billing_address: b2bResolvedOrderContext.billTo?.address || '',
+      billing_address: orderBillTo,
       ship_from_name: resolvedShipFromRow.name || '',
-      ship_from: b2bResolvedOrderContext.shipFrom?.address || resolvedShipFromRow.address || resolvedShipFromRow.ship_from || '',
+      ship_from: resolvedShipFromRow.address || resolvedShipFromRow.ship_from || '',
       record_type: 'SHIP_TO',
       address_roles: ['SHIP_TO'],
       default_label_template_id: resolvedShipToRow.default_label_template_id || '',
@@ -752,6 +1117,7 @@
     b2bRunFields.carton_total = String(orderCartons);
     b2bRunFields.carton_start = '1';
     b2bRunFields.carton_end = String(orderCartons);
+    b2bTemplateRunFields = {};
     b2bOrderLabelJobs = buildB2BOrderLabelJobs(analyticsItems);
     b2bOrderFallbackProducts = [];
     b2bOrderLabelJobs.forEach(job => {
@@ -768,6 +1134,7 @@
       b2bSelectedProductIndex = -1000 - selectedFallbackIndex;
       b2bSelectedGroupKey = mplProductGroupKey(selectedFallbackProduct, b2bSelectedProductIndex);
       b2bSelectedTemplateId = selectedOrderJob.template_id || '';
+      b2bSelectedTemplateIds = b2bTemplateIdsForJob(selectedOrderJob);
     }
     clearB2BPreview();
     renderB2BCreator();
@@ -777,8 +1144,8 @@
       delete overridePanel.dataset.userOpened;
     }
     setStatus(
-      `Sales Order ${orderNumber} loaded · ${analyticsItems.length} line item(s) · ${b2bOrderLabelJobs.length} label job(s) calculated · ${matchedProducts} matched${unmatchedProducts || ambiguousProducts ? ` · ${unmatchedProducts + ambiguousProducts} need review` : ''}. Review the batch, then generate all labels.`,
-      unmatchedProducts || ambiguousProducts ? 'info' : 'success'
+      `Sales Order ${orderNumber} loaded · ${analyticsItems.length} line item(s) · ${b2bOrderLabelJobs.length} label job(s) calculated · ${matchedProducts} matched${unmatchedProducts || ambiguousProducts || defaultedLevelSkus ? ` · ${unmatchedProducts + ambiguousProducts + defaultedLevelSkus} need review` : ''}. Review the batch, then generate all labels.`,
+      unmatchedProducts || ambiguousProducts || defaultedLevelSkus ? 'info' : 'success'
     );
   }
 
@@ -794,6 +1161,7 @@
       templates: b2bLabelTemplates,
       destination,
       runFields: b2bRunFields,
+      customer: b2bSelectedCustomer,
       normalizeProduct: normalizeProductRow,
       normalizeLevel: normalizePackagingLevel,
       productGroupKey: mplProductGroupKey,
@@ -811,10 +1179,11 @@
     if (!container) return;
     const product = getSelectedB2BProduct();
     const directory = getSelectedB2BDirectory();
-    const template = getSelectedB2BTemplate();
     const loadedOrder = String(b2bRunFields.order_number || '').trim();
     if (!loadedOrder) {
-      container.innerHTML = '<div><span>Manual setup</span><strong>Choose a customer and product below</strong><small>Loading a sales order will make these selections automatically.</small></div>';
+      container.innerHTML = isB2BTemplateGalleryMode()
+        ? '<div><span>Manual label</span><strong>Choose a template, then a product</strong><small>The selected Product Master record auto-fills the editable label.</small></div>'
+        : '<div><span>Manual setup</span><strong>Choose a customer and product below</strong><small>Loading a sales order will make these selections automatically.</small></div>';
       container.classList.remove('is-resolved');
       if (details) details.open = true;
       return;
@@ -823,13 +1192,6 @@
     const destinationName = b2bOrderShipToName || destinationRow.name || destinationRow.dc || 'Destination not found';
     const destinationAddress = b2bOrderDestinationOverride
       || String(destinationRow.address || destinationRow.delivery_address || '').trim();
-    const values = [
-      ['Product', product?.description || product?.sku || 'Needs review'],
-      ['Level', product?.packaging_level || 'Needs review'],
-      ['Template', template?.name || b2bSelectedTemplateId || 'Needs review'],
-      ['Cartons', b2bRunFields.carton_total || '1'],
-      ['Order label lines', String(b2bOrderLabelJobs.length || 1)],
-    ];
     const reviewGroups = b2bOrderLabelJobs.reduce((groups, job, index) => {
       const key = b2bOrderReviewGroupKey(job);
       if (!groups.has(key)) groups.set(key, { key, firstIndex: index, jobs: [] });
@@ -837,45 +1199,162 @@
       return groups;
     }, new Map());
     const uniqueGroups = [...reviewGroups.values()];
-    const selectedReviewGroup = uniqueGroups.find(group => group.jobs.some(item => item.index === b2bSelectedOrderJobIndex));
-    const orderLinePicker = uniqueGroups.length > 1 ? `
-      <label class="b2b-order-line-picker"><span>Unique label to review</span><select id="b2b-order-line-select" onchange="selectB2BOrderJob(this.value)">${uniqueGroups.map(group => {
-        const job = group.jobs[0].job;
-        const jobProduct = job.product || {};
-        const jobTemplate = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id)?.name || job.template_id;
-        const label = `${jobProduct.sku || jobProduct.customer_item_number || 'SKU not set'} · ${jobProduct.packaging_level || 'Level'} · ${jobTemplate} · ${group.jobs.length} order line(s)`;
-        return `<option value="${group.firstIndex}" ${group === selectedReviewGroup ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-      }).join('')}</select></label>` : '';
+    const selectedTemplateJobCount = b2bOrderLabelJobs.reduce((total, job) => total + b2bTemplateIdsForJob(job).length, 0);
+    const incompleteGroupCount = uniqueGroups.filter(group => group.jobs.some(({ job }) => !b2bTemplateIdsForJob(job).length || job.template_selection_required)).length;
+    const configuredGroupCount = Math.max(0, uniqueGroups.length - incompleteGroupCount);
+    const selectedReviewGroup = uniqueGroups.find(group => group.jobs.some(item => item.index === b2bSelectedOrderJobIndex)) || uniqueGroups[0];
+    const selectedReviewJob = selectedReviewGroup?.jobs[0]?.job || b2bOrderLabelJobs[b2bSelectedOrderJobIndex] || {};
+    const selectedReviewIndex = selectedReviewGroup?.firstIndex ?? b2bSelectedOrderJobIndex;
+    const selectedReviewProduct = selectedReviewJob.product || product || {};
+    const selectedIssue = (selectedReviewGroup?.jobs || []).some(({ job }) => (
+      job.match_status !== 'matched'
+      || job.needs_label_review
+      || job.template_selection_required
+      || !b2bTemplateIdsForJob(job).length
+    ));
     const customerOptions = uniqueTextValues([...b2bCustomerOptions(b2bSelectedCustomer), b2bSelectedCustomer]);
-    const customerPicker = `<label class="b2b-order-customer-picker"><span>Customer · detected from order</span><select id="b2b-order-customer-select" onchange="selectB2BOrderCustomer(this.value)">${customerOptions.map(customer => `<option value="${escapeHtml(customer)}" ${customer === b2bSelectedCustomer ? 'selected' : ''}>${escapeHtml(customer)}</option>`).join('')}</select><small>Change this if the detected customer is wrong.</small></label>`;
-    const shipFromAddress = String(destinationRow.ship_from || '').trim();
-    const shipFromName = String(destinationRow.ship_from_name || '').trim();
+    const customerResolution = b2bResolvedOrderContext?.customerResolution || {};
+    const customerSourceLabels = {
+      email: 'Email',
+      product_master: 'Product Master',
+      storefront: 'order storefront',
+      billing_customer_name: 'billing customer',
+      ship_to_name: 'Ship To',
+      supplier: 'supplier',
+      order_fallback: 'order data',
+      manual: 'your selection',
+    };
+    const detectedFrom = customerSourceLabels[customerResolution.source] || 'order data';
+    const customerPicker = `<label class="b2b-order-customer-picker"><span>Customer · detected from ${escapeHtml(detectedFrom)}</span><select id="b2b-order-customer-select" onchange="selectB2BOrderCustomer(this.value)">${customerOptions.map(customer => `<option value="${escapeHtml(customer)}" ${customer === b2bSelectedCustomer ? 'selected' : ''}>${escapeHtml(customer)}</option>`).join('')}</select><small>${customerResolution.confidence === 'review' ? 'Please confirm this customer before printing.' : 'Change only if the detected customer is wrong.'}</small></label>`;
+    const selectedShipFrom = getSelectedB2BShipFrom();
+    const shipFromAddress = String(selectedShipFrom.address || selectedShipFrom.ship_from || '').trim();
+    const shipFromName = String(selectedShipFrom.name || destinationRow.ship_from_name || '').trim();
     const billToAddress = String(destinationRow.billing_address || '').trim();
-    const destinationEditor = `<label class="b2b-order-destination"><span>Ship To · from order${destinationName ? ` · ${escapeHtml(destinationName)}` : ''}</span><textarea id="b2b-order-destination-input" rows="2" placeholder="No Ship To found on this order" oninput="updateB2BOrderDestination(this.value)">${escapeHtml(destinationAddress)}</textarea><small>Order-only override; Product Master and Directory remain unchanged.</small></label><label class="b2b-order-destination"><span>Bill To · order run</span><textarea id="b2b-order-bill-to-input" rows="2" placeholder="Billing address" onchange="updateB2BOrderAddress('billing_address', this.value)">${escapeHtml(billToAddress)}</textarea><small>Order-only override; shared Directory data is not changed.</small></label><label class="b2b-order-destination"><span>Ship From · order run</span><input id="b2b-order-ship-from-name" value="${escapeHtml(shipFromName)}" placeholder="Ship-from name" onchange="updateB2BOrderShipFrom('ship_from_name', this.value)"><textarea id="b2b-order-ship-from-input" rows="2" placeholder="Ship-from address" onchange="updateB2BOrderShipFrom('ship_from', this.value)">${escapeHtml(shipFromAddress)}</textarea><small>Order-only override; shared origin data is not changed.</small></label>`;
-    const statusRows = b2bOrderLabelJobs.map((job, index) => {
-      const jobProduct = job.product || {};
-      const templateName = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id)?.name || job.template_id || 'Template needed';
-      const issue = job.match_status !== 'matched' || job.needs_label_review || job.template_selection_required || !job.template_id;
-      const actionLabel = 'Edit for this order';
-      return `<div class="packaging-status-row ${issue ? 'review' : 'ready'}"><div><strong>${escapeHtml(jobProduct.packaging_level || 'Case')} · ${escapeHtml(jobProduct.sku || 'SKU not set')}</strong><small>${escapeHtml(job.match_reason || (job.match_status === 'matched' ? 'Matched Product Master.' : 'Product Master review required.'))}</small></div><span>${escapeHtml(templateName)}</span><span>${escapeHtml(job.run?.carton_total || '0')} label unit(s)</span><span class="packaging-status-state">${issue ? 'Review' : 'Ready'}</span><button class="btn-secondary" type="button" onclick="reviewB2BProductMatch(${index})">${escapeHtml(actionLabel)}</button></div>`;
-    }).join('');
-    container.innerHTML = `<div class="b2b-resolution-top"><div class="b2b-resolution-heading"><span>Loaded Sales Order ${escapeHtml(loadedOrder)}</span><strong>${uniqueGroups.length || 1} unique label configuration(s) · ${b2bOrderLabelJobs.length} output job(s)</strong><small>Review each unique label once. All order jobs remain in the generated batch.</small></div>${customerPicker}</div>${destinationEditor}${orderLinePicker}<div class="b2b-resolution-grid">${values.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div><section class="packaging-status-matrix"><header><strong>Packaging output status</strong><small>Exact Product Master match, template, and calculated output for every label job.</small></header>${statusRows || '<div class="packaging-status-empty">No label outputs are configured for this order.</div>'}</section>`;
+    const destinationEditor = `<details class="b2b-order-addresses"><summary><span><strong>Order addresses</strong><small>${escapeHtml(destinationName)} · Bill To and Ship To came from this order. Ship From uses the saved default.</small></span><span>Review addresses</span></summary><div class="b2b-order-address-grid"><label class="b2b-order-destination"><span>Ship To · from order${destinationName ? ` · ${escapeHtml(destinationName)}` : ''}</span><textarea id="b2b-order-destination-input" rows="2" placeholder="No Ship To found on this order" oninput="updateB2BOrderDestination(this.value)">${escapeHtml(destinationAddress)}</textarea><small>Order-only override; Product Master and Directory remain unchanged.</small></label><label class="b2b-order-destination"><span>Bill To · from order</span><textarea id="b2b-order-bill-to-input" rows="2" placeholder="No Bill To found on this order" onchange="updateB2BOrderAddress('billing_address', this.value)">${escapeHtml(billToAddress)}</textarea><small>Loaded from the order; changes stay with this run.</small></label><details class="b2b-order-origin"><summary><span>Ship From · saved default</span><strong>${escapeHtml(shipFromName || 'Default origin missing')}</strong><small>${shipFromAddress ? escapeHtml(firstLine(shipFromAddress)) : 'Add an active default Ship From in Customer Directory.'}</small><em>Change for this order</em></summary><div class="b2b-order-origin-fields"><label class="b2b-order-destination"><span>Ship From name</span><input id="b2b-order-ship-from-name" value="${escapeHtml(shipFromName)}" placeholder="Ship-from name" onchange="updateB2BOrderShipFrom('ship_from_name', this.value)"></label><label class="b2b-order-destination"><span>Ship From address</span><textarea id="b2b-order-ship-from-input" rows="2" placeholder="Ship-from address" onchange="updateB2BOrderShipFrom('ship_from', this.value)">${escapeHtml(shipFromAddress)}</textarea><small>Optional run-only override; the saved default is not changed.</small></label></div></details></div></details>`;
+    const reviewReason = selectedReviewJob.match_reason
+      || (selectedReviewJob.match_status === 'matched' ? 'Exact Product Master match.' : 'Product Master review required.');
+    const selectedOutputCount = (selectedReviewGroup?.jobs || []).reduce((total, item) => total + (Number(item.job?.run?.carton_total) || 0), 0);
+    const selectedTemplateIds = b2bTemplateIdsForJob(selectedReviewJob);
+    const editActionLabel = selectedTemplateIds.length ? 'Edit active label' : 'Choose templates';
+    const selectedTemplateCount = selectedTemplateIds.length;
+    const selectedLabelCard = uniqueGroups.length
+      ? `<section class="b2b-selected-label-card ${selectedIssue ? 'review' : 'ready'}"><div class="b2b-selected-label-copy"><span>Selected label</span><strong>${escapeHtml(selectedReviewProduct.description || selectedReviewProduct.sku || 'Order label')}</strong><small>${escapeHtml(selectedReviewProduct.sku || 'SKU not set')} · ${escapeHtml(selectedReviewProduct.packaging_level || 'Level not set')} · ${escapeHtml(reviewReason)}</small></div><div class="b2b-selected-label-facts"><div><span>Output</span><strong>${escapeHtml((selectedOutputCount || 0) * selectedTemplateCount)} label unit(s)</strong></div><div><span>Status</span><strong class="b2b-selected-label-state">${selectedIssue ? 'Needs review' : 'Ready'}</strong></div></div><button class="btn-secondary b2b-edit-order-label" type="button" onclick="reviewB2BProductMatch(${selectedReviewIndex})">${escapeHtml(editActionLabel)}</button></section>`
+      : '<section class="b2b-selected-label-card review"><div class="b2b-selected-label-copy"><span>Order label batch</span><strong>No enabled labels found</strong><small>Add or enable the required packaging-level label in Product Master, then reload this order.</small></div></section>';
+    container.innerHTML = `<div class="b2b-resolution-top"><div class="b2b-resolution-heading"><span>Loaded Sales Order ${escapeHtml(loadedOrder)}</span><strong>${uniqueGroups.length || 1} product${uniqueGroups.length === 1 ? '' : 's'} · ${configuredGroupCount} configured · ${incompleteGroupCount} incomplete · ${selectedTemplateJobCount} label job${selectedTemplateJobCount === 1 ? '' : 's'}</strong><small>Assign templates in Batch Setup, then review every selected label in the editor queue.</small></div>${customerPicker}</div>${selectedLabelCard}${destinationEditor}`;
     container.classList.add('is-resolved');
     if (details && !details.dataset.userOpened) details.open = false;
+    renderB2BSkuTemplateList(uniqueGroups, selectedReviewIndex);
   }
 
-  function reviewB2BProductMatch(index) {
+  function renderB2BSkuTemplateList(uniqueGroups, selectedReviewIndex) {
+    const listEl = document.getElementById('b2b-sku-template-list');
+    if (!listEl) return;
+    if (!uniqueGroups.length) {
+      listEl.innerHTML = '<div class="b2b-section-empty">No enabled labels found for this order.</div>';
+      return;
+    }
+    listEl.innerHTML = uniqueGroups.map(group => {
+      const job = group.jobs[0].job;
+      const jobProduct = job.product || {};
+      const review = group.jobs.some(({ job: rowJob }) => (
+        rowJob.match_status !== 'matched'
+        || rowJob.needs_label_review
+        || rowJob.template_selection_required
+        || !b2bTemplateIdsForJob(rowJob).length
+      ));
+      const active = group.firstIndex === selectedReviewIndex;
+      const selectedCustomer = b2bSelectedCustomer || jobProduct.storefront;
+      const templateResolution = resolveB2BTemplateOptions(job, selectedCustomer);
+      const compatibleTemplateIds = new Set(templateResolution.compatible.map(candidate => candidate.template_id));
+      const selectedTemplateIds = b2bTemplateIdsForJob(job);
+      const orderedTemplateOptions = [...templateResolution.options].sort((left, right) => {
+        const leftRank = compatibleTemplateIds.has(left.template_id) ? 0 : 1;
+        const rightRank = compatibleTemplateIds.has(right.template_id) ? 0 : 1;
+        return leftRank - rightRank;
+      });
+      const templateHelp = selectedTemplateIds.length ? '' : 'Check every template required for this SKU and level.';
+      const templatePickerHtml = b2bTemplatePickerHtml(
+        orderedTemplateOptions,
+        selectedTemplateIds,
+        templateHelp,
+        'order',
+        group.firstIndex,
+        false,
+        group.firstIndex,
+        [...compatibleTemplateIds]
+      );
+      return `<div class="b2b-sku-row ${active ? 'active' : ''} ${review ? 'review' : ''}">
+        <button type="button" class="b2b-sku-row-label" onclick="reviewB2BProductMatch(${group.firstIndex})">
+          <strong>${escapeHtml(jobProduct.sku || jobProduct.customer_item_number || 'SKU not set')}</strong>
+          <small>${escapeHtml(jobProduct.packaging_level || 'Level not set')}${review ? ' · needs review' : ''}</small>
+        </button>
+        <div class="b2b-sku-row-templates">${templatePickerHtml}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderB2BManualSkuRow(product, templateResolution) {
+    const listEl = document.getElementById('b2b-sku-template-list');
+    if (!listEl) return;
+    if (!product) {
+      listEl.innerHTML = '<div class="b2b-section-empty">Choose a customer, product, and packaging level above to pick templates.</div>';
+      return;
+    }
+    const selectedTemplateIds = b2bSelectedTemplateIds;
+    const templateHelp = selectedTemplateIds.length ? '' : 'Check every label template required for this packaging level.';
+    const templatePickerHtml = b2bTemplatePickerHtml(
+      templateResolution.options,
+      selectedTemplateIds,
+      templateHelp,
+      'manual',
+      null,
+      false,
+      'manual',
+      templateResolution.compatible.map(template => template.template_id)
+    );
+    listEl.innerHTML = `<div class="b2b-sku-row active">
+      <div class="b2b-sku-row-label">
+        <strong>${escapeHtml(product.sku || product.customer_item_number || 'SKU not set')}</strong>
+        <small>${escapeHtml(product.packaging_level || 'Level not set')}</small>
+      </div>
+      <div class="b2b-sku-row-templates">${templatePickerHtml}</div>
+    </div>`;
+  }
+
+  function reviewB2BProductMatch(index, templateId = '') {
     const job = b2bOrderLabelJobs[Number(index)];
     if (!job) return;
-    selectB2BOrderJob(index);
-    renderB2BCreator();
-    setStatus(`${job.product?.sku || 'Order item'} can be edited for this order. Use “Save configuration” only to change shared Product Master.`, 'info');
+    selectB2BOrderJob(index, templateId);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      if (!b2bTemplateIdsForJob(job).length) {
+        const picker = document.querySelector('.b2b-sku-row.active .b2b-sku-row-templates .b2b-template-picker');
+        if (picker) picker.open = true;
+        picker?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setStatus(`Choose one or more templates for ${job.product?.sku || 'this order item'} to open its live label editor.`, 'info');
+        return;
+      }
+      focusB2BLabelEditor(job);
+    }));
   }
 
-  function selectB2BOrderJob(value) {
+  function focusB2BLabelEditor(job = b2bOrderLabelJobs[b2bSelectedOrderJobIndex]) {
+    const editor = document.getElementById('b2b-label-editor-card');
+    if (!editor || !job?.template_id) return;
+    editor.classList.add('b2b-editor-attention');
+    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => editor.classList.remove('b2b-editor-attention'), 1200);
+    const editable = editor.querySelector('.b2b-label-editable');
+    if (editable) editable.focus({ preventScroll: true });
+    setStatus(`${job.product?.sku || 'Order item'} is open in the live label editor. Changes apply only to this order batch.`, 'info');
+  }
+
+  function selectB2BOrderJob(value, requestedTemplateId = '') {
     const index = Number(value);
     const job = b2bOrderLabelJobs[index];
     if (!Number.isInteger(index) || !job) return;
+    if (index !== b2bSelectedOrderJobIndex || (requestedTemplateId && requestedTemplateId !== b2bSelectedTemplateId)) {
+      persistB2BActiveRunFields();
+    }
     const product = normalizeProductRow(job.product || {});
     let fallbackIndex = -1;
     if (Number.isInteger(job.order_only_product_index)) {
@@ -893,11 +1372,15 @@
       b2bSelectedProductIndex = -1000 - fallbackIndex;
       b2bSelectedGroupKey = mplProductGroupKey(product, b2bSelectedProductIndex);
     }
-    b2bSelectedCustomer = b2bOrderCustomerOverride || product.storefront || b2bSelectedCustomer;
-    b2bSelectedTemplateId = job.template_id;
+    b2bSelectedCustomer = b2bOrderCustomerOverride || b2bResolvedOrderContext?.customer || product.storefront || b2bSelectedCustomer;
+    b2bSelectedTemplateIds = b2bTemplateIdsForJob(job);
+    b2bSelectedTemplateId = b2bSelectedTemplateIds.includes(requestedTemplateId)
+      ? requestedTemplateId
+      : b2bSelectedTemplateIds.includes(job.template_id) ? job.template_id : (b2bSelectedTemplateIds[0] || '');
+    job.template_id = b2bSelectedTemplateId;
     b2bSelectedOrderJobIndex = index;
     b2bResolvedDirectoryFallback = { ...(job.directory || b2bResolvedDirectoryFallback) };
-    Object.assign(b2bRunFields, job.run || {});
+    loadB2BActiveRunFields(job, b2bSelectedTemplateId);
     b2bSettingsProductIndex = -1;
     clearB2BPreview();
     renderB2BCreator();
@@ -906,7 +1389,6 @@
   function b2bOrderReviewGroupKey(job) {
     const product = normalizeProductRow(job?.product || {});
     return [
-      String(job?.template_id || '').trim().toLowerCase(),
       normalizeStorefront(product.storefront).toLowerCase(),
       normalizePackagingLevel(product.packaging_level).toLowerCase(),
       String(product.config_id || product.sku || product.customer_item_number || '').trim().toLowerCase(),
@@ -972,15 +1454,22 @@
     if (!customer) return;
     b2bOrderCustomerOverride = customer;
     b2bSelectedCustomer = customer;
+    if (b2bResolvedOrderContext) {
+      b2bResolvedOrderContext.customer = customer;
+      b2bResolvedOrderContext.customerResolution = {
+        name: customer,
+        source: 'manual',
+        confidence: 'exact',
+      };
+    }
     b2bOrderFallbackProducts = [];
     b2bOrderLabelJobs.forEach((job, index) => {
       const sourceProduct = normalizeProductRow(job.product || {});
-      const matchingTemplates = b2bLabelTemplates.filter(template => (
-        normalizeStorefront(template.customer || '').toLowerCase() === customer.toLowerCase()
-      ));
-      const template = matchingTemplates.find(candidate => candidate.template_id === job.template_id)
-        || {};
-      const templateId = String(template.template_id || job.template_id || '').trim();
+      const templateResolution = window.LabelKitB2BOrderJobs.resolveB2BTemplateChoice({
+        templates: b2bLabelTemplates,
+        customer,
+      });
+      const templateId = String(templateResolution.selectedId || '').trim();
       const product = normalizeProductRow({
         ...sourceProduct,
         storefront: customer,
@@ -992,6 +1481,7 @@
       b2bOrderFallbackProducts.push(product);
       job.product = product;
       job.template_id = templateId;
+      job.template_ids = templateId ? [templateId] : [];
       job.order_only_product_index = fallbackIndex;
       job.template_selection_required = !templateId;
       if (!templateId) {
@@ -1090,7 +1580,30 @@
   }
 
   function renderB2BCreator() {
-    if (selectedKit !== 'b2b') return;
+    if (!['b2b', 'operations'].includes(selectedKit)) return;
+    const loadedOrder = !!String(b2bRunFields.order_number || '').trim();
+    const galleryMode = isB2BTemplateGalleryMode();
+    const overridePanel = document.getElementById('b2b-selection-overrides');
+    if (overridePanel) {
+      overridePanel.classList.toggle('hidden', loadedOrder);
+      if (loadedOrder) overridePanel.open = false;
+    }
+    const configurationKicker = document.getElementById('b2b-configuration-kicker');
+    const configurationTitle = document.getElementById('b2b-configuration-title');
+    const templateSummary = document.getElementById('b2b-template-summary');
+    if (configurationKicker) configurationKicker.textContent = loadedOrder ? 'Order label batch' : galleryMode ? 'Manual label creator' : 'Label configuration';
+    if (configurationTitle) configurationTitle.textContent = loadedOrder ? 'Review this order' : galleryMode ? 'Choose a template, then a product' : 'Choose what to print';
+    if (templateSummary) templateSummary.classList.toggle('hidden', loadedOrder);
+    if (overridePanel && galleryMode) {
+      overridePanel.open = true;
+      const heading = overridePanel.querySelector('summary strong');
+      const help = overridePanel.querySelector('summary small');
+      const action = overridePanel.querySelector('.b2b-override-action');
+      if (heading) heading.textContent = 'Build a custom label';
+      if (help) help.textContent = 'Choose a template, then select the Product Master configuration to populate the label.';
+      if (action) action.textContent = 'Template gallery';
+    }
+    renderB2BTemplateGallery();
     renderB2BLabelCoverage();
     const customers = uniqueTextValues([
       ...b2bLabelTemplates.map(template => template?.customer),
@@ -1103,16 +1616,20 @@
       b2bSelectedProductIndex = -1;
       b2bSelectedDirectoryIndex = -1;
       b2bSelectedTemplateId = '';
+      b2bSelectedTemplateIds = [];
     }
     setNativeSelectOptions(document.getElementById('b2b-customer-select'), customers, b2bSelectedCustomer, customers.length ? 'Select customer' : 'No customers available');
-    setB2BSelectorVisibility('customer', !String(b2bRunFields.order_number || '').trim());
+    setB2BSelectorVisibility('customer', !loadedOrder && !galleryMode);
 
     const hasCustomer = !!b2bSelectedCustomer;
     const groups = hasCustomer ? getB2BProductGroups() : [];
-    if (!groups.some(group => group.key === b2bSelectedGroupKey)) {
+    if (b2bSelectedGroupKey && !groups.some(group => group.key === b2bSelectedGroupKey)) {
       b2bSelectedGroupKey = '';
       b2bSelectedProductIndex = -1;
-      b2bSelectedTemplateId = '';
+      if (!galleryMode) {
+        b2bSelectedTemplateId = '';
+        b2bSelectedTemplateIds = [];
+      }
     }
     const productSelect = document.getElementById('b2b-product-select');
     if (productSelect) {
@@ -1125,18 +1642,21 @@
         : '<option value="">No configurations for this customer</option>';
       productSelect.value = b2bSelectedGroupKey;
     }
-    setB2BSelectorVisibility('product', hasCustomer);
+    setB2BSelectorVisibility('product', hasCustomer && !loadedOrder);
 
     const selectedGroup = groups.find(group => group.key === b2bSelectedGroupKey);
     const groupEntries = selectedGroup?.entries || [];
-    if (!groupEntries.some(entry => entry.index === b2bSelectedProductIndex)) {
+    if (b2bSelectedProductIndex >= 0 && !groupEntries.some(entry => entry.index === b2bSelectedProductIndex)) {
       b2bSelectedProductIndex = -1;
-      b2bSelectedTemplateId = '';
+      if (!galleryMode) {
+        b2bSelectedTemplateId = '';
+        b2bSelectedTemplateIds = [];
+      }
     }
     const product = getSelectedB2BProduct();
     const levels = uniqueTextValues(groupEntries.map(entry => entry.row.packaging_level));
     setNativeSelectOptions(document.getElementById('b2b-level-select'), levels, product?.packaging_level || '', levels.length ? 'Select packaging level' : 'No levels');
-    setB2BSelectorVisibility('level', !!selectedGroup);
+    setB2BSelectorVisibility('level', !!selectedGroup && !loadedOrder);
 
     const directoryEntries = product ? getB2BDirectoryEntries() : [];
     if (!directoryEntries.some(entry => entry.index === b2bSelectedDirectoryIndex)) {
@@ -1153,28 +1673,39 @@
         ? `${orderAddressOption}${directoryEntries.map(entry => `<option value="${entry.index}" ${entry.index === b2bSelectedDirectoryIndex ? 'selected' : ''}>${escapeHtml(`${entry.row.name || entry.row.storefront} — ${entry.row.dc || entry.row.record_type}`)}</option>`).join('')}`
         : '<option value="">No directory record; label values remain editable</option>';
     }
-    setB2BSelectorVisibility('directory', !!product && (directoryEntries.length > 0 || !!b2bResolvedDirectoryFallback?.delivery_address));
+    setB2BSelectorVisibility('directory', !loadedOrder && !!product && (directoryEntries.length > 0 || !!b2bResolvedDirectoryFallback?.delivery_address));
 
     const directory = getSelectedB2BDirectory();
-    const customerTemplates = product ? b2bLabelTemplates.filter(template => {
-      const templateCustomer = normalizeStorefront(template.customer || '').toLowerCase();
-      return !templateCustomer || templateCustomer === normalizeStorefront(b2bSelectedCustomer).toLowerCase() || template.template_id === product?.label_template_id;
-    }) : [];
     const selectedOrderJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex];
     const orderTemplateEditable = !!String(b2bRunFields.order_number || '').trim() && !!selectedOrderJob;
-    const templateChoices = orderTemplateEditable
-      ? uniqueTextValues([directory.default_label_template_id, ...customerTemplates.map(template => template.template_id)])
-      : product?.label_template_id
-        ? [product.label_template_id]
-        : uniqueTextValues([directory.default_label_template_id, ...customerTemplates.map(template => template.template_id)]);
+    const templateResolution = product ? window.LabelKitB2BOrderJobs.resolveB2BTemplateChoice({
+      templates: b2bLabelTemplates,
+      customer: product.storefront || b2bSelectedCustomer,
+      currentTemplateId: b2bSelectedTemplateId,
+      productTemplateId: product.label_template_id,
+      directoryTemplateId: directory.default_label_template_id,
+    }) : galleryMode ? {
+      selectedId: b2bSelectedTemplateId,
+      compatible: b2bLabelTemplates.filter(template => !b2bSelectedCustomer || normalizeStorefront(template.customer).toLowerCase() === normalizeStorefront(b2bSelectedCustomer).toLowerCase()),
+      options: b2bLabelTemplates,
+    } : { selectedId: '', options: [] };
+    const templateChoices = templateResolution.options.map(template => template.template_id);
     if (!templateChoices.includes(b2bSelectedTemplateId) && !orderTemplateEditable) {
-      b2bSelectedTemplateId = templateChoices.length === 1 ? templateChoices[0] : '';
+      b2bSelectedTemplateId = templateResolution.selectedId || '';
     }
-    setNativeSelectOptions(document.getElementById('b2b-template-select'), templateChoices, b2bSelectedTemplateId, 'Select template');
-    setB2BSelectorVisibility('template', !!product && (orderTemplateEditable || templateChoices.length !== 1));
+    if (!orderTemplateEditable && !galleryMode) {
+      b2bSelectedTemplateIds = b2bTemplateIdsForJob()
+        .filter(templateId => templateChoices.includes(templateId));
+      if (!b2bSelectedTemplateIds.length && b2bSelectedTemplateId) b2bSelectedTemplateIds = [b2bSelectedTemplateId];
+      if (!b2bSelectedTemplateIds.includes(b2bSelectedTemplateId)) b2bSelectedTemplateId = b2bSelectedTemplateIds[0] || '';
+    }
+    const manualTemplatePicker = document.getElementById('b2b-template-picker');
+    if (manualTemplatePicker) manualTemplatePicker.innerHTML = '';
+    setB2BSelectorVisibility('template', false);
+    if (!loadedOrder) renderB2BManualSkuRow(product, templateResolution);
 
     const template = getSelectedB2BTemplate();
-    if (template && b2bCopiesTemplateId !== template.template_id) {
+    if (!loadedOrder && template && b2bCopiesTemplateId !== template.template_id) {
       b2bRunFields.copies = String(template.default_copies || 1);
       b2bRunFields.print_barcode = String(b2bBarcodeConfigured(product));
       b2bCopiesTemplateId = template.template_id;
@@ -1188,19 +1719,33 @@
     visibleB2BRunFields(template);
     renderB2BProductSettings(product, template);
     renderB2BLabelEditor(product, template);
+    renderB2BLabelQueue();
 
     const summary = document.getElementById('b2b-template-summary');
     if (summary) {
-      if (!hasCustomer) summary.textContent = 'Start by selecting a customer.';
+      if (galleryMode && !b2bSelectedTemplateIds.length) summary.textContent = 'Start by choosing a label template from the gallery.';
+      else if (!hasCustomer) summary.textContent = 'Start by selecting a customer.';
+      else if (galleryMode && !selectedGroup) summary.textContent = `${b2bSelectedTemplateIds.length} template${b2bSelectedTemplateIds.length === 1 ? '' : 's'} selected. Now choose a product to populate the label.`;
       else if (!selectedGroup) summary.textContent = 'Now select the product or configuration for this customer.';
       else if (!product) summary.textContent = 'Choose the packaging level to load its exact product data and label requirements.';
-      else if (!template) summary.textContent = 'Choose the label template for this packaging level.';
-      else summary.textContent = `${template.name || template.template_id} · ${template.physical_width_in} × ${template.physical_height_in} in · ${template.default_copies || 1} default cop${Number(template.default_copies || 1) === 1 ? 'y' : 'ies'} per carton. Only applicable print-run fields are shown below.`;
+      else if (!template) summary.textContent = 'Choose one or more label templates for this packaging level.';
+      else summary.textContent = `${b2bSelectedTemplateIds.length} template${b2bSelectedTemplateIds.length === 1 ? '' : 's'} selected · ${template.name || template.template_id} is open in the editor · ${template.physical_width_in} × ${template.physical_height_in} in.`;
     }
     renderB2BAutomaticResolution();
     const title = document.getElementById('b2b-preview-title');
-    if (title) title.textContent = template ? `Generate ${template.name || 'label'}` : 'Generate print-ready PDF';
+    if (title) {
+      const selectedCount = loadedOrder
+        ? b2bOrderLabelJobs.reduce((total, job) => total + b2bTemplateIdsForJob(job).length, 0)
+        : b2bSelectedTemplateIds.length;
+      title.textContent = template ? `Generate ${selectedCount} label job${selectedCount === 1 ? '' : 's'}` : 'Generate print-ready PDF';
+    }
     renderB2BValidation();
+    if (selectedKit === 'operations'
+      && typeof orderDocumentsState === 'object'
+      && !orderDocumentsState.rendering
+      && typeof renderOperationsWorkspace === 'function') {
+      renderOperationsWorkspace();
+    }
   }
 
   function selectB2BCustomer(value) {
@@ -1210,6 +1755,8 @@
     b2bSelectedProductIndex = -1;
     b2bSelectedDirectoryIndex = -1;
     b2bSelectedTemplateId = '';
+    b2bSelectedTemplateIds = [];
+    b2bTemplateRunFields = {};
     b2bResolvedOrderContext = null;
     b2bResolvedDirectoryFallback = {};
     clearB2BPreview();
@@ -1218,10 +1765,25 @@
 
   function selectB2BProduct(value) {
     b2bSelectedGroupKey = String(value || '');
-    b2bSelectedProductIndex = -1;
-    b2bSelectedTemplateId = '';
+    if (isB2BTemplateGalleryMode() && b2bSelectedGroupKey) {
+      const group = getB2BProductGroups().find(candidate => candidate.key === b2bSelectedGroupKey);
+      const selectedIds = new Set(b2bTemplateIdsForJob());
+      const preferred = group?.entries.find(entry => selectedIds.has(String(entry.row.label_template_id || '')))
+        || group?.entries.find(entry => entry.row.label_enabled && normalizePackagingLevel(entry.row.packaging_level) === 'Case')
+        || group?.entries.find(entry => entry.row.label_enabled)
+        || group?.entries[0];
+      b2bSelectedProductIndex = preferred?.index ?? -1;
+    } else {
+      b2bSelectedProductIndex = -1;
+      b2bSelectedTemplateId = '';
+      b2bSelectedTemplateIds = [];
+      b2bTemplateRunFields = {};
+    }
     clearB2BPreview();
     renderB2BCreator();
+    if (isB2BTemplateGalleryMode() && getSelectedB2BProduct()) {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => focusB2BLabelEditor()));
+    }
   }
 
   function selectB2BLevel(value) {
@@ -1230,13 +1792,21 @@
       && normalizePackagingLevel(candidate.row.packaging_level) === normalizePackagingLevel(value)
     ));
     b2bSelectedProductIndex = entry?.index ?? -1;
-    b2bSelectedTemplateId = entry?.row?.label_template_id || b2bSelectedTemplateId;
+    if (!isB2BTemplateGalleryMode()) {
+      b2bSelectedTemplateId = entry?.row?.label_template_id || b2bSelectedTemplateId;
+      b2bSelectedTemplateIds = b2bSelectedTemplateId ? [b2bSelectedTemplateId] : [];
+      b2bTemplateRunFields = {};
+    }
     clearB2BPreview();
     renderB2BCreator();
   }
 
-  function selectB2BTemplate(value) {
+  function selectB2BTemplate(value, openEditor = false) {
+    persistB2BActiveRunFields();
     b2bSelectedTemplateId = String(value || '');
+    if (b2bSelectedTemplateId && !b2bSelectedTemplateIds.includes(b2bSelectedTemplateId)) {
+      b2bSelectedTemplateIds = [...b2bSelectedTemplateIds, b2bSelectedTemplateId];
+    }
     const template = getSelectedB2BTemplate();
     b2bRunFields.copies = String(template?.default_copies || 1);
     b2bRunFields.print_barcode = String(b2bBarcodeConfigured());
@@ -1247,14 +1817,96 @@
         const jobGroupKey = b2bOrderTemplateSelectionGroupKey(job);
         if (jobGroupKey !== selectedGroupKey) return;
         job.template_id = template.template_id;
+        job.template_ids = [...b2bSelectedTemplateIds];
         job.product = { ...job.product, label_template_id: template.template_id };
         job.template_selection_required = false;
         job.review_reasons = (job.review_reasons || []).filter(reason => !String(reason).startsWith('Choose a label template for '));
         job.needs_label_review = job.review_reasons.length > 0;
       });
     }
+    loadB2BActiveRunFields(selectedOrderJob, b2bSelectedTemplateId);
     clearB2BPreview();
     renderB2BCreator();
+    if (openEditor && template) {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => focusB2BLabelEditor(selectedOrderJob)));
+    }
+  }
+
+  function applyB2BTemplateSelection(nextIds, context = 'manual', preferredActiveId = '', jobIndex = null) {
+    const targetIndex = jobIndex === null ? b2bSelectedOrderJobIndex : jobIndex;
+    const selectedOrderJob = context === 'order' ? b2bOrderLabelJobs[targetIndex] : null;
+    const isActiveRow = context !== 'order' || targetIndex === b2bSelectedOrderJobIndex;
+    if (isActiveRow) persistB2BActiveRunFields();
+    const nextActiveId = preferredActiveId && nextIds.includes(preferredActiveId)
+      ? preferredActiveId
+      : (nextIds.includes(b2bSelectedTemplateId) ? b2bSelectedTemplateId : (nextIds[0] || ''));
+    if (isActiveRow) {
+      b2bSelectedTemplateIds = nextIds;
+      b2bSelectedTemplateId = nextActiveId;
+    }
+
+    if (selectedOrderJob) {
+      const selectedGroupKey = b2bOrderTemplateSelectionGroupKey(selectedOrderJob);
+      b2bOrderLabelJobs.forEach(job => {
+        if (b2bOrderTemplateSelectionGroupKey(job) !== selectedGroupKey) return;
+        job.template_ids = [...nextIds];
+        job.template_id = nextActiveId;
+        nextIds.forEach(id => {
+          if (job.template_runs?.[id]) return;
+          const selectedTemplate = b2bLabelTemplates.find(candidate => candidate.template_id === id) || {};
+          job.template_runs = {
+            ...(job.template_runs || {}),
+            [id]: {
+              ...(job.run || {}),
+              copies: String(selectedTemplate.default_copies || job.run?.copies || 1),
+            },
+          };
+        });
+        job.product = { ...job.product, label_template_id: nextActiveId };
+        job.template_selection_required = nextIds.length === 0;
+        job.review_reasons = (job.review_reasons || []).filter(reason => !String(reason).startsWith('Choose a label template for '));
+        if (!nextIds.length) job.review_reasons.push(`Choose at least one label template for ${job.product?.packaging_level || 'this level'}.`);
+        job.review_reasons = uniqueTextValues(job.review_reasons);
+        job.needs_label_review = job.review_reasons.length > 0;
+      });
+    } else {
+      nextIds.forEach(id => {
+        if (b2bTemplateRunFields[id]) return;
+        const selectedTemplate = b2bLabelTemplates.find(candidate => candidate.template_id === id) || {};
+        b2bTemplateRunFields[id] = {
+          ...b2bRunFields,
+          copies: String(selectedTemplate.default_copies || b2bRunFields.copies || 1),
+        };
+      });
+    }
+
+    const template = getSelectedB2BTemplate();
+    if (isActiveRow && template) {
+      loadB2BActiveRunFields(selectedOrderJob, nextActiveId);
+      b2bRunFields.print_barcode = b2bRunFields.print_barcode ?? String(b2bBarcodeConfigured());
+      b2bCopiesTemplateId = template.template_id;
+    }
+    clearB2BPreview();
+    renderB2BCreator();
+  }
+
+  function toggleB2BTemplate(templateId, selected, context = 'manual', jobIndex = null) {
+    const cleanId = String(templateId || '').trim();
+    if (!cleanId) return;
+    const targetIndex = jobIndex === null ? b2bSelectedOrderJobIndex : jobIndex;
+    const selectedOrderJob = context === 'order' ? b2bOrderLabelJobs[targetIndex] : null;
+    const currentIds = selectedOrderJob ? b2bTemplateIdsForJob(selectedOrderJob) : b2bTemplateIdsForJob();
+    const nextIds = selected
+      ? uniqueTextValues([...currentIds, cleanId])
+      : currentIds.filter(id => id !== cleanId);
+    const openRowKey = jobIndex === null ? 'manual' : jobIndex;
+    b2bOpenSkuRowIndex = openRowKey;
+    applyB2BTemplateSelection(nextIds, context, selected ? cleanId : '', jobIndex);
+    window.requestAnimationFrame(() => {
+      const picker = [...document.querySelectorAll('.b2b-sku-row-templates .b2b-template-picker')]
+        .find(candidate => candidate.dataset.b2bRowKey === String(openRowKey));
+      if (picker) picker.open = true;
+    });
   }
 
   function b2bOrderTemplateSelectionGroupKey(job) {
@@ -1309,14 +1961,15 @@
 
   function updateB2BRunField(field, value, rerenderEditor = true) {
     b2bRunFields[field] = String(value ?? '');
+    persistB2BActiveRunFields();
     clearB2BPreview();
     if (rerenderEditor) renderB2BLabelEditor();
     renderB2BValidation();
   }
 
-  function buildB2BPayload() {
+  function buildB2BPayload(templateId = b2bSelectedTemplateId) {
     const product = getB2BOutputProduct();
-    const template = getSelectedB2BTemplate();
+    const template = b2bLabelTemplates.find(candidate => candidate.template_id === templateId) || null;
     const directory = Object.fromEntries(Object.entries(getSelectedB2BDirectory()).map(([field, value]) => [
       field,
       typeof value === 'string' ? value.replace(/\\n/g, '\n') : value,
@@ -1324,13 +1977,18 @@
     const shipFrom = getSelectedB2BShipFrom();
     directory.ship_from_name = String(shipFrom.name || '').trim();
     directory.ship_from = String(shipFrom.address || shipFrom.ship_from || '').replace(/\\n/g, '\n').trim();
+    const selectedOrderJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex];
+    const runSource = selectedOrderJob
+      ? selectedOrderJob.template_runs?.[templateId] || b2bRunFields
+      : b2bTemplateRunFields[templateId] || b2bRunFields;
     const run = {};
     b2bRunFieldNames(template).forEach(field => {
-      run[field] = b2bRunFields[field] ?? '';
+      run[field] = runSource[field] ?? '';
     });
     return {
-      template_id: b2bSelectedTemplateId,
-      product: product || {},
+      template_id: templateId,
+      template_ids: templateId ? [templateId] : [],
+      product: { ...(product || {}), label_template_id: templateId },
       directory,
       run,
     };
@@ -1346,20 +2004,32 @@
 
   function getB2BValidationWarnings() {
     const payload = buildB2BPayload();
-    const template = getSelectedB2BTemplate();
     const product = getSelectedB2BProduct();
     const warnings = [];
+    if (isB2BTemplateGalleryMode() && !b2bTemplateIdsForJob().length) return ['Select a label template from the gallery.'];
     if (!b2bSelectedCustomer) return ['Select a customer.'];
     if (!b2bSelectedGroupKey) return ['Select a product configuration.'];
     if (!product) return ['Select a packaging level.'];
-    if (!template) warnings.push('Select a supported label template.');
-    (template?.required_product_fields || []).forEach(field => {
-      if (!b2bJobValue(payload, field)) warnings.push(`${String(field).replace(/_/g, ' ')} is blank for this template.`);
+    const selectedOrderJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex];
+    const selectedTemplateIds = selectedOrderJob ? b2bTemplateIdsForJob(selectedOrderJob) : b2bTemplateIdsForJob();
+    const selectedTemplates = selectedTemplateIds
+      .map(templateId => b2bLabelTemplates.find(candidate => candidate.template_id === templateId))
+      .filter(Boolean);
+    if (!selectedTemplates.length) warnings.push('Select at least one supported label template.');
+    const shipFrom = getSelectedB2BShipFrom();
+    if (!String(shipFrom.address || shipFrom.ship_from || '').trim()) {
+      warnings.push('Default Ship From address is missing. Add or select an active Ship From before printing.');
+    }
+    selectedTemplates.forEach(template => {
+      const templatePayload = buildB2BPayload(template.template_id);
+      (template.required_product_fields || []).forEach(field => {
+        if (!b2bJobValue(templatePayload, field)) warnings.push(`${String(field).replace(/_/g, ' ')} is blank for ${template.name || template.template_id}.`);
+      });
+      (template.required_run_fields || []).forEach(field => {
+        if (!b2bJobValue(templatePayload, field)) warnings.push(`${String(field).replace(/_/g, ' ')} is blank for ${template.name || template.template_id}.`);
+      });
     });
-    (template?.required_run_fields || []).forEach(field => {
-      if (!b2bJobValue(payload, field)) warnings.push(`${String(field).replace(/_/g, ' ')} is blank for this print run.`);
-    });
-    if (['carton_start', 'carton_end', 'carton_total'].every(field => b2bRunFieldNames(template).includes(field))) {
+    if (selectedTemplates.some(template => ['carton_start', 'carton_end', 'carton_total'].every(field => b2bRunFieldNames(template).includes(field)))) {
       const start = Number(payload.run.carton_start || 0);
       const end = Number(payload.run.carton_end || 0);
       const total = Number(payload.run.carton_total || 0);
@@ -1371,7 +2041,6 @@
     if (product && !product.label_enabled) {
       warnings.push('Available in Label Creator is off. You can still preview or print this row as an Admin.');
     }
-    const selectedOrderJob = b2bOrderLabelJobs[b2bSelectedOrderJobIndex];
     (selectedOrderJob?.review_reasons || []).forEach(reason => warnings.push(reason));
     return uniqueTextValues(warnings);
   }
@@ -1380,16 +2049,18 @@
     const warnings = getB2BValidationWarnings();
     const loadedOrder = !!String(b2bRunFields.order_number || '').trim();
     const hasTechnicalSelection = loadedOrder
-      ? b2bOrderLabelJobs.length > 0 && b2bOrderLabelJobs.every(job => !!job.template_id && !job.template_selection_required)
-      : !!getSelectedB2BProduct() && !!getSelectedB2BTemplate();
-    const selectionPrompt = !b2bSelectedCustomer
+      ? b2bOrderLabelJobs.length > 0 && b2bOrderLabelJobs.every(job => b2bTemplateIdsForJob(job).length > 0 && !job.template_selection_required)
+      : !!getSelectedB2BProduct() && b2bTemplateIdsForJob().length > 0;
+    const selectionPrompt = isB2BTemplateGalleryMode() && !b2bTemplateIdsForJob().length
+      ? 'Select template'
+      : !b2bSelectedCustomer
       ? 'Select customer'
       : !b2bSelectedGroupKey
         ? 'Select product'
         : !getSelectedB2BProduct()
           ? 'Select level'
-          : !getSelectedB2BTemplate()
-            ? 'Select template'
+          : !b2bTemplateIdsForJob().length
+            ? 'Select templates'
             : '';
     const validation = document.getElementById('b2b-validation');
     if (validation) {
@@ -1408,11 +2079,23 @@
     const renderButton = document.getElementById('b2b-render-button');
     if (renderButton) {
       renderButton.disabled = !hasTechnicalSelection;
+      const incompleteCount = loadedOrder
+        ? new Set(b2bOrderLabelJobs
+          .filter(job => !b2bTemplateIdsForJob(job).length || job.template_selection_required)
+          .map(job => b2bOrderReviewGroupKey(job))).size
+        : 0;
       renderButton.textContent = loadedOrder && !b2bOrderLabelJobs.length
         ? 'No Enabled Labels for This Order'
+        : loadedOrder && incompleteCount
+          ? `${incompleteCount} Product${incompleteCount === 1 ? '' : 's'} Need Templates`
         : b2bOrderLabelJobs.length && loadedOrder
-        ? `Generate All ${b2bOrderLabelJobs.length} Labels & Open PDF`
-        : 'Generate & Open PDF';
+        ? (() => {
+          const count = b2bOrderLabelJobs.reduce((total, job) => total + b2bTemplateIdsForJob(job).length, 0);
+          return `Generate ${count} Label Job${count === 1 ? '' : 's'} & Open PDF`;
+        })()
+        : b2bTemplateIdsForJob().length > 1
+          ? `Generate ${b2bTemplateIdsForJob().length} Templates & Open PDF`
+          : 'Generate & Open PDF';
     }
   }
 
@@ -1422,6 +2105,11 @@
       URL.revokeObjectURL(b2bPreviewUrl);
     }
     b2bPreviewUrl = null;
+    if (selectedKit === 'operations' && typeof orderDocumentsState === 'object'
+      && orderDocumentsState.reviewedDocuments?.labels && !orderDocumentsState.finalizing) {
+      orderDocumentsState.reviewedDocuments.labels = false;
+      window.clearGeneratedOutputs?.('operations-labels-review', 'operations-labels');
+    }
     setDownloadReady(false);
     renderB2BValidation();
   }
@@ -1437,26 +2125,35 @@
     }, 0);
   }
 
-  async function generateB2BPreview(openFullPreview = false) {
+  async function generateB2BPreview(openFullPreview = false, options = {}) {
+    if (openFullPreview && typeof openFullPreview === 'object') {
+      options = openFullPreview;
+      openFullPreview = !!options.openFullPreview;
+    }
+    const outputScope = options.scope || (selectedKit === 'operations' ? 'operations' : 'b2b');
+    const outputKey = options.outputKey || (selectedKit === 'operations' ? 'operations-labels' : 'b2b-labels');
+    persistB2BActiveRunFields();
     const loadedOrder = !!String(b2bRunFields.order_number || '').trim();
     const orderBatch = b2bOrderLabelJobs.length > 0 && loadedOrder;
     const product = getSelectedB2BProduct();
     const template = getSelectedB2BTemplate();
+    const manualTemplateIds = b2bTemplateIdsForJob();
     if (loadedOrder && !b2bOrderLabelJobs.length) {
       setStatus('This order has no enabled packaging-level labels. Enable the required levels in Product Master before generating.', 'error');
       return false;
     }
-    if (!orderBatch && (!product || !template)) {
-      setStatus('Select a product configuration and label template first.', 'error');
+    if (!orderBatch && (!product || !manualTemplateIds.length)) {
+      setStatus('Select a product configuration and at least one label template first.', 'error');
       return false;
     }
-    if (!(await confirmDocumentReadiness('b2b'))) return false;
-    const job = orderBatch ? null : buildB2BPayload();
-    const jobs = orderBatch ? b2bOrderLabelJobs.map(row => JSON.parse(JSON.stringify(row))) : [];
+    if (!options.skipReadiness && !(await confirmDocumentReadiness('b2b'))) return false;
+    const baseJobs = orderBatch
+      ? b2bOrderLabelJobs.map(row => JSON.parse(JSON.stringify(row)))
+      : manualTemplateIds.map(templateId => ({ ...buildB2BPayload(templateId), template_ids: [templateId], print_selected: true }));
     if (orderBatch) {
-      const unresolvedCount = jobs.filter(row => !row.template_id || row.template_selection_required).length;
+      const unresolvedCount = baseJobs.filter(row => !b2bTemplateIdsForJob(row).length || row.template_selection_required).length;
       if (unresolvedCount) {
-        setStatus(`Choose a saved template for each enabled label level before generating (${unresolvedCount} unresolved).`, 'error');
+        setStatus(`Choose at least one saved template for each enabled label level before generating (${unresolvedCount} unresolved).`, 'error');
         return false;
       }
       const currentJob = buildB2BPayload();
@@ -1466,16 +2163,20 @@
         const selectedGroupKey = b2bOrderReviewGroupKey(selectedBatchJob);
         b2bOrderLabelJobs.forEach((sourceJob, sourceIndex) => {
           if (b2bOrderReviewGroupKey(sourceJob) !== selectedGroupKey) return;
-          const batchJob = jobs[sourceIndex];
+          const batchJob = baseJobs[sourceIndex];
           const cartonFields = Object.fromEntries(['carton_total', 'carton_start', 'carton_end'].map(field => [field, batchJob.run?.[field]]));
           batchJob.product = { ...currentJob.product, label_template_id: b2bSelectedTemplateId };
           batchJob.template_id = b2bSelectedTemplateId;
+          batchJob.template_ids = b2bTemplateIdsForJob(sourceJob);
           batchJob.directory = { ...currentJob.directory };
           batchJob.run = { ...batchJob.run, ...currentJob.run, ...cartonFields };
         });
       }
     }
-    const estimatedPages = orderBatch ? estimateB2BOrderPages(jobs) : estimateB2BOrderPages([job]);
+    const jobs = window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(baseJobs);
+    const batchMode = orderBatch || jobs.length > 1;
+    const job = jobs[0] || null;
+    const estimatedPages = estimateB2BOrderPages(jobs);
     if (!Number.isSafeInteger(estimatedPages) || estimatedPages < 1) {
       setStatus('The requested label count is invalid. Check carton ranges and copies.', 'error');
       return false;
@@ -1491,18 +2192,18 @@
     }
     const button = document.getElementById('b2b-render-button');
     if (button) button.disabled = true;
-    setStatus(needsArchive ? 'Splitting the large B2B label run into numbered PDFs…' : orderBatch ? 'Rendering labels for every order line…' : 'Rendering B2B label PDF…', 'info');
-    showWorkflowProgress(3, needsArchive ? `Preparing ${estimatedPages.toLocaleString()} pages across ${Math.ceil(estimatedPages / 1000)} PDFs…` : orderBatch ? `Preparing ${jobs.length} order-line label jobs…` : 'Preparing the selected label job…');
+    setStatus(needsArchive ? 'Splitting the large B2B label run into numbered PDFs…' : batchMode ? 'Rendering every selected label template…' : 'Rendering B2B label PDF…', 'info');
+    showWorkflowProgress(3, needsArchive ? `Preparing ${estimatedPages.toLocaleString()} pages across ${Math.ceil(estimatedPages / 1000)} PDFs…` : batchMode ? `Preparing ${jobs.length} selected template jobs…` : 'Preparing the selected label job…');
     try {
       const endpoint = needsArchive
         ? '/api/b2b/render-batch-archive'
-        : orderBatch ? '/api/b2b/render-batch' : '/api/b2b/render';
+        : batchMode ? '/api/b2b/render-batch' : '/api/b2b/render';
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(needsArchive
-          ? { jobs: orderBatch ? jobs : [{ ...job, print_selected: true }], order_number: b2bRunFields.order_number || 'b2b_labels' }
-          : orderBatch ? { jobs } : job),
+          ? { jobs, order_number: b2bRunFields.order_number || 'b2b_labels' }
+          : batchMode ? { jobs } : job),
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
@@ -1514,7 +2215,7 @@
       const filenameBase = String(b2bRunFields.order_number || 'order').replace(/[^a-z0-9_-]+/gi, '_');
       const filename = needsArchive
         ? `${filenameBase}_case_labels.zip`
-        : orderBatch ? `${filenameBase}_case_labels.pdf` : `${b2bSelectedTemplateId.toLowerCase()}.pdf`;
+        : batchMode ? `${filenameBase}_case_labels.pdf` : `${b2bSelectedTemplateId.toLowerCase()}.pdf`;
       if (needsArchive) {
         clearB2BPreview();
         const archiveUrl = URL.createObjectURL(outputBlob);
@@ -1535,13 +2236,11 @@
         setActivePreviewFormat('rollo');
       }
       if (!needsArchive) {
-        await recordGeneratedOutput('b2b-labels', {
-          scope: 'b2b',
+        await recordGeneratedOutput(outputKey, {
+          scope: outputScope,
           name: filename,
-          labelType: orderBatch ? 'All B2B order-line labels' : (template.name || b2bSelectedTemplateId),
-          labels: orderBatch
-            ? jobs.reduce((total, row) => total + Math.max(1, Number(row.run?.copies || 1)) * Math.max(1, Number(row.run?.carton_total || 1)), 0)
-            : Math.max(1, Number(job.run?.copies || 1)) * Math.max(1, Number(job.run?.carton_total || 1)),
+          labelType: batchMode ? 'Selected B2B label templates' : (template.name || b2bSelectedTemplateId),
+          labels: jobs.reduce((total, row) => total + Math.max(1, Number(row.run?.copies || 1)) * Math.max(1, Number(row.run?.carton_total || 1)), 0),
           pages,
           blob: outputBlob,
         });
@@ -1550,13 +2249,13 @@
       renderB2BValidation();
       setStatus(needsArchive
         ? `B2B labels ready: ${Number(pages).toLocaleString()} pages split into ${partCount} numbered PDFs in ${filename}.`
-        : `${orderBatch ? `All ${jobs.length} order line(s) included. ` : ''}B2B label PDF ready${pages ? ` · ${pages} page${pages === '1' ? '' : 's'}` : ''}. Review warnings are advisory for Admin printing.`, 'success');
+        : `${batchMode ? `All ${jobs.length} selected template job(s) included. ` : ''}B2B label PDF ready${pages ? ` · ${pages} page${pages === '1' ? '' : 's'}` : ''}. Review warnings are advisory for Admin printing.`, 'success');
       if (openFullPreview && !needsArchive) {
         resetPreviewSurface();
         await openPreview();
       }
       closeWorkflowProgress();
-      if (!options.automatic && !needsArchive) showPrintSummary('b2b');
+      if (!needsArchive && options.showSummary !== false) showPrintSummary(outputScope);
       return true;
     } catch (err) {
       closeWorkflowProgress();
@@ -1571,7 +2270,7 @@
     if (!b2bPreviewUrl && !(await generateB2BPreview(false))) return;
     const link = document.createElement('a');
     link.href = b2bPreviewUrl;
-    link.download = `${(b2bSelectedTemplateId || 'b2b_case_pack').toLowerCase()}.pdf`;
+    link.download = document.getElementById('btn-download')?.download || `${(b2bSelectedTemplateId || 'b2b_case_pack').toLowerCase()}.pdf`;
     document.body.appendChild(link);
     link.click();
     link.remove();

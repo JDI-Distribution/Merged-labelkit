@@ -224,6 +224,20 @@
     if (Array.isArray(b2bOrderLabelJobs) && b2bOrderLabelJobs.length) {
       const issues = [];
       b2bOrderLabelJobs.forEach((job, index) => {
+        const templateIds = typeof b2bTemplateIdsForJob === 'function'
+          ? b2bTemplateIdsForJob(job)
+          : (job.template_id ? [job.template_id] : []);
+        const product = job.product || {};
+        const sku = product.sku || product.customer_item_number || `Order line ${index + 1}`;
+        if (job.match_status !== 'matched') {
+          issues.push(readinessItem(sku, job.match_reason || 'Product Master configuration was not matched; order data will be used.', 'product', index));
+        }
+        if (!templateIds.length) {
+          issues.push(readinessItem(sku, 'Choose at least one label template for this product.', 'review', index));
+        }
+      });
+      const expandedJobs = window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs);
+      expandedJobs.forEach((job, index) => {
         if (job.print_selected === false) return;
         const product = job.product || {};
         const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
@@ -320,6 +334,20 @@
     };
   }
   function getReadiness(scope) {
+    if (scope === 'operations') {
+      const selections = typeof operationsSelectedDocuments === 'function'
+        ? operationsSelectedDocuments()
+        : { labels: true, mpl: true, pallets: false };
+      const issues = [];
+      if (selections.labels) issues.push(...collectB2BReadiness().issues);
+      const manualPalletRun = selections.pallets
+        && typeof operationsUsesManualPalletCount === 'function'
+        && operationsUsesManualPalletCount(selections);
+      if (selections.mpl || (selections.pallets && !manualPalletRun)) issues.push(...collectMplReadiness(
+        typeof orderDocumentsState !== 'undefined' ? orderDocumentsState.mplDraft : activeKeheDocumentDraft
+      ).issues);
+      return readinessResult(issues);
+    }
     if (scope === 'partners') return collectPartnerReadiness();
     if (scope === 'b2b') return collectB2BReadiness();
     if (scope === 'kehe') return collectKeheLabelReadiness();
@@ -366,6 +394,7 @@
 
   window.openDocumentReadiness = scope => showReadiness(scope || (
     selectedKit === 'partners' ? 'partners'
+      : selectedKit === 'operations' ? 'operations'
       : selectedKit === 'b2b' ? 'b2b'
         : activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe'
   ));
@@ -404,12 +433,14 @@
   window.recordGeneratedOutput = async (key, details = {}) => {
     const pages = Number(details.pages || 0) || await pdfPages(details.blob);
     generatedOutputs.set(key, { ...details, pages });
+    if (details.scope === 'operations' && typeof renderOperationsFiles === 'function') renderOperationsFiles();
     return pages;
   };
+  window.getGeneratedOutputs = (scope = '') => [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
   window.clearGeneratedOutputs = (...keys) => keys.flat().forEach(key => generatedOutputs.delete(key));
   window.showPrintSummary = (scope = selectedKit) => {
     const outputs = [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
-    const readiness = getReadiness(['partners', 'b2b', 'kehe'].includes(scope) ? scope : 'mpl');
+    const readiness = getReadiness(['partners', 'b2b', 'kehe', 'operations'].includes(scope) ? scope : 'mpl');
     const reviewSkuCount = scope === 'b2b' && b2bOrderLabelJobs.length
       ? new Set(b2bOrderLabelJobs.filter(job => (
         job.match_status !== 'matched'
@@ -431,10 +462,10 @@
     });
     const summaryJobs = scope === 'partners'
       ? (partnerLabelJobs || []).filter(job => job.print_selected !== false)
-      : scope === 'b2b' && b2bOrderLabelJobs.length
-        ? b2bOrderLabelJobs.filter(job => job.print_selected !== false)
+      : ['b2b', 'operations'].includes(scope) && b2bOrderLabelJobs.length
+        ? window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs).filter(job => job.print_selected !== false)
         : scope === 'b2b' && getSelectedB2BProduct?.()
-          ? [{ product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }]
+          ? (b2bSelectedTemplateIds || []).map(templateId => ({ product: getSelectedB2BProduct(), template_id: templateId, run: b2bRunFields }))
         : [];
     const jobGroups = new Map();
     summaryJobs.forEach((job, index) => {
@@ -447,23 +478,24 @@
     });
     const isB2BSummary = scope === 'b2b';
     const isPartnerSummary = scope === 'partners';
-    const isCompactLabelSummary = isB2BSummary || isPartnerSummary;
+    const isOperationsSummary = scope === 'operations';
+    const isCompactLabelSummary = isB2BSummary || isPartnerSummary || isOperationsSummary;
     const modal = document.getElementById('workflow-print-summary-modal');
     modal?.classList.toggle('workflow-print-summary-compact', isCompactLabelSummary);
     modal?.classList.toggle('workflow-print-summary-partner', isPartnerSummary);
     const title = document.getElementById('workflow-print-summary-title');
     const subtitle = document.getElementById('workflow-print-summary-subtitle');
     const done = document.getElementById('workflow-print-summary-done');
-    if (title) title.textContent = isB2BSummary ? 'Labels ready' : isPartnerSummary ? 'Documents ready' : 'Final Print Summary';
+    if (title) title.textContent = isB2BSummary ? 'Labels ready' : (isPartnerSummary || isOperationsSummary) ? 'Documents ready' : 'Final Print Summary';
     if (subtitle) subtitle.textContent = isB2BSummary
       ? 'Confirm this job, then continue to the PDF preview.'
-      : isPartnerSummary
+      : (isPartnerSummary || isOperationsSummary)
         ? 'The selected PDFs were created and are ready for review.'
         : 'Final generated output and remaining review items.';
-    if (done) done.textContent = isB2BSummary ? 'View PDF' : isPartnerSummary ? 'Close' : 'Done';
+    if (done) done.textContent = isB2BSummary ? 'View PDF' : (isPartnerSummary || isOperationsSummary) ? 'Close' : 'Done';
     const metricRows = isB2BSummary
       ? [['PDF files', metrics.files], ['Pages', metrics.pages], ['Labels', metrics.labels], ['Needs review', metrics.review]]
-      : isPartnerSummary
+      : (isPartnerSummary || isOperationsSummary)
         ? [['PDF files', metrics.files], ['Pages', metrics.pages], ['Labels', metrics.labels], ['Pallets', metrics.pallets], ['Needs review', metrics.review]]
       : [['PDF files', metrics.files], ['Total pages', metrics.pages], ['Labels', metrics.labels], ['Pallets', metrics.pallets], ['SKUs requiring review', metrics.review]];
     document.getElementById('workflow-print-summary-body').innerHTML = `<div class="print-summary-grid">${metricRows
@@ -492,8 +524,8 @@
     const jobs = scope === 'partners'
       ? (partnerLabelJobs || [])
       : (b2bOrderLabelJobs.length
-        ? b2bOrderLabelJobs
-        : (getSelectedB2BProduct?.() ? [{ print_selected: true, product: getSelectedB2BProduct(), template_id: b2bSelectedTemplateId, run: b2bRunFields }] : []));
+        ? window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs)
+        : (getSelectedB2BProduct?.() ? (b2bSelectedTemplateIds || []).map(templateId => ({ print_selected: true, product: getSelectedB2BProduct(), template_id: templateId, run: b2bRunFields })) : []));
     const groups = new Map();
     jobs.forEach((job, index) => {
       const sku = job.product?.sku || job.product?.customer_item_number || `Line ${index + 1}`;

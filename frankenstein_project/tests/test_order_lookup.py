@@ -27,6 +27,7 @@ from server import (
     _mpl_draft_to_datastore_row,
     _partner_customer_id_from_order,
     _partner_customer_id_from_text,
+    _resolve_b2b_order_customer,
     _refresh_mpl_render_product_master,
     _select_analytics_order_instance,
     _validated_sales_order_number,
@@ -34,6 +35,7 @@ from server import (
     _current_project_user,
     _prune_old_results,
     _require_permission,
+    lookup_order_documents,
     lookup_mpl_order,
     normalize_product_master_row,
     serve_frontend_index,
@@ -143,6 +145,15 @@ def _frontend_javascript_bundle() -> str:
 
 
 class AnalyticsOrderInstanceTests(unittest.TestCase):
+    def test_unified_order_documents_lookup_reuses_b2b_matching_pipeline(self):
+        request = Request({"type": "http", "method": "POST", "path": "/api/order-documents/orders/lookup", "headers": []})
+        payload = {"sales_order_number": "70001"}
+        sentinel = object()
+        with patch("server.lookup_b2b_order", return_value=sentinel) as lookup:
+            result = lookup_order_documents(request, payload)
+        self.assertIs(result, sentinel)
+        lookup.assert_called_once_with(request, payload)
+
     def test_analytics_quantity_rejects_non_finite_values(self):
         for value in ("1e999", "inf", "-inf", "nan"):
             with self.subTest(value=value):
@@ -294,6 +305,21 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
             {},
             [{"candidate_storefronts": ["Dutch Bros"]}],
         ))
+
+    def test_b2b_customer_resolution_prefers_email_then_product_master(self):
+        email_match = _resolve_b2b_order_customer(
+            {"email_id": "shipping+fancy.sprinkles@example.com", "storefront": "BAKELL.COM"},
+            [{"match_status": "matched", "product": {"storefront": "Generic Wholesale"}}],
+        )
+        self.assertEqual("Fancy Sprinkles", email_match["name"])
+        self.assertEqual("email", email_match["source"])
+
+        product_match = _resolve_b2b_order_customer(
+            {"email_id": "warehouse@example.com", "storefront": "BAKELL.COM"},
+            [{"match_status": "matched", "product": {"storefront": "DecoPac"}}],
+        )
+        self.assertEqual("DecoPac", product_match["name"])
+        self.assertEqual("product_master", product_match["source"])
 
     def test_order_email_is_exposed_as_email_id(self):
         details = _analytics_order_details([{"Email": "orders@decopac.com"}])
@@ -562,7 +588,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         self.assertEqual("Case", by_sku["ABC100-100"]["source_packaging_level"])
         self.assertEqual(2, by_sku["ABC100-100"]["quantity_ordered"])
 
-    def test_same_level_sku_on_multiple_levels_is_reported_as_ambiguous(self):
+    def test_same_level_sku_on_multiple_levels_defaults_incoming_quantity_to_each(self):
         order_rows = [{
             "Sales Order Number": "DUPLICATE-LEVEL-SKU",
             "Storefront": "Example",
@@ -578,13 +604,20 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
                 "storefront": "Example", "config_id": "ABC100", "packaging_level": "Case",
                 "sku": "ABC100", "case_qty": "12", "display_sku_uom": "Each", "is_active": True,
             },
+            {
+                "storefront": "Example", "config_id": "ABC100", "packaging_level": "Shipper Contents",
+                "sku": "ABC100", "case_qty": "12", "display_sku_uom": "Each", "is_active": True,
+            },
         ]
 
         item = _b2b_analytics_order_items_for_products(order_rows, products)[0]
 
-        self.assertEqual("ambiguous", item["match_status"])
-        self.assertEqual("duplicate_level_sku", item["match_reason_code"])
-        self.assertIn("distinct Each, Inner Pack, and Case SKUs", item["match_reason"])
+        self.assertEqual("matched", item["match_status"])
+        self.assertEqual("shared_level_sku_defaulted", item["match_reason_code"])
+        self.assertTrue(item["needs_match_review"])
+        self.assertEqual("Each", item["source_packaging_level"])
+        self.assertEqual(1, item["quantity_ordered"])
+        self.assertIn("defaulted to Each", item["match_reason"])
 
     def test_b2b_unique_key_includes_packaging_level(self):
         row = normalize_product_master_row({
@@ -721,7 +754,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         self.assertEqual("CASE", b2b_items[0]["quantity_uom"])
         self.assertEqual(2, b2b_items[0]["quantity_ordered"])
 
-    def test_mpl_lookup_rejects_a_sku_shared_by_multiple_levels(self):
+    def test_mpl_lookup_defaults_a_shared_level_sku_to_each(self):
         order_rows = [{
             "Sales Order Number": "SHARED-LEVEL-SKU",
             "Ecomdash ID": "SHARED-LEVEL-ORDER",
@@ -750,6 +783,16 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
                 "case_qty": "24",
                 "is_active": True,
             },
+            {
+                "storefront": "Acme Foods",
+                "config_id": "ACME-PACK-SKU",
+                "display_sku": "PACK-SKU",
+                "display_sku_uom": "Case",
+                "packaging_level": "Shipper Contents",
+                "sku": "PACK-SKU",
+                "case_qty": "24",
+                "is_active": True,
+            },
         ]
 
         with (
@@ -757,11 +800,17 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
             patch("server._analytics_export_order_rows", return_value=order_rows),
             patch("server._datastore_load_product_master", return_value=products),
         ):
-            with self.assertRaises(HTTPException) as error:
-                lookup_mpl_order(object(), {"sales_order_number": "SHARED-LEVEL-SKU"})
+            response = lookup_mpl_order(object(), {"sales_order_number": "SHARED-LEVEL-SKU"})
 
-        self.assertEqual(422, error.exception.status_code)
-        self.assertIn("distinct Level SKU", str(error.exception.detail))
+        payload = json.loads(response.body)
+        item = payload["items"][0]
+        self.assertEqual("matched", item["match_status"])
+        self.assertEqual("shared_level_sku_defaulted", item["match_reason_code"])
+        self.assertEqual("Each", item["source_packaging_level"])
+        self.assertEqual(3, item["quantity_ordered_eaches"])
+        self.assertEqual(1, item["quantity_ordered"])
+        self.assertTrue(item["needs_match_review"])
+        self.assertEqual(1, payload["summary"]["defaulted_level_skus"])
 
     def test_mpl_lookup_converts_each_sku_and_preserves_case_sku_count(self):
         order_rows = [
@@ -1197,6 +1246,28 @@ class MplDraftStorageTests(unittest.TestCase):
 
 
 class FrontendDeliveryTests(unittest.TestCase):
+    def test_unified_order_documents_workspace_coordinates_existing_generators(self):
+        html = serve_frontend_index().body.decode("utf-8")
+        javascript = _frontend_javascript_bundle()
+
+        self.assertIn('id="operations-workspace-page"', html)
+        self.assertIn('onclick="selectOperationsWorkspace()"', html)
+        self.assertIn('id="operations-generate-labels"', html)
+        self.assertIn('id="operations-generate-mpl"', html)
+        self.assertIn('id="operations-generate-pallets"', html)
+        self.assertIn('id="operations-labels-mount"', html)
+        self.assertIn('data-operations-panel="files"', html)
+        self.assertIn('id="operations-review-mpl"', html)
+        self.assertIn('id="operations-review-pallet-labels"', html)
+        self.assertIn('/assets/js/operations-workspace.js', html)
+        self.assertIn("function completeOperationsOrderLoad(payload, orderNumber", javascript)
+        self.assertIn("completeB2BOrderLoad(payload, orderNumber)", javascript)
+        self.assertIn("buildAnalyticsOrderMplDraft(payload, 'standard')", javascript)
+        self.assertIn("buildPalletLabelDraftFromMplDraft(orderDocumentsState.mplDraft)", javascript)
+        self.assertIn("Choose at least one label template for this product.", javascript)
+        self.assertIn("Assign the packing-list items to at least one pallet", javascript)
+        self.assertIn("'/api/order-documents/orders/lookup'", javascript)
+
     def test_frontend_styles_and_pdf_runtime_are_local_modules(self):
         html = serve_frontend_index().body.decode("utf-8")
 
@@ -1235,8 +1306,10 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function renderOrderInstanceTableRows", javascript)
         self.assertIn("order-instance-recommended", javascript)
         self.assertIn("match_reason: source?.match_reason", javascript)
-        self.assertIn("Packaging output status", javascript)
-        self.assertIn("Document status", javascript)
+        self.assertIn("Assign templates in Batch Setup", javascript)
+        self.assertIn("Selected label", javascript)
+        self.assertIn("Order loaded with review items", javascript)
+        self.assertIn("Order data resolved", javascript)
 
     def test_feature_scripts_are_delivered_as_separate_modules(self):
         html = serve_frontend_index().body.decode("utf-8")
@@ -1247,6 +1320,7 @@ class FrontendDeliveryTests(unittest.TestCase):
             "b2b-workspace.js": "function renderB2BCreator",
             "partner-workspace.js": "function renderPartnerWorkspace",
             "document-editor.js": "function renderDocumentEditor",
+            "operations-workspace.js": "function renderOperationsWorkspace",
         }
 
         for filename, owned_function in expected_modules.items():
@@ -1343,8 +1417,9 @@ class FrontendDeliveryTests(unittest.TestCase):
         javascript = _frontend_javascript_bundle()
 
         self.assertIn('data-b2b-selector-wrap="customer"', html)
-        for selector in ("product", "level", "template", "directory"):
+        for selector in ("product", "level", "directory"):
             self.assertIn(f'class="hidden" data-b2b-selector-wrap="{selector}"', html)
+        self.assertIn('class="hidden b2b-template-field" data-b2b-selector-wrap="template"', html)
         self.assertIn('id="b2b-label-editor-canvas"', html)
         self.assertIn('id="b2b-product-settings"', html)
         self.assertIn('id="b2b-product-gtin"', html)
@@ -1359,7 +1434,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function renderB2BProductSettings(product", javascript)
         self.assertIn("function commitB2BLabelEdit(element)", javascript)
         self.assertIn("function commitB2BRunLabelEdit(element)", javascript)
-        self.assertIn("setB2BSelectorVisibility('level', !!selectedGroup)", javascript)
+        self.assertIn("setB2BSelectorVisibility('level', !!selectedGroup && !loadedOrder)", javascript)
         self.assertIn("b2bRunFieldNames(template).forEach(field =>", javascript)
         self.assertIn("function calculateOrderCartonCount(item, product)", javascript)
         self.assertIn("b2bRunFields.carton_total = String(orderCartons)", javascript)
@@ -1368,7 +1443,17 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("order_only: true", javascript)
         self.assertIn("window.LabelKitB2BOrderJobs.buildB2BOrderLabelJobs", javascript)
         self.assertIn("job.order_only_product_index = index", javascript)
-        self.assertIn("const actionLabel = 'Edit for this order'", javascript)
+        self.assertIn("const editActionLabel = selectedTemplateIds.length ? 'Edit active label' : 'Choose templates'", javascript)
+        self.assertIn("editor.scrollIntoView({ behavior: 'smooth', block: 'start' })", javascript)
+        self.assertIn("function toggleB2BTemplate(templateId, selected, context = 'manual', jobIndex = null)", javascript)
+        self.assertIn("b2bTemplatePickerHtml", javascript)
+        self.assertIn("function renderB2BLabelQueue()", javascript)
+        self.assertIn("function selectB2BWorkItem(jobIndex, templateId)", javascript)
+        self.assertIn("function persistB2BActiveRunFields()", javascript)
+        self.assertIn('id="b2b-label-queue"', html)
+        self.assertIn('id="b2b-editor-navigator"', html)
+        self.assertIn('id="b2b-editor-queue-track"', html)
+        self.assertIn('id="b2b-label-editor-card"', html)
         self.assertIn("if (Number.isInteger(job.order_only_product_index))", javascript)
         self.assertIn("job.product = { ...job.product, [field]: value }", javascript)
         self.assertIn('id="b2b-order-ship-from-name"', javascript)
@@ -1379,7 +1464,8 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn('id="b2b-order-destination-input"', javascript)
         self.assertIn("Order values stay separate from Product Master", html)
         self.assertIn("template_selection_required: templateSelectionRequired", javascript)
-        self.assertIn("const unresolvedCount = jobs.filter(row => !row.template_id || row.template_selection_required).length", javascript)
+        self.assertIn("const unresolvedCount = baseJobs.filter(row => !b2bTemplateIdsForJob(row).length || row.template_selection_required).length", javascript)
+        self.assertIn("expandB2BTemplateJobs(baseJobs)", javascript)
         self.assertIn("This run will generate ${estimatedPages.toLocaleString()} label pages", javascript)
         self.assertIn("'/api/b2b/render-batch-archive'", javascript)
         self.assertIn("setPreviewReady(false)", javascript)
@@ -1392,22 +1478,26 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("function organizeB2BProductSettings(template, product)", javascript)
         self.assertIn('id="b2b-product-settings-current"', html)
         self.assertIn('id="b2b-product-settings-additional"', html)
-        self.assertIn("function selectB2BOrderJob(value)", javascript)
+        self.assertIn("function selectB2BOrderJob(value, requestedTemplateId = '')", javascript)
         self.assertIn("function selectB2BOrderCustomer(value)", javascript)
-        self.assertIn("const actionLabel = 'Edit for this order'", javascript)
+        self.assertIn("overridePanel.classList.toggle('hidden', loadedOrder)", javascript)
+        self.assertIn('aria-label="Available label templates"', javascript)
+        self.assertIn('class="b2b-template-group-label"', javascript)
+        self.assertNotIn('class="b2b-other-template-options"', javascript)
         self.assertIn("Order values stay separate from Product Master", html)
         self.assertIn("function detectB2BOrderCustomer(payload, matchedProduct)", javascript)
         self.assertIn("payload?.detected_partner_customer", javascript)
+        self.assertIn("payload?.detected_customer?.name", javascript)
         self.assertIn("function b2bOrderReviewGroupKey(job)", javascript)
         self.assertIn('id="b2b-order-destination-input"', javascript)
         self.assertIn("function updateB2BOrderDestination(value)", javascript)
         self.assertIn("order line(s)", javascript)
-        self.assertIn('id="b2b-order-line-select"', javascript)
+        self.assertIn('id="b2b-sku-template-list"', html)
         self.assertIn('id="b2b-order-customer-select"', javascript)
         self.assertIn("job.match_status = 'customer_override'", javascript)
         self.assertIn("Values are run-only and will not overwrite the original Product Master records.", javascript)
         self.assertIn("/api/b2b/render-batch", javascript)
-        self.assertIn("Generate All ${b2bOrderLabelJobs.length} Labels & Open PDF", javascript)
+        self.assertIn("Label Job${count === 1 ? '' : 's'} & Open PDF", javascript)
         self.assertNotIn("await generateB2BPreview(true, { automatic: true })", javascript)
 
     def test_combined_customer_order_module_uses_kehe_style_editors_and_previews(self):
@@ -1460,11 +1550,17 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("payload?.order_details?.email_id", javascript)
         self.assertIn("const customerId = detectedCustomerId || partnerCustomerOverride;", javascript)
         self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
+        self.assertIn("outputLevels.forEach(level => jobs.push(makeJob(item, index, '', level)))", javascript)
+        self.assertIn("item?.quantity_ordered_eaches", javascript)
         self.assertIn('onclick="generatePartnerOrderDocuments()"', html)
         self.assertIn("async function generatePartnerOrderDocuments()", javascript)
         self.assertIn("await renderPartnerLabelsPreview(kind)", javascript)
         self.assertIn("await renderPartnerMplPreview()", javascript)
-        self.assertIn('All order-line label counts are calculated on load.', html)
+        self.assertIn('Case, inner-pack, and configured customer pallet labels are calculated from the loaded order.', html)
+        self.assertNotIn('Mark Stage Reviewed', html)
+        self.assertNotIn('Review all four document stages before generating all documents.', javascript)
+        self.assertIn('aria-label="Order documents"', javascript)
+        self.assertIn('Label Template<select', javascript)
         self.assertIn('btn-generate-all-partner-documents', html)
         self.assertIn("function partnerDirectoryRows(customerId", javascript)
         self.assertIn("function renderInlineMplAddressPicker(mplIndex, field, value)", javascript)
@@ -1474,6 +1570,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertNotIn("mpl.pallets || mpl._pallets", javascript)
         self.assertNotIn("await renderEditedKeheDocument({ automatic: true })", javascript)
         self.assertIn("function selectPartnerAddress(field, value)", javascript)
+        self.assertIn("function renderPartnerInlineAddressPicker(field, label)", javascript)
         self.assertIn("function renderPartnerDownloadFiles()", javascript)
         self.assertNotIn("async function renderPartnerPreviews()", javascript)
         self.assertIn("openGeneratedOutput", javascript)

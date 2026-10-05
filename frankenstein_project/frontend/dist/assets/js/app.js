@@ -455,6 +455,8 @@
   let b2bSelectedProductIndex = -1;
   let b2bSelectedDirectoryIndex = -1;
   let b2bSelectedTemplateId = '';
+  let b2bSelectedTemplateIds = [];
+  let b2bTemplateRunFields = {};
   let b2bOrderFallbackProducts = [];
   let b2bOrderLabelJobs = [];
   let b2bSelectedOrderJobIndex = -1;
@@ -465,6 +467,7 @@
   let b2bResolvedDirectoryFallback = {};
   let b2bCopiesTemplateId = '';
   let b2bSettingsProductIndex = -1;
+  let b2bOpenSkuRowIndex = null;
   let b2bPreviewUrl = null;
   let partnerOrderPayload = null;
   let partnerResolvedOrderContext = null;
@@ -479,7 +482,9 @@
   let partnerEditingMpl = false;
   let partnerInlineLabelKind = 'packLabels';
   let partnerInlineLabelIndex = -1;
-  let b2bRunFields = {
+  // Baseline shape for every run-settings field; used to reset b2bRunFields so
+  // stale values never leak between SKU/template combinations in the queue.
+  const B2B_RUN_FIELD_DEFAULTS = Object.freeze({
     po_number: '',
     order_number: '',
     invoice_number: '',
@@ -496,7 +501,8 @@
     project_name: '',
     allergens: '',
     required_statement: ''
-  };
+  });
+  let b2bRunFields = { ...B2B_RUN_FIELD_DEFAULTS };
   const B2B_PACKAGING_LEVELS = ['Each', 'Inner Pack', 'Case', 'Master Case', 'Pallet', 'Shipper Contents'];
   const B2B_BARCODE_TYPES = ['UPC_A', 'EAN_13', 'GTIN_14', 'NONE'];
   const B2B_VERIFICATION_STATUSES = ['DRAFT', 'NEEDS_REVIEW', 'VERIFIED', 'BLOCKED'];
@@ -506,7 +512,7 @@
   let keheExtractionRequestId = 0;
   let embeddedAuthMounted = false;
   let catalystBrowserSdkPromise = null;
-  const pages = ['home', 'michaels', 'kehe', 'mpl', 'b2b', 'partners'];
+  const pages = ['home', 'michaels', 'kehe', 'operations', 'mpl', 'b2b', 'partners'];
 
   fetch('/health').catch(() => {});
 
@@ -777,7 +783,10 @@
     await applyRouteFromNavigation(initialRoute);
     const editorBody = document.getElementById('document-editor-body');
     const markDirty = () => {
-      if (activeKeheDocumentType === 'masterPackingList' && activeKeheDocumentDraft) mplDraftSync?.schedule();
+      if (activeKeheDocumentType === 'masterPackingList' && activeKeheDocumentDraft) {
+        mplDraftSync?.schedule();
+        if (typeof markOperationsMplChanged === 'function') markOperationsMplChanged();
+      }
     };
     editorBody?.addEventListener('input', markDirty);
     editorBody?.addEventListener('change', markDirty);
@@ -785,6 +794,9 @@
       if (event.target.closest('button') && activeKeheDocumentType === 'masterPackingList') {
         setTimeout(markDirty, 0);
       }
+    });
+    editorBody?.addEventListener('drop', () => {
+      if (activeKeheDocumentType === 'masterPackingList') setTimeout(markDirty, 0);
     });
     window.addEventListener('beforeunload', event => {
       if (!mplDraftSync?.hasUnsavedChanges()) return;
@@ -882,12 +894,17 @@
     const normalized = normalizePageName(pageName);
     if (normalized === 'home') {
       resetToSelection(false);
+    } else if (normalized === 'operations') {
+      await selectOperationsWorkspace(false);
     } else if (normalized === 'mpl') {
-      await selectMplWorkspace(false);
+      await selectOperationsWorkspace(false);
+      selectOperationsTab('packing', false);
     } else if (normalized === 'b2b') {
-      await selectB2BWorkspace(false);
+      await selectOperationsWorkspace(false);
+      selectOperationsTab('labels', false);
     } else if (normalized === 'partners') {
-      await selectPartnerWorkspace(false);
+      await selectOperationsWorkspace(false);
+      selectOperationsTab('labels', false);
     } else {
       selectKit(normalized, false);
     }
@@ -947,6 +964,11 @@
     const subpath = routeSubpath(normalized);
     if (!subpath) return;
 
+    if (routePage(normalized) === 'operations' && ['labels', 'packing', 'pallets', 'files'].includes(subpath)) {
+      selectOperationsTab(subpath, false);
+      return;
+    }
+
     if (normalized === 'kehe/product-master') {
       showKeheProductMasterView();
       return;
@@ -955,7 +977,7 @@
       showKeheDcDirectoryView();
       return;
     }
-    if (normalized === 'mpl/product-master') {
+    if (normalized === 'mpl/product-master' || normalized === 'operations/product-master') {
       showMplProductMasterView();
       return;
     }
@@ -967,7 +989,7 @@
       showMplProductMasterView();
       return;
     }
-    if (normalized === 'mpl/directory') {
+    if (normalized === 'mpl/directory' || normalized === 'operations/directory') {
       showMplDirectoryView();
       return;
     }
@@ -990,7 +1012,7 @@
       showMplDirectoryView();
       return;
     }
-    if (normalized === 'mpl/saved') {
+    if (normalized === 'mpl/saved' || normalized === 'operations/saved') {
       await showSavedMplView();
       return;
     }
@@ -1567,7 +1589,7 @@
   }
 
   function buildManualMasterPackingListDraft(options = {}) {
-    const standalone = selectedKit === 'mpl' || selectedKit === 'partners';
+    const standalone = ['mpl', 'partners', 'operations'].includes(selectedKit);
     const requestedTemplate = String(options.templateId || '').trim().toLowerCase();
     const templateId = standalone && MPL_STANDALONE_TEMPLATE_IDS.includes(requestedTemplate)
       ? requestedTemplate
@@ -1580,7 +1602,7 @@
         : null
     ) || (standalone ? {} : (dcRows[0] || {}));
     const firstItem = blankManualMplItem(1, '1');
-    const storefront = normalizeStorefront(requestedStorefront || firstDc.storefront || 'KeHE');
+    const storefront = normalizeStorefront(requestedStorefront || firstDc.storefront || (selectedKit === 'operations' ? 'Bakell' : 'KeHE'));
     const requestedBrand = String(options.brandId || '').trim().toLowerCase();
     const templateDefaultBrand = ['decopac', 'dutch_bros', 'fancy'].includes(templateId) ? 'bakell' : MPL_DEFAULT_BRAND_ID;
     const brandId = standalone
@@ -1971,7 +1993,7 @@
   }
 
   async function ensureKeheReferenceDataLoaded() {
-    if (selectedKit === 'mpl') {
+    if (['mpl', 'operations'].includes(selectedKit)) {
       try {
         if (mplProductMasterLoadPromise) await mplProductMasterLoadPromise;
         if (!getMplProductMasterRows().length) {
@@ -2008,7 +2030,7 @@
   }
 
   async function openManualMasterPackingList() {
-    if (selectedKit !== 'kehe' && selectedKit !== 'mpl') return;
+    if (!['kehe', 'mpl', 'operations'].includes(selectedKit)) return;
     setStatus('Preparing manual Create MPL draft...', 'info');
     await ensureKeheReferenceDataLoaded();
 
@@ -2133,7 +2155,7 @@
   }
 
   function openSavedMplModal() {
-    navigateToRoute('mpl/saved');
+    navigateToRoute(selectedKit === 'operations' ? 'operations/saved' : 'mpl/saved');
   }
 
   function renderSavedMplList() {
@@ -2225,6 +2247,10 @@
       applyProductMasterToDraft(activeKeheDocumentDraft, false);
       keheLastMplDraft = draft;
       keheMplPalletizationSource = draft.packing_lists?.[0]?.palletization_source || 'Saved';
+      if (selectedKit === 'operations' && typeof adoptSavedMplIntoOperations === 'function') {
+        adoptSavedMplIntoOperations(draft);
+        setHistoryRoute('operations/packing', true);
+      }
       closeSavedMplModal(false);
       renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
       openDocumentEditor();
@@ -3009,6 +3035,7 @@
     document.getElementById('mpl-workspace-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
     document.getElementById('partner-workspace-page').classList.add('hidden');
+    document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
 
     document.getElementById('header-app-name').textContent = cfg.headerName;
@@ -3094,6 +3121,7 @@
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
     document.getElementById('partner-workspace-page').classList.add('hidden');
+    document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'Packing List & Ti-Hi';
@@ -3143,6 +3171,7 @@
     activeKeheDocumentDraft = null;
     b2bOrderFallbackProducts = [];
     b2bOrderLabelJobs = [];
+    b2bTemplateRunFields = {};
     b2bSelectedOrderJobIndex = -1;
     b2bOrderCustomerOverride = '';
     b2bOrderDestinationOverride = '';
@@ -3157,6 +3186,7 @@
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
     document.getElementById('partner-workspace-page').classList.add('hidden');
+    document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'B2B Case-Pack Labels';
@@ -3183,12 +3213,14 @@
 
   async function openB2BProductMaster() {
     if (!b2bLabelTemplates.length) await loadB2BLabelTemplates();
-    await navigateToRoute(`${selectedKit === 'partners' ? 'partners' : 'b2b'}/product-master`);
+    const page = selectedKit === 'operations' ? 'operations' : selectedKit === 'partners' ? 'partners' : 'b2b';
+    await navigateToRoute(`${page}/product-master`);
     showMplProductMasterView();
   }
 
   async function openB2BDirectory() {
-    await navigateToRoute(`${selectedKit === 'partners' ? 'partners' : 'b2b'}/directory`);
+    const page = selectedKit === 'operations' ? 'operations' : selectedKit === 'partners' ? 'partners' : 'b2b';
+    await navigateToRoute(`${page}/directory`);
     showMplDirectoryView();
   }
 
@@ -3206,6 +3238,7 @@
   /* B2B and partner feature logic lives in their workspace scripts. */
 
   function resetToSelection(updateHistory = true) {
+    if (typeof resetOperationsWorkspaceState === 'function') resetOperationsWorkspaceState();
     revokePartnerPreviewUrls();
     partnerOrderPayload = null;
     partnerCustomerId = '';
@@ -3222,6 +3255,7 @@
     document.getElementById('mpl-workspace-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
     document.getElementById('partner-workspace-page').classList.add('hidden');
+    document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('kit-selection').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.remove('visible');
     document.getElementById('header-app-name').textContent = 'LabelKit';
@@ -3396,19 +3430,22 @@
     const mplEl = document.getElementById('mpl-status-bar');
     const b2bEl = document.getElementById('b2b-status-bar');
     const partnerEl = document.getElementById('partner-status-bar');
-    const el = selectedKit === 'partners' && partnerEl
+    const operationsEl = document.getElementById('operations-status-bar');
+    const el = selectedKit === 'operations' && operationsEl
+      ? operationsEl
+      : selectedKit === 'partners' && partnerEl
       ? partnerEl
       : selectedKit === 'b2b' && b2bEl
       ? b2bEl
       : (selectedKit === 'mpl' && mplEl ? mplEl : defaultEl);
     if (!msg) {
-      [defaultEl, mplEl, b2bEl, partnerEl].filter(Boolean).forEach(target => {
+      [defaultEl, mplEl, b2bEl, partnerEl, operationsEl].filter(Boolean).forEach(target => {
         target.textContent = '';
         target.className = 'status-bar';
       });
       return;
     }
-    [defaultEl, mplEl, b2bEl, partnerEl].filter(Boolean).forEach(target => {
+    [defaultEl, mplEl, b2bEl, partnerEl, operationsEl].filter(Boolean).forEach(target => {
       if (target !== el) {
         target.textContent = '';
         target.className = 'status-bar';

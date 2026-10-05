@@ -183,7 +183,7 @@
       .decopac-document-header > .mpl-brand-logo-wrap,
     }
     @media (max-width: 700px) {
-      header { padding: 0 18px; }
+      body > header { padding: 0 18px; }
       .header-brand { padding-right: 12px; margin-right: 12px; }
       .header-app-sub { display: none; }
       .selection-page { padding: 20px; }

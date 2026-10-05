@@ -20,6 +20,8 @@ frankenstein_project/.catalystrc
 # Node
 node_modules/
 npm-debug.log*
+frankenstein_project/test-results/
+frankenstein_project/playwright-report/
 
 # OS
 .DS_Store

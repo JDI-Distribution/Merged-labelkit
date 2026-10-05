@@ -110,6 +110,7 @@ from labelkit.order_intake import (  # noqa: E402
     _canonical_order_sku,
     _partner_customer_id_from_order,
     _partner_customer_id_from_text,
+    _preferred_shared_level_sku_row,
     _product_each_gtin,
     _select_analytics_order_instance,
     _validated_sales_order_number,
@@ -1506,6 +1507,94 @@ def _find_b2b_label_template(template_id: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _canonical_b2b_customer_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+
+
+def _match_known_b2b_customer(value: Any, customers: List[str]) -> str:
+    """Resolve free-form order text to the exact customer name used by LabelKit."""
+    signal = _canonical_b2b_customer_text(value)
+    if not signal:
+        return ""
+    compact_signal = signal.replace(" ", "")
+    matches: List[tuple[int, str]] = []
+    for customer in customers:
+        normalized = _canonical_b2b_customer_text(customer)
+        compact = normalized.replace(" ", "")
+        if not compact:
+            continue
+        if signal == normalized:
+            matches.append((1000 + len(compact), customer))
+        elif f" {normalized} " in f" {signal} ":
+            matches.append((700 + len(compact), customer))
+        elif len(compact) >= 5 and compact in compact_signal:
+            matches.append((400 + len(compact), customer))
+    return max(matches, default=(0, ""))[1]
+
+
+def _resolve_b2b_order_customer(order_details: Dict[str, Any], items: List[Dict[str, Any]]) -> Dict[str, str]:
+    """Return one canonical B2B customer and explain which order signal resolved it."""
+    details = order_details if isinstance(order_details, dict) else {}
+    templates = _load_b2b_label_templates().get("templates", [])
+    known_customers = sorted({
+        str(template.get("customer") or "").strip()
+        for template in templates
+        if isinstance(template, dict) and str(template.get("customer") or "").strip()
+    })
+    matched_storefronts = sorted({
+        str(item.get("product", {}).get("storefront") or "").strip()
+        for item in items
+        if isinstance(item, dict)
+        and item.get("match_status") == "matched"
+        and isinstance(item.get("product"), dict)
+        and str(item.get("product", {}).get("storefront") or "").strip()
+    })
+    known_customers = sorted(set(known_customers + matched_storefronts))
+
+    for field in ("email_id", "email"):
+        signal = str(details.get(field) or "").strip()
+        partner_id = _partner_customer_id_from_text(signal)
+        if partner_id:
+            workflow = next((row for row in CUSTOMER_WORKFLOWS if row.get("id") == partner_id), {})
+            if workflow.get("label"):
+                return {"name": str(workflow["label"]), "source": "email", "confidence": "exact", "signal": signal}
+        customer = _match_known_b2b_customer(signal, known_customers)
+        if customer:
+            return {"name": customer, "source": "email", "confidence": "exact", "signal": signal}
+
+    if len(matched_storefronts) == 1:
+        return {
+            "name": matched_storefronts[0],
+            "source": "product_master",
+            "confidence": "exact",
+            "signal": matched_storefronts[0],
+        }
+
+    for field in ("storefront", "billing_customer_name", "ship_to_name", "supplier"):
+        signal = str(details.get(field) or "").strip()
+        partner_id = _partner_customer_id_from_text(signal)
+        if partner_id:
+            workflow = next((row for row in CUSTOMER_WORKFLOWS if row.get("id") == partner_id), {})
+            if workflow.get("label"):
+                return {"name": str(workflow["label"]), "source": field, "confidence": "strong", "signal": signal}
+        customer = _match_known_b2b_customer(signal, known_customers)
+        if customer:
+            return {"name": customer, "source": field, "confidence": "strong", "signal": signal}
+
+    fallback = str(
+        details.get("billing_customer_name")
+        or details.get("ship_to_name")
+        or details.get("storefront")
+        or (matched_storefronts[0] if matched_storefronts else "")
+    ).strip()
+    return {
+        "name": fallback,
+        "source": "order_fallback" if fallback else "unresolved",
+        "confidence": "review",
+        "signal": fallback,
+    }
+
+
 @app.get("/api/kehe/product-master")
 async def get_kehe_product_master(request: Request) -> JSONResponse:
     _require_permission(request, "view")
@@ -1589,15 +1678,28 @@ def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
         "matched_products": sum(1 for item in items if item.get("match_status") == "matched"),
         "unmatched_products": sum(1 for item in items if item.get("match_status") == "unmatched"),
         "ambiguous_products": sum(1 for item in items if item.get("match_status") == "ambiguous"),
+        "defaulted_level_skus": sum(1 for item in items if item.get("needs_match_review")),
     }
+    detected_customer = _resolve_b2b_order_customer(order_details, items)
     return JSONResponse(content={
         "sales_order_number": sales_order_number,
         "order_details": order_details,
         "detected_partner_customer": _partner_customer_id_from_order(order_details, items),
+        "detected_customer": detected_customer,
         "source": _analytics_source_metadata(ecomdash_id=selected_ecomdash_id),
         "summary": summary,
         "items": items,
     })
+
+
+@app.post("/api/order-documents/orders/lookup")
+def lookup_order_documents(request: Request, payload: Dict[str, Any]) -> JSONResponse:
+    """Load the canonical order context used by labels, MPL, Ti-Hi, and pallets.
+
+    Keeping this as a thin alias preserves one matching/conversion implementation
+    while the unified workspace replaces the older independent order lookups.
+    """
+    return lookup_b2b_order(request, payload)
 
 
 @app.post("/api/b2b/render")
@@ -2435,7 +2537,9 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     converted_to_cases = 0
     partial_case_items = 0
     missing_each_gtin = 0
+    defaulted_level_skus = 0
     for sku_key, order_item in aggregated.items():
+        needs_match_review = False
         raw_candidates = products_by_sku.get(sku_key, [])
         candidates_by_group: Dict[str, List[Dict[str, Any]]] = {}
         for candidate in raw_candidates:
@@ -2459,13 +2563,14 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                 for row in exact_sku_rows
             }
             if len(exact_sku_levels) > 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"SKU '{order_item.get('sku')}' is shared by multiple packaging levels; "
-                        "assign a distinct Level SKU to Each, Inner Pack, and Case so LabelKit can "
-                        f"identify the incoming quantity. Conflicting levels: {', '.join(sorted(exact_sku_levels))}."
-                    ),
+                exact_sku_row = _preferred_shared_level_sku_row(exact_sku_rows, matching_rows)
+                matched_level = normalize_packaging_level((exact_sku_row or {}).get("packaging_level"))
+                needs_match_review = True
+                defaulted_level_skus += 1
+                match_reason_code = "shared_level_sku_defaulted"
+                match_reason = (
+                    f"SKU '{order_item.get('sku')}' is shared by {', '.join(sorted(exact_sku_levels))}. "
+                    f"Incoming quantity defaulted to {matched_level}; assign distinct level SKUs when available."
                 )
             else:
                 exact_sku_row = exact_sku_rows[0] if exact_sku_rows else None
@@ -2484,12 +2589,13 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
                         ),
                     )
             matched_level = normalize_packaging_level(exact_sku_row.get("packaging_level"))
-            match_reason_code = "matched_level_sku" if _canonical_order_sku(exact_sku_row.get("sku")) == sku_key else "matched_display_sku"
-            match_reason = (
-                f"Matched the {matched_level} SKU in Product Master."
-                if match_reason_code == "matched_level_sku"
-                else f"Matched the alternate incoming SKU and interpreted it as {matched_level}."
-            )
+            if not needs_match_review:
+                match_reason_code = "matched_level_sku" if _canonical_order_sku(exact_sku_row.get("sku")) == sku_key else "matched_display_sku"
+                match_reason = (
+                    f"Matched the {matched_level} SKU in Product Master."
+                    if match_reason_code == "matched_level_sku"
+                    else f"Matched the alternate incoming SKU and interpreted it as {matched_level}."
+                )
         elif len(candidates) > 1:
             ambiguous_count += 1
             match_status = "ambiguous"
@@ -2534,6 +2640,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             "match_status": match_status,
             "match_reason_code": match_reason_code,
             "match_reason": match_reason,
+            "needs_match_review": needs_match_review,
             "product": product,
             "each_gtin": each_gtin,
             "candidate_storefronts": sorted({
@@ -2570,6 +2677,7 @@ def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
             "converted_to_cases": converted_to_cases,
             "partial_case_items": partial_case_items,
             "missing_each_gtin": missing_each_gtin,
+            "defaulted_level_skus": defaulted_level_skus,
         },
         "items": items,
     })

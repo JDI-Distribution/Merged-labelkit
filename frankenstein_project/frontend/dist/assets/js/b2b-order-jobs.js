@@ -1,5 +1,57 @@
 /* Pure transformation from order lines and packaging data into B2B label jobs. */
 (function () {
+  function canonicalCustomer(value) {
+    return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+
+  function resolveB2BTemplateChoice({ templates, customer, productTemplateId, directoryTemplateId, currentTemplateId }) {
+    const available = (templates || []).filter(template => template && template.template_id);
+    const availableById = new Map(available.map(template => [String(template.template_id), template]));
+    const preferredIds = [currentTemplateId, productTemplateId, directoryTemplateId]
+      .map(value => String(value || '').trim())
+      .filter(Boolean);
+    const explicitId = preferredIds.find(templateId => availableById.has(templateId)) || '';
+    const wantedCustomer = canonicalCustomer(customer);
+    const compatible = available.filter(template => {
+      const templateCustomer = canonicalCustomer(template.customer);
+      return !templateCustomer || (wantedCustomer && templateCustomer === wantedCustomer);
+    });
+    const uniqueCompatible = [...new Map(compatible.map(template => [template.template_id, template])).values()];
+    const selectedId = explicitId || (uniqueCompatible.length === 1 ? String(uniqueCompatible[0].template_id) : '');
+    const ordered = [...uniqueCompatible];
+    available.forEach(template => {
+      if (!ordered.some(candidate => candidate.template_id === template.template_id)) ordered.push(template);
+    });
+    return {
+      selectedId,
+      compatible: uniqueCompatible,
+      options: ordered,
+      source: explicitId
+        ? (explicitId === String(productTemplateId || '').trim() ? 'product_master'
+          : explicitId === String(directoryTemplateId || '').trim() ? 'directory'
+            : 'current')
+        : selectedId ? 'customer' : 'manual',
+    };
+  }
+
+  function selectedTemplateIds(job) {
+    const configured = Array.isArray(job?.template_ids) ? job.template_ids : [];
+    return [...new Set([...configured, job?.template_id]
+      .map(value => String(value || '').trim())
+      .filter(Boolean))];
+  }
+
+  function expandB2BTemplateJobs(jobs) {
+    return (jobs || []).flatMap(job => selectedTemplateIds(job).map(templateId => ({
+      ...job,
+      template_id: templateId,
+      template_ids: [templateId],
+      product: { ...(job.product || {}), label_template_id: templateId },
+      directory: { ...(job.directory || {}) },
+      run: { ...(job.run || {}), ...(job.template_runs?.[templateId] || {}) },
+    })));
+  }
+
   function buildB2BOrderLabelJobs({
     orderItems,
     fallbackProducts,
@@ -7,6 +59,7 @@
     templates,
     destination,
     runFields,
+    customer,
     normalizeProduct,
     normalizeLevel,
     productGroupKey,
@@ -51,14 +104,21 @@
         const levelTemplateId = String(
           level.label_template_id || productLevelRow?.label_template_id || orderLevelRow.label_template_id || ''
         ).trim();
-        const template = (templates || []).find(candidate => candidate.template_id === levelTemplateId) || {};
-        const templateId = String(template.template_id || '');
+        const templateResolution = resolveB2BTemplateChoice({
+          templates,
+          customer: customer || levelRow.storefront || product.storefront,
+          productTemplateId: levelTemplateId,
+          directoryTemplateId: destination?.default_label_template_id,
+        });
+        const templateId = String(templateResolution.selectedId || '');
+        const template = (templates || []).find(candidate => candidate.template_id === templateId) || {};
         const templateSelectionRequired = !templateId;
         const eachesPerUnit = Number(
           level.eaches_per_unit || (levelName === 'Each' ? 1 : levelRow.case_qty || product.case_qty) || 1
         );
         const outputProduct = {
           ...levelRow,
+          storefront: customer || levelRow.storefront || product.storefront,
           packaging_level: levelName,
           sku: String(level.sku || product.sku || levelRow.sku || '').trim(),
           gtin: String(level.gtin || product.gtin || levelRow.gtin || '').trim(),
@@ -86,10 +146,12 @@
         const reviewReasons = [
           ...(templateSelectionRequired ? [`Choose a label template for ${levelName}.`] : []),
           ...(level.label_review_required ? [`${levelName} label requires review.`] : []),
+          ...(source?.needs_match_review && source?.match_reason ? [String(source.match_reason)] : []),
         ];
         return {
           print_selected: true,
           template_id: templateId,
+          template_ids: templateId ? [templateId] : [],
           template_selection_required: templateSelectionRequired,
           product: outputProduct,
           directory: { ...(destination || {}) },
@@ -120,7 +182,7 @@
     });
   }
 
-  const api = { buildB2BOrderLabelJobs };
+  const api = { buildB2BOrderLabelJobs, resolveB2BTemplateChoice, selectedTemplateIds, expandB2BTemplateJobs };
   window.LabelKitB2BOrderJobs = api;
   globalThis.LabelKitB2BOrderJobs = api;
 })();

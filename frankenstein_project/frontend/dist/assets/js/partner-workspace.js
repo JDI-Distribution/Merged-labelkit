@@ -1,19 +1,15 @@
 /* DecoPac, Dutch Bros, and Fancy partner workflow. */
   const PARTNER_REVIEW_STAGES = [
-    { id: 'caseLabels', label: 'Case Labels', kind: 'packLabels' },
+    { id: 'caseLabels', label: 'Pack Labels', kind: 'packLabels' },
     { id: 'innerPackLabels', label: 'Inner Pack Labels', kind: 'packLabels' },
     { id: 'packingListTihi', label: 'Packing List + TI-HI', kind: 'masterPackingList' },
     { id: 'palletLabels', label: 'Pallet Labels', kind: 'palletLabel' },
   ];
   let partnerReviewStage = 'caseLabels';
-  const partnerReviewState = {};
 
   function resetPartnerReviewState() {
-    PARTNER_REVIEW_STAGES.forEach(stage => {
-      partnerReviewState[stage.id] = partnerJobsForStage(stage.id).length ? 'needs_review' : 'not_applicable';
-    });
     partnerReviewStage = 'caseLabels';
-    const firstAvailable = PARTNER_REVIEW_STAGES.find(stage => partnerReviewState[stage.id] !== 'not_applicable');
+    const firstAvailable = PARTNER_REVIEW_STAGES.find(stage => partnerJobsForStage(stage.id).length);
     if (firstAvailable) partnerReviewStage = firstAvailable.id;
   }
 
@@ -35,38 +31,21 @@
   }
 
   function selectPartnerReviewStage(stageId) {
-    const index = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === stageId);
-    if (index < 0 || !partnerOrderPayload) return;
-    const currentIndex = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === partnerReviewStage);
-    if (index > currentIndex && PARTNER_REVIEW_STAGES.slice(0, index).some(stage => !['reviewed', 'not_applicable'].includes(partnerReviewState[stage.id]))) {
-      setStatus('Review the earlier document stage before continuing.', 'info');
-      return;
-    }
+    if (!PARTNER_REVIEW_STAGES.some(stage => stage.id === stageId) || !partnerOrderPayload) return;
     partnerReviewStage = stageId;
-    if (stageId === 'palletLabels') {
-      openMplPalletLabels(partnerMplDraft);
-      return;
-    }
     renderPartnerWorkspace();
-  }
-
-  function completePartnerReviewStage(stageId = partnerReviewStage) {
-    partnerReviewState[stageId] = 'reviewed';
-    const currentIndex = PARTNER_REVIEW_STAGES.findIndex(stage => stage.id === stageId);
-    const next = PARTNER_REVIEW_STAGES[currentIndex + 1];
-    if (next) partnerReviewStage = next.id;
-    renderPartnerWorkspace();
-    setStatus(next ? `${PARTNER_REVIEW_STAGES[currentIndex].label} reviewed. Continue with ${next.label}.` : 'All document stages reviewed. Generate the selected documents.', 'success');
   }
 
   function renderPartnerReviewStages() {
     if (!partnerOrderPayload) return '';
-    return `<nav class="partner-review-stages" aria-label="Automatic order document stages">${PARTNER_REVIEW_STAGES.map((stage, index) => {
+    return `<nav class="partner-review-stages" aria-label="Order documents">${PARTNER_REVIEW_STAGES.map(stage => {
       const active = stage.id === partnerReviewStage;
-      const state = partnerReviewState[stage.id] || 'needs_review';
-      const disabled = index > 0 && PARTNER_REVIEW_STAGES.slice(0, index).some(previous => !['reviewed', 'not_applicable'].includes(partnerReviewState[previous.id]));
-      return `<button type="button" class="partner-review-stage${active ? ' is-active' : ''}${state === 'reviewed' ? ' is-reviewed' : ''}" onclick="selectPartnerReviewStage('${stage.id}')" ${disabled || state === 'not_applicable' ? 'disabled' : ''}><span>${String(index + 1).padStart(2, '0')}</span><strong>${stage.label}</strong><small>${state === 'reviewed' ? 'Reviewed' : state === 'not_applicable' ? 'Not applicable' : 'Needs review'}</small></button>`;
-    }).join('<span class="partner-review-stage-connector" aria-hidden="true"></span>')}</nav>`;
+      const jobs = partnerJobsForStage(stage.id);
+      const detail = stage.id === 'packingListTihi'
+        ? `${partnerMplDraft?.packing_lists?.[0]?.items?.length || 0} order line(s)`
+        : `${jobs.length} label output${jobs.length === 1 ? '' : 's'}`;
+      return `<button type="button" class="partner-review-stage${active ? ' is-active' : ''}" onclick="selectPartnerReviewStage('${stage.id}')" ${jobs.length ? '' : 'disabled'}><strong>${stage.label}</strong><small>${jobs.length ? escapeHtml(detail) : 'Not required'}</small></button>`;
+    }).join('')}</nav>`;
   }
 
   function revokePartnerPreviewUrls() {
@@ -86,6 +65,7 @@
     document.getElementById('upload-page').classList.add('hidden');
     document.getElementById('mpl-workspace-page').classList.add('hidden');
     document.getElementById('b2b-workspace-page').classList.add('hidden');
+    document.getElementById('operations-workspace-page')?.classList.add('hidden');
     document.getElementById('partner-workspace-page').classList.remove('hidden');
     document.getElementById('btn-change-kit').classList.add('visible');
     document.getElementById('header-app-name').textContent = 'DecoPac / Dutch Bros / Fancy';
@@ -273,6 +253,14 @@
     setStatus(`${directoryAddressLabel(field)} updated for this order.`, 'success');
   }
 
+  function renderPartnerInlineAddressPicker(field, label) {
+    const current = partnerAddressValue(field);
+    const options = partnerAddressOptions(field);
+    return `<label>${escapeHtml(label)}<select onchange="selectPartnerAddress('${field}', this.value)">${options.length
+      ? options.map(option => `<option value="${escapeHtml(option.value)}" ${option.value === current ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')
+      : '<option value="">No saved address available</option>'}</select></label>`;
+  }
+
   function buildPartnerLabelJobs(payload, customerId) {
     const details = payload?.order_details || {};
     const customer = partnerCustomerLabel(customerId);
@@ -288,8 +276,8 @@
       delivery_address: context.shipTo?.address || shipToRecord.address || '',
       billing_address: context.billTo?.address || billToRecord.address || '',
     };
-    const makeJob = (item, index, requestedTemplateId = '') => {
-      const product = normalizeProductRow(item?.product || {
+    const makeJob = (item, index, requestedTemplateId = '', levelProduct = null) => {
+      const product = normalizeProductRow(levelProduct || item?.product || {
         storefront: customer,
         packaging_level: 'Case',
         sku: item?.sku || '',
@@ -300,13 +288,14 @@
         case_qty: '',
         verification_status: 'NEEDS_REVIEW',
       });
-      const templateId = requestedTemplateId || partnerTemplateForItem(item, customerId);
+      const templateId = requestedTemplateId || partnerTemplateForItem({ ...item, product }, customerId);
       const matchingProduct = mplProductMasterRows.map(normalizeProductRow).find(row => (
         (
           String(row.sku || '').trim().toLowerCase() === String(product.sku || '').trim().toLowerCase()
           || (String(product.config_id || '').trim() && String(row.config_id || '').trim().toLowerCase() === String(product.config_id || '').trim().toLowerCase())
         )
         && normalizeStorefront(row.storefront).toLowerCase().includes(customer.toLowerCase())
+        && normalizePackagingLevel(row.packaging_level) === normalizePackagingLevel(product.packaging_level)
         && row.label_template_id === templateId
         && row.is_active !== false
       ));
@@ -317,7 +306,13 @@
       });
       if (templateId === 'FANCY_PALLET_3X3') resolvedProduct.packaging_level = 'Pallet';
       const template = b2bLabelTemplates.find(candidate => candidate.template_id === templateId) || {};
-      const cartons = calculateOrderCartonCount(item, resolvedProduct);
+      const orderedEaches = Number(item?.quantity_ordered_eaches);
+      const eachesPerLabel = normalizePackagingLevel(resolvedProduct.packaging_level) === 'Each'
+        ? 1
+        : Number(resolvedProduct.case_qty || 1);
+      const cartons = Number.isFinite(orderedEaches) && orderedEaches > 0 && Number.isFinite(eachesPerLabel) && eachesPerLabel > 0
+        ? Math.max(1, Math.ceil(orderedEaches / eachesPerLabel))
+        : calculateOrderCartonCount(item, resolvedProduct);
       resolvedProduct.barcode_type = partnerBarcodeType(resolvedProduct);
       return {
         print_selected: true,
@@ -335,7 +330,7 @@
           lot_number: '',
           best_before: '',
           ship_date: String(details.ship_date || details.expected_delivery_date || ''),
-          quantity_label: String(item?.quantity_ordered || ''),
+          quantity_label: String(item?.quantity_ordered_eaches ?? item?.quantity_ordered ?? ''),
           expected_delivery_date: String(details.expected_delivery_date || details.ship_date || ''),
           carton_total: String(cartons),
           carton_start: '1',
@@ -343,17 +338,33 @@
           copies: String(resolvedProduct.default_copies || template.default_copies || 1),
           print_barcode: !!(resolvedProduct.gtin && resolvedProduct.barcode_type !== 'NONE'),
         },
-        source_quantity: item?.quantity_ordered ?? '',
+        source_quantity: item?.quantity_ordered_eaches ?? item?.quantity_ordered ?? '',
         match_status: item?.match_status || 'unmatched',
         match_reason_code: item?.match_reason_code || '',
         match_reason: item?.match_reason || '',
+        needs_match_review: !!item?.needs_match_review,
         line_index: index,
       };
     };
 
     const items = payload?.items || [];
     const jobs = [];
-    items.forEach((item, index) => jobs.push(makeJob(item, index)));
+    items.forEach((item, index) => {
+      const itemProduct = normalizeProductRow(item?.product || {});
+      const itemConfig = String(itemProduct.config_id || '').trim().toLowerCase();
+      const itemStorefront = normalizeStorefront(itemProduct.storefront || customer).toLowerCase();
+      const enabledLevels = mplProductMasterRows
+        .map(normalizeProductRow)
+        .filter(row => row.is_active !== false && row.label_enabled)
+        .filter(row => normalizeStorefront(row.storefront).toLowerCase() === itemStorefront)
+        .filter(row => itemConfig
+          ? String(row.config_id || '').trim().toLowerCase() === itemConfig
+          : String(row.sku || '').trim().toLowerCase() === String(itemProduct.sku || item?.sku || '').trim().toLowerCase())
+        .filter(row => normalizePackagingLevel(row.packaging_level) !== 'Pallet' && row.label_template_id !== 'FANCY_PALLET_3X3')
+        .filter((row, position, rows) => rows.findIndex(candidate => normalizePackagingLevel(candidate.packaging_level) === normalizePackagingLevel(row.packaging_level)) === position);
+      const outputLevels = enabledLevels.length ? enabledLevels : [itemProduct];
+      outputLevels.forEach(level => jobs.push(makeJob(item, index, '', level)));
+    });
 
     const palletCount = Math.max(1, Math.ceil(Number(details.total_pallets || details.pallet_count || 1) || 1));
     const firstItem = items[0] || {};
@@ -478,10 +489,6 @@
 
   async function generatePartnerOrderDocuments() {
     if (!partnerOrderPayload) return false;
-    if (PARTNER_REVIEW_STAGES.some(stage => !['reviewed', 'not_applicable'].includes(partnerReviewState[stage.id]))) {
-      setStatus('Review all four document stages before generating all documents.', 'info');
-      return false;
-    }
     if (!(await confirmDocumentReadiness('partners'))) return false;
     const failures = [];
     const labelKinds = ['packLabels', 'palletLabel'].filter(kind => partnerJobsForKind(kind).length);
@@ -561,7 +568,9 @@
       const width = Number(template.physical_width_in || 4);
       const height = Number(template.physical_height_in || 6);
       const sheetWidth = width <= 3 && height >= 3 ? 440 : width <= 3 ? 640 : 720;
-      const productStatus = job.match_status === 'matched' ? 'Product Master matched' : 'Using order data — review before printing';
+      const productStatus = job.needs_match_review
+        ? job.match_reason || 'Incoming quantity defaulted to Each — review recommended'
+        : job.match_status === 'matched' ? 'Product Master matched' : 'Using order data — review before printing';
       const barcodeControls = isPartnerPalletLabelJob(job) ? '' : `
         <label class="partner-editor-toggle"><input type="checkbox" ${job.run?.print_barcode ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'run.print_barcode', this.checked, true)"> Print barcode</label>
         <label>GTIN / UPC<input value="${escapeHtml(job.product?.gtin || '')}" oninput="updatePartnerLabelJob(${index}, 'product.gtin', this.value, false)" onchange="renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft)"></label>
@@ -631,11 +640,22 @@
     const labelsEnabled = !!document.getElementById('partner-generate-labels')?.checked;
     const stale = partnerPreviewIsStale(partnerInlineLabelKind);
     const hasBarcode = !isPartnerPalletLabelJob(job);
-    const productStatus = job.match_status === 'matched' ? 'Product Master matched' : 'Using order data — review before printing';
+    const productStatus = job.needs_match_review
+      ? job.match_reason || 'Incoming quantity defaulted to Each — review recommended'
+      : job.match_status === 'matched' ? 'Product Master matched' : 'Using order data — review before printing';
     const jobLabel = current => `${current.job.product?.sku || `Order line ${current.index + 1}`} — ${b2bLabelTemplates.find(candidate => candidate.template_id === current.job.template_id)?.name || current.job.template_id}`;
+    const allowedTemplateIds = PARTNER_WORKFLOW_CONFIG[partnerCustomerId]?.labelTemplateIds || [];
+    const wantsPalletTemplate = isPartnerPalletLabelJob(job);
+    const templateChoices = b2bLabelTemplates.filter(candidate => {
+      const isCurrent = candidate.template_id === job.template_id;
+      const allowed = allowedTemplateIds.includes(candidate.template_id);
+      const isPallet = /pallet/i.test(`${candidate.template_id} ${candidate.name || ''}`);
+      return isCurrent || (allowed && isPallet === wantsPalletTemplate);
+    });
+    const activeStageLabel = activeStage?.label || partnerLabelKindName(partnerInlineLabelKind);
     container.innerHTML = `
       <div class="partner-inline-label-toolbar">
-        <div class="partner-label-kind-tabs">${availableKinds.map(kind => `<button type="button" class="${kind === partnerInlineLabelKind ? 'selected' : ''}" onclick="setPartnerInlineLabelKind('${kind}')">${partnerLabelKindName(kind)}</button>`).join('')}</div>
+        <div class="partner-inline-context"><span>Editing</span><strong>${escapeHtml(activeStageLabel)}</strong></div>
         <label>Label to edit<select onchange="setPartnerInlineLabelIndex(this.value)">${entries.map(current => `<option value="${current.index}" ${current.index === index ? 'selected' : ''}>${escapeHtml(jobLabel(current))}</option>`).join('')}</select></label>
         <div class="workflow-compact-actions">
           <button class="btn-secondary" type="button" onclick="selectAllPartnerLabels(true, '${partnerInlineLabelKind}'); renderPartnerInlineEditors()">Select all</button>
@@ -645,7 +665,7 @@
       </div>
       <div class="partner-inline-workbench ${labelsEnabled ? '' : 'disabled'}">
         <section class="partner-inline-live-label">
-          <header><div><div class="b2b-card-kicker">Live label editor</div><h4>Edit the label</h4></div><span>${escapeHtml(productStatus)}</span></header>
+          <header><div><div class="b2b-card-kicker">Live label editor</div><h4>Edit the label</h4></div><span>Click outlined label text to edit · ${escapeHtml(productStatus)}</span></header>
           <div class="b2b-label-editor-stage partner-label-editor-stage">
             <div class="partner-label-editor-canvas" style="--b2b-label-ratio:${width} / ${height};--b2b-label-max-width:${sheetWidth}px">${b2bLabelEditorHtml(template, job.product || {}, job.directory || {}, { partnerIndex: index, runFields: job.run || {} })}</div>
           </div>
@@ -654,12 +674,17 @@
           <header><div class="b2b-card-kicker">This print run</div><h4>Carton range &amp; copies</h4></header>
           <div class="partner-inline-run-grid">
             <label class="partner-inline-toggle"><input type="checkbox" ${job.print_selected ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'print_selected', this.checked, true)"><span>Include this label</span></label>
+            <label class="partner-inline-wide">Label Template<select onchange="updatePartnerLabelJob(${index}, 'template_id', this.value, true)">${templateChoices.map(candidate => `<option value="${escapeHtml(candidate.template_id)}" ${candidate.template_id === job.template_id ? 'selected' : ''}>${escapeHtml(candidate.name || candidate.template_id)}</option>`).join('')}</select></label>
             <label>Carton Total<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_total || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_total', this.value, true)"></label>
             <label>Start Carton<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_start || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_start', this.value, false)"></label>
             <label>End Carton<input type="number" min="1" step="1" value="${escapeHtml(job.run?.carton_end || job.run?.carton_total || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.carton_end', this.value, false)"></label>
             <label>Copies<input type="number" min="1" step="1" value="${escapeHtml(job.run?.copies || '1')}" onchange="updatePartnerLabelJob(${index}, 'run.copies', this.value, false)"></label>
             ${hasBarcode ? `<label class="partner-inline-toggle"><input type="checkbox" ${job.run?.print_barcode ? 'checked' : ''} onchange="updatePartnerLabelJob(${index}, 'run.print_barcode', this.checked, true)"><span>Include barcode</span></label><label class="partner-inline-wide">GTIN / UPC<input value="${escapeHtml(job.product?.gtin || '')}" oninput="updatePartnerLabelJob(${index}, 'product.gtin', this.value, false)"></label><label>Barcode Type<select onchange="updatePartnerLabelJob(${index}, 'product.barcode_type', this.value, true)">${['GTIN_14', 'UPC_A', 'EAN_13', 'CODE128', 'NONE'].map(type => `<option value="${type}" ${job.product?.barcode_type === type ? 'selected' : ''}>${type.replace('_', '-')}</option>`).join('')}</select></label>` : ''}
           </div>
+          <details class="partner-inline-addresses">
+            <summary><span><strong>Order addresses</strong><small>Applied to labels and the packing list for this run.</small></span><span>Review</span></summary>
+            <div>${renderPartnerInlineAddressPicker('ship_from', 'Ship From')}${renderPartnerInlineAddressPicker('delivery_address', 'Ship To')}${renderPartnerInlineAddressPicker('billing_address', 'Bill To')}</div>
+          </details>
           <button class="btn-secondary partner-regenerate-one" type="button" onclick="regeneratePartnerLabel(${index})">Regenerate only this label</button>
           <div class="partner-inline-production">
             <div class="b2b-card-kicker">Production PDF</div>
@@ -783,30 +808,17 @@
     if (!container || !partnerOrderPayload) return;
     const context = partnerResolvedOrderContext || resolveOrderContext(partnerOrderPayload, { customer: partnerCustomerLabel() });
     const summary = partnerOrderPayload.summary || {};
-    const destination = context.directoryShipTo?.row?.name
-      || context.directoryShipTo?.row?.dc
-      || partnerOrderPayload.order_details?.ship_to_name
-      || 'Order address';
-    const cards = [
-      ['Product matching', `${Number(summary.matched_products || 0)} of ${partnerOrderPayload.items?.length || 0} matched`, Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0) ? 'review' : 'ready'],
-      ['Quantity conversion', `${Number(summary.converted_to_cases || 0)} line(s) converted`, Number(summary.partial_case_items || 0) ? 'review' : 'ready'],
-      ['Destination', destination, context.shipTo?.address ? 'ready' : 'review'],
-      ['Documents', `${partnerLabelJobs.length} label job(s) + packing list`, 'ready'],
-    ];
-    const matrixRows = PARTNER_REVIEW_STAGES.map(stage => {
-      const jobs = partnerJobsForStage(stage.id);
-      const reviewState = partnerReviewState[stage.id] || 'needs_review';
-      const generated = stage.kind === 'masterPackingList'
-        ? !!partnerMplPreviewUrl && !partnerPreviewIsStale('masterPackingList')
-        : !!partnerLabelPreviewUrl(stage.kind) && !partnerPreviewIsStale(stage.kind);
-      const status = !jobs.length ? 'Not applicable' : generated ? 'PDF ready' : reviewState === 'reviewed' ? 'Reviewed' : 'Needs review';
-      const detail = stage.id === 'packingListTihi'
-        ? `${partnerMplDraft?.packing_lists?.[0]?.items?.length || 0} line(s) · ${partnerMplDraft?.packing_lists?.[0]?.total_pallets || 1} pallet(s)`
-        : `${jobs.length} configured output${jobs.length === 1 ? '' : 's'}`;
-      const dependency = stage.id === 'palletLabels' ? 'Uses the reviewed MPL pallet assignments' : '';
-      return `<div class="packaging-status-row ${!jobs.length ? 'muted' : generated || reviewState === 'reviewed' ? 'ready' : 'review'}"><div><strong>${escapeHtml(stage.label)}</strong><small>${escapeHtml(dependency || detail)}</small></div><span>${escapeHtml(detail)}</span><span class="packaging-status-state">${escapeHtml(status)}</span></div>`;
-    }).join('');
-    container.innerHTML = `<div class="partner-resolution-cards">${cards.map(([label, value, state]) => `<div class="partner-resolution-item ${state}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div><section class="packaging-status-matrix partner-status-matrix"><header><strong>Document status</strong><small>Every document uses the same resolved order, product, address, and pallet state.</small></header>${matrixRows}</section>`;
+    const warnings = [];
+    const unmatched = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
+    const defaulted = Number(summary.defaulted_level_skus || 0);
+    const partial = Number(summary.partial_case_items || 0);
+    if (unmatched) warnings.push(`${unmatched} order line${unmatched === 1 ? '' : 's'} need Product Master review.`);
+    if (defaulted) warnings.push(`${defaulted} reused Level SKU${defaulted === 1 ? '' : 's'} defaulted to Each for quantity conversion.`);
+    if (partial) warnings.push(`${partial} order line${partial === 1 ? '' : 's'} do not divide into complete outer packages.`);
+    if (!context.shipTo?.address) warnings.push('Ship To address needs review.');
+    container.innerHTML = warnings.length
+      ? `<section class="partner-readiness-banner review"><div><strong>Order loaded with review items</strong><small>The documents are available; verify the highlighted values before printing.</small></div><ul>${warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></section>`
+      : `<section class="partner-readiness-banner ready"><div><strong>Order data resolved</strong><small>${partnerOrderPayload.items?.length || 0} product line(s), ${partnerLabelJobs.length} label output(s), and the packing list are ready to review.</small></div></section>`;
   }
 
   function renderPartnerWorkspace() {
@@ -828,11 +840,14 @@
     if (stagesContainer) stagesContainer.innerHTML = renderPartnerReviewStages();
     const currentStage = PARTNER_REVIEW_STAGES.find(stage => stage.id === partnerReviewStage);
     const currentStageLabel = document.getElementById('partner-current-stage');
-    if (currentStageLabel) currentStageLabel.textContent = currentStage?.label || 'Case Labels';
+    if (currentStageLabel) currentStageLabel.textContent = currentStage?.label || 'Pack Labels';
     document.querySelector('.partner-label-workflow-section')?.classList.toggle('hidden', !['packLabels', 'palletLabel'].includes(currentStage?.kind));
     document.querySelector('.partner-mpl-workflow-section')?.classList.toggle('hidden', currentStage?.id !== 'packingListTihi');
     const summary = partnerOrderPayload.summary || {};
-    const reviewCount = Number(summary.unmatched_products || 0) + Number(summary.ambiguous_products || 0);
+    const reviewCount = Number(summary.unmatched_products || 0)
+      + Number(summary.ambiguous_products || 0)
+      + Number(summary.defaulted_level_skus || 0)
+      + Number(summary.partial_case_items || 0);
     document.getElementById('partner-detected-customer').textContent = partnerCustomerLabel();
     document.getElementById('partner-loaded-order').textContent = partnerOrderPayload.sales_order_number || '-';
     document.getElementById('partner-line-count').textContent = String(partnerOrderPayload.items?.length || 0);

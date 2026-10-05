@@ -1060,6 +1060,7 @@
     });
     refreshPalletLabelTotals(activeKeheDocumentDraft);
     setPalletLabelManualSource();
+    if (selectedKit === 'operations') markOperationsPalletsChanged?.();
     renderKeheUnifiedReport(keheLastMplDraft || activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     focusAndScrollIntoView(`[data-pallet-label-index="${newIndex}"]`, 'input, textarea');
@@ -1071,6 +1072,7 @@
     activeKeheDocumentDraft.pallets.splice(index, 1);
     refreshPalletLabelTotals(activeKeheDocumentDraft);
     setPalletLabelManualSource();
+    if (selectedKit === 'operations') markOperationsPalletsChanged?.();
     renderKeheUnifiedReport(keheLastMplDraft || activeKeheDocumentDraft);
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     setStatus('Pallet Label pallet group removed. Source now shows Manual.', 'info');
@@ -1150,6 +1152,7 @@
     if (packGtinMatch) {
       refreshPackLabelBarcodePreview(Number(packGtinMatch[1]), input.value);
     }
+    if (selectedKit === 'operations' && activeKeheDocumentType === 'palletLabel') markOperationsPalletsChanged?.();
     window.requestAnimationFrame(() => fitPdfEditorInputText(document.getElementById('document-editor-body')));
     if (activeKeheDocumentType === 'palletLabel' && /^pallets\.\d+\.(pallet_number|total_pallets|customer_po_numbers)$/.test(path)) {
       setPalletLabelManualSource();
@@ -1795,16 +1798,17 @@
       const btn = document.getElementById('btn-render-edited-document');
       if (btn) btn.disabled = true;
       try {
-        if (!(await confirmDocumentReadiness('partners'))) return;
+      if (!options.skipReadiness && !(await confirmDocumentReadiness('partners'))) return false;
         showWorkflowProgress(3, `Preparing ${partnerLabelKindName(kind).toLowerCase()}…`);
         setStatus(`Generating ${partnerLabelKindName(kind)} from your edited label layouts…`, 'info');
         await renderPartnerLabelsPreview(kind);
         updateWorkflowProgress('Opening preview', 'Opening the edited label preview…');
         closeDocumentEditor(false);
-        await openPartnerPreview(kind);
+        if (options.openPreview !== false) await openPartnerPreview(kind);
         setStatus(`${partnerLabelKindName(kind)} PDF is ready.`, 'success');
         closeWorkflowProgress();
-        showPrintSummary('partners');
+        if (options.showSummary !== false) showPrintSummary(options.scope || 'partners');
+        return true;
       } catch (err) {
         closeWorkflowProgress();
         setStatus(`Label generation failed: ${err?.message || 'unknown error'}`, 'error');
@@ -1821,7 +1825,7 @@
       workingButtons.forEach(button => { button.disabled = true; });
       const saveBeforeGenerate = !!options.saveMplDraft;
       try {
-        if (!(await confirmDocumentReadiness('partners'))) return;
+        if (!options.skipReadiness && !(await confirmDocumentReadiness('partners'))) return false;
         showWorkflowProgress(4, 'Rendering the packing list and Ti-Hi…');
         partnerMplDraft = activeKeheDocumentDraft;
         setStatus('Rendering the packing-list preview from your edited values…', 'info');
@@ -1829,14 +1833,15 @@
         if (saveBeforeGenerate) {
           updateWorkflowProgress('Saving MPL', 'Saving the generated MPL draft…');
           const saved = await saveActiveMplDraft({ savingMessage: 'Saving MPL draft...', successMessage: 'MPL draft saved.' });
-          if (!saved) { closeWorkflowProgress(); return; }
+          if (!saved) { closeWorkflowProgress(); return false; }
         }
         updateWorkflowProgress('Opening preview', 'Opening the packing-list preview…');
         closeDocumentEditor(false);
-        await openPartnerPreview('masterPackingList');
+        if (options.openPreview !== false) await openPartnerPreview('masterPackingList');
         setStatus(saveBeforeGenerate ? 'Packing list saved and PDF preview is ready.' : 'Edited packing-list preview is ready.', 'success');
         closeWorkflowProgress();
-        showPrintSummary('partners');
+        if (options.showSummary !== false) showPrintSummary(options.scope || 'partners');
+        return true;
       } catch (err) {
         closeWorkflowProgress();
         setStatus(`Packing-list generation failed: ${err?.message || 'unknown error'}`, 'error');
@@ -1850,11 +1855,15 @@
     const btn = document.getElementById('btn-render-edited-document');
     const saveGenerateBtn = document.getElementById('btn-save-mpl-draft');
     const saveBeforeGenerate = !!options.saveMplDraft && activeKeheDocumentType === 'masterPackingList';
+    const outputScope = options.scope || (selectedKit === 'operations' ? 'operations' : (activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe'));
+    const outputKey = options.outputKey || (selectedKit === 'operations'
+      ? `operations-${activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'pallets'}`
+      : `${selectedKit || 'kehe'}-${activeKeheDocumentType}`);
     const workingButtons = [btn, saveGenerateBtn].filter(Boolean);
     workingButtons.forEach(button => { button.disabled = true; });
     try {
       const readinessScope = activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe';
-      if (!(await confirmDocumentReadiness(readinessScope))) return;
+      if (!options.skipReadiness && !(await confirmDocumentReadiness(readinessScope))) return false;
       showWorkflowProgress(activeKeheDocumentType === 'masterPackingList' ? 4 : 3, `Preparing ${cfg.label}…`);
       activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
       applyProductMasterToDraft(activeKeheDocumentDraft, true);
@@ -1896,8 +1905,8 @@
         throw new Error(fileErr.detail || 'Generated PDF could not be downloaded.');
       }
       const blob = await fileRes.blob();
-      await recordGeneratedOutput(`${selectedKit || 'kehe'}-${activeKeheDocumentType}`, {
-        scope: activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe',
+      await recordGeneratedOutput(outputKey, {
+        scope: outputScope,
         name: cfg.outputName,
         labelType: cfg.label,
         labels: activeKeheDocumentType === 'packLabels'
@@ -1906,7 +1915,7 @@
             ? (activeKeheDocumentDraft.pallets || []).reduce((total, pallet) => total + Math.max(1, Number(pallet.copies || 1)), 0)
             : 0,
         pallets: activeKeheDocumentType === 'masterPackingList'
-          ? (activeKeheDocumentDraft.packing_lists || []).reduce((total, mpl) => total + Math.max(1, Number(mpl.total_pallets || 1)), 0)
+          ? (activeKeheDocumentDraft.packing_lists || []).reduce((total, mpl) => total + Math.max(0, Number(mpl.total_pallets || 0)), 0)
           : Number(activeKeheDocumentDraft.pallets?.length || 0),
         blob,
       });
@@ -1927,17 +1936,19 @@
       if (saveBeforeGenerate) {
         updateWorkflowProgress('Saving MPL', 'Saving the generated MPL draft…');
         const saved = await saveActiveMplDraft({ savingMessage: 'Saving MPL draft...', successMessage: 'MPL draft saved.' });
-        if (!saved) { closeWorkflowProgress(); return; }
+        if (!saved) { closeWorkflowProgress(); return false; }
       }
       updateWorkflowProgress('Opening preview', 'Opening the completed PDF preview…');
       resetPreviewSurface();
-      await openPreview();
+      if (options.openPreview !== false) await openPreview();
       setStatus(saveBeforeGenerate ? `${cfg.label} saved and generated successfully.` : `${cfg.label} generated successfully.`, 'success');
       closeWorkflowProgress();
-      showPrintSummary(activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe');
+      if (options.showSummary !== false) showPrintSummary(outputScope);
+      return true;
     } catch (err) {
       closeWorkflowProgress();
       setStatus('Error: ' + (err.message || 'Generation failed.'), 'error');
+      return false;
     } finally {
       if (btn) btn.disabled = false;
       updateMplSaveButtonState(activeKeheDocumentType);
