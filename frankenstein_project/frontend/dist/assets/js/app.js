@@ -2092,14 +2092,14 @@
   function downloadCsvRows(filename, rows) {
     const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    const url = window.LabelKitPreview.create(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
+    window.LabelKitPreview.release(url);
   }
 
   function productMasterCsvHeader() {
@@ -2829,9 +2829,9 @@
     pdfFiles = [];
     currentResultId = null;
     currentReport = null;
-    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
+    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) window.LabelKitPreview.release(downloadBlobUrl);
     downloadBlobUrl = null;
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    if (blobUrl) window.LabelKitPreview.release(blobUrl);
     blobUrl = null;
     keheProductMasterRows = loadKeheProductMasterFromStorage();
     keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
@@ -3008,7 +3008,7 @@
     const cfg = KEHE_PREVIEW_CONFIG[key];
     if (!cfg) return;
     if (href !== null) {
-      if (kehePreviewUrls[key] && kehePreviewUrls[key] !== href) URL.revokeObjectURL(kehePreviewUrls[key]);
+      if (kehePreviewUrls[key] && kehePreviewUrls[key] !== href) window.LabelKitPreview.release(kehePreviewUrls[key]);
       kehePreviewUrls[key] = href;
     }
     const btn = document.getElementById(cfg.buttonId);
@@ -3019,7 +3019,7 @@
 
   function resetKehePreviewUrls() {
     Object.keys(kehePreviewUrls).forEach(key => {
-      if (kehePreviewUrls[key]) URL.revokeObjectURL(kehePreviewUrls[key]);
+      if (kehePreviewUrls[key]) window.LabelKitPreview.release(kehePreviewUrls[key]);
       kehePreviewUrls[key] = null;
       setKehePreviewReady(key, false);
     });
@@ -3281,12 +3281,12 @@
     });
 
     const csvBlob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const csvUrl = URL.createObjectURL(csvBlob);
+    const csvUrl = window.LabelKitPreview.create(csvBlob);
     const link = document.createElement('a');
     link.href = csvUrl;
     link.download = csvNameToUse;
     link.click();
-    setTimeout(() => URL.revokeObjectURL(csvUrl), 1000);
+    setTimeout(() => window.LabelKitPreview.release(csvUrl), 1000);
   }
 
   function renderList(files, listId, type) {
@@ -3531,9 +3531,9 @@
     resetPreviewSurface();
     closePreview();
 
-    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) URL.revokeObjectURL(downloadBlobUrl);
+    if (downloadBlobUrl && downloadBlobUrl !== blobUrl) window.LabelKitPreview.release(downloadBlobUrl);
     downloadBlobUrl = null;
-    if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
+    if (blobUrl && selectedKit !== 'kehe') window.LabelKitPreview.release(blobUrl);
     blobUrl = null;
 
     const form = new FormData();
@@ -3576,7 +3576,7 @@
 
         const downloadBlob = await fileRes.blob();
         const outputMediaType = String(status.media_type || fileRes.headers.get('content-type') || 'application/pdf').toLowerCase();
-        downloadBlobUrl = URL.createObjectURL(downloadBlob);
+        downloadBlobUrl = window.LabelKitPreview.create(downloadBlob);
         setDownloadPresentation(status.output_filename || cfg.outputName, outputMediaType);
 
         if (outputMediaType.includes('zip')) {
@@ -3585,7 +3585,7 @@
             const previewErr = await previewRes.json().catch(() => ({ detail: previewRes.statusText }));
             throw new Error(previewErr.detail || 'Combined PDF preview could not be loaded.');
           }
-          blobUrl = URL.createObjectURL(await previewRes.blob());
+          blobUrl = window.LabelKitPreview.create(await previewRes.blob());
           setDownloadReady(true, downloadBlobUrl);
           setPreviewReady(true);
           const outputPages = Number(status.report?.summary?.output_pages || 0);
@@ -3613,8 +3613,8 @@
         }
       } else {
         const blob = await res.blob();
-        if (blobUrl && selectedKit !== 'kehe') URL.revokeObjectURL(blobUrl);
-        blobUrl = URL.createObjectURL(blob);
+        if (blobUrl && selectedKit !== 'kehe') window.LabelKitPreview.release(blobUrl);
+        blobUrl = window.LabelKitPreview.create(blob);
         downloadBlobUrl = blobUrl;
         setDownloadPresentation(cfg.outputName, 'application/pdf');
         setDownloadReady(true, blobUrl);

@@ -485,8 +485,7 @@
   window.openGeneratedOutput = async key => {
     const output = generatedOutputs.get(String(key || ''));
     if (!output?.blob) return;
-    if (generatedOutputPreviewUrl) URL.revokeObjectURL(generatedOutputPreviewUrl);
-    generatedOutputPreviewUrl = URL.createObjectURL(output.blob);
+    generatedOutputPreviewUrl = window.LabelKitPreview.replace(generatedOutputPreviewUrl, output.blob);
     blobUrl = generatedOutputPreviewUrl;
     document.getElementById('btn-download').download = output.name || 'document.pdf';
     setDownloadReady(true, generatedOutputPreviewUrl);

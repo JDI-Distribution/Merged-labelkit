@@ -1971,7 +1971,7 @@
   function clearB2BPreview() {
     if (b2bPreviewUrl) {
       if (blobUrl === b2bPreviewUrl) blobUrl = null;
-      URL.revokeObjectURL(b2bPreviewUrl);
+      window.LabelKitPreview.release(b2bPreviewUrl);
     }
     b2bPreviewUrl = null;
     if (selectedKit === 'operations' && typeof orderDocumentsState === 'object'
@@ -2087,17 +2087,17 @@
         : batchMode ? `${filenameBase}_case_labels.pdf` : `${b2bSelectedTemplateId.toLowerCase()}.pdf`;
       if (needsArchive) {
         clearB2BPreview();
-        const archiveUrl = URL.createObjectURL(outputBlob);
+        const archiveUrl = window.LabelKitPreview.create(outputBlob);
         const download = document.getElementById('btn-download');
         download.download = filename;
         document.getElementById('btn-download-label').textContent = 'Download ZIP';
         setDownloadReady(true, archiveUrl);
         setPreviewReady(false);
         download.click();
-        window.setTimeout(() => URL.revokeObjectURL(archiveUrl), 60000);
+        window.setTimeout(() => window.LabelKitPreview.release(archiveUrl), 60000);
       } else {
         clearB2BPreview();
-        b2bPreviewUrl = URL.createObjectURL(outputBlob);
+        b2bPreviewUrl = window.LabelKitPreview.create(outputBlob);
         blobUrl = b2bPreviewUrl;
         document.getElementById('btn-download').download = filename;
         document.getElementById('btn-download-label').textContent = 'Save PDF';
