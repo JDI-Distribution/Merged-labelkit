@@ -95,6 +95,16 @@ from labelkit.reference_data import (  # noqa: E402
 )
 from labelkit.product_quality import analyze_product_master_rows  # noqa: E402
 from labelkit.security import allowed_origins, apply_security_headers  # noqa: E402
+from labelkit.app_config import ConfigResolver, env_bool, is_catalyst_runtime, load_config  # noqa: E402
+from labelkit.auth import (  # noqa: E402
+    current_project_user,
+    init_catalyst,
+    permissions_for_role,
+    request_user_from_headers,
+    require_permission,
+    role_from_catalyst,
+    role_from_name,
+)
 from labelkit.order_intake import (  # noqa: E402
     _analytics_case_conversion,
     _analytics_order_details,
@@ -137,55 +147,27 @@ LOGGER = logging.getLogger("labelkit")
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    return env_bool(name, default)
 
 
 APP_CONFIG_FILE = Path(os.getenv("LABELKIT_CONFIG_FILE", str(BASE_DIR / "labelkit_config.json")))
 
 
 def _load_labelkit_config() -> Dict[str, Any]:
-    try:
-        if not APP_CONFIG_FILE.exists():
-            return {}
-        data = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return load_config(APP_CONFIG_FILE)
 
 
 def _is_catalyst_runtime() -> bool:
-    catalyst_markers = {
-        "X_ZOHO_CATALYST_LISTEN_PORT",
-        "X_ZOHO_CATALYST_PROJECT_ID",
-        "X_ZOHO_CATALYST_ORG_ID",
-        "X_ZOHO_CATALYST_APP_NAME",
-        "CATALYST_PROJECT_ID",
-        "CATALYST_APP_NAME",
-        "CATALYST_OPTIONS",
-    }
-    return any(os.getenv(marker) for marker in catalyst_markers)
+    return is_catalyst_runtime()
 
 
 LABELKIT_CONFIG = _load_labelkit_config()
 HAS_LABELKIT_CONFIG = bool(LABELKIT_CONFIG)
+CONFIG = ConfigResolver(LABELKIT_CONFIG, BASE_DIR)
 
 
 def _resolve_labelkit_profile() -> tuple[str, Dict[str, Any]]:
-    profiles = LABELKIT_CONFIG.get("profiles")
-    if not isinstance(profiles, dict):
-        profiles = {}
-    requested = str(
-        os.getenv("LABELKIT_PROFILE")
-        or LABELKIT_CONFIG.get("active_profile")
-        or "local"
-    ).strip().lower()
-    if requested == "auto":
-        requested = "catalyst" if _is_catalyst_runtime() else "local"
-    profile = profiles.get(requested, {})
-    return requested, profile if isinstance(profile, dict) else {}
+    return CONFIG.profile_name, CONFIG.profile
 
 
 LABELKIT_CONFIG_PROFILE, ACTIVE_LABELKIT_CONFIG = _resolve_labelkit_profile()
@@ -195,28 +177,15 @@ ALLOW_CONFIG_ENV_OVERRIDES = bool(
 
 
 def _config_value(env_name: str, key: str, default: Any = "") -> Any:
-    if ALLOW_CONFIG_ENV_OVERRIDES:
-        raw = os.getenv(env_name)
-        if raw is not None:
-            return raw
-    if key in ACTIVE_LABELKIT_CONFIG:
-        return ACTIVE_LABELKIT_CONFIG.get(key)
-    return default
+    return CONFIG.value(env_name, key, default)
 
 
 def _config_bool(env_name: str, key: str, default: bool = False) -> bool:
-    if ALLOW_CONFIG_ENV_OVERRIDES and os.getenv(env_name) is not None:
-        return _env_bool(env_name, default)
-    raw = ACTIVE_LABELKIT_CONFIG.get(key, default)
-    if isinstance(raw, bool):
-        return raw
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    return CONFIG.boolean(env_name, key, default)
 
 
 def _config_path(env_name: str, key: str, default: str) -> Path:
-    raw = _config_value(env_name, key, default)
-    path = Path(str(raw or default))
-    return path if path.is_absolute() else BASE_DIR / path
+    return CONFIG.path(env_name, key, default)
 
 
 APP_ENV = str(_config_value("APP_ENV", "app_env", os.getenv("ENVIRONMENT", "local"))).strip().lower()
@@ -782,28 +751,11 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
 
 
 def _init_catalyst_app(request: Request) -> Any:
-    try:
-        import zcatalyst_sdk  # type: ignore
-    except Exception:
-        return None
-    try:
-        return zcatalyst_sdk.initialize(scope="admin", req=request)
-    except Exception:
-        try:
-            return zcatalyst_sdk.initialize(req=request)
-        except Exception:
-            return None
+    return init_catalyst(request, "admin")
 
 
 def _init_catalyst_user_app(request: Request) -> Any:
-    try:
-        import zcatalyst_sdk  # type: ignore
-    except Exception:
-        return None
-    try:
-        return zcatalyst_sdk.initialize(req=request)
-    except Exception:
-        return None
+    return init_catalyst(request)
 
 
 def _config_role_id_map() -> Dict[str, str]:
@@ -819,142 +771,28 @@ def _role_from_role_id(role_id: str) -> str:
 
 
 def _role_from_name(role_name: str) -> str:
-    normalized = str(role_name or "").strip().lower()
-    if "admin" in normalized:
-        return "Admin"
-    if "editor" in normalized or "edit" in normalized:
-        return "Editor"
-    return "User"
+    return role_from_name(role_name)
 
 
 def _role_from_catalyst(role_name: str = "", role_id: str = "") -> str:
-    return _role_from_role_id(role_id) or _role_from_name(role_name)
+    return role_from_catalyst(role_name, role_id, _config_role_id_map())
 
 
 def _request_user_from_headers(request: Request) -> Dict[str, Any]:
-    if AUTH_REQUIRED:
-        return {
-            "authenticated": False,
-            "name": "",
-            "email": "",
-            "user_id": "",
-            "role": "User",
-            "role_name": "User",
-            "role_id": "",
-            "source": "unauthenticated",
-        }
-
-    headers = request.headers
-    role_name = (
-        headers.get("x-zc-user-role")
-        or headers.get("x-zc-role-name")
-        or headers.get("x-user-role")
-        or headers.get("x-labelkit-role")
-        or ""
-    )
-    role_id = (
-        headers.get("x-zc-role-id")
-        or headers.get("x-zc-user-role-id")
-        or headers.get("x-user-role-id")
-        or headers.get("x-labelkit-role-id")
-        or ""
-    )
-    user = {
-        "authenticated": False,
-        "name": (
-            headers.get("x-zc-user-name")
-            or headers.get("x-user-name")
-            or headers.get("x-forwarded-user")
-            or headers.get("x-labelkit-user")
-            or ""
-        ),
-        "email": (
-            headers.get("x-zc-user-email")
-            or headers.get("x-user-email")
-            or headers.get("x-forwarded-email")
-            or headers.get("x-labelkit-email")
-            or ""
-        ),
-        "user_id": headers.get("x-zc-user-id") or headers.get("x-user-id") or "",
-        "role": _role_from_catalyst(role_name, role_id),
-        "role_name": role_name or "User",
-        "role_id": role_id,
-        "source": "headers",
-    }
-    # Catalyst may inject infrastructure IDs even before a real authenticated
-    # user session exists, so do not treat a bare ID as signed in.
-    user["authenticated"] = bool(user["email"] or user["name"])
-    if not AUTH_REQUIRED and not user["authenticated"]:
-        user.update({
-            "authenticated": True,
-            "name": "Local user",
-            "email": "",
-            "user_id": "",
-            "role": "Admin",
-            "role_name": "Local Admin",
-            "source": "local",
-        })
-    return user
+    return request_user_from_headers(request, AUTH_REQUIRED, _config_role_id_map())
 
 
 def _current_project_user(request: Request) -> Dict[str, Any]:
-    cached = getattr(request.state, "labelkit_user", None)
-    if isinstance(cached, dict):
-        return cached
-
-    user = _request_user_from_headers(request)
-    catalyst_app = _init_catalyst_user_app(request)
-    if catalyst_app is not None:
-        try:
-            details = catalyst_app.user_management().get_current_user()
-            if isinstance(details, dict):
-                role_details = details.get("role_details") or {}
-                role_name = ""
-                role_id = ""
-                if isinstance(role_details, dict):
-                    role_name = str(role_details.get("role_name") or "")
-                    role_id = str(
-                        role_details.get("role_id")
-                        or role_details.get("roleId")
-                        or role_details.get("id")
-                        or ""
-                    )
-                name = " ".join([
-                    str(details.get("first_name") or "").strip(),
-                    str(details.get("last_name") or "").strip(),
-                ]).strip()
-                email = str(details.get("email_id") or details.get("email") or "")
-                user_id = str(details.get("user_id") or details.get("zuid") or "")
-                user = {
-                    "authenticated": bool(email or name),
-                    "name": name,
-                    "email": email,
-                    "user_id": user_id,
-                    "role": _role_from_catalyst(role_name, role_id),
-                    "role_name": role_name or "User",
-                    "role_id": role_id,
-                    "source": "catalyst",
-                }
-        except Exception:
-            pass
-
-    request.state.labelkit_user = user
-    return user
+    return current_project_user(
+        request,
+        auth_required=AUTH_REQUIRED,
+        role_id_map=_config_role_id_map(),
+        catalyst_factory=_init_catalyst_user_app,
+    )
 
 
 def _permissions_for_role(role: str) -> Dict[str, bool]:
-    role = _role_from_name(role)
-    is_admin = role == "Admin"
-    is_editor = role in {"Admin", "Editor"}
-    return {
-        "view": role in {"Admin", "Editor", "User"},
-        "generate": role in {"Admin", "Editor", "User"},
-        "table_crud": is_editor,
-        "save_mpl": is_editor,
-        "delete_mpl": is_admin,
-        "audit_view": is_editor,
-        "admin": is_admin,
-    }
+    return permissions_for_role(role)
 
 
 def _app_runtime_config(request: Optional[Request] = None) -> Dict[str, Any]:
@@ -994,13 +832,7 @@ async def auth_session(request: Request) -> JSONResponse:
 
 def _require_permission(request: Request, permission: str = "view") -> Dict[str, Any]:
     config = _app_runtime_config(request)
-    user = config["user"]
-    if AUTH_REQUIRED and not user.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Sign in with Catalyst Authentication to use LabelKit.")
-    if not config["permissions"].get(permission, False):
-        role_name = user.get("role_name") or user.get("role") or "User"
-        raise HTTPException(status_code=403, detail=f"{role_name} does not have permission for this action.")
-    return config
+    return require_permission(config, permission, AUTH_REQUIRED)
 
 
 def _store_requires_datastore(store_mode: str) -> bool:
