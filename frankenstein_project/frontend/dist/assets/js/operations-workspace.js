@@ -79,29 +79,27 @@
     const mpl = draft?.packing_lists?.[0];
     if (!mpl) return 0;
     ensureMplPalletState(mpl);
-    const ids = Array.isArray(mpl._pallet_ids) ? mpl._pallet_ids.filter(Boolean) : [];
-    const assigned = [...new Set((mpl.items || []).map(item => normalizePalletId(item.location_on_pallet)).filter(Boolean))];
-    // A typed/source total alone cannot produce pallet labels. Only count pallet
-    // groups that the shared MPL editor can actually open and edit.
-    return Math.max(ids.length, assigned.length);
+    return window.LabelKitOrderDocuments.assignedPalletCount(draft);
   }
 
   function operationsSelectedDocuments() {
-    return {
-      labels: !!document.getElementById('operations-generate-labels')?.checked,
-      mpl: !!document.getElementById('operations-generate-mpl')?.checked,
-      pallets: !!document.getElementById('operations-generate-pallets')?.checked,
-    };
+    return window.LabelKitOrderDocuments.selectedDocuments(document);
   }
 
   function operationsUsesManualPalletCount(selected = operationsSelectedDocuments()) {
-    return !!(orderDocumentsState.payload || orderDocumentsState.mplDraft) && !!selected.pallets && !selected.mpl;
+    return window.LabelKitOrderDocuments.usesManualPalletCount({
+      selected,
+      hasOrderOrDraft: !!(orderDocumentsState.payload || orderDocumentsState.mplDraft),
+    });
   }
 
   function operationsEffectivePalletCount(selected = operationsSelectedDocuments()) {
-    return operationsUsesManualPalletCount(selected)
-      ? Math.max(1, Number.parseInt(orderDocumentsState.manualPalletCount, 10) || 1)
-      : operationsPalletCount();
+    return window.LabelKitOrderDocuments.effectivePalletCount({
+      selected,
+      hasOrderOrDraft: !!(orderDocumentsState.payload || orderDocumentsState.mplDraft),
+      manualCount: orderDocumentsState.manualPalletCount,
+      mplDraft: orderDocumentsState.mplDraft,
+    });
   }
 
   function updateOperationsManualPallets(field, value) {
@@ -157,41 +155,11 @@
 
   function buildOperationsManualPalletDraft() {
     const mpl = orderDocumentsState.mplDraft?.packing_lists?.[0] || {};
-    const count = Math.max(1, Number.parseInt(orderDocumentsState.manualPalletCount, 10) || 1);
-    const copies = Math.max(1, Number.parseInt(orderDocumentsState.manualPalletCopies, 10) || 1);
-    const warning = 'Pallet count was entered manually because Packing List & Ti-Hi was not selected. Verify pallet count, PO numbers, and addresses before printing.';
-    const pallets = Array.from({ length: count }, (_, index) => ({
-      id: `PALLET-${index + 1}`,
-      status: 'Needs Review',
-      dc: mpl.dc || '',
-      title: 'PALLET PLACARD',
-      date: mpl.est_ship_date || '',
-      ship_from: mpl.supplier_info || '',
-      ship_to: mpl.ship_to || '',
-      billing: mpl.bill_to || '',
-      customer_po_numbers: mpl.customer_po_number || '',
-      bol_number: mpl.bol_number || '',
-      pro_number: mpl.pro_number || '',
-      carrier: mpl.ship_via || '',
-      pallet_number: String(index + 1),
-      total_pallets: String(count),
-      carton_count: '',
-      placement_note: 'Place the requested pallet placard copies on the pallet.',
-      copies,
-      source_files: mpl.source_files || [],
-      source_mpl: mpl.id || '',
-      warnings: [warning],
-    }));
-    return {
-      document_type: 'kehe_pallet_label',
-      version: 3,
-      summary: { groups: count, from_mpl: false, manual: true },
-      warnings: [warning],
-      palletization_source: 'Manual',
-      source_note: `Manual pallet count: ${count}. Packing List & Ti-Hi was not selected for this run.`,
-      table_preview: false,
-      pallets,
-    };
+    return window.LabelKitOrderDocuments.buildManualPalletDraft({
+      mpl,
+      count: orderDocumentsState.manualPalletCount,
+      copies: orderDocumentsState.manualPalletCopies,
+    });
   }
 
   function operationsGenerationBlocker(selected = operationsSelectedDocuments(), finalizing = false) {
@@ -221,12 +189,11 @@
   }
 
   function operationsNextReviewStage(selected = operationsSelectedDocuments()) {
-    const reviewed = orderDocumentsState.reviewedDocuments;
-    if (selected.labels && !reviewed.labels) return 'labels';
-    if (selected.mpl && !reviewed.mpl) return 'mpl';
-    if (selected.pallets && selected.mpl && operationsPalletCount() < 1) return 'mpl';
-    if (selected.pallets && !reviewed.pallets) return 'pallets';
-    return 'generate';
+    return window.LabelKitOrderDocuments.nextReviewStage({
+      selected,
+      reviewed: orderDocumentsState.reviewedDocuments,
+      palletCount: operationsPalletCount(),
+    });
   }
 
   function operationsDocumentSelectionChanged() {
@@ -871,58 +838,6 @@
     if (pallets) pallets.checked = false;
     orderDocumentsState.documentSelection = operationsSelectedDocuments();
     renderOperationsWorkspace();
-  }
-
-  async function advanceOperationsDocuments() {
-    const selected = operationsSelectedDocuments();
-    const blocker = operationsGenerationBlocker(selected, false);
-    if (blocker) {
-      setStatus(blocker.message, 'error');
-      focusOperationsBlocker(blocker);
-      return false;
-    }
-
-    const stage = operationsNextReviewStage(selected);
-    if (stage === 'labels') {
-      orderDocumentsState.activeTab = 'labels';
-      renderOperationsWorkspace();
-      const previewed = await generateB2BPreview(true, {
-        showSummary: false,
-        scope: 'operations-review',
-        outputKey: 'operations-labels-review',
-      });
-      if (previewed) {
-        orderDocumentsState.reviewedDocuments.labels = true;
-        setStatus('Customer label preview reviewed. Continue to the packing list or pallet-label review.', 'success');
-        renderOperationsWorkspace();
-      }
-      return !!previewed;
-    }
-
-    if (stage === 'mpl') {
-      if (selected.pallets && selected.mpl && operationsPalletCount() < 1) {
-        setStatus('Pallet Labels are selected, but the packing list has no assigned pallet groups. Assign at least one pallet in the packing-list editor, then continue.', 'info');
-      } else {
-        setStatus('Review the packing list and Ti-Hi plan. Pallet counts for the next stage come from these assignments.', 'info');
-      }
-      orderDocumentsState.activeTab = 'packing';
-      renderOperationsWorkspace();
-      openOperationsMplEditor();
-      return true;
-    }
-
-    if (stage === 'pallets') {
-      if (operationsEffectivePalletCount(selected) < 1) {
-        setStatus('Enter or assign at least one pallet before reviewing pallet labels.', 'error');
-        return false;
-      }
-      orderDocumentsState.activeTab = 'pallets';
-      renderOperationsWorkspace();
-      openOperationsPalletLabels();
-      return true;
-    }
-
-    return generateOperationsDocuments();
   }
 
   async function generateOperationsDocuments() {
