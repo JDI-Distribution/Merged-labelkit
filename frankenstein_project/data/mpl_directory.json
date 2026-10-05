@@ -1,4 +1,6 @@
 {
+  "updated_at": "2026-09-25T17:15:48Z",
+  "schema_version": 2,
   "rows": [
     {
       "id": "",
@@ -23,7 +25,8 @@
       "verification_status": "VERIFIED",
       "source_note": "",
       "is_active": true,
-      "unique_key": "bakell|default-ship-from|ship_from"
+      "unique_key": "bakell|default-ship-from|ship_from",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -53,7 +56,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|01|ship_to"
+      "unique_key": "kehe|01|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -83,7 +87,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|01|bill_to"
+      "unique_key": "kehe|01|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -113,7 +118,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|14|ship_to"
+      "unique_key": "kehe|14|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -143,7 +149,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|14|bill_to"
+      "unique_key": "kehe|14|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -173,7 +180,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|18|ship_to"
+      "unique_key": "kehe|18|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -203,7 +211,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|18|bill_to"
+      "unique_key": "kehe|18|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -233,7 +242,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|19|ship_to"
+      "unique_key": "kehe|19|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -263,7 +273,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|19|bill_to"
+      "unique_key": "kehe|19|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -293,7 +304,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|27|ship_to"
+      "unique_key": "kehe|27|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -323,7 +335,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|27|bill_to"
+      "unique_key": "kehe|27|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -353,7 +366,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|33|ship_to"
+      "unique_key": "kehe|33|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -383,7 +397,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|33|bill_to"
+      "unique_key": "kehe|33|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -413,7 +428,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|45|ship_to"
+      "unique_key": "kehe|45|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -443,7 +459,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|45|bill_to"
+      "unique_key": "kehe|45|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -474,7 +491,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|46|ship_to"
+      "unique_key": "kehe|46|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -505,7 +523,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|46|bill_to"
+      "unique_key": "kehe|46|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -535,7 +554,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|55|ship_to"
+      "unique_key": "kehe|55|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -565,7 +585,8 @@
       "verification_status": "DRAFT",
       "source_note": "",
       "is_active": true,
-      "unique_key": "kehe|55|bill_to"
+      "unique_key": "kehe|55|bill_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -593,7 +614,8 @@
       "verification_status": "NEEDS_REVIEW",
       "source_note": "Source provides only DECOPAC, INC and ANOKA, MN USA; confirm full address before activation.",
       "is_active": true,
-      "unique_key": "decopac|decopac-default|ship_to"
+      "unique_key": "decopac|decopac-default|ship_to",
+      "schema_version": 2
     },
     {
       "id": "",
@@ -621,8 +643,9 @@
       "verification_status": "NEEDS_REVIEW",
       "source_note": "Manufacturer identity/address comes from the current LabelKit directory data; confirm it is authoritative for the bulk label.",
       "is_active": false,
-      "unique_key": "generic b2b|generic-bulk-default|ship_from"
+      "unique_key": "generic b2b|generic-bulk-default|ship_from",
+      "schema_version": 2
     }
   ],
-  "updated_at": "2026-09-25T17:15:48Z"
+  "migrated_at": "2026-10-05T22:03:45.984325Z"
 }
