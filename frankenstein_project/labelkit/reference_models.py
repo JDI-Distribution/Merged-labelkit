@@ -1,9 +1,9 @@
 """Version markers and compatibility helpers for reference-data records.
 
-Reference data existed before LabelKit recorded schema versions.  Readers must
-therefore accept both unversioned legacy rows and the current canonical shape.
-Writers use version 2 for local files and API models; Catalyst column writes are
-enabled separately after the production tables have been prepared.
+Reference data existed before LabelKit recorded schema versions. Readers accept
+both legacy rows and the current canonical shape. Local files and API models
+carry an explicit version; Catalyst rows are recognized from their existing
+business columns and do not require a dedicated ``SCHEMA_VERSION`` column.
 """
 
 from __future__ import annotations
@@ -17,13 +17,42 @@ CURRENT_PRODUCT_SCHEMA_VERSION = 2
 CURRENT_ADDRESS_SCHEMA_VERSION = 2
 
 
+_CURRENT_SCHEMA_COLUMNS = {
+    # Product Master v2 fields.
+    "CONFIG_ID",
+    "DISPLAY_SKU",
+    "DISPLAY_SKU_UOM",
+    "INNER_PACKS_PER_CASE",
+    "LENGTH_IN",
+    "WIDTH_IN",
+    "HEIGHT_IN",
+    "EACH_NET_WEIGHT_G",
+    "PACKAGE_NET_WEIGHT_G",
+    "GROSS_WEIGHT_LBS",
+    # Directory v2 fields.
+    "ADDRESS_ROLES",
+    "DEFAULT_LABEL_TEMPLATE_ID",
+    "VERIFICATION_STATUS",
+}
+
+
+def _has_current_schema_columns(row: Mapping[str, Any]) -> bool:
+    keys = {str(key).strip().upper() for key in row.keys()}
+    return bool(keys.intersection(_CURRENT_SCHEMA_COLUMNS))
+
+
 def read_schema_version(row: Mapping[str, Any], default: int = LEGACY_REFERENCE_SCHEMA_VERSION) -> int:
-    """Read a schema marker from JSON, API, or Catalyst column naming."""
+    """Read an explicit marker or infer v2 from existing Catalyst columns.
+
+    ``ROWID``, ``CREATORID``, ``CREATEDTIME`` and ``MODIFIEDTIME`` are Catalyst
+    system metadata. They are intentionally ignored when determining the
+    LabelKit reference-data schema.
+    """
     raw = row.get("schema_version", row.get("_schema_version", row.get("SCHEMA_VERSION")))
     try:
         version = int(str(raw).strip())
     except (TypeError, ValueError):
-        return default
+        return CURRENT_PRODUCT_SCHEMA_VERSION if _has_current_schema_columns(row) else default
     return version if version > 0 else default
 
 

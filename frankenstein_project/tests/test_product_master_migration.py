@@ -63,6 +63,32 @@ class ProductMasterMigrationTests(unittest.TestCase):
         self.assertEqual(CURRENT_ADDRESS_SCHEMA_VERSION, legacy_address["schema_version"])
         self.assertEqual(1, read_schema_version({"SKU": "unversioned"}))
 
+    def test_catalyst_current_schema_is_inferred_without_a_version_column(self):
+        catalyst_product = {
+            "ROWID": "101",
+            "CREATORID": "201",
+            "CREATEDTIME": "2026-09-01 10:00:00:000",
+            "MODIFIEDTIME": "2026-10-01 10:00:00:000",
+            "CONFIG_ID": "PRODUCT-1",
+            "PACKAGING_LEVEL": "Case",
+            "UNIQUE_KEY": "example|product-1|case",
+        }
+        catalyst_address = {
+            "ROWID": "102",
+            "RECORD_TYPE": "SHIP_TO",
+            "DEFAULT_LABEL_TEMPLATE_ID": "STANDARD_CASE_4X6",
+        }
+        catalyst_system_fields_only = {
+            "ROWID": "103",
+            "CREATORID": "201",
+            "CREATEDTIME": "2026-09-01 10:00:00:000",
+            "MODIFIEDTIME": "2026-10-01 10:00:00:000",
+        }
+
+        self.assertEqual(2, read_schema_version(catalyst_product))
+        self.assertEqual(2, read_schema_version(catalyst_address))
+        self.assertEqual(1, read_schema_version(catalyst_system_fields_only))
+
     def test_product_file_writer_versions_envelope_and_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "products.json"

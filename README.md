@@ -267,15 +267,13 @@ Use this sequence for reference-data migrations:
    `frankenstein_project/.local/migration-backups/` before replacing either
    JSON file. It preserves legacy fields during the rollback window.
 
-4. Back up the raw Catalyst `mpl_product_master` and `mpl_directory` tables.
-5. Validate backup row counts and representative records.
-6. Add the optional `SCHEMA_VERSION` column to both Catalyst tables.
-7. Migrate Catalyst rows in a separate release operation and validate counts,
-   keys, Product Master matching, and address resolution.
-
-Do not combine Catalyst record migration with a major frontend or backend
-refactor deployment. Current Catalyst writers deliberately omit
-`SCHEMA_VERSION` until the datastore columns and migration are ready.
+Catalyst requires no schema-version migration. Its existing Product Master and
+Directory business columns identify the current schema, while LabelKit's
+compatibility reader continues accepting older field names. The Catalyst-managed
+`ROWID`, `CREATORID`, `CREATEDTIME`, and `MODIFIEDTIME` columns remain unchanged
+and provide record identity and audit timestamps; they are not application
+schema markers. Do not add a `SCHEMA_VERSION` column or rewrite Catalyst rows
+solely for versioning.
 
 ## Dependency updates
 
