@@ -1,0 +1,28 @@
+/* Global reset, document canvas, typography, and accessibility defaults. */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--jdi-charcoal);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+button, a { font-family: 'DM Sans', sans-serif; }
+
+button:focus-visible,
+a:focus-visible,
+input[type="file"]:focus-visible,
+.drop-zone:focus-within {
+  outline: 3px solid rgba(232,68,42,0.28);
+  outline-offset: 3px;
+}
+
+.hidden { display: none !important; }

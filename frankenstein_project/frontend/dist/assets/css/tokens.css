@@ -1,0 +1,22 @@
+/* Shared design tokens. Module-specific accents remain in their owning stylesheets. */
+:root {
+  --jdi-orange: #e8442a;
+  --jdi-orange-dark: #c93820;
+  --kehe-blue: #0f5ea8;
+  --kehe-green: #12a389;
+  --jdi-charcoal: #2d2d2d;
+  --jdi-charcoal-mid: #3d3d3d;
+  --slate: #64748b;
+  --slate-light: #94a3b8;
+  --border: #e2e8f0;
+  --bg: #f4f7fa;
+  --navy: #17324a;
+  --navy-deep: #102638;
+  --teal: #0f766e;
+  --surface: #ffffff;
+  --shadow-sm: 0 6px 18px rgba(15, 38, 56, 0.07);
+  --shadow-md: 0 16px 42px rgba(15, 38, 56, 0.11);
+  --ok: #166534;
+  --err: #b91c1c;
+  --warn: #92400e;
+}
