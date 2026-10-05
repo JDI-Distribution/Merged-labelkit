@@ -1,4 +1,7 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from pipelines.kehe.common import (
@@ -16,7 +19,16 @@ from server import (
     _datastore_save_product_rows,
     _product_to_datastore_row,
     normalize_product_master_row,
+    _product_master_file_read,
+    _product_master_file_write,
 )
+from labelkit.reference_data import normalize_dc_directory_row
+from labelkit.reference_models import (
+    CURRENT_ADDRESS_SCHEMA_VERSION,
+    CURRENT_PRODUCT_SCHEMA_VERSION,
+    read_schema_version,
+)
+from scripts import migrate_reference_schema_v2
 
 
 REMOVED_COLUMNS = {"LABEL_REQUIRED", "DIMENSIONS_IN", "WEIGHT_LBS", "LABELS_PER_UNIT"}
@@ -24,6 +36,78 @@ REMOVED_KEYS = {"label_required", "dimensions_in", "weight_lbs", "labels_per_uni
 
 
 class ProductMasterMigrationTests(unittest.TestCase):
+    def test_legacy_and_versioned_reference_rows_share_one_canonical_model(self):
+        legacy_product = normalize_product_master_row({
+            "STOREFRONT": "KeHE",
+            "SKU": "LEGACY-CASE",
+            "PACKAGING_LEVEL": "Case",
+            "DIMENSIONS_IN": "12 x 8 x 6",
+        })
+        current_product = normalize_product_master_row({
+            "schema_version": CURRENT_PRODUCT_SCHEMA_VERSION,
+            "storefront": "KeHE",
+            "sku": "CURRENT-CASE",
+            "packaging_level": "Case",
+            "length_in": "12",
+            "width_in": "8",
+            "height_in": "6",
+        })
+        legacy_address = normalize_dc_directory_row({
+            "STOREFRONT": "KeHE",
+            "DC": "01",
+            "DELIVERY_ADDRESS": "100 Main St",
+        })
+
+        self.assertEqual(CURRENT_PRODUCT_SCHEMA_VERSION, legacy_product["schema_version"])
+        self.assertEqual(CURRENT_PRODUCT_SCHEMA_VERSION, current_product["schema_version"])
+        self.assertEqual(CURRENT_ADDRESS_SCHEMA_VERSION, legacy_address["schema_version"])
+        self.assertEqual(1, read_schema_version({"SKU": "unversioned"}))
+
+    def test_product_file_writer_versions_envelope_and_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "products.json"
+            written = _product_master_file_write([{
+                "STOREFRONT": "KeHE",
+                "SKU": "ABC",
+                "PACKAGING_LEVEL": "Each",
+            }], path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+            self.assertEqual(CURRENT_PRODUCT_SCHEMA_VERSION, payload["schema_version"])
+            self.assertEqual(CURRENT_PRODUCT_SCHEMA_VERSION, payload["rows"][0]["schema_version"])
+            self.assertEqual(written, _product_master_file_read(path))
+
+    def test_local_schema_migration_preserves_legacy_fields_for_rollback_window(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            product_path = root / "products.json"
+            address_path = root / "addresses.json"
+            product_path.write_text(json.dumps({"rows": [{
+                "SKU": "LEGACY",
+                "PACKAGING_LEVEL": "Case",
+                "legacy_note": "retain me",
+            }]}), encoding="utf-8")
+            address_path.write_text(json.dumps({"rows": [{
+                "DC": "01",
+                "DELIVERY_ADDRESS": "100 Main St",
+                "source_note": "retain me",
+            }]}), encoding="utf-8")
+
+            with (
+                patch.object(migrate_reference_schema_v2, "PRODUCT_FILE", product_path),
+                patch.object(migrate_reference_schema_v2, "ADDRESS_FILE", address_path),
+                patch.object(migrate_reference_schema_v2, "BACKUP_ROOT", root / "backups"),
+            ):
+                report = migrate_reference_schema_v2.run(apply=True)
+
+            products = json.loads(product_path.read_text(encoding="utf-8"))
+            addresses = json.loads(address_path.read_text(encoding="utf-8"))
+            self.assertTrue(report["applied"])
+            self.assertEqual("retain me", products["rows"][0]["legacy_note"])
+            self.assertEqual("retain me", addresses["rows"][0]["source_note"])
+            self.assertEqual(2, products["rows"][0]["schema_version"])
+            self.assertEqual(2, addresses["rows"][0]["schema_version"])
+
     def test_updated_input_template_is_importable_and_skips_usage_row(self):
         rows = _canonicalize_import_rows([
             {

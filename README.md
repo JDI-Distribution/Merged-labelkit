@@ -241,6 +241,42 @@ Use this order so Git, Docker, and Catalyst describe the same source:
 7. Run cloud health and authenticated workflow checks.
 8. Retain `latest`, the new dated release, and one known-good rollback image.
 
+## Reference-data schema migrations
+
+Product Master and Directory records use schema version 2. LabelKit continues
+to read unversioned legacy rows, so application compatibility can be deployed
+and verified before any production record is changed.
+
+Use this sequence for reference-data migrations:
+
+1. Deploy and validate the dual-reader application release.
+2. Preview the local migration:
+
+   ```powershell
+   Set-Location .\frankenstein_project
+   ..\.venv\Scripts\python.exe scripts\migrate_reference_schema_v2.py
+   ```
+
+3. Apply the local migration only when counts and duplicate checks are clean:
+
+   ```powershell
+   ..\.venv\Scripts\python.exe scripts\migrate_reference_schema_v2.py --apply
+   ```
+
+   The command writes timestamped rollback copies under
+   `frankenstein_project/.local/migration-backups/` before replacing either
+   JSON file. It preserves legacy fields during the rollback window.
+
+4. Back up the raw Catalyst `mpl_product_master` and `mpl_directory` tables.
+5. Validate backup row counts and representative records.
+6. Add the optional `SCHEMA_VERSION` column to both Catalyst tables.
+7. Migrate Catalyst rows in a separate release operation and validate counts,
+   keys, Product Master matching, and address resolution.
+
+Do not combine Catalyst record migration with a major frontend or backend
+refactor deployment. Current Catalyst writers deliberately omit
+`SCHEMA_VERSION` until the datastore columns and migration are ready.
+
 ## Dependency updates
 
 `requirements.txt` describes supported top-level dependency ranges. `requirements.lock` records the exact tested runtime dependency set used by Docker.

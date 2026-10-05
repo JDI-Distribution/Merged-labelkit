@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+from .reference_models import version_address_record, version_product_record
+
 DEFAULT_CASE_QTY_BY_LEVEL = {
     "Case": "",
     "Inner Pack": "",
@@ -273,7 +275,7 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
     label_enabled = _boolish(label_enabled_raw, False)
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
 
-    return {
+    return version_product_record({
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "storefront": storefront,
         "in_packing_list": in_packing_list,
@@ -300,7 +302,7 @@ def normalize_product_master_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "label_enabled": label_enabled,
         "is_active": is_active,
         "unique_key": _product_master_unique_key(gtin, packaging_level, storefront, sku, config_id=config_id),
-    }
+    })
 
 
 def _product_master_unique_key(
@@ -346,6 +348,8 @@ def parse_product_master_json(raw: Optional[str]) -> List[Dict[str, Any]]:
         data = json.loads(raw)
     except Exception:
         return []
+    if isinstance(data, dict):
+        data = data.get("rows")
     if not isinstance(data, list):
         return []
     return [normalize_product_master_row(r) for r in data if isinstance(r, dict)]
@@ -503,7 +507,7 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
         _first_value(row, "verification_status", "VERIFICATION_STATUS")
     )
     is_active = _boolish(_first_value(row, "is_active", "IS_ACTIVE"), True)
-    return {
+    return version_address_record({
         "id": _first_value(row, "id", "ROWID", "rowid"),
         "storefront": storefront,
         "dc": dc,
@@ -528,7 +532,7 @@ def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
             match_values,
             record_type,
         ),
-    }
+    })
 
 
 def _dc_directory_base_key(dc: str, storefront: str = "") -> str:

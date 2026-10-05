@@ -691,6 +691,7 @@ def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[P
     normalized = _dedupe_product_master_rows(rows)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": 2,
         "rows": normalized,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -1765,6 +1766,7 @@ def _dc_directory_file_write(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": 2,
         "rows": normalized,
         "updated_at": _now_iso(),
     }
