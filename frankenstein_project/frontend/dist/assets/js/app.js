@@ -504,8 +504,6 @@
   let keheExtractionRequestId = 0;
   let embeddedAuthMounted = false;
   let catalystBrowserSdkPromise = null;
-  const pages = ['home', 'michaels', 'kehe', 'operations', 'mpl', 'b2b', 'partners'];
-
   fetch('/health').catch(() => {});
 
   function updateMplSaveState(state = 'unsaved', detail = '') {
@@ -788,45 +786,27 @@
   }
 
   async function fetchWithTimeout(resource, options = {}, timeoutMs = 60000) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(resource, { ...options, signal: controller.signal });
-    } catch (err) {
-      if (err && err.name === 'AbortError') {
-        throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+    return window.LabelKitAPI.request(resource, options, timeoutMs);
   }
 
   function normalizePageName(pageName) {
-    return pages.includes(pageName) ? pageName : 'home';
+    return window.LabelKitRouter.normalizePageName(pageName);
   }
 
   function normalizeAppRoute(route = '') {
-    const clean = String(route || '')
-      .replace(/^#/, '')
-      .replace(/^\/+|\/+$/g, '')
-      .trim();
-    if (!clean) return 'home';
-    const [page, ...rest] = clean.split('/').filter(Boolean);
-    const normalizedPage = normalizePageName(page);
-    return [normalizedPage, ...rest].join('/');
+    return window.LabelKitRouter.normalizeRoute(route);
   }
 
   function getRouteFromHash() {
-    return normalizeAppRoute(window.location.hash || '#home');
+    return window.LabelKitRouter.fromHash();
   }
 
   function routePage(route = '') {
-    return normalizePageName(normalizeAppRoute(route).split('/')[0]);
+    return window.LabelKitRouter.page(route);
   }
 
   function routeSubpath(route = '') {
-    return normalizeAppRoute(route).split('/').slice(1).join('/');
+    return window.LabelKitRouter.subpath(route);
   }
 
   function getCurrentPage() {
@@ -834,32 +814,7 @@
   }
 
   function setHistoryRoute(route, replace = false) {
-    const normalized = normalizeAppRoute(route);
-    const nextHash = `#${normalized}`;
-    // Auth is complete before application navigation starts, so keep the
-    // visible URL canonical and independent of the path that served index.html.
-    const nextUrl = `/${nextHash}`;
-    const state = {
-      page: routePage(normalized),
-      route: normalized,
-      isOverlayRoute: !!routeSubpath(normalized),
-      pushedOverlayRoute: !replace && !!routeSubpath(normalized)
-    };
-    const currentHash = window.location.hash || '#home';
-
-    if (replace) {
-      history.replaceState(state, '', nextUrl);
-      return;
-    }
-
-    if (currentHash !== nextHash) {
-      history.pushState(state, '', nextUrl);
-      return;
-    }
-
-    if (!history.state || history.state.route !== normalized) {
-      history.replaceState(state, '', nextUrl);
-    }
+    return window.LabelKitRouter.write(route, { replace });
   }
 
   async function navigateToRoute(route, replace = false) {

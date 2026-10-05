@@ -719,12 +719,10 @@
     setStatus(`Loading Sales Order ${orderNumber}…`, 'info');
     showWorkflowProgress(0, `Loading Sales Order ${orderNumber}…`);
     try {
-      const response = await fetch('/api/order-documents/orders/lookup', {
+      const payload = await window.LabelKitAPI.json('/api/order-documents/orders/lookup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sales_order_number: orderNumber, ecomdash_id: String(selectedEcomdashId || '') }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || 'The sales order could not be loaded.');
       if (payload.requires_order_selection) {
         closeWorkflowProgress();
         showOperationsOrderInstances(orderNumber, payload.order_instances || []);
