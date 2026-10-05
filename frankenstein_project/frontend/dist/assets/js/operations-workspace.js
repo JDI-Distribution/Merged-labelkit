@@ -1,6 +1,6 @@
 /* Unified order-document workspace. The existing B2B, MPL, Ti-Hi, and pallet
    generators remain the single owners of their document formats. */
-  const orderDocumentsState = {
+  const orderDocumentsState = (globalThis.__labelKitState ||= Object.create(null)).orderDocuments ||= {
     payload: null,
     orderNumber: '',
     ecomdashId: '',

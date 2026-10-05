@@ -411,7 +411,8 @@
   let keheLastPalletLabelDraft = null;
   let keheMplPalletizationSource = 'Not generated';
   let kehePalletLabelSource = 'Not generated';
-  let appRuntimeConfig = {
+  const labelKitStateRegistry = globalThis.__labelKitState ||= Object.create(null);
+  const appRuntimeConfig = labelKitStateRegistry.runtime ||= {
     app_env: 'local',
     auth_required: false,
     auth_mode: 'none',
@@ -524,18 +525,22 @@
   });
 
   function hasPermission(permission) {
-    return !!appRuntimeConfig?.permissions?.[permission];
+    return window.LabelKitPermissions?.has(permission, appRuntimeConfig)
+      ?? !!appRuntimeConfig?.permissions?.[permission];
   }
 
   function allowBrowserLocalCache() {
-    return appRuntimeConfig?.allow_browser_local_cache !== false;
+    return window.LabelKitPermissions?.allowBrowserCache(appRuntimeConfig)
+      ?? appRuntimeConfig?.allow_browser_local_cache !== false;
   }
 
   function allowLocalFallback() {
-    return appRuntimeConfig?.allow_local_json_fallback !== false;
+    return window.LabelKitPermissions?.allowLocalFallback(appRuntimeConfig)
+      ?? appRuntimeConfig?.allow_local_json_fallback !== false;
   }
 
   function authUserLabel() {
+    if (window.LabelKitPermissions) return window.LabelKitPermissions.userLabel(appRuntimeConfig);
     const user = appRuntimeConfig?.user || {};
     return user.email || user.name || 'Signed in';
   }
@@ -577,16 +582,15 @@
       const res = await fetchWithTimeout('/api/auth/session', { cache: 'no-store' }, 15000);
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.detail || 'Could not load app session.');
-      appRuntimeConfig = { ...appRuntimeConfig, ...payload };
+      Object.assign(appRuntimeConfig, payload);
     } catch (_err) {
-      appRuntimeConfig = {
-        ...appRuntimeConfig,
+      Object.assign(appRuntimeConfig, {
         auth_required: true,
         auth_mode: 'embedded',
         authenticated: false,
         user: { authenticated: false, role: 'User', role_name: 'Unknown' },
         permissions: {}
-      };
+      });
     }
     if (!allowBrowserLocalCache()) {
       keheProductMasterRows = [];
