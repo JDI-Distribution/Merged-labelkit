@@ -1,7 +1,4 @@
-(function (global) {
-  'use strict';
-
-  function createMplDraftSync(options) {
+export function createMplDraftSync(options) {
     const delayMs = Number(options.delayMs || 30000);
     let timer = null;
     let dirty = false;
@@ -52,7 +49,7 @@
     function discard() { dirty = false; clearTimeout(timer); timer = null; }
     function dispose() { clearTimeout(timer); timer = null; }
     return { schedule, flush, markSaved, hasUnsavedChanges, discard, dispose };
-  }
+}
 
-  global.LabelKitDraftSync = { create: createMplDraftSync };
-})(window);
+export const draftSync = Object.freeze({ create: createMplDraftSync });
+globalThis.LabelKitDraftSync = draftSync;

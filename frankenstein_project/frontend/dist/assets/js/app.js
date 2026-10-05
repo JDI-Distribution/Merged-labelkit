@@ -517,12 +517,19 @@
       : 'Unsaved changes';
   }
 
-  const mplDraftSync = window.LabelKitDraftSync?.create({
-    delayMs: 30000,
-    canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft && hasPermission('save_mpl'),
-    save: () => saveActiveMplDraft({ showStatus: false, autoSave: true, createVersion: false }),
-    onState: updateMplSaveState
-  });
+  let mplDraftSync = null;
+
+  function ensureMplDraftSync() {
+    if (!mplDraftSync && window.LabelKitDraftSync) {
+      mplDraftSync = window.LabelKitDraftSync.create({
+        delayMs: 30000,
+        canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft && hasPermission('save_mpl'),
+        save: () => saveActiveMplDraft({ showStatus: false, autoSave: true, createVersion: false }),
+        onState: updateMplSaveState
+      });
+    }
+    return mplDraftSync;
+  }
 
   function hasPermission(permission) {
     return window.LabelKitPermissions?.has(permission, appRuntimeConfig)
@@ -753,6 +760,7 @@
 
   async function bootstrapLabelKit() {
     removeTemporaryUrlParameters();
+    ensureMplDraftSync();
     await loadAppRuntimeConfig();
     if (appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated) {
       return;

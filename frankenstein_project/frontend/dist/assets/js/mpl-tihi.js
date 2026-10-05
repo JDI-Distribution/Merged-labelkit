@@ -260,34 +260,15 @@
     return { palletCount: mpl._pallet_ids.length, warnings: [...warnings] };
   }
 
-  const TIHI_PALLET_LENGTH_IN = 48;
-  const TIHI_PALLET_WIDTH_IN = 40;
-  const TIHI_PALLET_MAX_HEIGHT_IN = 70;
-  const TIHI_PALLET_MAX_GROSS_LBS = 2000;
   const TIHI_PALLET_TARE_LBS = 50;
   const TIHI_PALLET_BUFFER_FACTOR = 1.05;
 
   function defaultTiHiConstraints() {
-    return {
-      max_length_in: TIHI_PALLET_LENGTH_IN,
-      max_width_in: TIHI_PALLET_WIDTH_IN,
-      max_height_in: TIHI_PALLET_MAX_HEIGHT_IN,
-      max_gross_lbs: TIHI_PALLET_MAX_GROSS_LBS
-    };
+    return window.LabelKitPackingModel.defaultConstraints();
   }
 
   function normalizeTiHiConstraints(raw = {}) {
-    const defaults = defaultTiHiConstraints();
-    const readPositive = (value, fallback) => {
-      const num = Number(value);
-      return Number.isFinite(num) && num > 0 ? num : fallback;
-    };
-    return {
-      max_length_in: readPositive(raw.max_length_in, defaults.max_length_in),
-      max_width_in: readPositive(raw.max_width_in, defaults.max_width_in),
-      max_height_in: readPositive(raw.max_height_in, defaults.max_height_in),
-      max_gross_lbs: readPositive(raw.max_gross_lbs, defaults.max_gross_lbs)
-    };
+    return window.LabelKitPackingModel.normalizeConstraints(raw);
   }
 
   function getMplTiHiConstraints(mpl, palletId = '') {
@@ -307,24 +288,7 @@
   }
 
   function bestTiHiOrientation(dims, constraints) {
-    if (!dims) return null;
-    const seen = new Set();
-    const candidates = [
-      [dims.l, dims.w],
-      [dims.w, dims.l]
-    ].map(([caseLength, caseWidth]) => {
-      const key = `${caseLength}x${caseWidth}`;
-      if (seen.has(key)) return null;
-      seen.add(key);
-      const columns = Math.floor(constraints.max_length_in / caseLength);
-      const rows = Math.floor(constraints.max_width_in / caseWidth);
-      const ti = columns * rows;
-      if (ti < 1) return null;
-      const fillRatio = (columns * caseLength * rows * caseWidth) / (constraints.max_length_in * constraints.max_width_in);
-      return { caseLength, caseWidth, caseHeight: dims.h, columns, rows, ti, fillRatio };
-    }).filter(Boolean);
-    if (!candidates.length) return null;
-    return candidates.sort((a, b) => (b.ti - a.ti) || (b.fillRatio - a.fillRatio) || (a.caseWidth - b.caseWidth))[0];
+    return window.LabelKitPackingModel.bestOrientation(dims, constraints);
   }
 
   function tihiLayerCapacity(group, constraints) {
@@ -336,15 +300,8 @@
     return item?.sku || item?.item_number || item?.gtin || item?.case_upc || item?.description || `Line ${index + 1}`;
   }
 
-  const TIHI_SKU_COLOR_PALETTE = [
-    '#d99a4b', '#7db3ff', '#8fd19e', '#f5a3a3',
-    '#b7a0ff', '#7fd8d0', '#f2cf63', '#f0b27a',
-    '#6cc4a1', '#b6d36f', '#f28bb3', '#86a9f4',
-    '#c89ee8', '#70c7e8', '#e2b66f', '#9fc0a0'
-  ];
-
   function tihiColorForIndex(index) {
-    return TIHI_SKU_COLOR_PALETTE[index % TIHI_SKU_COLOR_PALETTE.length];
+    return window.LabelKitPackingModel.colorForIndex(index);
   }
 
   function tihiColorIdentity(group) {
@@ -353,21 +310,11 @@
   }
 
   function tihiColorToRgb(color) {
-    const raw = String(color || '').trim().replace('#', '');
-    if (!/^[0-9a-f]{6}$/i.test(raw)) return [0.85, 0.60, 0.29];
-    return [
-      parseInt(raw.slice(0, 2), 16) / 255,
-      parseInt(raw.slice(2, 4), 16) / 255,
-      parseInt(raw.slice(4, 6), 16) / 255
-    ];
+    return window.LabelKitPackingModel.colorToRgb(color);
   }
 
   function tihiIntersectionArea(a, b) {
-    const x1 = Math.max(a.x, b.x);
-    const y1 = Math.max(a.y, b.y);
-    const x2 = Math.min(a.x + a.length, b.x + b.length);
-    const y2 = Math.min(a.y + a.width, b.y + b.width);
-    return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    return window.LabelKitPackingModel.intersectionArea(a, b);
   }
 
   function tihiRectsOverlap(a, b) {
@@ -375,7 +322,7 @@
   }
 
   function tihiTopZ(placement) {
-    return Number(placement.z || 0) + Number(placement.height ?? placement.case_height ?? 0);
+    return window.LabelKitPackingModel.topZ(placement);
   }
 
   function tihiZOverlaps(placement, baseZ, height) {
