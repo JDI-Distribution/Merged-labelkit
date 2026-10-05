@@ -431,20 +431,20 @@
     }
   };
   const KEHE_PRODUCT_MASTER_STORAGE_KEY = 'jdi_kehe_product_master_rows_v2';
-  let keheProductMasterRows = loadKeheProductMasterFromStorage();
+  let keheProductMasterRows = [];
   let keheProductMasterLoadPromise = null;
   const KEHE_DC_DIRECTORY_STORAGE_KEY = 'jdi_kehe_dc_directory_rows_v1';
   const MPL_PRODUCT_MASTER_STORAGE_KEY = 'jdi_mpl_product_master_rows_v1';
   const MPL_DIRECTORY_STORAGE_KEY = 'jdi_mpl_directory_rows_v1';
   const DEFAULT_KEHE_SHIP_FROM = 'BAKELL LLC\n1967 ESSEX CT\nREDLANDS, CA 92373\nUSA';
   let mplDirectorySharedShipFrom = DEFAULT_KEHE_SHIP_FROM;
-  let keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
+  let keheDcDirectoryRows = [];
   let keheDcDirectoryLoadPromise = null;
-  let mplProductMasterRows = loadMplProductMasterFromStorage();
+  let mplProductMasterRows = [];
   let mplProductMasterLoadPromise = null;
   let mplProductMasterSaveTimer = null;
   let mplProductEditorGroupKey = '';
-  let mplDirectoryRows = loadMplDirectoryFromStorage();
+  let mplDirectoryRows = [];
   let mplDirectoryLoadPromise = null;
   let mplDirectorySaveTimer = null;
   let mplDirectoryEditorIndex = -1;
@@ -499,7 +499,6 @@
   const B2B_PACKAGING_LEVELS = ['Each', 'Inner Pack', 'Case', 'Master Case', 'Pallet', 'Shipper Contents'];
   const B2B_BARCODE_TYPES = ['UPC_A', 'EAN_13', 'GTIN_14', 'NONE'];
   const B2B_VERIFICATION_STATUSES = ['DRAFT', 'NEEDS_REVIEW', 'VERIFIED', 'BLOCKED'];
-  const B2B_DIRECTORY_RECORD_TYPES = ['CUSTOMER_DEFAULT', 'DESTINATION', 'DISTRIBUTION_CENTER', 'SHIP_FROM', 'SHIP_TO', 'BILL_TO'];
   const mplLiveTiHiTimers = new Map();
   let keheExtractedLoadTimer = null;
   let keheExtractionRequestId = 0;
@@ -764,6 +763,12 @@
     await loadAppRuntimeConfig();
     if (appRuntimeConfig.auth_required && !appRuntimeConfig.authenticated) {
       return;
+    }
+    if (allowBrowserLocalCache()) {
+      keheProductMasterRows = loadKeheProductMasterFromStorage();
+      keheDcDirectoryRows = loadKeheDcDirectoryFromStorage();
+      mplProductMasterRows = loadMplProductMasterFromStorage();
+      mplDirectoryRows = loadMplDirectoryFromStorage();
     }
     try {
       await loadCustomerWorkflowConfig();

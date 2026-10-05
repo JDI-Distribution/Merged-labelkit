@@ -69,15 +69,7 @@
   }
 
   function normalizePackagingLevel(value) {
-    const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const compact = raw.replace(/\s+/g, '');
-    if (raw === 'master case' || raw === 'master carton' || compact === 'mastercase' || compact === 'mastercarton') return 'Master Case';
-    if (raw === 'pallet' || raw === 'plt') return 'Pallet';
-    if (raw === 'case' || raw === 'cases' || raw === 'master pack' || raw === 'master packs' || raw === 'mp' || compact === 'casepack') return 'Case';
-    if (raw === 'inner pack' || raw === 'inner packs' || raw === 'inner' || raw === 'ip' || compact === 'innerpack' || compact === 'innerpacks') return 'Inner Pack';
-    if (raw === 'each' || raw === 'ea') return 'Each';
-    if (raw === 'shipper contents' || raw === 'shipper content' || raw === 'shipper' || compact === 'shippercontents') return 'Shipper Contents';
-    return 'Other';
+    return window.LabelKitMasterData.normalizePackagingLevel(value);
   }
 
   function isCasePackagingLevel(value) {
@@ -85,27 +77,15 @@
   }
 
   function parseBooleanLike(value, defaultValue = false) {
-    if (typeof value === 'boolean') return value;
-    if (value === null || value === undefined) return defaultValue;
-    const raw = String(value).trim().toLowerCase();
-    if (!raw) return defaultValue;
-    if (['1', 'true', 'yes', 'y', 'on', 'checked', '✅', 'x'].includes(raw)) return true;
-    if (['0', 'false', 'no', 'n', 'off', 'unchecked', 'barcode on product'].includes(raw)) return false;
-    if (raw.includes('barcode') && raw.includes('product')) return false;
-    return defaultValue;
+    return window.LabelKitMasterData.parseBoolean(value, defaultValue);
   }
 
   function normalizeStorefront(value) {
-    const clean = String(value ?? '').trim();
-    return clean || 'KeHE';
+    return window.LabelKitMasterData.normalizeStorefront(value);
   }
 
   function isKeheStorefront(value) {
     return normalizeStorefront(value).toLowerCase() === 'kehe';
-  }
-
-  function normalizeInPackingList(row, packagingLevel) {
-    return isCasePackagingLevel(packagingLevel) && parseBooleanLike(row?.is_active ?? row?.IS_ACTIVE, true);
   }
 
   function isProductInPackingList(row) {
@@ -132,15 +112,7 @@
   }
 
   function normalizeB2BVerificationStatus(value) {
-    const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '_');
-    if (['APPROVED', 'READY'].includes(raw)) return 'VERIFIED';
-    if (B2B_VERIFICATION_STATUSES.includes(raw)) return raw;
-    return raw ? 'NEEDS_REVIEW' : 'DRAFT';
-  }
-
-  function normalizeB2BDirectoryRecordType(value) {
-    const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '_');
-    return B2B_DIRECTORY_RECORD_TYPES.includes(raw) ? raw : 'DESTINATION';
+    return window.LabelKitMasterData.normalizeVerificationStatus(value);
   }
 
   function normalizeCaseQty(value, level) {
@@ -151,93 +123,15 @@
   }
 
   function parsePositiveNumber(value) {
-    if (value === null || value === undefined || value === '') return null;
-    const parsed = Number(String(value).replace(/,/g, '').trim());
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    return window.LabelKitMasterData.positiveNumber(value);
   }
 
   function formatNumberString(value) {
-    if (value === null || value === undefined) return '';
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return '';
-    return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(6)));
-  }
-
-  function parseLegacyDimensions(value) {
-    const raw = String(value || '').trim().toLowerCase();
-    if (!raw) return null;
-    const cleaned = raw
-      .replace(/¼/g, '.25')
-      .replace(/½/g, '.5')
-      .replace(/¾/g, '.75')
-      .replace(/⅛/g, '.125')
-      .replace(/⅜/g, '.375')
-      .replace(/⅝/g, '.625')
-      .replace(/⅞/g, '.875')
-      .replace(/×/g, 'x')
-      .replace(/\((l|w|b|h)\)/g, '');
-    const values = cleaned.match(/-?\d+(?:\.\d+)?/g) || [];
-    if (values.length < 3) return null;
-    const length = parsePositiveNumber(values[0]);
-    const width = parsePositiveNumber(values[1]);
-    const height = parsePositiveNumber(values[2]);
-    if (!length || !width || !height) return null;
-    return { length, width, height };
+    return window.LabelKitMasterData.numberString(value);
   }
 
   function normalizeProductRow(row = {}) {
-    const packagingLevel = normalizePackagingLevel(row.packaging_level ?? row.packging_level ?? row['PACKGING LEVEL'] ?? row['PACKAGING LEVEL']);
-      const inPackingList = normalizeInPackingList(row, packagingLevel);
-      const legacyDimensions = String(row.dimensions_in ?? row['L X W X H (in)'] ?? row.lwh_in ?? '').trim();
-      const parsedLegacy = parseLegacyDimensions(legacyDimensions);
-      const lengthIn = parsePositiveNumber(row.length_in ?? row.LENGTH_IN ?? row.length) ?? parsedLegacy?.length ?? null;
-      const widthIn = parsePositiveNumber(row.width_in ?? row.WIDTH_IN ?? row.breadth_in ?? row.BREADTH_IN ?? row.breadth) ?? parsedLegacy?.width ?? null;
-      const heightIn = parsePositiveNumber(row.height_in ?? row.HEIGHT_IN ?? row.height) ?? parsedLegacy?.height ?? null;
-      const dimensionsDisplay = (lengthIn && widthIn && heightIn)
-        ? `${formatNumberString(lengthIn)} x ${formatNumberString(widthIn)} x ${formatNumberString(heightIn)}`
-        : legacyDimensions;
-      const configId = String(row.config_id ?? row.CONFIG_ID ?? '').trim();
-      const labelEnabledRaw = row.label_enabled ?? row.LABEL_ENABLED;
-      const isActiveRaw = row.is_active ?? row.IS_ACTIVE;
-    return {
-      storefront: normalizeStorefront(row.storefront ?? row.STOREFRONT ?? row['Storefront']),
-      in_packing_list: inPackingList,
-      gtin: String(row.gtin ?? row.GTIN ?? row.case_upc ?? row.upc ?? '').trim(),
-      description: String(row.description ?? row.DESCRIPTION ?? '').trim(),
-      packaging_level: packagingLevel,
-      dimensions_display: dimensionsDisplay,
-      length_in: formatNumberString(lengthIn),
-      width_in: formatNumberString(widthIn),
-      height_in: formatNumberString(heightIn),
-      each_net_weight_g: formatNumberString(parsePositiveNumber(row.each_net_weight_g ?? row.EACH_NET_WEIGHT_G)),
-      package_net_weight_g: formatNumberString(parsePositiveNumber(row.package_net_weight_g ?? row.PACKAGE_NET_WEIGHT_G)),
-      gross_weight_lbs: formatNumberString(parsePositiveNumber(row.gross_weight_lbs ?? row.GROSS_WEIGHT_LBS) ?? parsePositiveNumber(row.weight_lbs ?? row.WEIGHT_LBS)),
-      case_qty: normalizeCaseQty(
-        row.case_qty
-          ?? row['Case Qty']
-          ?? row['Eaches / Package']
-          ?? row.eaches_per_package
-          ?? row.eaches_per_case
-          ?? row.eaches_per_inner_pack
-          ?? row.case_quantity
-          ?? row.units_per_case,
-        packagingLevel
-      ),
-      sku: String(row.sku ?? row.SKU ?? row.item_number ?? '').trim(),
-      display_sku: String(row.display_sku ?? row.DISPLAY_SKU ?? row.display_item_number ?? '').trim(),
-      display_sku_uom: ['Each', 'Inner Pack', 'Case'].includes(normalizePackagingLevel(row.display_sku_uom ?? row.DISPLAY_SKU_UOM ?? row.display_sku_represents ?? 'Each'))
-        ? normalizePackagingLevel(row.display_sku_uom ?? row.DISPLAY_SKU_UOM ?? row.display_sku_represents ?? 'Each')
-        : 'Each',
-      inner_packs_per_case: formatNumberString(parsePositiveNumber(row.inner_packs_per_case ?? row.INNER_PACKS_PER_CASE ?? row.inners_per_case)),
-      config_id: configId,
-      customer_item_number: String(row.customer_item_number ?? row.CUSTOMER_ITEM_NUMBER ?? '').trim(),
-      label_template_id: String(row.label_template_id ?? row.LABEL_TEMPLATE_ID ?? '').trim(),
-      barcode_type: String(row.barcode_type ?? row.BARCODE_TYPE ?? '').trim(),
-      default_copies: normalizeDefaultCopies(row.default_copies ?? row.DEFAULT_COPIES ?? row.labels_per_unit ?? row['Labels / Unit'], packagingLevel),
-      verification_status: normalizeB2BVerificationStatus(row.verification_status ?? row.VERIFICATION_STATUS),
-      label_enabled: labelEnabledRaw === undefined ? false : parseBooleanLike(labelEnabledRaw, false),
-      is_active: isActiveRaw === undefined ? true : parseBooleanLike(isActiveRaw, true)
-    };
+    return window.LabelKitMasterData.normalizeProduct(row);
   }
 
   function isPackLabelLevel(row) {
@@ -1394,113 +1288,25 @@
   }
 
   function parseDcMatchValues(value) {
-    if (Array.isArray(value)) {
-      return value.map(v => String(v || '').trim()).filter(Boolean);
-    }
-
-    const raw = String(value || '').trim();
-    if (!raw) return [];
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.map(v => String(v || '').trim()).filter(Boolean);
-      }
-    } catch (_err) {}
-
-    return raw.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
+    return window.LabelKitMasterData.parseMatchValues(value);
   }
 
   const DIRECTORY_ADDRESS_ROLES = ['SHIP_FROM', 'SHIP_TO', 'BILL_TO'];
 
   function normalizeDirectoryRoles(value, fallback = '') {
-    const values = Array.isArray(value) ? value : String(value || '').split(/[,;|]+/);
-    const selected = new Set(values.map(item => String(item || '').trim().toUpperCase().replace(/\s+/g, '_')));
-    const fallbackType = normalizeB2BDirectoryRecordType(fallback);
-    if (!DIRECTORY_ADDRESS_ROLES.some(role => selected.has(role)) && DIRECTORY_ADDRESS_ROLES.includes(fallbackType)) {
-      selected.add(fallbackType);
-    }
-    return DIRECTORY_ADDRESS_ROLES.filter(role => selected.has(role));
+    return window.LabelKitMasterData.normalizeDirectoryRoles(value, fallback);
   }
 
   function directoryHasRole(row, role) {
-    const wanted = String(role || '').trim().toUpperCase();
-    const roles = normalizeDirectoryRoles(
-      row?.address_roles ?? row?.ADDRESS_ROLES ?? row?.record_type ?? row?.RECORD_TYPE,
-      row?.address_type ?? row?.ADDRESS_TYPE
-    );
-    return roles.includes(wanted);
+    return window.LabelKitMasterData.directoryHasRole(row, role);
   }
 
   function directoryRoleLabel(roles = []) {
-    const labels = { SHIP_FROM: 'Ship From', SHIP_TO: 'Ship To', BILL_TO: 'Bill To' };
-    return normalizeDirectoryRoles(roles).map(role => labels[role]).filter(Boolean).join(' + ') || 'Address';
-  }
-
-  function deriveDirectoryMatchValues(row = {}) {
-    const values = [];
-    const seen = new Set();
-    const add = value => {
-      const text = String(value || '').trim();
-      const key = text.toLowerCase();
-      if (!text || seen.has(key) || ['usa', 'us', 'united states', 'canada'].includes(key)) return;
-      seen.add(key);
-      values.push(text);
-    };
-    parseDcMatchValues(row.match_values ?? row.MATCH_VALUES ?? []).forEach(add);
-    add(row.dc ?? row.DC);
-    add(row.name ?? row.NAME);
-    const address = String(row.address ?? row.ADDRESS ?? '').trim();
-    if (address) {
-      add(address);
-      address.split(/\r?\n/).map(line => line.trim()).filter(Boolean).forEach(line => {
-        add(line);
-        const city = line.split(',')[0]?.trim();
-        if (city && city.length > 2 && !/^\d/.test(city)) add(city);
-      });
-      (address.match(/\b\d{5}(?:-\d{4})?\b|\b[A-Z]\d[A-Z][ -]?\d[A-Z]\d\b/gi) || []).forEach(add);
-      (address.match(/\b\d{8,14}\b/g) || []).forEach(add);
-    }
-    return values;
+    return window.LabelKitMasterData.directoryRoleLabel(roles);
   }
 
   function normalizeDcDirectoryRow(row = {}) {
-    const rawRecordType = row.record_type ?? row.RECORD_TYPE ?? row.address_type ?? row.ADDRESS_TYPE;
-    const legacyRecordType = normalizeB2BDirectoryRecordType(rawRecordType);
-    const addressRoles = normalizeDirectoryRoles(row.address_roles ?? row.ADDRESS_ROLES ?? rawRecordType, legacyRecordType);
-    const recordType = addressRoles.length ? addressRoles.join(',') : legacyRecordType;
-    let shipFrom = String(row.ship_from ?? row.SHIP_FROM ?? row['SHIP FROM'] ?? '').trim();
-    let deliveryAddress = String(row.delivery_address ?? row.DELIVERY_ADDRESS ?? '').trim();
-    let billingAddress = String(row.billing_address ?? row.BILLING_ADDRESS ?? '').trim();
-    let address = String(row.address ?? row.ADDRESS ?? '').trim();
-    if (!address) {
-      if (addressRoles.includes('SHIP_FROM')) address = shipFrom;
-      else if (addressRoles.includes('BILL_TO')) address = billingAddress;
-      else address = deliveryAddress;
-    }
-    if (addressRoles.length) {
-      shipFrom = addressRoles.includes('SHIP_FROM') ? address : '';
-      deliveryAddress = addressRoles.includes('SHIP_TO') ? address : '';
-      billingAddress = addressRoles.includes('BILL_TO') ? address : '';
-    } else {
-      shipFrom ||= DEFAULT_KEHE_SHIP_FROM;
-    }
-    return {
-      storefront: normalizeStorefront(row.storefront ?? row.STOREFRONT ?? row['Storefront']),
-      dc: String(row.dc ?? row.DC ?? '').trim(),
-      name: String(row.name ?? row.NAME ?? '').trim(),
-      ship_from: shipFrom,
-      delivery_address: deliveryAddress,
-      billing_address: billingAddress,
-      address_type: addressRoles[0] || legacyRecordType,
-      address_roles: addressRoles,
-      address,
-      match_values: deriveDirectoryMatchValues({ ...row, dc: String(row.dc ?? row.DC ?? '').trim(), name: String(row.name ?? row.NAME ?? '').trim(), address }),
-      record_type: recordType,
-      default_label_template_id: String(row.default_label_template_id ?? row.DEFAULT_LABEL_TEMPLATE_ID ?? '').trim(),
-      verification_status: normalizeB2BVerificationStatus(row.verification_status ?? row.VERIFICATION_STATUS),
-      is_active: parseBooleanLike(row.is_active ?? row.IS_ACTIVE, true),
-    };
+    return window.LabelKitMasterData.normalizeDirectory(row, { defaultShipFrom: DEFAULT_KEHE_SHIP_FROM });
   }
 
   function expandLegacyMplDirectoryRows(rawRows = []) {
