@@ -98,7 +98,9 @@ from labelkit.security import allowed_origins, apply_security_headers  # noqa: E
 from labelkit.order_intake import (  # noqa: E402
     _analytics_case_conversion,
     _analytics_order_details,
+    _analytics_order_instance_groups,
     _analytics_order_item_fallback,
+    _analytics_kehe_case_conversion,
     _analytics_quantity,
     _analytics_row_value,
     _analytics_source_metadata,
