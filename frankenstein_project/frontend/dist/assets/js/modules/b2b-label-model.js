@@ -1,10 +1,9 @@
 /* Pure transformation from order lines and packaging data into B2B label jobs. */
-(function () {
   function canonicalCustomer(value) {
     return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
   }
 
-  function resolveB2BTemplateChoice({ templates, customer, productTemplateId, directoryTemplateId, currentTemplateId }) {
+  export function resolveB2BTemplateChoice({ templates, customer, productTemplateId, directoryTemplateId, currentTemplateId }) {
     const available = (templates || []).filter(template => template && template.template_id);
     const availableById = new Map(available.map(template => [String(template.template_id), template]));
     const preferredIds = [currentTemplateId, productTemplateId, directoryTemplateId]
@@ -34,14 +33,14 @@
     };
   }
 
-  function selectedTemplateIds(job) {
+  export function selectedTemplateIds(job) {
     const configured = Array.isArray(job?.template_ids) ? job.template_ids : [];
     return [...new Set([...configured, job?.template_id]
       .map(value => String(value || '').trim())
       .filter(Boolean))];
   }
 
-  function expandB2BTemplateJobs(jobs) {
+  export function expandB2BTemplateJobs(jobs) {
     return (jobs || []).flatMap(job => selectedTemplateIds(job).map(templateId => ({
       ...job,
       template_id: templateId,
@@ -52,7 +51,7 @@
     })));
   }
 
-  function buildB2BOrderLabelJobs({
+  export function buildB2BOrderLabelJobs({
     orderItems,
     fallbackProducts,
     productRows,
@@ -182,7 +181,11 @@
     });
   }
 
-  const api = { buildB2BOrderLabelJobs, resolveB2BTemplateChoice, selectedTemplateIds, expandB2BTemplateJobs };
-  window.LabelKitB2BOrderJobs = api;
-  globalThis.LabelKitB2BOrderJobs = api;
-})();
+export const b2bLabelModel = Object.freeze({
+  buildB2BOrderLabelJobs,
+  resolveB2BTemplateChoice,
+  selectedTemplateIds,
+  expandB2BTemplateJobs,
+});
+
+globalThis.LabelKitB2BOrderJobs = b2bLabelModel;
