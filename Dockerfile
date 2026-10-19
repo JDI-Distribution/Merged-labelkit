@@ -35,7 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd --system labelkit && useradd --system --gid labelkit --home-dir /app labelkit
 
 COPY --from=wheels /wheels /wheels
-RUN python -m pip install --no-cache-dir /wheels/* && rm -rf /wheels
+# Match PYTHONDONTWRITEBYTECODE by keeping dependency installs source-only too.
+RUN python -m pip install --no-cache-dir --no-compile /wheels/* && rm -rf /wheels
 
 COPY --chown=labelkit:labelkit frankenstein_project/ ./
 
