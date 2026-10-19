@@ -195,6 +195,38 @@ class MplTemplateTests(unittest.TestCase):
         self.assertIn("SHIPMENT AND PALLET DETAIL", text)
         self.assertNotIn("COMPACT PACKING LIST", text)
 
+    def test_address_blocks_preserve_lines_without_inserting_separators(self):
+        for template in ("standard", "kehe"):
+            with self.subTest(template=template), tempfile.TemporaryDirectory() as temp_dir:
+                draft = self._draft(template, standalone=template != "kehe")
+                addresses = {
+                    "supplier_info": ["BAKELL LLC", "1967 ESSEX CT", "REDLANDS, CA 92373", "USA"],
+                    "bill_to": ["BILLING CUSTOMER", "4500 INDUSTRY PARK DR", "SAN ANTONIO, TX 78218", "US"],
+                    "ship_to": ["RECEIVING CUSTOMER", "RECEIVING DEPARTMENT", "123 MAIN ST", "BUILDING B", "REDLANDS, CA 92373", "USA"],
+                }
+                draft["packing_lists"][0].update({key: "\r\n".join(lines) for key, lines in addresses.items()})
+                output_path = Path(temp_dir) / "addresses.pdf"
+                render_kehe_master_packing_list_pdf(draft, str(output_path))
+                with fitz.open(output_path) as document:
+                    page = document[0]
+                    self.assertNotIn(" | ", page.get_text())
+                    for heading, field in (("SUPPLIER INFO:", "supplier_info"), ("BILL TO:", "bill_to"), ("SHIP TO:", "ship_to")):
+                        header = page.search_for(heading)[0]
+                        column = fitz.Rect(header.x0 - 80, header.y1, header.x1 + 80, header.y1 + 60)
+                        address_text = page.get_text(clip=column)
+                        rendered_lines = [
+                            ("".join(span["text"] for span in line["spans"]), line["bbox"][1])
+                            for block in page.get_text("dict", clip=column)["blocks"]
+                            for line in block.get("lines", [])
+                        ]
+                        previous_y = header.y1
+                        for line in addresses[field]:
+                            self.assertIn(line, address_text)
+                            matches = [top for text, top in rendered_lines if text == line]
+                            self.assertTrue(matches, line)
+                            self.assertGreater(matches[0], previous_y)
+                            previous_y = matches[0]
+
     def test_standard_letterhead_text_is_editable_and_reaches_pdf(self):
         draft = self._draft("standard")
         mpl = draft["packing_lists"][0]

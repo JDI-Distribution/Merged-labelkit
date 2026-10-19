@@ -540,18 +540,21 @@ def _render_mpl_header(
         c.setFont("Helvetica-Bold", 7)
         c.drawCentredString(cx + col_w / 2, y - header_h / 2 - 2.7, label)
         address_font = 6.2 if compact else 6.8
-        max_address_lines = 4 if compact else 5
+        max_address_lines = max(4 if compact else 5, len(_mpl_clean(value).splitlines()))
         lines, fitted_address_font = fit_text_lines(
-            _mpl_clean(value).replace("\n", " | "),
+            _mpl_clean(value),
             "Helvetica",
             address_font,
             col_w - 12,
             max_address_lines,
             min_font_size=4.2,
+            preserve_line_breaks=True,
         )
         c.setFont("Helvetica", fitted_address_font)
         ty = y - header_h - (0.09 if compact else 0.12) * inch
         address_leading = (7 if compact else 8) * (fitted_address_font / address_font)
+        if len(lines) > 1:
+            address_leading = min(address_leading, (ty - (y - addr_h + 5)) / (len(lines) - 1))
         for line in lines:
             c.drawCentredString(cx + col_w / 2, ty, line)
             ty -= address_leading

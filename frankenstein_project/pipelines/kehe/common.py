@@ -86,18 +86,24 @@ def fit_text_lines(
     max_width: float,
     max_lines: int,
     min_font_size: float = 3.5,
+    *,
+    preserve_line_breaks: bool = False,
 ) -> Tuple[List[str], float]:
     """Shrink text until every character fits in the requested line box."""
-    clean = re.sub(r"\s+", " ", str(text or "").strip())
-    if not clean:
+    paragraphs = str(text or "").splitlines() if preserve_line_breaks else [str(text or "")]
+    paragraphs = [re.sub(r"\s+", " ", part).strip() for part in paragraphs if part.strip()]
+    if not paragraphs:
         return [], font_size
+    def wrapped(size: float) -> List[str]:
+        return [line for part in paragraphs for line in wrap_text(part, font_name, size, max_width, max_lines=9999)]
+
     fitted_size = font_size
     while fitted_size > min_font_size:
-        lines = wrap_text(clean, font_name, fitted_size, max_width, max_lines=9999)
+        lines = wrapped(fitted_size)
         if len(lines) <= max_lines:
             return lines, fitted_size
         fitted_size = max(min_font_size, fitted_size - 0.5)
-    return wrap_text(clean, font_name, fitted_size, max_width, max_lines=9999), fitted_size
+    return wrapped(fitted_size), fitted_size
 
 
 def _draw_fitted_line(
