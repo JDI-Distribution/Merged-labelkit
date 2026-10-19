@@ -22,6 +22,8 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 SUPPORTED_RENDERERS = {
+    "generic_1_4x6",
+    "generic_2barcode_4x6",
     "bulk_further_processing_4x6",
     "compact_case_3x3",
     "decopac_case_4x6",
@@ -236,6 +238,8 @@ def _draw_barcode(
     y: float,
     max_width: float,
     max_height: float,
+    *,
+    bar_width: float | None = None,
 ) -> None:
     digits = _digits(value)
     kind = _text(barcode_type).upper().replace("-", "_")
@@ -244,6 +248,7 @@ def _draw_barcode(
 
     code_name = "Code128"
     encoded = digits
+    drawing_options = {"barWidth": bar_width} if bar_width is not None else {}
     if kind in {"UPC", "UPC_A", "UPCA"} and len(digits) == 12:
         code_name = "UPCA"
     elif kind in {"EAN", "EAN_13", "EAN13"} and len(digits) == 13:
@@ -255,6 +260,7 @@ def _draw_barcode(
             value=encoded,
             humanReadable=True,
             barHeight=max_height,
+            **drawing_options,
         )
     except Exception:
         drawing = createBarcodeDrawing(
@@ -262,6 +268,7 @@ def _draw_barcode(
             value=encoded,
             humanReadable=True,
             barHeight=max_height,
+            **drawing_options,
         )
 
     scale = min(max_width / drawing.width, max_height / drawing.height, 1.0)
@@ -551,6 +558,67 @@ def _draw_standard_case_vertical(c: canvas.Canvas, job: Dict[str, Any], carton: 
         c.restoreState()
 
 
+def _reference_case_pack(job: Dict[str, Any], *, pounds: bool = False) -> str:
+    override = _text(_job_value(job, "pack_text"))
+    if override:
+        return override
+    if pounds:
+        grams = _text(_job_value(job, "package_net_weight_g"))
+        try:
+            lbs = float(grams) / 453.59237
+            if math.isfinite(lbs) and lbs > 0:
+                return f"x{lbs:g} lbs per Case"
+        except (TypeError, ValueError):
+            pass
+        qty = _text(_job_value(job, "case_qty"))
+        return f"{qty} units per Case" if qty else ""
+    qty = _text(_job_value(job, "case_qty"))
+    each_weight = _text(_job_value(job, "each_net_weight_g"))
+    return f"({qty} x {each_weight}g)" if each_weight else f"{qty} units per Case"
+
+
+def _draw_reference_case(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int,
+                         width: float, height: float, *, barcode: bool = False) -> None:
+    """Two 3 x 4 inch panels on a landscape 6 x 4 thermal sheet."""
+    panel_width = width / 2
+    margin = 0.12 * inch
+    for index in range(2):
+        c.saveState()
+        c.translate(index * panel_width, 0)
+        center = panel_width / 2
+        text_width = panel_width - 2 * margin
+        if barcode:
+            description = _job_value(job, "description")
+            _draw_wrapped_in_box(c, description, margin + text_width * 0.1, height - 0.46 * inch,
+                                 text_width * 0.8, height - 0.85 * inch, font="Times-Bold", size=17,
+                                 max_lines=2, centered=True)
+            _draw_fitted_line(c, _reference_case_pack(job), center, height - 0.98 * inch,
+                             text_width, font="Times-Bold", size=16, align="center")
+            _draw_fitted_line(c, f"SKU: {_job_value(job, 'sku')}", center, height - 1.70 * inch,
+                             text_width, font="Times-Bold", size=10, align="center")
+            if _barcode_requested(job):
+                _draw_barcode(c, _job_value(job, "gtin"), _job_value(job, "barcode_type"),
+                              margin, height - 2.83 * inch, text_width, 0.91 * inch,
+                              bar_width=0.8)
+            _draw_fitted_line(c, f"{carton} of {total}", center, 0.79 * inch,
+                             text_width, font="Times-Bold", size=31, align="center")
+            _draw_fitted_line(c, f"PO #{_job_value(job, 'po_number')}", center, 0.39 * inch,
+                             text_width, font="Times-Bold", size=17, align="center")
+        else:
+            _draw_fitted_line(c, "Box", center, height - 0.95 * inch,
+                             text_width, font="Times-Bold", size=28, align="center")
+            _draw_fitted_line(c, f"{carton} of {total}", center, height - 1.53 * inch,
+                             text_width, font="Times-Bold", size=29, align="center")
+            _draw_fitted_line(c, f"PO #{_job_value(job, 'po_number')}", center, height - 2.10 * inch,
+                             text_width, font="Times-Bold", size=24, align="center")
+            _draw_wrapped_in_box(c, _job_value(job, "description"), margin, height - 2.52 * inch,
+                                 text_width, 0.85 * inch, font="Times-Bold", size=11,
+                                 max_lines=2, centered=True)
+            _draw_fitted_line(c, _reference_case_pack(job, pounds=True), center, 0.36 * inch,
+                             text_width, font="Times-Bold", size=14, align="center")
+        c.restoreState()
+
+
 def _draw_bulk(c: canvas.Canvas, job: Dict[str, Any], carton: int, total: int, width: float, height: float) -> None:
     _draw_border(c, width, height)
     margin = 0.20 * inch
@@ -607,6 +675,10 @@ def _page_size(template: Dict[str, Any]) -> Tuple[float, float]:
 
 def _renderer_for(template: Dict[str, Any]) -> Callable[[canvas.Canvas, Dict[str, Any], int, int, float, float], None]:
     key = _text(template.get("renderer_key"))
+    if key == "generic_1_4x6":
+        return _draw_reference_case
+    if key == "generic_2barcode_4x6":
+        return partial(_draw_reference_case, barcode=True)
     if key == "decopac_case_4x6":
         return _draw_decopac
     if key == "disney_case_3x3":
@@ -686,7 +758,9 @@ def render_b2b_label_pdf(
     renderer = _renderer_for(template)
     render_job = dict(job)
     render_run = dict(_run(job))
-    if "print_barcode" not in render_run:
+    if _text(template.get("barcode_policy")).upper() == "REQUIRED":
+        render_run["print_barcode"] = True
+    elif "print_barcode" not in render_run:
         policy = _text(template.get("barcode_policy")).upper()
         options = template.get("renderer_options") if isinstance(template.get("renderer_options"), dict) else {}
         render_run["print_barcode"] = policy in {"OPTIONAL", "REQUIRED"} or bool(options.get("show_barcode"))

@@ -1524,6 +1524,28 @@
       padding-top: 11px;
     }
 
+/* Customer reference layouts: two identical 3 x 4 panels, white thermal stock. */
+.b2b-label-reference-sheet { aspect-ratio: 3 / 2; background: #fff; color: #000; container-type: inline-size; }
+.b2b-label-reference-sheet > .b2b-label-reference {
+  position: relative; display: block; padding: 0; font-family: "Times New Roman", Times, serif;
+  text-align: center; background: #fff; border: 0;
+  font-size: calc(100cqw / 43.2);
+}
+.b2b-label-reference-sheet > .b2b-label-panel + .b2b-label-panel { border: 0; }
+.b2b-label-reference > * { position: absolute; left: 4%; width: 92%; margin: 0; line-height: 1.08; }
+.b2b-label-generic-plain .b2b-reference-box { top: 15%; font-size: 2.8em; }
+.b2b-label-generic-plain .b2b-reference-number { top: 30%; font-size: 2.9em; }
+.b2b-label-generic-plain .b2b-reference-po { top: 45%; font-size: 2.4em; }
+.b2b-label-generic-plain .b2b-reference-description { top: 60%; font-size: 1.1em; font-weight: bold; }
+.b2b-label-generic-plain .b2b-reference-weight { bottom: 7%; font-size: 1.4em; }
+.b2b-label-generic-barcode .b2b-reference-title { top: 6%; font-size: 1.7em; font-weight: bold; padding: 0 8%; box-sizing: border-box; }
+.b2b-label-generic-barcode .b2b-reference-pack { top: 20%; font-size: 1.6em; }
+.b2b-label-generic-barcode .b2b-reference-sku { top: 38%; font-size: 1em; }
+.b2b-label-generic-barcode .b2b-label-barcode { top: 47%; left: 9%; width: 82%; font-size: .7em; }
+.b2b-label-generic-barcode .b2b-label-bars { height: 4.7em; }
+.b2b-label-generic-barcode .b2b-reference-number { top: 72%; font-size: 3.1em; }
+.b2b-label-generic-barcode .b2b-reference-po { bottom: 7%; font-size: 1.7em; }
+
     @media (max-width: 1120px) {.b2b-workbench-grid { grid-template-columns: 1fr; }.b2b-editor-work-area { grid-template-columns: 1fr; }.b2b-run-settings-panel { position: static; }.b2b-settings-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); }.b2b-resolution-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.b2b-selected-label-card { grid-template-columns: minmax(220px, 1fr) minmax(300px, 1fr); }.b2b-selected-label-card .b2b-edit-order-label { grid-column: 1 / -1; width: 100%; }.b2b-resolution-grid > div:nth-child(3) { border-right: 0; }.b2b-resolution-grid > div:nth-child(-n + 3) { border-bottom: 1px solid var(--b2b-line); }#mpl-directory-modal .directory-card-body .mpl-unified-fields-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }.b2b-template-gallery-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }.b2b-template-gallery-search { grid-column: 1 / -1; }.b2b-template-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -35,6 +35,7 @@ Thumbs.db
 *.egg-info/
 build/
 outputs/
+output/
 
 # Local utility and temp files
 check_frontend.js

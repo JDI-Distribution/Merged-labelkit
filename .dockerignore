@@ -8,6 +8,7 @@ _sop_work/
 node_modules/
 **/node_modules/
 outputs/
+output/
 frankenstein_project/package.json
 frankenstein_project/package-lock.json
 frankenstein_project/playwright.config.cjs

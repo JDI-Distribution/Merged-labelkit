@@ -69,7 +69,7 @@ class B2BLabelRendererTests(unittest.TestCase):
         }
 
     def test_registry_has_a_working_renderer_for_every_supported_label(self):
-        self.assertEqual(11, len(self.templates))
+        self.assertEqual(13, len(self.templates))
         for template in self.templates:
             with self.subTest(template=template["template_id"]):
                 job = self._job(template)
@@ -90,6 +90,8 @@ class B2BLabelRendererTests(unittest.TestCase):
                     self.assertIn("3", text)
                 elif renderer == "decopac_case_4x6":
                     self.assertIn("Carton No.  2 of 3", text)
+                elif renderer in {"generic_1_4x6", "generic_2barcode_4x6"}:
+                    self.assertIn("2 of 3", text)
                 else:
                     self.assertIn("Box 2 of 3", text)
 
@@ -108,6 +110,8 @@ class B2BLabelRendererTests(unittest.TestCase):
                 "STANDARD_CASE_PACK_4X6",
                 "STANDARD_CASE_PACK_VERTICAL_4X6",
                 "BULK_FURTHER_PROCESSING_4X6",
+                "PURPLE_PEARL_CASE_4X6",
+                "CROWN_SPRINKS_CASE_4X6",
             },
             template_ids,
         )
@@ -308,6 +312,8 @@ class B2BLabelRendererTests(unittest.TestCase):
             "FANCY_SRD_3X3": "Brew Glitter Red 4g Pump Case",
             "STANDARD_CASE_PACK_4X6": "Box 1 of 1",
             "STANDARD_CASE_PACK_VERTICAL_4X6": "Box 1 of 1",
+            "PURPLE_PEARL_CASE_4X6": "1 of 1",
+            "CROWN_SPRINKS_CASE_4X6": "1 of 1",
         }
         for template_id, repeated_text in expected_repeat_text.items():
             template = next(item for item in self.templates if item["template_id"] == template_id)
@@ -319,6 +325,63 @@ class B2BLabelRendererTests(unittest.TestCase):
                 self.assertAlmostEqual(6 * 72, document[0].rect.width, delta=0.5)
                 self.assertAlmostEqual(4 * 72, document[0].rect.height, delta=0.5)
                 self.assertGreaterEqual(document[0].get_text().count(repeated_text), 2)
+
+    def test_reference_labels_use_run_po_and_net_case_weight(self):
+        template = next(t for t in self.templates if t["template_id"] == "PURPLE_PEARL_CASE_4X6")
+        job = self._job(template)
+        job["product"].update({"package_net_weight_g": "4535.9237", "gross_weight_lbs": "15"})
+        job["run"].update({"po_number": "6191475", "carton_start": "199", "carton_end": "200", "carton_total": "200"})
+        result = render_b2b_label_pdf(job, template)
+        with fitz.open(stream=result["pdf_bytes"], filetype="pdf") as doc:
+            self.assertEqual(doc.page_count, 2)
+            for index, page in enumerate(doc):
+                text = page.get_text()
+                self.assertEqual(text.count(f"{199 + index} of 200"), 2)
+                self.assertEqual(text.count("PO #6191475"), 2)
+                self.assertEqual(text.count("x10 lbs per Case"), 2)
+                self.assertNotIn("15 lbs", text)
+
+    def test_crown_reference_uses_case_barcode_pack_and_per_order_total(self):
+        template = next(t for t in self.templates if t["template_id"] == "CROWN_SPRINKS_CASE_4X6")
+        job = self._job(template)
+        job["product"].update({"sku": "BKS1033-PL-95G-12CT", "gtin": "10850079841588",
+                               "barcode_type": "GTIN_14", "case_qty": "12", "each_net_weight_g": "95"})
+        job["run"].update({"po_number": "26154046931", "carton_start": "183", "carton_end": "183",
+                           "carton_total": "183", "print_barcode": False})
+        result = render_b2b_label_pdf(job, template)
+        with fitz.open(stream=result["pdf_bytes"], filetype="pdf") as doc:
+            text = doc[0].get_text()
+            for expected in ["183 of 183", "PO #26154046931", "(12 x 95g)",
+                             "SKU: BKS1033-PL-95G-12CT", "10850079841588"]:
+                self.assertEqual(text.count(expected), 2)
+
+    def test_generic_templates_accept_unrelated_products_and_custom_pack_text(self):
+        for template in self.templates:
+            if template.get("renderer_key") not in {"generic_1_4x6", "generic_2barcode_4x6"}:
+                continue
+            self.assertEqual(template["customer"], "")
+            job = self._job(template)
+            job["product"].update({"description": "Vanilla Flavor Concentrate", "sku": "VANILLA-24CT",
+                                   "case_qty": "24", "each_net_weight_g": "", "package_net_weight_g": ""})
+            job["run"]["pack_text"] = "24 x 100 mL Bottles"
+            result = render_b2b_label_pdf(job, template)
+            with fitz.open(stream=result["pdf_bytes"], filetype="pdf") as doc:
+                text = "".join(page.get_text() for page in doc)
+                self.assertIn("Vanilla Flavor Concentrate", text)
+                self.assertIn("24 x 100 mL Bottles", text)
+                self.assertNotIn("Shaker", text)
+                self.assertNotIn("Crown", text)
+                self.assertNotIn("Purple", text)
+
+    def test_generic_pack_falls_back_to_case_quantity_without_weights(self):
+        for template in self.templates:
+            if template.get("renderer_key") not in {"generic_1_4x6", "generic_2barcode_4x6"}:
+                continue
+            job = self._job(template)
+            job["product"].update({"case_qty": "24", "each_net_weight_g": "", "package_net_weight_g": ""})
+            result = render_b2b_label_pdf(job, template)
+            with fitz.open(stream=result["pdf_bytes"], filetype="pdf") as doc:
+                self.assertIn("24 units per Case", doc[0].get_text())
 
     def test_fancy_pallet_defaults_to_two_copies_per_pallet(self):
         template = next(item for item in self.templates if item["template_id"] == "FANCY_PALLET_3X3")

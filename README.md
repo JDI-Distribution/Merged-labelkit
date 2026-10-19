@@ -27,6 +27,14 @@ Legacy hashes remain compatible:
 - `#b2b` opens Order Documents on Customer Labels.
 - `#partners` opens Order Documents on Customer Labels.
 
+Two reusable customer-label templates are available for any customer or SKU:
+`GENERIC_1` without a barcode and `Generic_2barcode` with a required barcode.
+Both use a landscape 6 × 4 inch sheet containing two repeated 3 × 4 inch panels.
+Descriptions, PO numbers, carton sequences, and pack wording come from the
+selected product and print job. Pack wording can be edited directly in the
+label preview. Existing product assignments remain compatible with these
+renamed templates.
+
 ## How order documents work
 
 1. Enter the Sales Order Number.

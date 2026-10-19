@@ -338,6 +338,70 @@
         "description"
       ],
       "source": "WS CP - No Label Needed workbook sheet; further-processing statement retained"
+    },
+    {
+      "template_id": "PURPLE_PEARL_CASE_4X6",
+      "name": "GENERIC_1",
+      "customer": "",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "generic_1_4x6",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "NONE",
+      "allowed_barcode_types": [
+        "NONE"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "optional_run_fields": [
+        "pack_text"
+      ],
+      "required_product_fields": [
+        "description"
+      ],
+      "source": "Reusable dual-panel 4x6 layout based on the supplied reference; dynamic product description, pack text, PO and carton sequence."
+    },
+    {
+      "template_id": "CROWN_SPRINKS_CASE_4X6",
+      "name": "Generic_2barcode",
+      "customer": "",
+      "version": 1,
+      "status": "ACTIVE",
+      "renderer_key": "generic_2barcode_4x6",
+      "physical_width_in": 6,
+      "physical_height_in": 4,
+      "orientation": "LANDSCAPE",
+      "default_copies": 1,
+      "barcode_policy": "REQUIRED",
+      "allowed_barcode_types": [
+        "UPC_A",
+        "EAN_13",
+        "GTIN_14"
+      ],
+      "required_run_fields": [
+        "po_number",
+        "carton_total",
+        "carton_start",
+        "carton_end"
+      ],
+      "optional_run_fields": [
+        "pack_text"
+      ],
+      "required_product_fields": [
+        "description",
+        "sku",
+        "case_qty",
+        "gtin",
+        "barcode_type"
+      ],
+      "source": "Reusable dual-panel 4x6 layout based on the supplied reference; dynamic description, pack text, SKU, required barcode, PO and carton sequence."
     }
   ]
 }

@@ -218,7 +218,7 @@
     const templates = activeTemplates.filter(template => {
       const haystack = `${template.name || ''} ${template.template_id || ''} ${template.customer || ''} ${b2bTemplateGallerySize(template)}`.toLowerCase();
       return (!search || haystack.includes(search))
-        && (!customerFilter || String(template.customer || '') === customerFilter)
+        && (!customerFilter || !String(template.customer || '').trim() || String(template.customer || '') === customerFilter)
         && (!selectedType || b2bTemplateGalleryType(template) === selectedType)
         && (!sizeFilter || b2bTemplateGallerySize(template) === sizeFilter);
     });
@@ -252,10 +252,13 @@
     const template = b2bLabelTemplates.find(candidate => String(candidate.template_id || '') === cleanId);
     if (!template) return;
     const templateCustomer = String(template.customer || '').trim();
-    const customerChanged = templateCustomer
-      && normalizeStorefront(templateCustomer).toLowerCase() !== normalizeStorefront(b2bSelectedCustomer).toLowerCase();
+    const selectedCustomer = templateCustomer
+      || String(document.getElementById('b2b-template-gallery-customer')?.value || '').trim()
+      || b2bSelectedCustomer;
+    const customerChanged = selectedCustomer
+      && normalizeStorefront(selectedCustomer).toLowerCase() !== normalizeStorefront(b2bSelectedCustomer).toLowerCase();
     if (customerChanged) {
-      b2bSelectedCustomer = templateCustomer;
+      b2bSelectedCustomer = selectedCustomer;
       b2bSelectedGroupKey = '';
       b2bSelectedProductIndex = -1;
       b2bSelectedDirectoryIndex = -1;
@@ -264,7 +267,8 @@
     }
     const currentIds = b2bTemplateIdsForJob().filter(id => {
       const candidate = b2bLabelTemplates.find(item => String(item.template_id || '') === id);
-      return !templateCustomer || normalizeStorefront(candidate?.customer).toLowerCase() === normalizeStorefront(templateCustomer).toLowerCase();
+      return !templateCustomer || !String(candidate?.customer || '').trim()
+        || normalizeStorefront(candidate?.customer).toLowerCase() === normalizeStorefront(templateCustomer).toLowerCase();
     });
     b2bSelectedTemplateIds = selected ? uniqueTextValues([...currentIds, cleanId]) : currentIds.filter(id => id !== cleanId);
     b2bSelectedTemplateId = selected ? cleanId : (b2bSelectedTemplateIds[0] || '');
@@ -563,6 +567,8 @@
   ]);
 
   const B2B_RENDERER_PRODUCT_FIELDS = {
+    generic_1_4x6: ['description', 'case_qty', 'package_net_weight_g'],
+    generic_2barcode_4x6: ['description', 'sku', 'case_qty', 'each_net_weight_g', 'gtin', 'barcode_type'],
     decopac_case_4x6: ['customer_item_number', 'description', 'case_qty', 'each_net_weight_g', 'package_net_weight_g', 'length_in', 'width_in', 'height_in'],
     disney_case_3x3: ['customer_item_number', 'description'],
     compact_case_3x3: ['description', 'sku', 'customer_item_number', 'case_qty'],
@@ -615,7 +621,7 @@
       }
     });
     const note = document.getElementById('b2b-settings-note');
-    if (note) note.textContent = `${template?.name || 'This label'} uses the fields shown first. GTIN/barcode is optional unless enabled in the print run; other product data is kept for different labels and TI-HI.`;
+    if (note) note.textContent = `${template?.name || 'This label'} uses the fields shown first. ${barcodePolicy === 'REQUIRED' ? 'The case barcode is required for this label.' : barcodePolicy === 'NONE' ? 'This layout does not print a barcode.' : 'GTIN/barcode is optional unless enabled in the print run.'} Other product data is kept for different labels and TI-HI.`;
   }
 
   function getSelectedB2BFinalCaseEntry() {
@@ -739,6 +745,43 @@
     const options = template?.renderer_options || {};
     const barcodeVisible = b2bPrintBarcodeEnabled(product, runFields);
     const barcodeHtml = b2bBarcodePreviewHtml(product, context);
+
+    if (renderer === 'generic_1_4x6' || renderer === 'generic_2barcode_4x6') {
+      const withBarcode = renderer === 'generic_2barcode_4x6';
+      const grams = Number(product?.package_net_weight_g);
+      const pounds = Number.isFinite(grams) && grams > 0
+        ? `x${Number((grams / 453.59237).toPrecision(8))} lbs per Case`
+        : `${String(product?.case_qty || '')} units per Case`;
+      const referenceBarcode = b2bBarcodePreviewHtml(product, {
+        ...context, runFields: { ...runFields, print_barcode: true },
+      });
+      const title = edit('description', 'Product description', 'b2b-edit-wide');
+      const packDefault = withBarcode
+        ? (String(product?.each_net_weight_g || '').trim()
+          ? `(${product?.case_qty || ''} x ${product.each_net_weight_g}g)`
+          : `${product?.case_qty || ''} units per Case`)
+        : pounds;
+      const pack = b2bEditableRunValue('pack_text', 'Pack details', '', {
+        ...context, runFields: { ...runFields, pack_text: runFields.pack_text || packDefault },
+      });
+      const panel = withBarcode
+        ? `<div class="b2b-label-panel b2b-label-reference b2b-label-generic-barcode">
+            <div class="b2b-reference-title">${title}</div>
+            <strong class="b2b-reference-pack">${pack}</strong>
+            <strong class="b2b-reference-sku">SKU: ${edit('sku', 'Case SKU')}</strong>
+            ${referenceBarcode}
+            <strong class="b2b-reference-number">${carton} of ${total}</strong>
+            <strong class="b2b-reference-po">PO #${runEdit('po_number', 'Enter PO number')}</strong>
+          </div>`
+        : `<div class="b2b-label-panel b2b-label-reference b2b-label-generic-plain">
+            <strong class="b2b-reference-box">Box</strong>
+            <strong class="b2b-reference-number">${carton} of ${total}</strong>
+            <strong class="b2b-reference-po">PO #${runEdit('po_number', 'Enter PO number')}</strong>
+            <div class="b2b-reference-description">${edit('description', 'Product description', 'b2b-edit-wide')}</div>
+            <strong class="b2b-reference-weight">${pack}</strong>
+          </div>`;
+      return `<div class="b2b-label-sheet b2b-label-dual b2b-label-dual-side b2b-label-reference-sheet">${panel}${panel}</div>`;
+    }
 
     if (renderer === 'decopac_case_4x6') {
       const manufacturer = runValue('manufacturer_name', 'name') || 'DECOPAC, INC';
@@ -946,6 +989,15 @@
       if (input) {
         input.disabled = !isVisible;
         input.required = isVisible && required.has(field);
+        if (field === 'print_barcode' && template?.barcode_policy === 'REQUIRED') {
+          input.checked = true;
+          input.disabled = true;
+          b2bRunFields.print_barcode = 'true';
+        } else if (field === 'print_barcode' && template?.barcode_policy === 'NONE') {
+          input.checked = false;
+          input.disabled = true;
+          b2bRunFields.print_barcode = 'false';
+        }
       }
     });
     const empty = document.getElementById('b2b-run-fields-empty');
@@ -1479,7 +1531,7 @@
       ...getB2BProductEntries('').map(entry => entry.row.storefront),
       ...mplDirectoryRows.map(row => normalizeDcDirectoryRow(row).storefront).filter(storefront => !isKeheStorefront(storefront)),
     ]);
-    if (!customers.includes(b2bSelectedCustomer)) {
+    if (b2bSelectedCustomer && !customers.includes(b2bSelectedCustomer)) {
       b2bSelectedCustomer = '';
       b2bSelectedGroupKey = '';
       b2bSelectedProductIndex = -1;
@@ -1488,7 +1540,9 @@
       b2bSelectedTemplateIds = [];
     }
     setNativeSelectOptions(document.getElementById('b2b-customer-select'), customers, b2bSelectedCustomer, customers.length ? 'Select customer' : 'No customers available');
-    setB2BSelectorVisibility('customer', !loadedOrder && !galleryMode);
+    const genericSelected = b2bTemplateIdsForJob().some(id =>
+      !String(b2bLabelTemplates.find(template => template.template_id === id)?.customer || '').trim());
+    setB2BSelectorVisibility('customer', !loadedOrder && (!galleryMode || genericSelected));
 
     const hasCustomer = !!b2bSelectedCustomer;
     const groups = hasCustomer ? getB2BProductGroups() : [];
@@ -1555,7 +1609,8 @@
       directoryTemplateId: directory.default_label_template_id,
     }) : galleryMode ? {
       selectedId: b2bSelectedTemplateId,
-      compatible: b2bLabelTemplates.filter(template => !b2bSelectedCustomer || normalizeStorefront(template.customer).toLowerCase() === normalizeStorefront(b2bSelectedCustomer).toLowerCase()),
+      compatible: b2bLabelTemplates.filter(template => !String(template.customer || '').trim()
+        || !b2bSelectedCustomer || normalizeStorefront(template.customer).toLowerCase() === normalizeStorefront(b2bSelectedCustomer).toLowerCase()),
       options: b2bLabelTemplates,
     } : { selectedId: '', options: [] };
     const templateChoices = templateResolution.options.map(template => template.template_id);

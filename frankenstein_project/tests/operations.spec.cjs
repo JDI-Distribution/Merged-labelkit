@@ -44,7 +44,7 @@ test('Custom Labels resets order state, selects multiple templates, and reports 
   await page.getByRole('button', { name: 'Create Label Without an Order' }).click();
   await page.selectOption('#b2b-template-gallery-customer', 'Fancy Sprinkles');
   const fancyChecks = page.locator('#b2b-template-gallery-grid input[type="checkbox"]');
-  await expect(fancyChecks).toHaveCount(3);
+  await expect(fancyChecks).toHaveCount(5);
   await fancyChecks.nth(0).check();
   await fancyChecks.nth(1).check();
   await expect(page.locator('#b2b-template-gallery-grid input:checked')).toHaveCount(2);
@@ -59,6 +59,19 @@ test('Custom Labels resets order state, selects multiple templates, and reports 
   await expect(page.locator('#operations-sales-order-number')).toBeFocused();
   await expect(page).toHaveURL(/#operations$/);
   expect(errors).toEqual([]);
+});
+
+test('Generic label layouts remain selectable across customer filters', async ({ page }) => {
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Label Without an Order' }).click();
+  for (const customer of ['DecoPac', 'Dutch Bros', 'Fancy Sprinkles']) {
+    await page.selectOption('#b2b-template-gallery-customer', customer);
+    await expect(page.getByRole('checkbox', { name: /GENERIC_1/ })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: /Generic_2barcode/ })).toBeVisible();
+  }
+  await page.getByRole('checkbox', { name: /GENERIC_1/ }).check();
+  await page.getByRole('checkbox', { name: /Generic_2barcode/ }).check();
+  await expect(page.locator('#b2b-template-gallery-grid input:checked')).toHaveCount(2);
 });
 
 test('Pallet labels use an editable manual count when packing list output is excluded', async ({ page }) => {
