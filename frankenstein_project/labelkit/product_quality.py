@@ -73,11 +73,18 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         groups[_group_key(row, index)].append(index)
 
     duplicate_counts = Counter(_duplicate_key(row) for row in normalized)
+    configuration_level_counts = Counter(
+        (str(row.get("storefront") or "").casefold(), str(row.get("config_id") or "").casefold(), row.get("packaging_level"))
+        for row in normalized if row.get("config_id")
+    )
     row_issues: List[List[Dict[str, str]]] = [[] for _ in normalized]
     group_results: List[Dict[str, Any]] = []
 
     for index, row in enumerate(normalized):
         raw = raw_rows[index]
+        identity = (str(row.get("storefront") or "").casefold(), str(row.get("config_id") or "").casefold(), row.get("packaging_level"))
+        if row.get("config_id") and configuration_level_counts[identity] > 1:
+            row_issues[index].append(_issue("configuration_level_conflict", "More than one row uses this Configuration ID and packaging level. Different formulations need different IDs.", "duplicate"))
         gtin = str(row.get("gtin") or "").strip()
         if not gtin:
             row_issues[index].append(_issue("missing_gtin", "GTIN is missing."))

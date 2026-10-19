@@ -501,9 +501,9 @@
       } else {
         saveMplProductMasterToStorage();
       }
-    } catch (_err) {
-      // Browser cache remains available if backend persistence is temporarily unavailable.
+    } catch (err) {
       saveMplProductMasterToStorage();
+      setStatus(`Product Master was not saved to the server: ${err.message || 'Save failed'}. Your edits remain in this browser.`, 'error');
     }
   }
 
@@ -533,6 +533,56 @@
     const storefront = normalizeStorefront(normalized.storefront).toLowerCase() || 'no-storefront';
     const productIdentity = String(normalized.config_id || normalized.sku || normalized.customer_item_number || normalized.gtin || `row-${index}`).trim().toLowerCase();
     return `${storefront}|${productIdentity}`;
+  }
+
+  function mplSharedSku(entries) {
+    const each = mplProductLevelEntry(entries, 'Each')?.row || entries[0]?.row || {};
+    return String(each.sku || each.display_sku || '').trim();
+  }
+
+  function mplSkuSiblingConfigurations(entries) {
+    const sku = mplSharedSku(entries).toLowerCase();
+    if (!sku) return [];
+    const groups = new Map();
+    mplProductMasterRows.forEach((raw, index) => {
+      const row = normalizeProductRow(raw);
+      const key = mplProductGroupKey(row, index);
+      if (!groups.has(key)) groups.set(key, { key, entries: [] });
+      groups.get(key).entries.push({ row, index });
+    });
+    return [...groups.values()].filter(group => mplSharedSku(group.entries).toLowerCase() === sku);
+  }
+
+  function addSkuConfiguration(groupKey) {
+    if (!hasPermission('table_crud')) return;
+    const entries = mplProductEntriesForGroup(groupKey);
+    const source = entries[0]?.row;
+    const sku = mplSharedSku(entries);
+    if (!source || !sku) {
+      setStatus('Enter the SKU before adding another configuration.', 'error');
+      return;
+    }
+    addMplProductRow({
+      storefront: source.storefront,
+      sku,
+      display_sku: sku,
+      customer_item_number: source.customer_item_number || '',
+      description: '',
+      gtin: '',
+      verification_status: 'DRAFT',
+      label_enabled: false,
+      is_active: true,
+    });
+    document.querySelector('#mpl-product-editor-body .mpl-product-description-field input')?.focus();
+  }
+
+  function updateProductSku(groupKey, value) {
+    if (!hasPermission('table_crud')) return;
+    const entries = mplProductEntriesForGroup(groupKey);
+    const each = mplProductLevelEntry(entries, 'Each');
+    if (!each) return;
+    mplProductMasterRows[each.index].sku = String(value || '').trim();
+    updateMplProductGroupField(groupKey, 'display_sku', String(value || '').trim());
   }
 
   function mplPositivePackageQuantity(value) {
@@ -645,6 +695,19 @@
     const entries = mplProductEntriesForGroup(groupKey);
     if (!entries.length) return;
     let normalizedValue = value;
+    if (key === 'config_id') {
+      normalizedValue = String(value || '').trim();
+      const ownIndexes = new Set(entries.map(entry => entry.index));
+      const unchanged = normalizedValue.toLowerCase() === String(entries[0].row.config_id || '').trim().toLowerCase();
+      const alreadyUsed = !unchanged && mplProductMasterRows.some((row, index) =>
+        !ownIndexes.has(index) && String(row.config_id || '').trim().toLowerCase() === normalizedValue.toLowerCase()
+      );
+      if (!normalizedValue || alreadyUsed) {
+        setStatus(!normalizedValue ? 'Configuration ID cannot be blank.' : 'That Configuration ID belongs to another product. Enter a different ID.', 'error');
+        renderMplProductEditor();
+        return;
+      }
+    }
     if (key === 'storefront') normalizedValue = normalizeStorefront(value);
     if (key === 'verification_status') normalizedValue = normalizeB2BVerificationStatus(value);
     if (key === 'display_sku_uom') {
@@ -808,6 +871,8 @@
     const eachEntry = mplProductLevelEntry(entries, 'Each') || entries[0];
     const outermost = mplProductOutermostEntry(entries) || eachEntry;
     const shared = eachEntry.row;
+    const siblings = mplSkuSiblingConfigurations(entries);
+    const sharedSku = mplSharedSku(entries);
     const outer = outermost.row;
     const levels = [...new Set(entries.map(entry => normalizePackagingLevel(entry.row.packaging_level)))];
     const levelEntries = entries
@@ -824,19 +889,22 @@
     const calculatedProductWeight = mplCalculatedProductWeight(entries);
     const calculatedProductWeightLbs = mplCalculatedProductWeightLbs(entries);
     const packagedWeight = outer.gross_weight_lbs || calculatedProductWeightLbs;
-    const storedProductSku = String(shared.config_id || '').trim();
-    const eachSkuSuffix = shared.sku ? `-${shared.sku}` : '';
-    const productSku = storedProductSku.startsWith('ORDER-') && eachSkuSuffix && storedProductSku.endsWith(eachSkuSuffix)
-      ? shared.sku
-      : (storedProductSku || shared.sku || '');
     const title = document.getElementById('mpl-product-editor-title');
-    if (title) title.textContent = `${productSku || 'New product'} · Product setup`;
+    if (title) title.textContent = `${shared.description || sharedSku || 'New product'} · Product setup`;
     body.innerHTML = `<div class="master-record-form-stack">
+      ${siblings.length > 1 ? `<section class="mpl-sku-configurations" aria-label="SKU configurations">
+        <header><div><strong>SKU: ${escapeHtml(sharedSku)}</strong><p>Each configuration keeps its own name, GTINs and packaging details.</p></div></header>
+        <div class="mpl-sku-configuration-list">${siblings.map(group => {
+          const item = mplProductLevelEntry(group.entries, 'Each')?.row || group.entries[0].row;
+          return `<button type="button" class="btn-table-preview ${group.key === mplProductEditorGroupKey ? 'is-current' : ''}" aria-pressed="${group.key === mplProductEditorGroupKey}" onclick="openMplProductEditor('${jsString(group.key)}')">${escapeHtml(item.description || 'New configuration')} · ${escapeHtml(item.gtin || 'GTIN needed')} · ${escapeHtml(item.storefront)}</button>`;
+        }).join('')}</div>
+      </section>` : ''}
       <section class="mpl-product-shared-card">
-        <header><div><span>Product identity</span><h3>${escapeHtml(productSku || 'New product')}</h3><p>Name the product and give the complete packaging hierarchy one shared Product SKU.</p></div><span class="directory-autosave-badge">Saves to Product Master</span></header>
+        <header><div><span>Product identity</span><h3>${escapeHtml(shared.description || sharedSku || 'New product')}</h3><p>Its packaging levels belong to this configuration only.</p></div>${canEdit ? `<button class="btn-table-preview" type="button" title="Add a different product with the same SKU" ${sharedSku ? '' : 'disabled'} onclick="addSkuConfiguration('${jsString(mplProductEditorGroupKey)}')">+ Add configuration</button>` : ''}</header>
         <div class="mpl-product-shared-grid master-product-shared-grid">
-          <label>Customer <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'storefront', this.value)">${selectOptionsHtml(b2bCustomerOptions(outer.storefront), outer.storefront, 'Select customer')}</select></label>
-          <label>Product SKU <input ${editDisabled} value="${escapeHtml(productSku)}" placeholder="Example: ABC100" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'config_id', this.value)"><small>Groups all levels. Orders match the exact level SKU below: ABC100 can be Each while ABC100-100 can be Case.</small></label>
+          <label>Customer <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'storefront', this.value)">${selectOptionsHtml(uniqueTextValues([...b2bCustomerOptions(outer.storefront), 'Michaels']), outer.storefront, 'Select customer')}</select></label>
+          <label>Product SKU <input ${editDisabled} value="${escapeHtml(sharedSku)}" onchange="updateProductSku('${jsString(mplProductEditorGroupKey)}', this.value)"><small>Matching SKUs appear together across customers. Changing this moves only this configuration.</small></label>
+          ${siblings.length > 1 ? `<label>Configuration ID <input ${editDisabled} maxlength="72" value="${escapeHtml(shared.config_id || '')}" placeholder="Example: WHITE-PEARL-NATURAL" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'config_id', this.value)"><small>Another product uses this SKU. Give each configuration a distinct ID; repeat it on its packaging rows when importing.</small></label>` : ''}
           <label class="mpl-product-description-field">Product name <input ${editDisabled} value="${escapeHtml(shared.description || '')}" placeholder="Name shown on labels and packing lists" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'description', this.value)"><small>Shared by Each, Inner Pack, and Case. The same product name is available to labels and packing lists.</small></label>
           <label>Customer Item Number <input ${editDisabled} value="${escapeHtml(shared.customer_item_number || '')}" placeholder="Optional customer-facing item number" onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'customer_item_number', this.value)"><small>Shared by Each, Inner Pack, and Case. Used as the customer-facing Item #; the Level SKU still determines the order UOM.</small></label>
         </div>
@@ -883,10 +951,10 @@
       groupsByKey.get(key).entries.push(entry);
     });
     let groups = [...groupsByKey.values()].sort((left, right) => {
-      const leftRow = left.entries[0]?.row || {};
-      const rightRow = right.entries[0]?.row || {};
-      return `${leftRow.storefront}|${leftRow.sku}|${leftRow.description}`.localeCompare(
-        `${rightRow.storefront}|${rightRow.sku}|${rightRow.description}`,
+      const leftRow = mplProductLevelEntry(left.entries, 'Each')?.row || left.entries[0]?.row || {};
+      const rightRow = mplProductLevelEntry(right.entries, 'Each')?.row || right.entries[0]?.row || {};
+      return `${leftRow.sku}|${leftRow.storefront}|${leftRow.description}`.localeCompare(
+        `${rightRow.sku}|${rightRow.storefront}|${rightRow.description}`,
         undefined,
         { sensitivity: 'base', numeric: true }
       );
@@ -916,6 +984,7 @@
       return;
     }
 
+    const displayedSkus = new Set();
     body.innerHTML = groups.map(group => {
       group.entries.sort((left, right) => {
         const leftOrder = levelOrder.get(left.row.packaging_level) ?? levelOptions.length;
@@ -926,6 +995,15 @@
       const primaryEntry = mplProductOutermostEntry(group.entries);
       const primaryRow = primaryEntry?.row || {};
       const sharedRow = eachEntry?.row || primaryRow;
+      const sharedSku = mplSharedSku(group.entries);
+      const skuKey = sharedSku.toLowerCase();
+      const siblings = mplSkuSiblingConfigurations(group.entries);
+      const hasSharedSku = siblings.length > 1;
+      let skuHeader = '';
+      if (hasSharedSku && sharedSku && !displayedSkus.has(skuKey)) {
+        displayedSkus.add(skuKey);
+        skuHeader = `<tr class="mpl-shared-sku-row"><td colspan="2"><div class="mpl-shared-sku-heading"><div><strong>${escapeHtml(sharedSku)}</strong><span>${siblings.length} configurations · ${escapeHtml([...new Set(siblings.map(sibling => sibling.entries[0].row.storefront))].join(', '))}</span></div>${hasPermission('table_crud') ? `<button class="btn-table-preview" type="button" title="Add a different product with the same SKU" onclick="addSkuConfiguration('${jsString(group.key)}')">+ Add configuration</button>` : ''}</div></td></tr>`;
+      }
       const groupSummary = mplProductPackageBreakdown(primaryRow, group.entries);
       const verification = primaryRow.verification_status || 'UNSET';
       const outermostLabel = primaryRow.packaging_level || 'Each';
@@ -943,8 +1021,8 @@
         const dimensionState = dimensionsReady ? 'dimensions ready' : 'dimensions needed';
         return `<span class="product-level-badge ${state}">${escapeHtml(level)} · ${escapeHtml(row.sku || 'SKU needed')} · ${escapeHtml(dimensionState)} · ${escapeHtml(labelState)}</span>`;
       }).join('');
-      return `
-        <tr class="mpl-product-group-row">
+      return `${skuHeader}
+        <tr class="mpl-product-group-row ${hasSharedSku ? 'mpl-sku-configuration-row' : ''}">
           <td colspan="2">
             <div class="mpl-product-group-shell">
               <button class="mpl-product-group-toggle" type="button" data-group-key="${escapeHtml(group.key)}" onclick="openMplProductEditor('${jsString(group.key)}')">
@@ -952,6 +1030,7 @@
                 <span class="mpl-product-group-identity">
                   <strong>${escapeHtml(sharedRow.sku || primaryRow.sku || sharedRow.display_sku || primaryRow.customer_item_number || 'SKU not set')}</strong>
                   <span>${escapeHtml(sharedRow.description || primaryRow.description || 'Description not set')}</span>
+                  <span>GTIN: ${escapeHtml(sharedRow.gtin || 'Not set')} · ${sharedRow.is_active ? 'In Use' : 'Inactive'}</span>
                 </span>
                 <span class="mpl-product-group-meta">${escapeHtml(primaryRow.storefront || 'No storefront')} · Outermost: ${escapeHtml(outermostLabel)} · ${escapeHtml(verification)} <span class="product-quality-badge ${qualityState}" title="${escapeHtml((groupQuality.issues || []).map(issue => issue.message).join(' · ') || 'Complete')}">${groupQuality.score}% complete</span></span>
                 <span class="mpl-product-group-summary"><span>${escapeHtml(groupSummary)}</span><span class="product-capability-strip">${capabilityBadges}</span><span class="product-level-strip">${levelBadges}</span></span>
@@ -970,7 +1049,7 @@
     const defaultStorefront = ['b2b', 'operations'].includes(selectedKit)
       ? (b2bSelectedCustomer || 'New Customer')
       : 'KeHE';
-    const configId = String(seed.config_id || `DRAFT-${Date.now()}`).trim();
+    const configId = String(seed.config_id || `CFG-${crypto.randomUUID()}`).trim();
     const newRow = normalizeProductRow({
       storefront: defaultStorefront,
       config_id: configId,
@@ -1094,7 +1173,7 @@
     }
     saveMplProductMasterToStorage();
     saveMplProductMasterToBackendDebounced();
-    if (key === 'packaging_level' || key === 'is_active') {
+    if (['packaging_level', 'is_active', 'sku', 'gtin'].includes(key)) {
       renderMplProductMasterTable();
       renderMplProductEditor();
     }

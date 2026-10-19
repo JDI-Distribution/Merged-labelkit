@@ -1352,8 +1352,8 @@ class FrontendDeliveryTests(unittest.TestCase):
     def test_product_setup_uses_level_skus_then_calculated_summary(self):
         javascript = (FRONTEND_DIST / "assets" / "js" / "reference-data.js").read_text(encoding="utf-8")
 
-        self.assertIn("give the complete packaging hierarchy one shared Product SKU", javascript)
-        self.assertIn("Orders match the exact level SKU below: ABC100 can be Each while ABC100-100 can be Case.", javascript)
+        self.assertIn("Its packaging levels belong to this configuration only.", javascript)
+        self.assertIn("Matching SKUs appear together across customers.", javascript)
         self.assertIn("The same product name is available to labels and packing lists.", javascript)
         self.assertIn("Used as the customer-facing Item #; the Level SKU still determines the order UOM.", javascript)
         self.assertIn("entries.forEach(({ index }) => { mplProductMasterRows[index][key] = normalizedValue; });", javascript)

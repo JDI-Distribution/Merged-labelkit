@@ -2104,10 +2104,11 @@
 
   function productMasterCsvHeader() {
     return [
-      'Customer', 'Product SKU', 'Level SKU', 'Customer Item Number', 'Description', 'Verification Status',
+      'Customer', 'Configuration ID', 'Level SKU', 'Customer Item Number', 'Description', 'Verification Status',
       'Packaging Level', 'GTIN', 'Eaches Contained', 'Inner Packs per Case', 'Each Weight (g)',
       'Packaged Weight (lb)', 'Level Length (in)', 'Level Width (in)', 'Level Height (in)',
-      'Label Template ID', 'Barcode Encoding', 'Default Copies', 'Label Enabled', 'Level Active'
+      'Label Template ID', 'Barcode Encoding', 'Default Copies', 'Label Enabled', 'Level Active',
+      'Display SKU', 'Display SKU UOM', 'Package Net Weight (g)'
     ];
   }
 
@@ -2118,6 +2119,7 @@
       row.each_net_weight_g, row.gross_weight_lbs, row.length_in, row.width_in, row.height_in,
       row.label_template_id, row.barcode_type, row.default_copies,
       row.label_enabled, row.is_active,
+      row.display_sku, row.display_sku_uom, row.package_net_weight_g,
     ];
   }
 
@@ -2193,15 +2195,18 @@
       : [
           productMasterCsvHeader(),
           [
-            'USAGE GUIDE — not imported', 'Repeat this Product SKU on the Each, Inner Pack, and Case rows that belong together.',
+            'USAGE GUIDE — not imported', 'Internal ID retained for roundtrip imports. Repeat it on packaging levels belonging to one configuration; different configurations need different IDs.',
             'Exact incoming order SKU for this packaging level', 'Optional customer item', 'Shared description', 'Shared status',
             'Each is required; Inner Pack and Case are optional', 'Barcode for this unit', 'Total eaches in this unit', 'Used only on Case when an Inner Pack exists', 'Weight of one sellable each',
             'Weight of the outermost unit including packaging', 'Length of this packaging level', 'Width of this packaging level', 'Height of this packaging level',
-            'Level label template', 'Barcode encoding for this level', 'Copies per unit', 'true/false', 'true/false'
+            'Level label template', 'Barcode encoding for this level', 'Copies per unit', 'true/false', 'true/false',
+            'Optional alternate incoming SKU', 'Each / Inner Pack / Case', 'Product net weight in this packaging unit, grams'
           ],
           productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', display_sku_uom: 'Each', sku: 'TW-CRS109-CASE', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Case', gtin: '40850068684654', case_qty: '36', inner_packs_per_case: '6', each_net_weight_g: '113', length_in: '18', width_in: '12', height_in: '8', gross_weight_lbs: '10', default_copies: '2', is_active: true })),
           productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-INNER', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Inner Pack', gtin: '30850068684657', case_qty: '6', each_net_weight_g: '113', length_in: '8', width_in: '6', height_in: '4', default_copies: '6', is_active: true })),
-          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-EACH', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', each_net_weight_g: '113', length_in: '3', width_in: '3', height_in: '4', is_active: true }))
+          productMasterCsvRow(normalizeProductRow({ storefront: 'KeHE', config_id: 'TW-CRS109-4OZ', display_sku: 'TW-CRS109-4OZ', sku: 'TW-CRS109-EACH', description: 'SUGAR RIMM GLITTER GOLD BREW GLITTER', verification_status: 'DRAFT', packaging_level: 'Each', gtin: '850068684656', case_qty: '1', each_net_weight_g: '113', length_in: '3', width_in: '3', height_in: '4', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'Michaels', config_id: 'MIC-WHITE-PEARL-SYNTHETIC', sku: 'MIC_816202418306', description: 'Synthetic White Pearl', packaging_level: 'Each', gtin: '00850068684038', is_active: true })),
+          productMasterCsvRow(normalizeProductRow({ storefront: 'Michaels', config_id: 'MIC-WHITE-PEARL-NATURAL', sku: 'MIC_816202418306', description: 'Natural White Pearl', packaging_level: 'Each', gtin: '00850079841659', is_active: true }))
         ];
     downloadCsvRows(isDirectory ? 'labelkit_directory_import_template.csv' : 'labelkit_product_master_import_template.csv', rows);
     setStatus(`${isDirectory ? 'Address Directory' : 'Product Master'} import template downloaded.`, 'success');
@@ -2252,7 +2257,7 @@
     if (rowModeLabel) {
       rowModeLabel.textContent = preview.target === 'dc-directory'
         ? 'Unique key: Customer + Code. Ship From is supplied automatically; matching destinations update the existing record.'
-        : 'Unique key: Customer + Product SKU + Packaging Level. Legacy rows without Product SKU use Customer + Packaging Level + Level SKU.';
+        : 'Matching SKUs appear together for any customer. Different GTINs at the same packaging level are preserved as separate configurations. Exported internal IDs retain packaging relationships on reimport. Missing rows are preserved. Keep GTIN columns as text when editing CSV in Excel.';
     }
     const body = document.getElementById('excel-import-body');
     const changes = Array.isArray(preview.changes) ? preview.changes : [];
@@ -2331,6 +2336,7 @@
       row?.gtin ? `GTIN: ${row.gtin}` : '',
       row?.packaging_level ? `Level: ${row.packaging_level}` : '',
       row?.sku ? `SKU: ${row.sku}` : '',
+      row?.config_id ? `Configuration: ${row.config_id}` : '',
       row?.dimensions_display ? `Dims: ${row.dimensions_display}` : '',
     ].filter(Boolean).join(' | ');
   }

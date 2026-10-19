@@ -6,6 +6,8 @@ _sop_work/
 **/*.pyo
 **/*.pyd
 node_modules/
+**/node_modules/
+outputs/
 frankenstein_project/package.json
 frankenstein_project/package-lock.json
 frankenstein_project/playwright.config.cjs

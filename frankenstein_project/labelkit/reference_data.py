@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from typing import Any, Dict, List, Optional
 
 from .reference_models import version_address_record, version_product_record
@@ -383,10 +384,86 @@ def _apply_product_hierarchy(normalized_rows: List[Dict[str, Any]]) -> List[Dict
     return normalized_rows
 
 
+def _gtin_identity(value: Any) -> str:
+    value = str(value or "").strip()
+    return value.zfill(14) if value.isdigit() and len(value) in {8, 12, 13, 14} else value
+
+
+def _prepare_product_configurations(
+    rows: List[Dict[str, Any]],
+    current_rows: Optional[List[Dict[str, Any]]] = None,
+    *,
+    strict: bool = False,
+) -> List[Dict[str, Any]]:
+    """Assign stable identities before any SKU-based deduplication can lose rows.
+
+    Shared SKUs with conflicting GTINs at a packaging level need independent
+    configurations for any customer. Existing explicit IDs retain packaging
+    relationships; ordinary legacy hierarchies remain grouped as before.
+    """
+    normalized = [normalize_product_master_row(row) for row in rows]
+    current = [normalize_product_master_row(row) for row in (current_rows or [])]
+    for row in normalized:
+        if row.get("config_id"):
+            continue
+        sku = str(row.get("sku") or "").strip().casefold()
+        gtin = _gtin_identity(row.get("gtin"))
+        matches = {
+            candidate["config_id"] for candidate in current
+            if candidate.get("config_id")
+            and str(candidate.get("storefront") or "").casefold() == str(row["storefront"]).casefold()
+            and str(candidate.get("sku") or "").strip().casefold() == sku
+            and candidate.get("packaging_level") == row.get("packaging_level")
+            and gtin and _gtin_identity(candidate.get("gtin")) == gtin
+        }
+        if len(matches) == 1:
+            row["config_id"] = next(iter(matches))
+        elif strict and len(matches) > 1:
+            raise ValueError(
+                f"SKU '{row.get('sku') or '(missing)'}' and GTIN match more than one configuration. "
+                "Use the Configuration ID from an export to identify the record to update."
+            )
+        else:
+            distinct_gtins = {
+                _gtin_identity(candidate.get("gtin")) for candidate in normalized + current
+                if str(candidate.get("storefront") or "").casefold() == str(row["storefront"]).casefold()
+                and str(candidate.get("sku") or "").strip().casefold() == sku
+                and candidate.get("packaging_level") == row.get("packaging_level")
+                and candidate.get("gtin")
+            }
+            if not sku or not gtin or len(distinct_gtins) < 2:
+                continue
+            # Deterministic so repeated legacy loads/imports do not create IDs.
+            identity = "|".join([
+                str(row["storefront"]).casefold(), sku,
+                str(row.get("packaging_level") or ""),
+                gtin or str(row.get("description") or "").strip().casefold(),
+            ])
+            row["config_id"] = "CFG-" + uuid.uuid5(uuid.NAMESPACE_URL, identity).hex[:20].upper()
+        row.update(normalize_product_master_row(row))
+    return normalized
+
+
+def _validate_configuration_rows(rows: List[Dict[str, Any]]) -> None:
+    seen: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not row.get("config_id"):
+            continue
+        key = row["unique_key"]
+        previous = seen.get(key)
+        comparable = {**row, "gtin": _gtin_identity(row.get("gtin"))}
+        if previous is not None and previous != comparable:
+            raise ValueError(
+                f"Configuration '{row['config_id']}' has conflicting "
+                f"{row['packaging_level']} rows. Use separate Configuration IDs for different formulations."
+            )
+        seen[key] = comparable
+
+
 def _dedupe_product_master_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped: Dict[str, Dict[str, Any]] = {}
     fallback_index = 0
-    for raw in rows:
+    for raw in _prepare_product_configurations(rows):
         row = normalize_product_master_row(raw)
         has_data = any(
             row.get(k)

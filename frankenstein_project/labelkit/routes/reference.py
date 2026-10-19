@@ -27,12 +27,15 @@ from labelkit.reference_data import (
     _dedupe_product_master_rows,
     _kehe_dc_directory_rows,
     _kehe_product_master_rows,
+    _prepare_product_configurations,
+    _validate_configuration_rows,
 )
 from labelkit.reference_import import (
     _apply_shared_directory_ship_from,
     _canonicalize_import_rows,
     _merge_import_rows,
     _preview_excel_import,
+    _prepare_product_import_rows,
 )
 from labelkit.runtime import MPL_DIRECTORY_FILE, MPL_PRODUCT_MASTER_FILE, _require_permission
 
@@ -83,6 +86,11 @@ async def save_mpl_product_master(request: Request, payload: Dict[str, Any]) -> 
     rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(rows, list):
         rows = []
+    try:
+        rows = _prepare_product_configurations(rows)
+        _validate_configuration_rows(rows)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     rows = _dedupe_product_master_rows(rows)
     source = str(payload.get("source") or "manual_edit") if isinstance(payload, dict) else "manual_edit"
     batch_id = str(payload.get("batch_id") or "") if isinstance(payload, dict) else ""
@@ -215,10 +223,15 @@ async def confirm_mpl_product_master_import(request: Request, payload: Dict[str,
     imported_rows = payload.get("rows") if isinstance(payload, dict) else []
     if not isinstance(imported_rows, list):
         imported_rows = []
-    imported_rows = _canonicalize_import_rows([r for r in imported_rows if isinstance(r, dict)], "mpl_product_master")
     current_rows = _datastore_load_product_master(request)
     if current_rows is None:
         current_rows = _shared_product_master_file_read()
+    try:
+        # Resolve and validate the whole upload before canonicalization dedupes.
+        imported_rows = _prepare_product_import_rows(imported_rows, current_rows)
+        _validate_configuration_rows(imported_rows)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     merged_rows = _merge_import_rows(current_rows, imported_rows, _product_row_key)
     return await save_mpl_product_master(request, {
         "rows": merged_rows,

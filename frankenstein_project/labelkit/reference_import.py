@@ -22,6 +22,8 @@ from labelkit.reference_data import (
     _kehe_dc_directory_rows,
     _kehe_product_master_rows,
     _parse_decimal_value,
+    _prepare_product_configurations,
+    _validate_configuration_rows,
 )
 from labelkit.runtime import _require_permission
 from labelkit.spreadsheets import _read_spreadsheet_bytes
@@ -91,6 +93,9 @@ def _canonical_import_key(header: str, table: str) -> str:
         "product_sku": "config_id",
         "product_group_id": "config_id",
         "configuration_id": "config_id",
+        "configuration_name": "description",
+        "formulation": "description",
+        "product_name": "description",
         "internal_configuration_id": "config_id",
         "customer_item_number": "customer_item_number",
         "customer_item": "customer_item_number",
@@ -233,6 +238,16 @@ def _adapt_product_template_weights(row: Dict[str, Any]) -> Dict[str, Any]:
     return adapted
 
 
+def _prepare_product_import_rows(
+    rows: List[Dict[str, Any]], current_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    canonical = [
+        _adapt_product_template_weights({_canonical_import_key(k, "mpl_product_master"): v for k, v in row.items()})
+        for row in rows if isinstance(row, dict) and not _is_import_usage_guide_row(row)
+    ]
+    return _prepare_product_configurations(canonical, current_rows, strict=True)
+
+
 def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Dict[str, Any]]:
     canonical_rows: List[Dict[str, Any]] = []
     for row in rows:
@@ -247,6 +262,8 @@ def _canonicalize_import_rows(rows: List[Dict[str, Any]], table: str) -> List[Di
     if table == "kehe_product_master":
         return _kehe_product_master_rows(canonical_rows)
     if table == "mpl_product_master":
+        canonical_rows = _prepare_product_configurations(canonical_rows)
+        _validate_configuration_rows(canonical_rows)
         return _dedupe_product_master_rows(canonical_rows)
     if table == "kehe_dc_directory":
         return _kehe_dc_directory_rows(canonical_rows)
@@ -380,6 +397,12 @@ async def _preview_excel_import(request: Request, upload: UploadFile, table: str
             current_rows = _kehe_product_master_rows(current_rows)
         else:
             current_rows = _dedupe_product_master_rows(current_rows)
+            try:
+                imported_rows = _prepare_product_import_rows(import_quality_rows, current_rows)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            for raw, resolved in zip(import_quality_rows, imported_rows):
+                raw["config_id"] = resolved.get("config_id", "")
         key_fn = _product_row_key
     else:
         current_rows = _datastore_load_dc_directory(request)

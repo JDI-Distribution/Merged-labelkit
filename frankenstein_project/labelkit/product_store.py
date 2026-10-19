@@ -14,6 +14,8 @@ from labelkit.reference_data import (
     _dedupe_product_master_rows,
     _parse_decimal_value,
     normalize_product_master_row,
+    _prepare_product_configurations,
+    _validate_configuration_rows,
 )
 from labelkit.runtime import (
     MPL_PRODUCT_MASTER_FILE,
@@ -44,7 +46,9 @@ def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str
 
 def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     path = file_path or MPL_PRODUCT_MASTER_FILE
-    normalized = _dedupe_product_master_rows(rows)
+    prepared = _prepare_product_configurations(rows)
+    _validate_configuration_rows(prepared)
+    normalized = _dedupe_product_master_rows(prepared)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": 2,
@@ -136,7 +140,9 @@ def _datastore_save_product_rows(
     table_service = _product_datastore_table(request, table_name, store_mode)
     if table_service is None:
         return None
-    normalized = _dedupe_product_master_rows(rows)
+    prepared = _prepare_product_configurations(rows)
+    _validate_configuration_rows(prepared)
+    normalized = _dedupe_product_master_rows(prepared)
     try:
         existing_rows = _datastore_get_raw_rows(table_service)
         existing_by_key = {
@@ -179,7 +185,7 @@ def _datastore_save_product_rows(
 def _datastore_save_product_master(request: Request, rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:
     return _datastore_save_product_rows(
         request,
-        _dedupe_product_master_rows(rows),
+        rows,
         MPL_PRODUCT_MASTER_TABLE,
         MPL_PRODUCT_MASTER_STORE,
         include_storefront=True,

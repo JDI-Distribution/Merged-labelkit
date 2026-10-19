@@ -102,6 +102,30 @@ Product configuration
 
 Each packaging level may carry its own SKU, GTIN, barcode encoding, quantity, dimensions, label template, copies, and enabled state. Order quantities are converted according to the exact matched level SKU. Shared legacy SKUs default deterministically to Each and remain reviewable.
 
+Product Master displays multiple configurations under their shared product SKU,
+regardless of customer. A unique SKU remains a normal product entry. Use
+**+ Add configuration** inside a product to create another configuration with
+that SKU. Each retains its own customer, name, active state, GTINs, and packaging
+hierarchy. The Configuration ID field appears only when another product shares
+the SKU. It is generated automatically and can be replaced with a distinct,
+nonempty ID; unique SKUs do not display the field. New
+configurations start with blank GTINs and measurements. Michaels XML generation
+continues to use the XML data without a new product-selection step.
+
+Product exports contain one row per packaging level, including **Configuration
+ID**. Repeat that ID on the Each, Inner Pack, and Case rows for one formulation;
+use a different ID for another formulation even if the SKU is the same. The old
+**Product SKU** import heading remains accepted as an alias. Imports merge by
+customer, configuration ID, and level; omitted configurations are preserved.
+Rows without IDs can match existing records by customer, SKU, equivalent GTIN,
+and level. Different GTINs sharing the same SKU and packaging level are retained
+as independent configurations for any customer, including Inner Pack and Case.
+Ordinary legacy hierarchies are preserved. Retain exported IDs when importing a
+full hierarchy so the app knows which packaging levels belong together.
+Conflicting records for the same configuration and level are rejected.
+CSV exports preserve GTIN text for application reimport; when editing in Excel,
+import the GTIN column as Text to retain leading zeros.
+
 ## Directory model
 
 Each directory record stores one reusable address with one or more roles:
