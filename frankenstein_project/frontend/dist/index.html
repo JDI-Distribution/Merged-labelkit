@@ -465,6 +465,7 @@
                     </div>
                   </div>
                   <span class="b2b-save-state" id="b2b-product-save-state">Order values stay separate from Product Master</span>
+                  <button class="btn-secondary hidden" id="btn-approve-operations-labels" type="button" onclick="approveOperationsLabels()" disabled>Approve Labels</button>
                 </div>
                 <nav class="b2b-editor-navigator hidden" id="b2b-editor-navigator" aria-label="Label editing queue">
                   <button type="button" id="b2b-label-previous" aria-label="Previous label" onclick="moveB2BWorkItem(-1)"><span aria-hidden="true">←</span><span>Previous</span></button>
@@ -630,11 +631,12 @@
           </svg>
           Print PDF
         </button>
+        <button class="btn-secondary hidden" id="btn-approve-preview-labels" type="button" onclick="approveOperationsLabels()">Approve Labels</button>
         <button class="btn-close-preview" onclick="closePreview(true)">
           <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
           </svg>
-          Close
+          <span id="operations-preview-back-label">Close</span>
         </button>
       </div>
       <div class="preview-area">
@@ -649,6 +651,8 @@
       <div class="editor-toolbar">
         <button class="window-back-btn" type="button" onclick="goBackFromWindow()" aria-label="Back"></button>
         <div class="editor-title" id="document-editor-title">Review &amp; Edit Document</div>
+        <button class="btn-secondary hidden" id="btn-operations-review-back" type="button" onclick="goBackFromOperationsReview()">Go Back</button>
+        <button class="btn-secondary hidden" id="btn-operations-review-top" type="button" onclick="finishOperationsDocumentReview()">Approve Document</button>
         <button class="btn-secondary" onclick="closeDocumentEditor(true)">Close</button>
       </div>
       <div class="editor-body" id="document-editor-body"></div>
@@ -672,7 +676,7 @@
         <button class="btn-secondary hidden" id="btn-mpl-versions" type="button" onclick="openMplVersionHistory()">Version History</button>
         <button class="btn-secondary hidden" id="btn-save-mpl-only" type="button" onclick="saveActiveMplDraft({ createVersion: true })">Save Now</button>
         <button class="btn-secondary hidden" id="btn-save-mpl-draft" onclick="renderEditedKeheDocument({ saveMplDraft: true })">Save &amp; Generate PDF</button>
-        <button class="btn-secondary hidden" id="btn-operations-review-continue" type="button" onclick="finishOperationsDocumentReview()">Save Review &amp; Continue</button>
+        <button class="btn-secondary hidden" id="btn-operations-review-continue" type="button" onclick="finishOperationsDocumentReview()">Approve Document</button>
         <button class="btn-generate" id="btn-render-edited-document" onclick="renderEditedKeheDocument()">
           Generate PDF from Edited Values
         </button>

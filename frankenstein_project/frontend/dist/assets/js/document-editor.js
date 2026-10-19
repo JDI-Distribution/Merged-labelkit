@@ -1611,7 +1611,7 @@
         await captureCurrentMplTiHiSnapshots(activeKeheDocumentDraft);
       }
       setStatus(`Generating ${cfg.label} PDF from edited values\u2026`, 'info');
-      closeDocumentEditor();
+      if (!options.keepEditorOpen) closeDocumentEditor();
       // Clear any previously rendered preview so the new PDF always renders fresh
       closePreview();
       resetPreviewSurface();

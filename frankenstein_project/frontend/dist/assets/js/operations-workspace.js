@@ -17,9 +17,11 @@
     manualPalletCount: 1,
     manualPalletCopies: 1,
     reviewedDocuments: { labels: false, mpl: false, pallets: false },
+    labelPreviewReady: false,
     pendingReviewDocument: '',
     documentSelection: null,
     finalizing: false,
+    approvingDocument: '',
   };
 
   function resetOperationsWorkspaceState() {
@@ -39,9 +41,11 @@
       manualPalletCount: 1,
       manualPalletCopies: 1,
       reviewedDocuments: { labels: false, mpl: false, pallets: false },
+      labelPreviewReady: false,
       pendingReviewDocument: '',
       documentSelection: null,
       finalizing: false,
+      approvingDocument: '',
     });
     resetOperationsReviewState();
     resetB2BManualWorkspaceState();
@@ -54,6 +58,8 @@
   function markOperationsMplChanged() {
     if (selectedKit !== 'operations' || activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) return;
     orderDocumentsState.mplDraft = activeKeheDocumentDraft;
+    activeKeheDocumentDraft.review_status = 'DRAFT';
+    (activeKeheDocumentDraft.packing_lists || []).forEach(mpl => { mpl.review_status = 'DRAFT'; });
     orderDocumentsState.palletDraft = null;
     orderDocumentsState.reviewedDocuments.mpl = false;
     orderDocumentsState.reviewedDocuments.pallets = false;
@@ -69,10 +75,52 @@
 
   function resetOperationsReviewState() {
     orderDocumentsState.reviewedDocuments = { labels: false, mpl: false, pallets: false };
+    orderDocumentsState.labelPreviewReady = false;
     orderDocumentsState.pendingReviewDocument = '';
     orderDocumentsState.documentSelection = null;
     delete document.body.dataset.operationsReview;
     document.getElementById('btn-operations-review-continue')?.classList.add('hidden');
+    document.getElementById('btn-operations-review-top')?.classList.add('hidden');
+    document.getElementById('btn-operations-review-back')?.classList.add('hidden');
+    renderOperationsApprovalActions();
+  }
+
+  function renderOperationsApprovalActions() {
+    const enabled = selectedKit === 'operations' && operationsSelectedDocuments().labels;
+    const approved = !!orderDocumentsState.reviewedDocuments.labels;
+    const ready = enabled && !!orderDocumentsState.labelPreviewReady;
+    const section = document.getElementById('btn-approve-operations-labels');
+    if (section) {
+      section.classList.toggle('hidden', !enabled);
+      section.disabled = !ready || approved;
+      section.textContent = approved ? 'Labels Approved' : 'Approve Labels';
+      section.title = ready ? '' : 'Preview the current labels before approving them.';
+    }
+    const preview = document.getElementById('btn-approve-preview-labels');
+    if (preview) preview.classList.toggle('hidden', !ready || approved || !b2bPreviewUrl || blobUrl !== b2bPreviewUrl);
+    const backLabel = document.getElementById('operations-preview-back-label');
+    if (backLabel) backLabel.textContent = selectedKit === 'operations' ? 'Go Back' : 'Close';
+  }
+
+  async function approveOperationsLabels() {
+    if (!operationsSelectedDocuments().labels || !orderDocumentsState.labelPreviewReady) {
+      setStatus('Preview the current labels before approving them.', 'info');
+      return false;
+    }
+    const output = window.getGeneratedOutputs?.('operations-review')
+      .find(([key]) => key === 'operations-labels-review')?.[1];
+    if (!output?.blob) {
+      setStatus('Generate a label preview before approving the labels.', 'error');
+      return false;
+    }
+    await recordGeneratedOutput('operations-labels', { ...output, scope: 'operations' });
+    orderDocumentsState.reviewedDocuments.labels = true;
+    if (orderDocumentsState.pendingReviewDocument === 'labels') orderDocumentsState.pendingReviewDocument = '';
+    closePreview(false);
+    await navigateToRoute('operations/labels');
+    renderOperationsWorkspace();
+    setStatus('Labels approved and added to Finished Files. Continue to the next selected section.', 'success');
+    return true;
   }
 
   function operationsPalletCount(draft = orderDocumentsState.mplDraft) {
@@ -117,40 +165,89 @@
     orderDocumentsState.activeTab = documentType === 'mpl' ? 'packing' : 'pallets';
     orderDocumentsState.reviewedDocuments[documentType] = false;
     document.body.dataset.operationsReview = documentType;
-    const action = document.getElementById('btn-operations-review-continue');
-    if (action) {
-      action.textContent = documentType === 'mpl' ? 'Save Packing List Review & Continue' : 'Save Pallet Label Review & Continue';
+    document.getElementById('btn-operations-review-back')?.classList.remove('hidden');
+    for (const id of ['btn-operations-review-continue', 'btn-operations-review-top']) {
+      const action = document.getElementById(id);
+      if (!action) continue;
+      action.textContent = documentType === 'mpl' ? 'Approve Packing List & Ti-Hi' : 'Approve Pallet Labels';
       action.classList.remove('hidden');
     }
   }
 
   async function finishOperationsDocumentReview() {
     const documentType = orderDocumentsState.pendingReviewDocument;
-    if (!['mpl', 'pallets'].includes(documentType)) return;
-    if (documentType === 'mpl') {
-      if (activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) return;
-      finalizeMplPalletDraft();
-      orderDocumentsState.mplDraft = activeKeheDocumentDraft;
-      orderDocumentsState.palletDraft = null;
-      orderDocumentsState.reviewedDocuments.mpl = true;
-      orderDocumentsState.reviewedDocuments.pallets = false;
-      window.clearGeneratedOutputs?.('operations-mpl-review', 'operations-pallets-review', 'operations-mpl', 'operations-pallets');
-    } else {
-      if (activeKeheDocumentType !== 'palletLabel' || !activeKeheDocumentDraft) return;
-      orderDocumentsState.palletDraft = activeKeheDocumentDraft;
-      orderDocumentsState.reviewedDocuments.pallets = true;
-      window.clearGeneratedOutputs?.('operations-pallets-review', 'operations-pallets');
+    if (!['mpl', 'pallets'].includes(documentType) || orderDocumentsState.approvingDocument) return;
+    const expectedType = documentType === 'mpl' ? 'masterPackingList' : 'palletLabel';
+    if (activeKeheDocumentType !== expectedType || !activeKeheDocumentDraft) return;
+    orderDocumentsState.approvingDocument = documentType;
+    const buttons = ['btn-operations-review-continue', 'btn-operations-review-top', 'btn-operations-review-back']
+      .map(id => document.getElementById(id)).filter(Boolean);
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      if (documentType === 'mpl') {
+        finalizeMplPalletDraft();
+        if (operationsSelectedDocuments().pallets && operationsPalletCount(activeKeheDocumentDraft) < 1) {
+          setStatus('Assign at least one pallet before approving the packing list and Ti-Hi for pallet labels.', 'error');
+          return;
+        }
+        window.setMplReviewStatus?.('APPROVED');
+        orderDocumentsState.mplDraft = activeKeheDocumentDraft;
+        orderDocumentsState.palletDraft = null;
+        orderDocumentsState.reviewedDocuments.pallets = false;
+        window.clearGeneratedOutputs?.('operations-mpl-review', 'operations-pallets-review', 'operations-mpl', 'operations-pallets');
+      } else {
+        orderDocumentsState.palletDraft = activeKeheDocumentDraft;
+        window.clearGeneratedOutputs?.('operations-pallets-review', 'operations-pallets');
+      }
+      const ok = await renderEditedKeheDocument({
+        saveMplDraft: documentType === 'mpl', skipReadiness: true,
+        keepEditorOpen: true,
+        openPreview: false, showSummary: false, scope: 'operations',
+        outputKey: documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets',
+      });
+      if (ok !== true) {
+        if (documentType === 'mpl') window.setMplReviewStatus?.('DRAFT');
+        return false;
+      }
+      orderDocumentsState.reviewedDocuments[documentType] = true;
+      orderDocumentsState.pendingReviewDocument = '';
+      delete document.body.dataset.operationsReview;
+      document.getElementById('btn-operations-review-continue')?.classList.add('hidden');
+      document.getElementById('btn-operations-review-top')?.classList.add('hidden');
+      document.getElementById('btn-operations-review-back')?.classList.add('hidden');
+      closeDocumentEditor(false);
+      const tab = documentType === 'mpl' ? 'packing' : 'pallets';
+      await navigateToRoute(`operations/${tab}`);
+      renderOperationsWorkspace();
+      setStatus(documentType === 'mpl'
+        ? 'Packing list and Ti-Hi approved and added to Finished Files.'
+        : 'Pallet labels approved and added to Finished Files.', 'success');
+      return true;
+    } catch (error) {
+      orderDocumentsState.reviewedDocuments[documentType] = false;
+      if (documentType === 'mpl') window.setMplReviewStatus?.('DRAFT');
+      window.clearGeneratedOutputs?.(documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets');
+      renderOperationsFiles();
+      setStatus(`Approval failed: ${error?.message || 'Could not prepare the PDF.'}`, 'error');
+      return false;
+    } finally {
+      orderDocumentsState.approvingDocument = '';
+      buttons.forEach(button => { button.disabled = false; });
     }
+  }
+
+  async function goBackFromOperationsReview() {
+    if (orderDocumentsState.approvingDocument) return;
+    const tab = orderDocumentsState.pendingReviewDocument === 'pallets' ? 'pallets' : 'packing';
     orderDocumentsState.pendingReviewDocument = '';
     delete document.body.dataset.operationsReview;
-    document.getElementById('btn-operations-review-continue')?.classList.add('hidden');
+    for (const id of ['btn-operations-review-continue', 'btn-operations-review-top', 'btn-operations-review-back']) {
+      document.getElementById(id)?.classList.add('hidden');
+    }
     closeDocumentEditor(false);
-    const tab = documentType === 'mpl' ? 'packing' : 'pallets';
     await navigateToRoute(`operations/${tab}`);
     renderOperationsWorkspace();
-    setStatus(documentType === 'mpl'
-      ? `Packing list review saved · ${operationsPalletCount()} pallet group(s) available for the next review.`
-      : 'Pallet label review saved. Generate when all selected documents are reviewed.', 'success');
+    setStatus('Returned to the order. This section has not been approved or added to Finished Files.', 'info');
   }
 
   function buildOperationsManualPalletDraft() {
@@ -202,6 +299,7 @@
     if (previous) {
       if (previous.labels !== selected.labels) {
         orderDocumentsState.reviewedDocuments.labels = false;
+        orderDocumentsState.labelPreviewReady = false;
         window.clearGeneratedOutputs?.('operations-labels-review', 'operations-labels');
       }
       if (previous.mpl !== selected.mpl) {
@@ -284,14 +382,20 @@
   function renderOperationsFiles() {
     const target = document.getElementById('operations-files-list');
     if (!target) return;
-    const outputs = typeof getGeneratedOutputs === 'function' ? getGeneratedOutputs('operations') : [];
+    const approvedKeys = {
+      'operations-labels': orderDocumentsState.reviewedDocuments.labels,
+      'operations-mpl': orderDocumentsState.reviewedDocuments.mpl,
+      'operations-pallets': orderDocumentsState.reviewedDocuments.pallets,
+    };
+    const outputs = typeof getGeneratedOutputs === 'function'
+      ? getGeneratedOutputs('operations').filter(([key]) => approvedKeys[key]) : [];
     const state = document.getElementById('operations-files-tab-state');
     if (state) state.textContent = `${outputs.length} ready`;
     target.innerHTML = outputs.length ? outputs.map(([key, output]) => `
       <article class="operations-file-row">
-        <span class="operations-file-type">PDF</span>
+        <span class="operations-file-type">${output.kind === 'zip' ? 'ZIP' : 'PDF'}</span>
         <div><strong>${escapeHtml(output.name || 'Document.pdf')}</strong><small>${escapeHtml(output.labelType || 'Generated document')} · ${escapeHtml(String(output.pages || 0))} page(s)</small></div>
-        <button class="btn-secondary" type="button" onclick="openGeneratedOutput('${jsString(key)}')">Open PDF</button>
+        <button class="btn-secondary" type="button" onclick="openGeneratedOutput('${jsString(key)}')">${output.kind === 'zip' ? 'Download ZIP' : 'Open PDF'}</button>
       </article>`).join('') : '<div class="operations-file-empty">Generate a selected document to see it here.</div>';
   }
 
@@ -381,9 +485,9 @@
       : selected.pallets && selected.mpl
         ? (palletCount ? `${palletCount} pallet(s) calculated from the reviewed packing list` : 'Pallet count will be calculated from the packing list')
         : (palletCount ? `${palletCount} pallet label group(s) available from the active MPL` : 'Select Pallet Labels to enter a manual count'));
-    setText('operations-label-tab-state', selected.labels ? (orderDocumentsState.reviewedDocuments.labels ? 'Previewed' : 'Preview required') : (selectedLabelCount ? `${selectedLabelCount} output(s)` : (labelJobs.length ? 'Templates needed' : 'Set up')));
-    setText('operations-mpl-tab-state', mpl ? `${mpl.items?.length || 0} line(s) · ${orderDocumentsState.reviewedDocuments.mpl ? 'Reviewed' : 'Review required'}` : 'Not ready');
-    setText('operations-pallet-tab-state', effectivePalletCount ? `${effectivePalletCount} pallet(s) · ${orderDocumentsState.reviewedDocuments.pallets ? 'Reviewed' : 'Review required'}` : 'Not ready');
+    setText('operations-label-tab-state', selected.labels ? (orderDocumentsState.reviewedDocuments.labels ? 'Approved' : orderDocumentsState.labelPreviewReady ? 'Approval required' : 'Preview required') : (selectedLabelCount ? `${selectedLabelCount} output(s)` : (labelJobs.length ? 'Templates needed' : 'Set up')));
+    setText('operations-mpl-tab-state', mpl ? `${mpl.items?.length || 0} line(s) · ${orderDocumentsState.reviewedDocuments.mpl ? 'Approved' : 'Approval required'}` : 'Not ready');
+    setText('operations-pallet-tab-state', effectivePalletCount ? `${effectivePalletCount} pallet(s) · ${orderDocumentsState.reviewedDocuments.pallets ? 'Approved' : 'Approval required'}` : 'Not ready');
     setText('operations-pallet-review-kicker', manualPalletMode ? 'Manual pallet run' : 'Shared pallet plan');
     setText('operations-pallet-review-description', manualPalletMode
       ? `Review ${effectivePalletCount} manually requested pallet label group(s). Item allocation and Ti-Hi are not calculated when Packing List & Ti-Hi is excluded.`
@@ -421,14 +525,14 @@
         ? 'Review packing list & Ti-Hi'
         : nextReviewStage === 'pallets'
           ? 'Preview & edit pallet labels'
-          : 'Generate reviewed documents');
+          : 'Approved files are ready');
     setText('operations-output-description', nextReviewStage === 'labels'
       ? 'Inspect the selected label PDF before moving on to the packing list.'
       : nextReviewStage === 'mpl'
         ? 'Edit the packing list and pallet assignments. Pallet counts are taken from this reviewed draft.'
         : nextReviewStage === 'pallets'
           ? 'Review pallet placards derived from the packing-list assignments.'
-          : 'All selected documents have been reviewed. Generate the final PDFs for Finished Files.');
+          : 'All selected sections have been approved and saved as separate PDFs in Finished Files.');
     if (orderInput) {
       orderInput.required = !customMode;
       orderInput.placeholder = customMode ? 'Optional — enter an order to auto-fill' : 'Enter order number';
@@ -464,12 +568,12 @@
     if (generate) {
       generate.disabled = orderDocumentsState.loading || orderDocumentsState.selectingOrderInstance || !!blocker;
       generate.textContent = nextReviewStage === 'labels'
-        ? 'Continue to Label Preview'
+        ? (orderDocumentsState.labelPreviewReady ? 'Approve Labels' : 'Continue to Label Preview')
         : nextReviewStage === 'mpl'
           ? 'Continue to Packing List Review'
           : nextReviewStage === 'pallets'
             ? 'Continue to Pallet Label Review'
-            : 'Generate Reviewed Documents';
+            : 'View Finished Files';
       generate.title = blocker?.message || '';
     }
     const tabAvailability = {
@@ -494,6 +598,7 @@
       orderDocumentsState.rendering = false;
     }
     renderOperationsFiles();
+    renderOperationsApprovalActions();
   }
 
   async function selectOperationsWorkspace(updateHistory = true) {
@@ -842,83 +947,29 @@
 
   async function generateOperationsDocuments() {
     const selected = operationsSelectedDocuments();
-    const incompleteStage = operationsNextReviewStage(selected);
-    if (incompleteStage !== 'generate') {
-      return advanceOperationsDocuments();
-    }
+    if (operationsNextReviewStage(selected) !== 'generate') return advanceOperationsDocuments();
     const blocker = operationsGenerationBlocker(selected, true);
     if (blocker) {
       setStatus(blocker.message, 'error');
       focusOperationsBlocker(blocker);
       return false;
     }
-    if (!orderDocumentsState.payload && !orderDocumentsState.customMode) return setStatus('Load an order or start a custom document first.', 'error');
-    if (!(await confirmDocumentReadiness('operations'))) return false;
-    const failures = [];
-    const button = document.getElementById('btn-generate-operations-documents');
-    if (button) button.disabled = true;
-    orderDocumentsState.finalizing = true;
-    showWorkflowProgress(3, 'Preparing the selected order documents…');
-    try {
-      if (selected.labels) {
-        updateWorkflowProgress('Preparing labels', 'Rendering the selected customer-label batch…');
-        const ok = await generateB2BPreview(false, { skipReadiness: true, showSummary: false, scope: 'operations', outputKey: 'operations-labels' });
-        if (!ok) failures.push('Customer labels');
-      }
-      if (selected.mpl) {
-        updateWorkflowProgress('Rendering packing list', 'Rendering the reviewed packing list and Ti-Hi…');
-        if (!restoreOperationsMplDraft()) failures.push('Packing list');
-        else {
-          renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
-          const ok = await renderEditedKeheDocument({ saveMplDraft: true, skipReadiness: true, openPreview: false, showSummary: false, scope: 'operations', outputKey: 'operations-mpl', keepProgress: true });
-          orderDocumentsState.mplDraft = activeKeheDocumentDraft;
-          if (ok === false) failures.push('Packing list');
-        }
-      }
-      if (selected.pallets) {
-        const manualPalletMode = operationsUsesManualPalletCount(selected);
-        updateWorkflowProgress('Preparing labels', manualPalletMode
-          ? 'Rendering pallet labels from the entered pallet count…'
-          : 'Rendering pallet labels from the reviewed MPL assignments…');
-        if (!manualPalletMode && !restoreOperationsMplDraft()) failures.push('Pallet labels');
-        else {
-          const palletDraft = orderDocumentsState.palletDraft || (manualPalletMode
-            ? buildOperationsManualPalletDraft()
-            : buildPalletLabelDraftFromMplDraft(orderDocumentsState.mplDraft));
-          if (manualPalletMode) {
-            keheLastMplDraft = orderDocumentsState.mplDraft;
-            keheLastPalletLabelDraft = palletDraft;
-            kehePalletLabelSource = 'Manual';
-          }
-          activeKeheDocumentType = 'palletLabel';
-          activeKeheDocumentDraft = palletDraft;
-          renderDocumentEditor('palletLabel', palletDraft);
-          const ok = await renderEditedKeheDocument({ skipReadiness: true, openPreview: false, showSummary: false, scope: 'operations', outputKey: 'operations-pallets', keepProgress: true });
-          orderDocumentsState.palletDraft = activeKeheDocumentDraft;
-          if (ok === false) failures.push('Pallet labels');
-          if (!manualPalletMode || selected.mpl) restoreOperationsMplDraft();
-        }
-      }
-      closeWorkflowProgress();
-      renderOperationsWorkspace();
-      if (failures.length) {
-        setStatus(`Some documents could not be generated: ${failures.join(', ')}. Review the active warnings and try again.`, 'error');
+    const outputs = new Map(window.getGeneratedOutputs?.('operations') || []);
+    for (const [type, key] of [['labels', 'operations-labels'], ['mpl', 'operations-mpl'], ['pallets', 'operations-pallets']]) {
+      if (selected[type] && !outputs.get(key)?.blob) {
+        orderDocumentsState.reviewedDocuments[type] = false;
+        if (type === 'labels') orderDocumentsState.labelPreviewReady = false;
+        renderOperationsWorkspace();
+        setStatus('An approved file is no longer available. Preview and approve that section again.', 'error');
         return false;
       }
-      orderDocumentsState.activeTab = 'files';
-      renderOperationsWorkspace();
-      setHistoryRoute('operations/files');
-      setStatus('All selected documents are ready in Finished Files.', 'success');
-      showPrintSummary('operations');
-      return true;
-    } catch (error) {
-      closeWorkflowProgress();
-      setStatus(`Document generation failed: ${error?.message || 'unknown error'}`, 'error');
-      return false;
-    } finally {
-      orderDocumentsState.finalizing = false;
-      if (button) button.disabled = false;
     }
+    orderDocumentsState.activeTab = 'files';
+    renderOperationsWorkspace();
+    setHistoryRoute('operations/files');
+    setStatus('Approved documents are ready as separate PDFs in Finished Files.', 'success');
+    showPrintSummary('operations');
+    return true;
   }
 
   async function advanceOperationsDocuments() {
@@ -931,6 +982,7 @@
     }
     const stage = operationsNextReviewStage(selected);
     if (stage === 'labels') {
+      if (orderDocumentsState.labelPreviewReady) return approveOperationsLabels();
       orderDocumentsState.activeTab = 'labels';
       renderOperationsWorkspace();
       const previewed = await generateB2BPreview(true, {
@@ -939,9 +991,10 @@
         outputKey: 'operations-labels-review',
       });
       if (previewed) {
-        orderDocumentsState.reviewedDocuments.labels = true;
+        orderDocumentsState.labelPreviewReady = true;
+        orderDocumentsState.pendingReviewDocument = 'labels';
         renderOperationsWorkspace();
-        setStatus('Customer label preview is ready. Review it, then return to continue with the packing list.', 'success');
+        setStatus('Label preview is ready. Click Approve Labels after checking it; closing the preview does not approve it.', 'success');
       }
       return !!previewed;
     }

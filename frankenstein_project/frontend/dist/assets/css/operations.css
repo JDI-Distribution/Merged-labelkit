@@ -1,9 +1,12 @@
 /* Packing, KeHE, MPL, document-editor, and preview workspaces. */
 /* Unified Order Documents workspace */
+body[data-module="operations"],
 .operations-workspace-page {
   --operations-accent: #2d6f68;
   --operations-accent-deep: #214f4b;
   --operations-accent-soft: #e7f2f0;
+}
+.operations-workspace-page {
   flex: 1;
   min-width: 0;
   overflow: auto;
@@ -177,7 +180,19 @@ body[data-module="operations"][data-operations-review] #btn-mpl-versions { displ
   border-color: var(--operations-accent-deep);
   color: #ffffff;
   background: var(--operations-accent-deep);
-}.operations-workspace-page[data-operations-mode="custom-labels"] .operations-output-heading > div > .operations-step { display: none; }.operations-workspace-page[data-selecting-order="true"] .operations-order-instance-picker,
+}
+body[data-module="operations"][data-operations-review] #document-editor-panel .editor-toolbar #btn-operations-review-top,
+body[data-module="operations"][data-operations-review] #document-editor-panel .editor-toolbar #btn-operations-review-back {
+  display: inline-flex !important;
+  background: var(--operations-accent-deep);
+  color: #fff;
+}
+body[data-module="operations"][data-operations-review] #document-editor-panel .editor-toolbar #btn-operations-review-back {
+  background: #fff;
+  color: var(--operations-accent-deep);
+}
+body[data-module="operations"][data-operations-review] #mpl-review-status-wrap { display: none !important; }
+.operations-workspace-page[data-operations-mode="custom-labels"] .operations-output-heading > div > .operations-step { display: none; }.operations-workspace-page[data-selecting-order="true"] .operations-order-instance-picker,
 .operations-workspace-page[data-selecting-order="true"] .operations-instance-backdrop { pointer-events: auto; }.operations-workspace-page[data-operations-mode^="custom"] .operations-order-card {
   border-style: dashed;
   background: linear-gradient(135deg, #fbfdfd, #f3f8f8);

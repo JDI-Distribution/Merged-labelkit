@@ -41,8 +41,15 @@ renamed templates.
 2. When the number is reused, select the correct Ecomdash order instance.
 3. LabelKit matches incoming SKUs to Product Master level SKUs and resolves the customer and addresses.
 4. Select the documents required for the run.
-5. Review and edit label jobs, the packing list, Ti-Hi, or pallet labels.
-6. Generate the selected production PDFs.
+5. Preview labels and explicitly approve them. Use **Go Back** to return without approval.
+6. Review the packing list and Ti-Hi, then choose **Approve Packing List & Ti-Hi**.
+7. Review pallet labels and choose **Approve Pallet Labels** when selected.
+8. Each approval adds its PDF to **Finished Files**. Use **View Finished Files**
+   after all selected sections are approved. PDFs remain separate for printing.
+
+Editing a section revokes its approval and removes its previous finished file.
+Changes to the packing list also revoke pallet-label approval. Failed rendering
+does not approve or publish a file.
 
 Product Master is authoritative for packaging hierarchy, label templates, GTINs, case quantities, dimensions, and weights. Missing data produces review warnings where output can still be generated safely.
 

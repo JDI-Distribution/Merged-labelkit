@@ -2030,9 +2030,13 @@
     }
     b2bPreviewUrl = null;
     if (selectedKit === 'operations' && typeof orderDocumentsState === 'object'
-      && orderDocumentsState.reviewedDocuments?.labels && !orderDocumentsState.finalizing) {
+      && (orderDocumentsState.reviewedDocuments?.labels || orderDocumentsState.labelPreviewReady)
+      && !orderDocumentsState.finalizing) {
       orderDocumentsState.reviewedDocuments.labels = false;
+      orderDocumentsState.labelPreviewReady = false;
       window.clearGeneratedOutputs?.('operations-labels-review', 'operations-labels');
+      renderOperationsApprovalActions();
+      window.requestAnimationFrame(() => renderOperationsWorkspace());
     }
     setDownloadReady(false);
     renderB2BValidation();
@@ -2159,7 +2163,7 @@
         setDownloadReady(true, b2bPreviewUrl);
         setActivePreviewFormat('rollo');
       }
-      if (!needsArchive) {
+      {
         await recordGeneratedOutput(outputKey, {
           scope: outputScope,
           name: filename,
@@ -2167,6 +2171,7 @@
           labels: jobs.reduce((total, row) => total + Math.max(1, Number(row.run?.copies || 1)) * Math.max(1, Number(row.run?.carton_total || 1)), 0),
           pages,
           blob: outputBlob,
+          kind: needsArchive ? 'zip' : 'pdf',
         });
       }
       updateWorkflowProgress(needsArchive ? 'Complete' : 'Opening preview', needsArchive ? 'The numbered PDF parts are ready in the downloaded ZIP.' : 'Opening the completed label preview…');

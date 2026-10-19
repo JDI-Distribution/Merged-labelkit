@@ -485,6 +485,17 @@
   window.openGeneratedOutput = async key => {
     const output = generatedOutputs.get(String(key || ''));
     if (!output?.blob) return;
+    if (output.kind === 'zip') {
+      const url = window.LabelKitPreview.create(output.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = output.name || 'labels.zip';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.LabelKitPreview.release(url), 60000);
+      return;
+    }
     generatedOutputPreviewUrl = window.LabelKitPreview.replace(generatedOutputPreviewUrl, output.blob);
     blobUrl = generatedOutputPreviewUrl;
     document.getElementById('btn-download').download = output.name || 'document.pdf';

@@ -3433,6 +3433,7 @@
     if (!document.getElementById('pdf-preview').childElementCount) {
       await renderPdfPreview(blobUrl);
     }
+    if (typeof renderOperationsApprovalActions === 'function') renderOperationsApprovalActions();
   }
 
   async function openPreview() {

@@ -51,7 +51,7 @@ test('Custom Labels resets order state, selects multiple templates, and reports 
   await expect(page.locator('#b2b-template-gallery-count')).toContainText('2 selected');
   await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
   await expect(page).toHaveURL(/operations\/document-editor/);
-  await page.getByRole('button', { name: 'Save Packing List Review & Continue' }).click();
+  await page.locator('#btn-operations-review-continue').click();
   await page.getByRole('button', { name: 'Create Label Without an Order' }).click();
   await expect(page.locator('#b2b-template-gallery-grid input:checked')).toHaveCount(0);
   await page.getByRole('button', { name: 'Generate With Order Number' }).click();
@@ -90,9 +90,9 @@ test('Pallet labels use an editable manual count when packing list output is exc
   await expect(page).toHaveURL(/operations\/document-editor/);
   await expect(page.locator('[data-pallet-label-index]')).toHaveCount(3);
   await expect(page.locator('[data-draft-path="pallets.0.copies"]')).toHaveValue('2');
-  await page.getByRole('button', { name: 'Save Pallet Label Review & Continue' }).click();
+  await page.locator('#btn-operations-review-continue').click();
   await expect(page).toHaveURL(/operations\/pallets/);
-  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Generate Reviewed Documents');
+  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('View Finished Files');
 });
 
 test('Custom Packing List opens its editor and exposes pallet review only when available', async ({ page }) => {
@@ -100,8 +100,16 @@ test('Custom Packing List opens its editor and exposes pallet review only when a
   await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
   await expect(page).toHaveURL(/operations\/document-editor/);
   await expect(page.locator('#operations-sales-order-number')).not.toHaveAttribute('required', '');
-  await page.getByRole('button', { name: 'Save Packing List Review & Continue' }).click();
+  await expect(page.locator('#btn-operations-review-top')).toHaveText('Approve Packing List & Ti-Hi');
+  await expect(page.locator('#btn-operations-review-top')).toHaveCSS('background-color', 'rgb(33, 79, 75)');
+  await page.locator('#btn-operations-review-back').click();
   await expect(page).toHaveURL(/operations\/packing/);
+  await expect(page.locator('.operations-file-row')).toHaveCount(0);
+  await expect(page.locator('#operations-mpl-tab-state')).toContainText('Approval required');
+  await page.getByRole('button', { name: 'Review & Edit Packing List', exact: true }).click();
+  await page.locator('#btn-operations-review-continue').click();
+  await expect(page).toHaveURL(/operations\/packing/);
+  await expect(page.locator('.operations-file-row')).toHaveCount(1);
   await expect(page.locator('#operations-mpl-review-state')).not.toHaveText('Not created');
   const pallets = page.locator('[data-operations-tab="pallets"]');
   await expect(pallets).toBeEnabled();
@@ -109,9 +117,10 @@ test('Custom Packing List opens its editor and exposes pallet review only when a
   await page.getByRole('button', { name: 'Review & Edit Pallet Labels', exact: true }).click();
   await expect(page).toHaveURL(/operations\/document-editor/);
   await expect(page.getByText('Pallet Placard Groups')).toBeVisible();
-  await page.getByRole('button', { name: 'Save Pallet Label Review & Continue' }).click();
+  await page.locator('#btn-operations-review-continue').click();
   await expect(page).toHaveURL(/operations\/pallets/);
-  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Generate Reviewed Documents');
+  await expect(page.locator('.operations-file-row')).toHaveCount(2);
+  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('View Finished Files');
 });
 
 test('Unique and duplicate order lookup preserve or replace work intentionally', async ({ page }) => {
@@ -165,30 +174,47 @@ test('Pallet count is resolved from the reviewed packing list before pallet prev
   await page.locator('#btn-generate-operations-documents').click();
   await expect(page).toHaveURL(/operations\/document-editor/);
   await page.getByRole('button', { name: 'Add Pallet' }).click();
-  await page.getByRole('button', { name: 'Save Packing List Review & Continue' }).click();
+  await page.locator('#btn-operations-review-continue').click();
   await expect(page).toHaveURL(/operations\/packing/);
   await expect(page.locator('#operations-pallet-count')).not.toHaveText('0');
   await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Continue to Pallet Label Review');
   await page.locator('#btn-generate-operations-documents').click();
   await expect(page).toHaveURL(/operations\/document-editor/);
   await expect(page.getByText('Pallet Placard Groups')).toBeVisible();
-  await page.getByRole('button', { name: 'Save Pallet Label Review & Continue' }).click();
-  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Generate Reviewed Documents');
+  await page.locator('#btn-operations-review-continue').click();
+  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('View Finished Files');
   await expect(page.locator('#btn-generate-operations-documents')).toBeEnabled();
 });
 
 test('Custom label generation appears in Finished Files and opens its PDF preview', async ({ page }) => {
   await openOperations(page);
   await setUpManualLabel(page);
+  await expect(page.locator('#btn-approve-operations-labels')).toBeDisabled();
   await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Continue to Label Preview');
   await page.locator('#btn-generate-operations-documents').click();
   const readiness = page.locator('#workflow-readiness-modal');
   if (await readiness.isVisible()) await readiness.getByRole('button', { name: 'Generate with warnings' }).click();
   await expect(page).toHaveURL(/operations\/preview/);
   await expect(page.getByRole('link', { name: 'Save PDF' })).toBeVisible();
+  await expect(page.locator('#btn-approve-preview-labels')).toBeVisible();
   await page.locator('#preview-panel .btn-close-preview').click();
   await expect(page).toHaveURL(/operations\/labels/);
-  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Generate Reviewed Documents');
+  await expect(page.locator('.operations-file-row')).toHaveCount(0);
+  await expect(page.locator('#operations-label-tab-state')).toHaveText('Approval required');
+  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Approve Labels');
+  await page.locator('#btn-approve-operations-labels').click();
+  await expect(page.locator('.operations-file-row')).toHaveCount(1);
+  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('View Finished Files');
+  await page.locator('[data-b2b-run-field="copies"]').fill('2');
+  await expect(page.locator('#btn-approve-operations-labels')).toBeDisabled();
+  await expect(page.locator('.operations-file-row')).toHaveCount(0);
+  await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Continue to Label Preview');
+  await page.locator('#btn-generate-operations-documents').click();
+  if (await readiness.isVisible()) await readiness.getByRole('button', { name: 'Generate with warnings' }).click();
+  await expect(page).toHaveURL(/operations\/preview/);
+  await page.locator('#btn-approve-preview-labels').click();
+  await expect(page).toHaveURL(/operations\/labels/);
+  await expect(page.locator('#operations-label-tab-state')).toHaveText('Approved');
   await page.locator('#btn-generate-operations-documents').click();
   const finalReadiness = page.locator('#workflow-readiness-modal');
   if (await finalReadiness.isVisible()) await finalReadiness.getByRole('button', { name: 'Generate with warnings' }).click();
@@ -198,6 +224,20 @@ test('Custom label generation appears in Finished Files and opens its PDF previe
   await page.locator('.operations-file-row').getByRole('button', { name: 'Open PDF' }).click();
   await expect(page).toHaveURL(/operations\/preview/);
   await expect(page.getByRole('link', { name: 'Save PDF' })).toBeVisible();
+});
+
+test('A failed packing-list render does not approve or publish a file', async ({ page }) => {
+  await page.route('**/render/kehe/master-packing-list', route => route.fulfill({
+    status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'Test render failure' }),
+  }));
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  await page.locator('#btn-operations-review-top').click();
+  await expect(page.getByText('Error: Test render failure', { exact: true })).toBeVisible();
+  await expect(page.locator('.operations-file-row')).toHaveCount(0);
+  await expect(page.locator('#btn-operations-review-top')).toBeEnabled();
+  await page.locator('#btn-operations-review-back').click();
+  await expect(page.locator('#operations-mpl-tab-state')).toContainText('Approval required');
 });
 
 test('Operations remains within responsive viewport widths', async ({ page }) => {
