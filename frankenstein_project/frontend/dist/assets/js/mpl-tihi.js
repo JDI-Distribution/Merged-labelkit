@@ -243,6 +243,7 @@
     mpl.items = mergedItems;
     mpl._pallet_ids = pallets.map(p => p.id);
     mpl._pallet_weights = weights;
+    syncMplTotalWeight(mplIndex);
     mpl.total_pallets = String(mpl._pallet_ids.length || 1);
     const note = getXmlPalletMismatchNote(mpl, mpl._pallet_ids.length);
     markMplPalletizationSource(mpl, 'Auto Palletize', note);

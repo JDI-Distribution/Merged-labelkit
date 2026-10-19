@@ -2624,7 +2624,6 @@
     draft.packing_lists.forEach(mpl => {
       ensureMplPalletState(mpl);
       const totals = {};
-      let listTotal = 0;
       const itemNumberWarnings = [];
       mpl.warnings = (mpl.warnings || []).filter(warning => (
         !String(warning).includes('required for MPL Item Number')
@@ -2650,7 +2649,6 @@
               const pallet = normalizePalletId(item.location_on_pallet);
               const itemWeight = orderUnitWeight * itemQuantityForWeight(item);
               item.calculated_weight_lbs = formatLbs(itemWeight);
-              listTotal += itemWeight;
               if (pallet) totals[pallet] = (totals[pallet] || 0) + itemWeight;
             }
           }
@@ -2679,16 +2677,12 @@
         const pallet = normalizePalletId(item.location_on_pallet);
         const itemWeight = unitWeight * itemQuantityForWeight(item);
         item.calculated_weight_lbs = formatLbs(itemWeight);
-        listTotal += itemWeight;
         if (!pallet) return;
         totals[pallet] = (totals[pallet] || 0) + itemWeight;
       });
       if (itemNumberWarnings.length) {
         mpl.warnings = [...new Set([...(mpl.warnings || []), ...itemNumberWarnings])];
         mpl.status = 'Needs Review';
-      }
-      if (listTotal > 0 && (!preserveManualWeights || !String(mpl.total_weight || '').trim())) {
-        mpl.total_weight = formatLbs(listTotal);
       }
       Object.keys(totals).forEach(pallet => {
         const calculated = formatLbs(totals[pallet]);
@@ -2702,6 +2696,7 @@
           }
         });
       });
+      window.LabelKitDocumentEditor.syncPalletTotalWeight(mpl);
     });
   }
 

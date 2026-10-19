@@ -41,6 +41,14 @@
     window.LabelKitDocumentEditor.ensurePalletState(mpl);
   }
 
+  function syncMplTotalWeight(mplIndex) {
+    const mpl = getMpl(mplIndex);
+    if (!mpl) return;
+    window.LabelKitDocumentEditor.syncPalletTotalWeight(mpl);
+    document.querySelectorAll(`[data-draft-path="packing_lists.${mplIndex}.total_weight"]`)
+      .forEach(input => { input.value = mpl.total_weight; });
+  }
+
   function syncMplLineNumbers(mpl) {
     if (!mpl || !Array.isArray(mpl.items)) return;
     mpl.items.forEach((item, index) => { item.line = index + 1; });
@@ -48,7 +56,8 @@
 
   function editorPdfInput(path, value, className = '', placeholder = '', ariaLabel = '') {
     const aria = ariaLabel ? ` aria-label="${escapeHtml(ariaLabel)}"` : '';
-    return `<input class="${escapeHtml(className)}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(placeholder)}" data-draft-path="${escapeHtml(path)}" onfocus="captureMplHistoryCheckpoint()" oninput="updateDraftValue(this)"${aria}>`;
+    const calculated = /^packing_lists\.\d+\.total_weight$/.test(path) ? ' readonly title="Sum of the pallet weights"' : '';
+    return `<input class="${escapeHtml(className)}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(placeholder)}" data-draft-path="${escapeHtml(path)}" onfocus="captureMplHistoryCheckpoint()" oninput="updateDraftValue(this)"${aria}${calculated}>`;
   }
 
   function renderCopiesControl(path, value, helpText = 'Number of labels to generate.', minCopies = 1) {
@@ -950,6 +959,7 @@
     const cfg = KEHE_DOCUMENT_CONFIG[type];
     document.getElementById('document-editor-title').textContent = `Review & Edit ${cfg.label}`;
     if (type === 'masterPackingList') {
+      (draft?.packing_lists || []).forEach(ensureMplPalletState);
       const nameInput = document.getElementById('mpl-draft-name-input');
       const nextName = defaultMplDraftName(draft);
       if (nameInput && String(nameInput.value || '').trim() !== nextName) {
@@ -1114,6 +1124,7 @@
         item.pallet_weight = value;
       }
     });
+    syncMplTotalWeight(mplIndex);
     captureMplHistoryCheckpoint();
   }
 

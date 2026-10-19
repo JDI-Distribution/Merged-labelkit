@@ -365,7 +365,33 @@ def apply_product_master_to_mpl_draft(draft: Dict[str, Any], *, force: bool = Fa
                 for item in items:
                     if _pallet_value(item) == pallet and (force or not _clean(item.get("pallet_weight"))):
                         item["pallet_weight"] = mpl["_pallet_weights"].get(pallet) or calculated
+        sync_mpl_pallet_total_weight(mpl)
     return draft
+
+
+def sync_mpl_pallet_total_weight(mpl: Dict[str, Any]) -> None:
+    """Use the displayed pallet weights as the shipment total, once per pallet."""
+    items = mpl.get("items") or []
+    ids = list(dict.fromkeys(
+        _clean(value) for value in [*(mpl.get("_pallet_ids") or []), *(item.get("location_on_pallet") for item in items)]
+        if _clean(value)
+    ))
+    weights = mpl.setdefault("_pallet_weights", {})
+    total = 0.0
+    for pallet in ids:
+        value = _clean(weights.get(pallet)) or next(
+            (_clean(item.get("pallet_weight")) for item in items if _clean(item.get("location_on_pallet")) == pallet and _clean(item.get("pallet_weight"))), ""
+        )
+        match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(?:lbs?\.?|pounds?)?", value.replace(",", ""), re.IGNORECASE)
+        if not match:
+            mpl["total_weight"] = ""
+            return
+        weights[pallet] = value
+        total += float(match.group(1))
+        for item in items:
+            if _clean(item.get("location_on_pallet")) == pallet:
+                item["pallet_weight"] = value
+    mpl["total_weight"] = _format_lbs(total) if ids else ""
 
 
 __all__ = [

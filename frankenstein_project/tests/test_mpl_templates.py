@@ -7,6 +7,7 @@ import pymupdf as fitz
 
 from pipelines.kehe.common import _MPL_BRAND_LOGO_PATHS, _mpl_template_id, render_kehe_master_packing_list_pdf
 from pipelines.kehe.mpl_renderer import _MPL_INNER_W, _MPL_MARGIN
+from pipelines.kehe.product_master import sync_mpl_pallet_total_weight
 
 
 class MplTemplateTests(unittest.TestCase):
@@ -226,6 +227,28 @@ class MplTemplateTests(unittest.TestCase):
                             self.assertTrue(matches, line)
                             self.assertGreater(matches[0], previous_y)
                             previous_y = matches[0]
+
+    def test_pdf_total_matches_one_or_multiple_pallet_weights(self):
+        for weights, expected in (({"1": "2200 lbs"}, "2200 lbs"), ({"1": "2,200 lbs", "2": "1,100.5 LBS"}, "3300.5 lbs")):
+            with self.subTest(weights=weights):
+                draft = self._draft("standard")
+                mpl = draft["packing_lists"][0]
+                mpl["total_weight"] = "2040 lbs"
+                mpl["_pallet_ids"] = list(weights)
+                mpl["_pallet_weights"] = {**weights, "deleted-pallet": "999 lbs"}
+                first = mpl["items"][0]
+                mpl["items"] = [dict(first, location_on_pallet=pallet, pallet_weight="10 lbs") for pallet in weights]
+                text = self._render_first_page_text(draft)
+                self.assertEqual(expected, mpl["total_weight"])
+                self.assertIn(expected, text)
+                self.assertNotIn("2040 lbs", text)
+                for item in mpl["items"]:
+                    self.assertEqual(weights[item["location_on_pallet"]], item["pallet_weight"])
+
+    def test_total_does_not_publish_a_partial_sum_when_a_pallet_weight_is_missing(self):
+        mpl = {"_pallet_ids": ["1", "2"], "_pallet_weights": {"1": "2200 lbs"}, "total_weight": "2040 lbs", "items": []}
+        sync_mpl_pallet_total_weight(mpl)
+        self.assertEqual("", mpl["total_weight"])
 
     def test_standard_letterhead_text_is_editable_and_reaches_pdf(self):
         draft = self._draft("standard")

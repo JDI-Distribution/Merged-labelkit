@@ -33,6 +33,7 @@ from .common import (
 )
 
 from .tihi import _render_mpl_tihi_pages
+from .product_master import sync_mpl_pallet_total_weight
 
 
 def _validate_mpl_each_item_numbers(draft: Dict[str, Any]) -> List[str]:
@@ -251,6 +252,7 @@ def render_kehe_master_packing_list_pdf(
         brand_id = _mpl_brand_id(draft, mpl)
         theme = _mpl_template_theme(template_id, brand_id)
         items = _mpl_prepare_items(mpl)
+        sync_mpl_pallet_total_weight(mpl)
         total_items_all += len(items)
 
         if progress_callback:

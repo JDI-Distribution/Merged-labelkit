@@ -123,6 +123,24 @@ test('Custom Packing List opens its editor and exposes pallet review only when a
   await expect(page.locator('#btn-generate-operations-documents')).toHaveText('View Finished Files');
 });
 
+test('Packing-list total follows pallet weight edits and sums multiple pallets', async ({ page }) => {
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  const total = page.locator('[data-draft-path="packing_lists.0.total_weight"]');
+  await expect(total).toHaveAttribute('readonly', '');
+  await page.locator('[data-pallet-id="1"] .mpl-pallet-weight-edit input').fill('2,200 lbs');
+  await expect(total).toHaveValue('2200 lbs');
+  await page.getByRole('button', { name: 'Add Pallet', exact: true }).click();
+  await expect(total).toHaveValue('');
+  await page.locator('[data-pallet-id="2"] .mpl-pallet-weight-edit input').fill('1100.5 lbs');
+  await expect(total).toHaveValue('3300.5 lbs');
+  await page.locator('[data-pallet-id="1"] .mpl-pallet-weight-edit input').fill('2100 lbs');
+  await expect(total).toHaveValue('3200.5 lbs');
+  await page.locator('#btn-operations-review-back').click();
+  await page.getByRole('button', { name: 'Review & Edit Packing List', exact: true }).click();
+  await expect(total).toHaveValue('3200.5 lbs');
+});
+
 test('Unique and duplicate order lookup preserve or replace work intentionally', async ({ page }) => {
   await openOperations(page);
   await loadOrder(page, '38800');
