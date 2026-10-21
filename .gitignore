@@ -24,6 +24,7 @@ frankenstein_project/.catalystrc
 # Node
 node_modules/
 npm-debug.log*
+catalyst-debug.log*
 frankenstein_project/test-results/
 frankenstein_project/playwright-report/
 

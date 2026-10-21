@@ -53,6 +53,23 @@ does not approve or publish a file.
 
 Product Master is authoritative for packaging hierarchy, label templates, GTINs, case quantities, dimensions, and weights. Missing data produces review warnings where output can still be generated safely.
 
+Partner packing lists include an editable **Company / Warehouse** field for the
+shipping destination. Include the company in the Ship To address as well when
+it must appear on other shipping documents. **Balance Owed (cases, entire
+order)** is calculated once across the order from ordered minus shipped cases,
+grouped by product so over-shipping another product does not hide a shortage.
+Quantities split across pallets must represent each pallet's portion.
+
+Ti-Hi Settings retain the length, width, stack-height, and gross-weight limits.
+Optional **Cases per layer (Ti)** and **Maximum layers (Hi)** fields constrain
+the actual layout; leave them blank for automatic calculation. These are
+per-order or per-pallet choices, with no customer-specific fixed Ti default.
+Recalculate applies the settings and re-palletizes the order. A preview reports
+any cases that cannot fit. The pallet summary and Ti-Hi use the same layout.
+Summary dimensions show length × width × actual loaded height, including the
+**Pallet base height**, which defaults to 6 inches. Max Height continues to
+limit the product stack; the wooden base is added to the displayed height.
+
 ## Runtime profiles
 
 Runtime behavior is controlled by:
@@ -231,7 +248,7 @@ Build from the repository root so `.dockerignore` is applied:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.10.05-maintenance"
+$release = "2026.10.21-pallet-review"
 $gitSha = git rev-parse --short HEAD
 docker build --pull `
   --build-arg APP_VERSION=$release `

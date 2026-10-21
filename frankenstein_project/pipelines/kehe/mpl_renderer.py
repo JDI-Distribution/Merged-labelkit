@@ -279,9 +279,9 @@ def _mpl_prepare_items(mpl: Dict[str, Any]) -> List[Dict[str, Any]]:
         item["location_on_pallet"] = _mpl_pallet_value(item)
         if not _mpl_clean(item.get("qty_on_pallet")):
             item["qty_on_pallet"] = item.get("total_shipped") or item.get("qty") or ""
-        if not _mpl_clean(item.get("total_ordered")):
+        if item.get("total_ordered") in (None, ""):
             item["total_ordered"] = item.get("qty_on_pallet") or item.get("total_shipped") or ""
-        if not _mpl_clean(item.get("total_shipped")):
+        if item.get("total_shipped") in (None, ""):
             item["total_shipped"] = item.get("qty_on_pallet") or ""
     max_pallet_num = 1
     for pallet, _rows in _mpl_group_items(items):
@@ -845,6 +845,16 @@ def _mpl_units_on_pallet(item: Dict[str, Any]) -> str:
     return str(int(units)) if float(units).is_integer() else f"{units:.2f}".rstrip("0").rstrip(".")
 
 
+def _mpl_order_balance_cases(items):
+    groups = {}
+    for item in items:
+        key = item.get("sku") or item.get("gtin") or item.get("item_number") or item.get("description") or str(item.get("line"))
+        group = groups.setdefault(key, [0.0, 0.0])
+        group[0] += max(0, _parse_float(item.get("total_ordered", item.get("qty_on_pallet"))) or 0)
+        group[1] += max(0, _parse_float(item.get("total_shipped", item.get("qty_on_pallet"))) or 0)
+    return sum(max(0, ordered - shipped) for ordered, shipped in groups.values())
+
+
 def _render_decopac_mpl_pages(
     c: canvas.Canvas,
     mpl: Dict[str, Any],
@@ -871,7 +881,6 @@ def _render_decopac_mpl_pages(
         ("quantity_per_case", "Quantity Per Case", 0.090),
         ("qty_on_pallet", "# of Cases", 0.075),
         ("units_on_pallet", "Units on this Pallet", 0.095),
-        ("balance_owed", "Balance Owed", 0.055),
     ]
     configured_columns = mpl.get("column_config") if isinstance(mpl.get("column_config"), list) else []
     allowed_defaults = {key: (label, width) for key, label, width in default_column_specs}
@@ -884,7 +893,7 @@ def _render_decopac_mpl_pages(
         if not key or key in seen_columns:
             continue
         is_custom = bool(raw_column.get("custom")) and key.startswith("custom_")
-        if key not in allowed_defaults and not is_custom:
+        if key == "balance_owed" or (key not in allowed_defaults and not is_custom):
             continue
         default_label, default_width = allowed_defaults.get(key, ("Custom Column", 0.09))
         label = _mpl_clean(raw_column.get("label")) or default_label
@@ -896,14 +905,23 @@ def _render_decopac_mpl_pages(
     total_width = sum(spec[2] for spec in column_specs) or 1.0
     column_specs = [(key, label, width / total_width) for key, label, width in column_specs]
     computed_tihi: Dict[str, str] = {}
+    computed_dimensions = {}
     try:
         tihi_entries, _tihi_warnings = _mpl_build_tihi_entries(mpl, items)
+        computed_dimensions = {
+            _mpl_clean(entry.get("pallet")): f"{entry['constraints']['max_length_in']:g} x {entry['constraints']['max_width_in']:g} x {entry['loaded_height']:g} in"
+            for entry in tihi_entries
+        }
         computed_tihi = {
             _mpl_clean(entry.get("pallet")): f"{entry.get('ti', '')} x {entry.get('hi', '')}"
             for entry in tihi_entries
         }
     except Exception:
+        computed_dimensions = {}
         computed_tihi = {}
+
+    mpl["_pallet_dimensions"] = computed_dimensions
+    mpl["_pallet_tihi"] = computed_tihi
 
     for page_index, page_items in enumerate(chunks, start=1):
         if progress_callback:
@@ -928,6 +946,7 @@ def _render_decopac_mpl_pages(
         supplier_name = _mpl_clean(mpl.get("delivery_from_name")) or (supplier_lines[0] if supplier_lines else theme["brand_label"])
         detail_lines = [
             ("DELIVERY FROM", supplier_name),
+            ("COMPANY / WAREHOUSE", _mpl_clean(mpl.get("ship_to_company"))),
             ("SHIPPING DATE", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date")))),
             ("SHIP TO ADDRESS", _mpl_clean(mpl.get("ship_to")).replace("\n", ", ")),
             ("PHONE #", _mpl_clean(mpl.get("phone_number"))),
@@ -936,7 +955,7 @@ def _render_decopac_mpl_pages(
         for label, value in detail_lines:
             c.setFont("Helvetica-Bold", 7.1)
             c.drawString(info_x, info_y, f"{label}:")
-            value_x = info_x + 1.02 * inch
+            value_x = info_x + 1.35 * inch
             _draw_fitted_line(c, value, value_x, info_y, inner_w * 0.54, "Helvetica", 7.1, min_font_size=4.0)
             info_y -= 0.16 * inch
 
@@ -947,7 +966,7 @@ def _render_decopac_mpl_pages(
         c.setFont("Helvetica-Bold", 6.2)
         c.drawRightString(margin + inner_w, y - logo_h - 0.08 * inch, f"PAGE {page_index} OF {len(chunks)}")
 
-        title_top = page_h - 1.90 * inch
+        title_top = page_h - 2.06 * inch
         title_h = 0.28 * inch
         _draw_mpl_cell(c, margin, title_top - title_h, inner_w, title_h, theme["label_fill"], _MPL_GRID, 0.55)
         c.setFillColorRGB(0.08, 0.08, 0.08)
@@ -991,6 +1010,8 @@ def _render_decopac_mpl_pages(
             summary_title_y = y - 0.18 * inch
             c.setFillColorRGB(*theme["primary"])
             c.setFont("Helvetica-Bold", 7.4)
+            c.drawString(margin, summary_title_y, f"BALANCE OWED (CASES, ENTIRE ORDER): {_mpl_order_balance_cases(items):g}")
+            summary_title_y -= 0.20 * inch
             c.drawString(margin, summary_title_y, "PALLET SUMMARY")
             summary_top = summary_title_y - 0.07 * inch
             summary_w = inner_w * 0.66
@@ -1015,10 +1036,10 @@ def _render_decopac_mpl_pages(
             for pallet_index, pallet_id in enumerate(pallet_ids[:3]):
                 values = [
                     f"Pallet #{_mpl_pallet_label(pallet_id)}",
-                    _mpl_clean(dimensions.get(pallet_id)) or "48 x 40 in",
+                    computed_dimensions.get(pallet_id) or "Measurements needed",
                     _mpl_weight_label(weights.get(pallet_id)),
                     _mpl_clean(mpl.get("total_weight")) if pallet_index == 0 else "",
-                    _mpl_clean(tihi.get(pallet_id)) or computed_tihi.get(pallet_id, ""),
+                    computed_tihi.get(pallet_id, ""),
                 ]
                 sx = margin
                 cell_h = 0.19 * inch

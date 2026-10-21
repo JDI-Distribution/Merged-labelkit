@@ -3,6 +3,9 @@ export const PALLET_DEFAULTS = Object.freeze({
   max_width_in: 40,
   max_height_in: 70,
   max_gross_lbs: 2000,
+  cases_per_layer: 0,
+  max_layers: 0,
+  pallet_base_height_in: 6,
 });
 
 export const PALLET_TARE_LBS = 50;
@@ -29,6 +32,9 @@ export function normalizeConstraints(raw = {}) {
     max_width_in: readPositive(raw.max_width_in, PALLET_DEFAULTS.max_width_in),
     max_height_in: readPositive(raw.max_height_in, PALLET_DEFAULTS.max_height_in),
     max_gross_lbs: readPositive(raw.max_gross_lbs, PALLET_DEFAULTS.max_gross_lbs),
+    cases_per_layer: Math.floor(readPositive(raw.cases_per_layer, 0)),
+    max_layers: Math.floor(readPositive(raw.max_layers, 0)),
+    pallet_base_height_in: readPositive(raw.pallet_base_height_in, 6),
   };
 }
 

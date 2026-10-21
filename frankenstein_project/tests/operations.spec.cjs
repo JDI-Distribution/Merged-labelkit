@@ -141,6 +141,24 @@ test('Packing-list total follows pallet weight edits and sums multiple pallets',
   await expect(total).toHaveValue('3200.5 lbs');
 });
 
+test('Ti-Hi settings expose optional overrides and a six-inch pallet base', async ({ page }) => {
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  await page.getByRole('button', { name: 'Ti-Hi Settings', exact: true }).click();
+  const ti = page.getByRole('spinbutton', { name: 'Cases per layer (Ti)', exact: true });
+  const hi = page.getByRole('spinbutton', { name: 'Maximum layers (Hi)', exact: true });
+  const base = page.getByRole('spinbutton', { name: 'Pallet base height (in)', exact: true });
+  await expect(ti).toHaveValue('');
+  await expect(hi).toHaveValue('');
+  await expect(base).toHaveValue('6');
+  await ti.fill('36');
+  await ti.press('Tab');
+  await expect(ti).toHaveValue('36');
+  await page.getByRole('button', { name: 'Defaults', exact: true }).click();
+  await expect(ti).toHaveValue('');
+  await expect(base).toHaveValue('6');
+});
+
 test('Unique and duplicate order lookup preserve or replace work intentionally', async ({ page }) => {
   await openOperations(page);
   await loadOrder(page, '38800');

@@ -1646,6 +1646,7 @@
     const locality = [city, state].filter(Boolean).join(', ') + (zip ? `${city || state ? ' ' : ''}${zip}` : '');
     return [
       name,
+      source[billing ? 'billing_company' : 'ship_to_company'],
       source[`${streetPrefix}1`],
       source[`${streetPrefix}2`],
       source[`${streetPrefix}3`],
@@ -1687,6 +1688,7 @@
     mpl.customer_no = orderNumber;
     if (analyticsBillTo) mpl.bill_to = analyticsBillTo;
     if (analyticsShipTo) mpl.ship_to = analyticsShipTo;
+    mpl.ship_to_company = String(orderDetails.ship_to_company || orderDetails.shipping_company || '').trim();
     applyResolvedOrderContextToMpl(mpl, orderContext);
     mpl.shipping_instructions = String(orderDetails.order_notes || '').trim();
     mpl.source_files = [`${orderSourceLabel} · ${payload?.source?.view_name || 'Order Data'}`];

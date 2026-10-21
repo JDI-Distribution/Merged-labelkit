@@ -192,13 +192,13 @@ def _mpl_draw_tihi_side_view(
     h: float,
 ) -> None:
     pad = 8
-    scale = min((w - 2 * pad) / constraints["max_length_in"], (h - 2 * pad) / constraints["max_height_in"])
+    scale = min((w - 2 * pad) / constraints["max_length_in"], (h - 2 * pad) / (constraints["max_height_in"] + constraints["pallet_base_height_in"]))
     pallet_w = constraints["max_length_in"] * scale
     stack_h = min(constraints["max_height_in"], float(entry.get("used_height") or 0.0)) * scale
     px = x + (w - pallet_w) / 2
     py = y + 8
 
-    pallet_base_h = 8
+    pallet_base_h = constraints["pallet_base_height_in"] * scale
     c.setFillColorRGB(0.68, 0.62, 0.47)
     c.setStrokeColorRGB(*_MPL_GRID)
     c.setLineWidth(0.5)
@@ -300,7 +300,7 @@ def _render_mpl_tihi_card(
     info_rows = [
         f"Assigned: {entry['assigned_cases']} case(s)   Shown: {entry['shown_cases']}   Gross pallet weight: {int(round(entry['gross_weight_lbs']))} lbs",
         f"TI x HI: {entry['ti']} x {entry['hi']}   Visible top surfaces: {entry['top_layer_cases']} case(s)   Used pallet volume: {entry['pallet_fill_pct']:.1f}%",
-        f"Used stack height: {int(round(float(entry.get('used_height') or 0.0)))} in",
+        f"Loaded pallet height: {float(entry.get('used_height') or 0) + constraints['pallet_base_height_in']:g} in (includes {constraints['pallet_base_height_in']:g} in pallet base)",
         f"Constraints: {int(round(constraints['max_length_in']))} x {int(round(constraints['max_width_in']))} x {int(round(constraints['max_height_in']))} in   Max gross: {int(round(constraints['max_gross_lbs']))} lbs",
     ]
     if entry.get("overflow_cases"):

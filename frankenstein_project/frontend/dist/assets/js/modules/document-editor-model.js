@@ -9,7 +9,6 @@ const PARTNER_COLUMNS = Object.freeze([
   ['quantity_per_case', 'Quantity Per Case', 0.090],
   ['qty_on_pallet', '# of Cases', 0.075],
   ['units_on_pallet', 'Units on This Pallet', 0.095],
-  ['balance_owed', 'Balance Owed', 0.055],
 ]);
 
 const STANDARD_COLUMNS = Object.freeze([
@@ -86,6 +85,19 @@ export function syncPalletTotalWeight(mpl) {
       .forEach(item => { item.pallet_weight = mpl._pallet_weights[id]; });
   }
   mpl.total_weight = ids.length ? `${Number(total.toFixed(2))} lbs` : '';
+}
+
+export function orderBalanceCases(mpl) {
+  const groups = new Map();
+  for (const item of mpl.items || []) {
+    const key = item.sku || item.gtin || item.item_number || item.description || String(item.line);
+    const group = groups.get(key) || { ordered: 0, shipped: 0 };
+    const read = value => Math.max(0, Number(String(value ?? '').replace(/,/g, '')) || 0);
+    group.ordered += read(item.total_ordered ?? item.qty_on_pallet);
+    group.shipped += read(item.total_shipped ?? item.qty_on_pallet);
+    groups.set(key, group);
+  }
+  return [...groups.values()].reduce((sum, group) => sum + Math.max(0, group.ordered - group.shipped), 0);
 }
 
 export function itemUnits(item) {
@@ -206,6 +218,7 @@ export const documentEditorModel = Object.freeze({
   shouldDefaultToPalletOne,
   ensurePalletState,
   syncPalletTotalWeight,
+  orderBalanceCases,
   itemUnits,
   defaultColumns,
   ensureColumns,

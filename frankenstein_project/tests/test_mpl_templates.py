@@ -273,7 +273,9 @@ class MplTemplateTests(unittest.TestCase):
         self.assertIn("Units on this Pallet", text)
         self.assertIn("PALLET SUMMARY", text)
         self.assertIn("LOT-42", text)
-        self.assertIn("5 x 4", text)
+        self.assertIn("12 x 1", text)
+        self.assertIn("48 x 40 x 14 in", text)
+        self.assertIn("BALANCE OWED (CASES, ENTIRE ORDER): 0", text)
         self.assertGreater(width, height)
 
     def test_standalone_dutch_bros_template_renders_customer_title(self):

@@ -1,4 +1,5 @@
 .git/
+catalyst-debug.log*
 .venv/
 _sop_work/
 **/__pycache__/

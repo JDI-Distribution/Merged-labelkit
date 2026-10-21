@@ -10,7 +10,7 @@
     if (!dims || unitWeight === null) return null;
     const perLayerA = Math.floor(constraints.max_length_in / dims.l) * Math.floor(constraints.max_width_in / dims.w);
     const perLayerB = Math.floor(constraints.max_length_in / dims.w) * Math.floor(constraints.max_width_in / dims.l);
-    const perLayer = Math.max(perLayerA, perLayerB);
+    const perLayer = Math.min(Math.max(perLayerA, perLayerB), constraints.cases_per_layer || Infinity);
     const layers = Math.floor(constraints.max_height_in / dims.h);
     const byDimensions = perLayer * layers;
     if (byDimensions < 1) {
@@ -44,8 +44,8 @@
       if (!meta || !constraints) return 0;
       const perLayerA = Math.floor(constraints.max_length_in / meta.dims.l) * Math.floor(constraints.max_width_in / meta.dims.w);
       const perLayerB = Math.floor(constraints.max_length_in / meta.dims.w) * Math.floor(constraints.max_width_in / meta.dims.l);
-      const perLayer = Math.max(perLayerA, perLayerB);
-      const layers = Math.floor(constraints.max_height_in / meta.dims.h);
+      const perLayer = Math.min(Math.max(perLayerA, perLayerB), constraints.cases_per_layer || Infinity);
+      const layers = Math.min(Math.floor(constraints.max_height_in / meta.dims.h), constraints.max_layers || Infinity);
       const byDimensions = perLayer * layers;
       const maxProductWeight = Math.max(0, constraints.max_gross_lbs - TIHI_PALLET_TARE_LBS);
       const byWeight = Math.floor((maxProductWeight / TIHI_PALLET_BUFFER_FACTOR) / meta.unitWeight);
@@ -239,6 +239,23 @@
       const nextLines = String(item.line || '').split(',').map(part => part.trim()).filter(Boolean);
       const mergedLines = [...new Set([...existingLines, ...nextLines])];
       if (mergedLines.length) existing.line = mergedLines.join(', ');
+    });
+    // Re-palletization redistributes shipped cases; retain the original order demand.
+    const demandKey = item => item.sku || item.gtin || item.item_number || item.description || String(item.line);
+    const demand = new Map();
+    originalItems.forEach(item => {
+      const key = demandKey(item);
+      demand.set(key, (demand.get(key) || 0) + Math.max(0, Number(item.total_ordered ?? item.qty_on_pallet) || 0));
+    });
+    const remainingRows = new Map();
+    mergedItems.forEach(item => remainingRows.set(demandKey(item), (remainingRows.get(demandKey(item)) || 0) + 1));
+    mergedItems.forEach(item => {
+      const key = demandKey(item);
+      const remaining = demand.get(key) || 0;
+      const ordered = remainingRows.get(key) === 1 ? remaining : Math.min(remaining, Number(item.qty_on_pallet) || 0);
+      item.total_ordered = String(ordered);
+      demand.set(key, remaining - ordered);
+      remainingRows.set(key, remainingRows.get(key) - 1);
     });
     mpl.items = mergedItems;
     mpl._pallet_ids = pallets.map(p => p.id);
@@ -712,6 +729,10 @@
       activeGroups.forEach(group => {
         if (group.remainingCases <= 0) return;
         supportLevels.forEach((baseZ, levelIndex) => {
+          const layerCount = placements.filter(p => Math.abs(Number(p.z || 0) - baseZ) <= 0.001).length;
+          if (constraints.cases_per_layer && layerCount >= constraints.cases_per_layer) return;
+          const lowerLevels = new Set(placements.filter(p => Number(p.z || 0) < baseZ - 0.001).map(p => Number(p.z || 0).toFixed(3)));
+          if (constraints.max_layers && lowerLevels.size >= constraints.max_layers) return;
           if (baseZ >= Number(constraints.max_height_in || 0) - 0.001) return;
           const supportSurfaces = tihiSupportSurfaces(placements, baseZ, constraints);
           if (!supportSurfaces.length) return;
@@ -903,7 +924,7 @@
         assignedCases: groups.reduce((sum, group) => sum + group.assignedCases, 0),
         shownCases: caseCount,
         overflowCases: overflowCount,
-        ti: maxCasesInLayer,
+        ti: palletConstraints.cases_per_layer || maxCasesInLayer,
         hi: maxLayer + 1,
         displayLayer,
         topRowsUsed,
@@ -911,11 +932,14 @@
         grossWeightLbs,
         palletFillPct: Number(layout.palletFillPct || 0),
         usedHeight,
+        loadedHeight: usedHeight + palletConstraints.pallet_base_height_in,
         lines: [...new Set(groups.flatMap(group => group.lines))].sort((a, b) => Number(a) - Number(b))
       };
     }).filter(Boolean);
 
     entries.sort((a, b) => (Number(a.pallet) || 0) - (Number(b.pallet) || 0));
+    mpl._pallet_dimensions = Object.fromEntries(entries.map(entry => [entry.palletLabel, `${entry.constraints.max_length_in} x ${entry.constraints.max_width_in} x ${Number(entry.loadedHeight.toFixed(2))} in`]));
+    mpl._pallet_tihi = Object.fromEntries(entries.map(entry => [entry.palletLabel, `${entry.ti} x ${entry.hi}`]));
 
     return { entries, warnings: [...new Set(warnings)], constraints };
   }
@@ -1001,12 +1025,12 @@
     const areaY = y + 54;
     const areaW = w - (pad * 2);
     const areaH = h - 90;
-    const scale = Math.min(areaW / constraints.max_length_in, areaH / constraints.max_height_in);
+    const scale = Math.min(areaW / constraints.max_length_in, areaH / (constraints.max_height_in + constraints.pallet_base_height_in));
     const palletW = constraints.max_length_in * scale;
-    const frameH = constraints.max_height_in * scale;
+    const frameH = (constraints.max_height_in + constraints.pallet_base_height_in) * scale;
     const px = areaX + ((areaW - palletW) / 2);
     const py = areaY + ((areaH - frameH) / 2);
-    const palletBaseH = 10;
+    const palletBaseH = constraints.pallet_base_height_in * scale;
     const stackBaseY = py + frameH - palletBaseH;
     drawSnapshotRect(ctx, px, py, palletW, frameH, '#ffffff', '#334155', 2);
     (entry.placements || []).forEach(p => {
@@ -1024,7 +1048,7 @@
     drawSnapshotRect(ctx, px + (notchW * 0.75), stackBaseY + 2, notchW * 0.8, palletBaseH - 4, '#ffffff', '', 0);
     drawSnapshotRect(ctx, px + (notchW * 2.5), stackBaseY + 2, notchW * 0.8, palletBaseH - 4, '#ffffff', '', 0);
     drawSnapshotText(ctx, `${constraints.max_length_in} in`, px, y + h - 26, { size: 9, weight: 800, color: '#64748b' });
-    drawSnapshotText(ctx, `${Math.round(Number(entry.usedHeight || 0))} in used height`, x + (w / 2), y + h - 26, { align: 'center', size: 9, weight: 800, color: '#64748b' });
+    drawSnapshotText(ctx, `${Number((Number(entry.usedHeight || 0) + constraints.pallet_base_height_in).toFixed(2))} in incl. pallet`, x + (w / 2), y + h - 26, { align: 'center', size: 9, weight: 800, color: '#64748b' });
     drawSnapshotText(ctx, `${entry.hi || 0} layer(s)`, px + palletW, y + h - 26, { align: 'right', size: 9, weight: 800, color: '#64748b' });
   }
 
@@ -1264,12 +1288,12 @@
     const width = 330;
     const height = 320;
     const pad = 18;
-    const scale = Math.min((width - (2 * pad)) / constraints.max_length_in, (height - (2 * pad)) / constraints.max_height_in);
+    const scale = Math.min((width - (2 * pad)) / constraints.max_length_in, (height - (2 * pad)) / (constraints.max_height_in + constraints.pallet_base_height_in));
     const palletW = constraints.max_length_in * scale;
-    const frameH = constraints.max_height_in * scale;
+    const frameH = (constraints.max_height_in + constraints.pallet_base_height_in) * scale;
     const originX = (width - palletW) / 2;
     const frameY = (height - frameH) / 2;
-    const palletBaseH = 8;
+    const palletBaseH = constraints.pallet_base_height_in * scale;
     const stackBaseY = frameY + frameH - palletBaseH;
     const rects = (entry.placements || []).map(p =>
       `<rect x="${(originX + (p.x * scale)).toFixed(2)}" y="${(stackBaseY - ((p.z + p.height) * scale)).toFixed(2)}" width="${(p.length * scale).toFixed(2)}" height="${(p.height * scale).toFixed(2)}" fill="${p.color}" stroke="#6b4c24" stroke-width="1"/>`
@@ -1369,7 +1393,7 @@
           <div class="tihi-diagram">
             <div class="tihi-diagram-title">Side View</div>
             ${renderTiHiSideViewSvg(entry, constraints)}
-            <div class="tihi-dim-row"><span>${escapeHtml(String(constraints.max_length_in))} in</span><span>${escapeHtml(String(Math.round(entry.usedHeight || 0)))} in used height</span><span>${escapeHtml(String(entry.hi))} layer(s)</span></div>
+            <div class="tihi-dim-row"><span>${escapeHtml(String(constraints.max_length_in))} in</span><span>${escapeHtml(String(Number((entry.usedHeight + constraints.pallet_base_height_in).toFixed(2))))} in incl. pallet</span><span>${escapeHtml(String(entry.hi))} layer(s)</span></div>
           </div>
         </div>
         ${renderTiHiLayerPatterns(entry, constraints)}
@@ -1524,6 +1548,8 @@
     if (!mpl) return;
     const constraints = getMplTiHiConstraints(mpl, palletId);
     constraints[key] = value;
+    mpl._pallet_tihi = {};
+    mpl._pallet_dimensions = {};
   }
 
   function updateMplTiHiConstraintAndPreview(mplIndex, palletId, key, value) {
@@ -1631,6 +1657,18 @@
                 <div class="tihi-constraint-field">
                   <label>Max Gross (lbs)</label>
                   <input type="number" min="1" step="1" value="${escapeHtml(String(sheetConstraints.max_gross_lbs))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'max_gross_lbs', this.value)">
+                </div>
+                <div class="tihi-constraint-field">
+                  <label>Cases per layer (Ti)</label>
+                  <input aria-label="Cases per layer (Ti)" type="number" min="1" step="1" placeholder="Auto" value="${escapeHtml(String(sheetConstraints.cases_per_layer || ''))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'cases_per_layer', this.value)">
+                </div>
+                <div class="tihi-constraint-field">
+                  <label>Maximum layers (Hi)</label>
+                  <input aria-label="Maximum layers (Hi)" type="number" min="1" step="1" placeholder="Auto" value="${escapeHtml(String(sheetConstraints.max_layers || ''))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'max_layers', this.value)">
+                </div>
+                <div class="tihi-constraint-field">
+                  <label>Pallet base height (in)</label>
+                  <input aria-label="Pallet base height (in)" type="number" min="0.1" step="0.1" value="${escapeHtml(String(sheetConstraints.pallet_base_height_in))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'pallet_base_height_in', this.value)">
                 </div>
                 <div class="tihi-constraint-actions">
                   <button class="btn-secondary" type="button" onclick="resetMplTiHiConstraints(${mplIndex}, '${jsString(focusPallet)}')">Defaults</button>

@@ -303,7 +303,6 @@
             <label><span>Color</span>${editorPdfInput(`${base}.color`, item.color || '')}</label>
             <label><span>Product Size</span>${editorPdfInput(`${base}.product_size`, item.product_size || '')}</label>
             <label><span>Qty / Case</span>${editorPdfInput(`${base}.quantity_per_case`, item.quantity_per_case || '')}</label>
-            <label><span>Balance Owed</span>${editorPdfInput(`${base}.balance_owed`, item.balance_owed || '')}</label>
           </div>
         </td>
       </tr>` : ''}`;
@@ -525,8 +524,6 @@
   }
 
   function mplTiHiSummaryValue(mpl, palletId) {
-    const manual = String(mpl?._pallet_tihi?.[palletId] || '').trim();
-    if (manual) return manual;
     try {
       const { entries } = buildMplTiHiEntries(mpl);
       const entry = entries.find(row => normalizePalletId(row.palletLabel) === normalizePalletId(palletId));
@@ -534,6 +531,16 @@
     } catch (_err) {
       return '';
     }
+  }
+
+  function mplPalletDimensionsValue(mpl, palletId) {
+    const constraints = getMplTiHiConstraints(mpl, palletId);
+    try {
+      const { entries } = buildMplTiHiEntries(mpl);
+      const entry = entries.find(row => normalizePalletId(row.palletLabel) === normalizePalletId(palletId));
+      if (entry) return `${constraints.max_length_in} x ${constraints.max_width_in} x ${Number(entry.loadedHeight.toFixed(2))} in`;
+    } catch (_err) { /* Keep missing measurements visible for review. */ }
+    return `${constraints.max_length_in} x ${constraints.max_width_in} x ? in`;
   }
 
   function renderMplLiveTiHiPanel(mplIndex, palletId, extraClass = '') {
@@ -598,6 +605,7 @@
         <div class="decopac-delivery-block">
           ${editorPdfInput(`${base}.pallet_heading`, mpl.pallet_heading || 'PALLET 1', 'decopac-pallet-heading')}
           <label><span>Delivery From</span>${editorPdfInput(`${base}.delivery_from_name`, mpl.delivery_from_name || firstLine(mpl.supplier_info))}</label>
+          <label><span>Company / Warehouse</span>${editorPdfInput(`${base}.ship_to_company`, mpl.ship_to_company || '')}</label>
           <label><span>Shipping Date</span>${editorPdfInput(`${base}.est_ship_date`, mpl.est_ship_date)}</label>
           <label class="decopac-inline-address"><span>Ship To Address ${renderInlineMplAddressPicker(mplIndex, 'ship_to', mpl.ship_to)}</span>${editorPdfTextarea(`${base}.ship_to`, mpl.ship_to)}</label>
           <label><span>Phone #</span>${editorPdfInput(`${base}.phone_number`, mpl.phone_number || '')}</label>
@@ -610,15 +618,16 @@
       <div class="decopac-pallet-flow-stack">
         ${palletIds.map(palletId => renderBreakdownPalletFlow(mpl, mplIndex, palletId)).join('')}
       </div>
+      <div class="decopac-summary-title">Balance Owed (cases, entire order): <span data-order-balance="${mplIndex}">${escapeHtml(String(window.LabelKitDocumentEditor.orderBalanceCases(mpl)))}</span></div>
       <div class="decopac-summary-title">Pallet Summary</div>
       <div class="decopac-summary-wrap"><table class="decopac-summary-table">
         <thead><tr><th>Pallet Number</th><th>Dimensions</th><th>Weight</th><th>Total Weight</th><th>TIHI</th><th>Settings</th></tr></thead>
         <tbody>${palletIds.map((palletId, palletIndex) => `<tr data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
           <td>${editorPdfInput(`${base}._pallet_ids.${palletIndex}`, palletId)}</td>
-          <td>${editorPdfInput(`${base}._pallet_dimensions.${palletId}`, mpl._pallet_dimensions[palletId] || '48 x 40 in')}</td>
+          <td>${escapeHtml(mplPalletDimensionsValue(mpl, palletId))}</td>
           <td><input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" placeholder="ex: 589 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></td>
           <td>${palletIndex === 0 ? editorPdfInput(`${base}.total_weight`, mpl.total_weight || '') : ''}</td>
-          <td>${editorPdfInput(`${base}._pallet_tihi.${palletId}`, mplTiHiSummaryValue(mpl, palletId))}</td>
+          <td>${escapeHtml(mplTiHiSummaryValue(mpl, palletId))}</td>
           <td></td>
         </tr>`).join('')}</tbody>
       </table></div>`;
@@ -1016,6 +1025,11 @@
     }
     const last = parts[parts.length - 1];
     ref[last] = input.value;
+    if (/^packing_lists\.\d+\.items\.\d+\.qty_on_pallet$/.test(path)) {
+      ref.total_shipped = input.value;
+      const unitsPerCase = Number(ref.quantity_per_case);
+      if (unitsPerCase > 0) ref.units_on_pallet = String((Number(input.value) || 0) * unitsPerCase);
+    }
     const packCopiesMatch = path.match(/^pack_labels\.(\d+)\.copies$/);
     if (packCopiesMatch) {
       const copies = normalizeManualCopies(input.value);
@@ -1036,6 +1050,9 @@
       const mplMatch = path.match(/^packing_lists\.(\d+)\./);
       const mpl = mplMatch ? getMpl(Number(mplMatch[1])) : null;
       if (mpl) {
+        document.querySelectorAll(`[data-order-balance="${mplMatch[1]}"]`).forEach(output => {
+          output.textContent = String(window.LabelKitDocumentEditor.orderBalanceCases(mpl));
+        });
         if (mpl.manual_mpl) {
           markMplPalletizationSource(
             mpl,

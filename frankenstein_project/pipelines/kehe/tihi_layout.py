@@ -38,6 +38,9 @@ def _mpl_tihi_constraints(mpl: Optional[Dict[str, Any]] = None, pallet: str = ""
         "max_width_in": _positive(raw.get("max_width_in"), _MPL_PALLET_WIDTH_IN),
         "max_height_in": _positive(raw.get("max_height_in"), _MPL_PALLET_MAX_HEIGHT_IN),
         "max_gross_lbs": _positive(raw.get("max_gross_lbs"), _MPL_PALLET_MAX_GROSS_LBS),
+        "cases_per_layer": int(_positive(raw.get("cases_per_layer"), 0)),
+        "max_layers": int(_positive(raw.get("max_layers"), 0)),
+        "pallet_base_height_in": _positive(raw.get("pallet_base_height_in"), 6),
     }
 
 
@@ -642,6 +645,13 @@ def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dic
             if group["remaining_cases"] <= 0:
                 continue
             for level_index, base_z in enumerate(support_levels):
+                layer_count = sum(abs(float(p.get("z") or 0) - base_z) <= 0.001 for p in placements)
+                if constraints.get("cases_per_layer") and layer_count >= constraints["cases_per_layer"]:
+                    continue
+                if constraints.get("max_layers"):
+                    lower_levels = {round(float(p.get("z") or 0), 3) for p in placements if float(p.get("z") or 0) < base_z - 0.001}
+                    if len(lower_levels) >= constraints["max_layers"]:
+                        continue
                 if base_z >= constraints["max_height_in"] - 0.001:
                     continue
                 support_surfaces = _mpl_tihi_support_surfaces(placements, base_z, constraints)
@@ -857,7 +867,7 @@ def _mpl_build_tihi_entries(
             "assigned_cases": sum(group["assigned_cases"] for group in groups),
             "shown_cases": len(placements),
             "overflow_cases": overflow_count,
-            "ti": max_cases_in_layer,
+            "ti": int(pallet_constraints.get("cases_per_layer") or max_cases_in_layer),
             "hi": max_layer + 1,
             "display_layer": display_layer,
             "top_rows_used": top_rows_used,
@@ -865,6 +875,7 @@ def _mpl_build_tihi_entries(
             "gross_weight_lbs": gross_weight,
             "pallet_fill_pct": float(layout.get("pallet_fill_pct") or 0.0),
             "used_height": float(layout["used_height"]),
+            "loaded_height": float(layout["used_height"]) + pallet_constraints["pallet_base_height_in"],
             "lines": sorted({line for group in groups for line in group["lines"]}, key=lambda value: int(re.search(r"\d+", value).group(0)) if re.search(r"\d+", value) else value),
         })
 
