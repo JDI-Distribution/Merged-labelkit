@@ -159,6 +159,20 @@ test('Ti-Hi settings expose optional overrides and a six-inch pallet base', asyn
   await expect(base).toHaveValue('6');
 });
 
+test('Partner packing list keeps Balance Owed column and a Total Weight footer', async ({ page }) => {
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  await page.getByRole('radio', { name: 'Dutch Bros', exact: true }).click();
+  await expect(page.locator('.decopac-table thead input[value="Balance Owed"]')).toHaveCount(1);
+  await expect(page.locator('[data-order-balance="0"]')).toHaveText('0');
+  await page.getByRole('button', { name: 'Add Pallet', exact: true }).click();
+  const summary = page.locator('.decopac-summary-table');
+  await expect(summary.locator('thead')).not.toContainText('Total Weight');
+  await expect(summary.locator('tbody tr')).toHaveCount(2);
+  await expect(summary.locator('tfoot tr')).toHaveCount(1);
+  await expect(summary.locator('tfoot')).toContainText('Total Weight');
+});
+
 test('Unique and duplicate order lookup preserve or replace work intentionally', async ({ page }) => {
   await openOperations(page);
   await loadOrder(page, '38800');

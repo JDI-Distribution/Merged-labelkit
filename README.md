@@ -55,10 +55,13 @@ Product Master is authoritative for packaging hierarchy, label templates, GTINs,
 
 Include the company or warehouse name in the editable **Ship To** address.
 Partner PDF headers preserve the entered address line order and line breaks.
-**Balance Owed (cases, entire
-order)** is calculated once across the order from ordered minus shipped cases,
+The **Balance Owed** column shows the entire order's shortage in the first item
+row only (including **0** when fully shipped); subsequent item rows are blank.
+The balance is calculated across the order from ordered minus shipped cases,
 grouped by product so over-shipping another product does not hide a shortage.
 Quantities split across pallets must represent each pallet's portion.
+The pallet summary lists each pallet's dimensions, weight, and Ti-Hi, followed
+by one **Total Weight** row containing the sum of all pallet weights.
 
 Ti-Hi Settings retain the length, width, stack-height, and gross-weight limits.
 Optional **Cases per layer (Ti)** and **Maximum layers (Hi)** fields constrain
@@ -248,7 +251,7 @@ Build from the repository root so `.dockerignore` is applied:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.10.21-pallet-review.3"
+$release = "2026.10.21-summary-totals"
 $gitSha = git rev-parse --short HEAD
 docker build --pull `
   --build-arg APP_VERSION=$release `

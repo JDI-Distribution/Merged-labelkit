@@ -571,7 +571,7 @@
         <tbody>${rows.length ? rows.map(({ item, itemIndex }) => {
           const itemBase = `${base}.items.${itemIndex}`;
           return `<tr data-mpl-index="${mplIndex}" data-item-index="${itemIndex}">
-            ${columns.map(column => `<td>${column.key === 'description' ? `<div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div>` : editorPdfInput(`${itemBase}.${column.key}`, partnerMplColumnValue(item, mpl, column))}</td>`).join('')}
+            ${columns.map(column => `<td>${column.key === 'balance_owed' ? (itemIndex === 0 ? `<span data-order-balance="${mplIndex}" title="Cases owed for the entire order">${escapeHtml(String(partnerMplColumnValue(item, mpl, column)))}</span>` : '') : column.key === 'description' ? `<div class="decopac-description-cell">${renderMplProductSelect(mplIndex, itemIndex, item)}${editorPdfTextarea(`${itemBase}.description`, item.description)}</div>` : editorPdfInput(`${itemBase}.${column.key}`, partnerMplColumnValue(item, mpl, column))}</td>`).join('')}
             <td class="mpl-row-actions-cell"><button class="btn-mini-danger" type="button" onclick="deleteMplItem(${mplIndex}, ${itemIndex})">Delete</button></td>
           </tr>`;
         }).join('') : `<tr><td colspan="${columns.length + 1}" class="decopac-empty">No products assigned to this pallet.</td></tr>`}</tbody>
@@ -617,18 +617,17 @@
       <div class="decopac-pallet-flow-stack">
         ${palletIds.map(palletId => renderBreakdownPalletFlow(mpl, mplIndex, palletId)).join('')}
       </div>
-      <div class="decopac-summary-title">Balance Owed (cases, entire order): <span data-order-balance="${mplIndex}">${escapeHtml(String(window.LabelKitDocumentEditor.orderBalanceCases(mpl)))}</span></div>
       <div class="decopac-summary-title">Pallet Summary</div>
       <div class="decopac-summary-wrap"><table class="decopac-summary-table">
-        <thead><tr><th>Pallet Number</th><th>Dimensions</th><th>Weight</th><th>Total Weight</th><th>TIHI</th><th>Settings</th></tr></thead>
+        <thead><tr><th>Pallet Number</th><th>Dimensions</th><th>Weight</th><th>TIHI</th><th>Settings</th></tr></thead>
         <tbody>${palletIds.map((palletId, palletIndex) => `<tr data-mpl-index="${mplIndex}" data-pallet-id="${escapeHtml(palletId)}">
           <td>${editorPdfInput(`${base}._pallet_ids.${palletIndex}`, palletId)}</td>
           <td>${escapeHtml(mplPalletDimensionsValue(mpl, palletId))}</td>
           <td><input value="${escapeHtml(mpl._pallet_weights[palletId] || '')}" placeholder="ex: 589 LBS" oninput="setMplPalletWeight(${mplIndex}, '${jsString(palletId)}', this.value)"></td>
-          <td>${palletIndex === 0 ? editorPdfInput(`${base}.total_weight`, mpl.total_weight || '') : ''}</td>
           <td>${escapeHtml(mplTiHiSummaryValue(mpl, palletId))}</td>
           <td></td>
         </tr>`).join('')}</tbody>
+        <tfoot><tr><th colspan="2">Total Weight</th><td>${editorPdfInput(`${base}.total_weight`, mpl.total_weight || '')}</td><td colspan="2"></td></tr></tfoot>
       </table></div>`;
   }
 

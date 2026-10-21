@@ -50,3 +50,12 @@ test('browser order balance sums split cases and preserves zero shipped', () => 
   ] });
   assert.equal(balance, 2);
 });
+
+test('partner Balance Owed column shows zero only in the first row', () => {
+  const ctx = context();
+  const mpl = { items: [{ sku: 'A', total_ordered: '3', total_shipped: '3' }, { sku: 'A', total_ordered: '2', total_shipped: '2' }] };
+  const model = ctx.LabelKitDocumentEditor;
+  assert.ok(model.defaultColumns('dutch_bros').some(column => column[0] === 'balance_owed'));
+  assert.equal(model.columnValue(mpl.items[0], mpl, { key: 'balance_owed' }), '0');
+  assert.equal(model.columnValue(mpl.items[1], mpl, { key: 'balance_owed' }), '');
+});

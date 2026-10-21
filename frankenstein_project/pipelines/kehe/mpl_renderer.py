@@ -881,6 +881,7 @@ def _render_decopac_mpl_pages(
         ("quantity_per_case", "Quantity Per Case", 0.090),
         ("qty_on_pallet", "# of Cases", 0.075),
         ("units_on_pallet", "Units on this Pallet", 0.095),
+        ("balance_owed", "Balance Owed", 0.055),
     ]
     configured_columns = mpl.get("column_config") if isinstance(mpl.get("column_config"), list) else []
     allowed_defaults = {key: (label, width) for key, label, width in default_column_specs}
@@ -893,7 +894,7 @@ def _render_decopac_mpl_pages(
         if not key or key in seen_columns:
             continue
         is_custom = bool(raw_column.get("custom")) and key.startswith("custom_")
-        if key == "balance_owed" or (key not in allowed_defaults and not is_custom):
+        if key not in allowed_defaults and not is_custom:
             continue
         default_label, default_width = allowed_defaults.get(key, ("Custom Column", 0.09))
         label = _mpl_clean(raw_column.get("label")) or default_label
@@ -902,6 +903,8 @@ def _render_decopac_mpl_pages(
         seen_columns.add(key)
     if not column_specs:
         column_specs = list(default_column_specs)
+    elif not any(_mpl_clean(col.get("key")) == "balance_owed" for col in configured_columns if isinstance(col, dict)):
+        column_specs.append(("balance_owed", "Balance Owed", 0.055))
     total_width = sum(spec[2] for spec in column_specs) or 1.0
     column_specs = [(key, label, width / total_width) for key, label, width in column_specs]
     computed_tihi: Dict[str, str] = {}
@@ -923,6 +926,7 @@ def _render_decopac_mpl_pages(
     mpl["_pallet_dimensions"] = computed_dimensions
     mpl["_pallet_tihi"] = computed_tihi
 
+    extra_summary_pages = 0
     for page_index, page_items in enumerate(chunks, start=1):
         if progress_callback:
             progress_callback(f"Rendering {mpl.get('id', 'MPL')} DecoPac page {page_index}/{len(chunks)}...")
@@ -1000,6 +1004,8 @@ def _render_decopac_mpl_pages(
                     value = item.get(key) or item.get("total_shipped") or ""
                 elif key == "item_number":
                     value = _mpl_item_number_display(item)
+                elif key == "balance_owed":
+                    value = f"{_mpl_order_balance_cases(items):g}" if page_index == 1 and row_index == 0 else ""
                 else:
                     value = item.get(key, "")
                 _draw_centered_wrapped(c, _mpl_clean(value), x, y - row_h / 2, cell_w, "Helvetica", 5.9, max_lines=2, leading=6.3)
@@ -1010,14 +1016,12 @@ def _render_decopac_mpl_pages(
             summary_title_y = y - 0.18 * inch
             c.setFillColorRGB(*theme["primary"])
             c.setFont("Helvetica-Bold", 7.4)
-            c.drawString(margin, summary_title_y, f"BALANCE OWED (CASES, ENTIRE ORDER): {_mpl_order_balance_cases(items):g}")
-            summary_title_y -= 0.20 * inch
             c.drawString(margin, summary_title_y, "PALLET SUMMARY")
             summary_top = summary_title_y - 0.07 * inch
             summary_w = inner_w * 0.66
             summary_headers = [
-                ("PALLET NUMBER", 0.20), ("DIMENSIONS", 0.25), ("WEIGHT", 0.18),
-                ("TOTAL WEIGHT", 0.20), ("TIHI", 0.17),
+                ("PALLET NUMBER", 0.25), ("DIMENSIONS", 0.31), ("WEIGHT", 0.225),
+                ("TIHI", 0.215),
             ]
             header_height = 0.20 * inch
             sx = margin
@@ -1033,12 +1037,30 @@ def _render_decopac_mpl_pages(
             dimensions = mpl.get("_pallet_dimensions") if isinstance(mpl.get("_pallet_dimensions"), dict) else {}
             weights = mpl.get("_pallet_weights") if isinstance(mpl.get("_pallet_weights"), dict) else {}
             tihi = mpl.get("_pallet_tihi") if isinstance(mpl.get("_pallet_tihi"), dict) else {}
-            for pallet_index, pallet_id in enumerate(pallet_ids[:3]):
+            for pallet_index, pallet_id in enumerate(pallet_ids):
+                if summary_y - 0.41 * inch < margin:
+                    c.setStrokeColorRGB(*theme["primary"])
+                    c.rect(margin, margin, inner_w, page_h - 2 * margin)
+                    c.showPage()
+                    extra_summary_pages += 1
+                    c.setPageSize((page_w, page_h))
+                    c.setFillColorRGB(*theme["primary"])
+                    c.setFont("Helvetica-Bold", 9)
+                    c.drawString(margin, page_h - margin - 12, "PALLET SUMMARY (CONTINUED)")
+                    summary_y = page_h - margin - 24
+                    sx = margin
+                    for label, rel in summary_headers:
+                        sw = summary_w * rel
+                        _draw_mpl_cell(c, sx, summary_y - header_height, sw, header_height, theme["label_fill"], _MPL_GRID, 0.4)
+                        c.setFillColorRGB(0, 0, 0)
+                        c.setFont("Helvetica-Bold", 5.8)
+                        c.drawCentredString(sx + sw / 2, summary_y - header_height / 2 - 2, label)
+                        sx += sw
+                    summary_y -= header_height
                 values = [
                     f"Pallet #{_mpl_pallet_label(pallet_id)}",
                     computed_dimensions.get(pallet_id) or "Measurements needed",
                     _mpl_weight_label(weights.get(pallet_id)),
-                    _mpl_clean(mpl.get("total_weight")) if pallet_index == 0 else "",
                     computed_tihi.get(pallet_id, ""),
                 ]
                 sx = margin
@@ -1051,11 +1073,24 @@ def _render_decopac_mpl_pages(
                     sx += sw
                 summary_y -= cell_h
 
+            total_h = 0.22 * inch
+            total_cells = [
+                ("TOTAL WEIGHT", summary_w * 0.56),
+                (_mpl_clean(mpl.get("total_weight")), summary_w * 0.225),
+                ("", summary_w * 0.215),
+            ]
+            sx = margin
+            for value, sw in total_cells:
+                _draw_mpl_cell(c, sx, summary_y - total_h, sw, total_h, theme["label_fill"], _MPL_GRID, 0.4)
+                c.setFillColorRGB(0, 0, 0)
+                _draw_fitted_line(c, value, sx + sw / 2, summary_y - total_h / 2 - 2, sw - 4, "Helvetica-Bold", 6.1, min_font_size=4, align="center")
+                sx += sw
+
         c.setStrokeColorRGB(*theme["primary"])
         c.setLineWidth(0.8)
         c.rect(margin, margin, inner_w, page_h - 2 * margin)
         c.showPage()
-    return len(chunks)
+    return len(chunks) + extra_summary_pages
 
 
 __all__ = [

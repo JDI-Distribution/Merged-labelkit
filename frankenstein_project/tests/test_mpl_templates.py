@@ -275,7 +275,8 @@ class MplTemplateTests(unittest.TestCase):
         self.assertIn("LOT-42", text)
         self.assertIn("12 x 1", text)
         self.assertIn("48 x 40 x 14 in", text)
-        self.assertIn("BALANCE OWED (CASES, ENTIRE ORDER): 0", text)
+        self.assertIn("Balance Owed", " ".join(text.split()))
+        self.assertNotIn("BALANCE OWED (CASES, ENTIRE ORDER)", text)
         self.assertGreater(width, height)
 
     def test_standalone_dutch_bros_template_renders_customer_title(self):
@@ -297,6 +298,42 @@ class MplTemplateTests(unittest.TestCase):
         text = self._render_first_page_text(draft)
         self.assertIn(address, text)
         self.assertNotIn("COMPANY / WAREHOUSE", text)
+
+    def test_partner_balance_column_and_total_weight_footer_for_two_pallets(self):
+        draft = self._draft("dutch_bros", brand_id="bakell")
+        mpl = draft["packing_lists"][0]
+        mpl["items"].append(dict(mpl["items"][0], line=2, location_on_pallet="2"))
+        mpl["_pallet_ids"] = ["1", "2"]
+        mpl["_pallet_weights"] = {"1": "120 lbs", "2": "80 lbs"}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "packing.pdf"
+            render_kehe_master_packing_list_pdf(draft, str(output))
+            with fitz.open(output) as pdf:
+                page = pdf[0]
+                text = page.get_text()
+                self.assertIn("Balance Owed", " ".join(text.split()))
+                self.assertEqual(text.count("TOTAL WEIGHT"), 1)
+                self.assertGreater(page.search_for("TOTAL WEIGHT")[0].y0, page.search_for("Pallet #2")[0].y1)
+                self.assertIn("200 lbs", text)
+                owed_header = page.search_for("Owed")[0]
+                summary_y = page.search_for("PALLET SUMMARY")[0].y0
+                balance_values = [word[4] for word in page.get_text("words")
+                                  if word[0] >= owed_header.x0 - 5 and owed_header.y1 < word[1] < summary_y]
+                self.assertEqual(balance_values, ["0"])
+
+    def test_partner_summary_keeps_all_pallets_and_continues_when_needed(self):
+        draft = self._draft("dutch_bros", brand_id="bakell")
+        mpl = draft["packing_lists"][0]
+        source = mpl["items"][0]
+        mpl["items"] = [dict(source, line=i, location_on_pallet=str(i), qty_on_pallet="1", total_ordered="1", total_shipped="1") for i in range(1, 31)]
+        mpl["_pallet_ids"] = [str(i) for i in range(1, 31)]
+        mpl["_pallet_weights"] = {str(i): "100 lbs" for i in range(1, 31)}
+        pages = self._render_page_texts(draft)
+        text = "\n".join(pages)
+        self.assertIn("Pallet #30", text)
+        self.assertIn("PALLET SUMMARY (CONTINUED)", text)
+        self.assertEqual(text.count("TOTAL WEIGHT"), 1)
+        self.assertIn("3000 lbs", text)
 
     def test_standalone_fancy_template_reuses_pallet_breakdown_with_customer_title(self):
         draft = self._draft("fancy", brand_id="bakell")

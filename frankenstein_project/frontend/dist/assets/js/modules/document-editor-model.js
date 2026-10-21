@@ -9,6 +9,7 @@ const PARTNER_COLUMNS = Object.freeze([
   ['quantity_per_case', 'Quantity Per Case', 0.090],
   ['qty_on_pallet', '# of Cases', 0.075],
   ['units_on_pallet', 'Units on This Pallet', 0.095],
+  ['balance_owed', 'Balance Owed', 0.055],
 ]);
 
 const STANDARD_COLUMNS = Object.freeze([
@@ -139,6 +140,7 @@ export function ensureColumns(mpl, templateId) {
 }
 
 export function columnValue(item, mpl, column) {
+  if (column.key === 'balance_owed') return item === mpl.items?.[0] ? String(orderBalanceCases(mpl)) : '';
   if (column.key === 'units_on_pallet') return itemUnits(item);
   if (column.key === 'invoice_po_number') return item.invoice_po_number || mpl.customer_po_number || '';
   if (column.key === 'item_number') return item.item_number || item.sku || '';
