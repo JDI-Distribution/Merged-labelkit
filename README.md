@@ -54,6 +54,7 @@ does not approve or publish a file.
 Product Master is authoritative for packaging hierarchy, label templates, GTINs, case quantities, dimensions, and weights. Missing data produces review warnings where output can still be generated safely.
 
 Include the company or warehouse name in the editable **Ship To** address.
+Partner PDF headers preserve the entered address line order and line breaks.
 **Balance Owed (cases, entire
 order)** is calculated once across the order from ordered minus shipped cases,
 grouped by product so over-shipping another product does not hide a shortage.
@@ -247,7 +248,7 @@ Build from the repository root so `.dockerignore` is applied:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.10.21-pallet-review.2"
+$release = "2026.10.21-pallet-review.3"
 $gitSha = git rev-parse --short HEAD
 docker build --pull `
   --build-arg APP_VERSION=$release `

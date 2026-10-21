@@ -290,6 +290,14 @@ class MplTemplateTests(unittest.TestCase):
         self.assertIn("Units on this Pallet", text)
         self.assertGreater(width, height)
 
+    def test_partner_ship_to_preserves_supplied_lines_and_order(self):
+        draft = self._draft("dutch_bros", brand_id="bakell")
+        address = "Shanna Stephens\nMcDonalds Wholesale\n7531 Metro Air Pkwy\nSuite 200\nSacramento CA 95837\nUnited States"
+        draft["packing_lists"][0]["ship_to"] = address
+        text = self._render_first_page_text(draft)
+        self.assertIn(address, text)
+        self.assertNotIn("COMPANY / WAREHOUSE", text)
+
     def test_standalone_fancy_template_reuses_pallet_breakdown_with_customer_title(self):
         draft = self._draft("fancy", brand_id="bakell")
         text = self._render_first_page_text(draft)

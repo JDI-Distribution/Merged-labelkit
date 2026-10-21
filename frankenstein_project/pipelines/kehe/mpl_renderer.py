@@ -947,7 +947,7 @@ def _render_decopac_mpl_pages(
         detail_lines = [
             ("DELIVERY FROM", supplier_name),
             ("SHIPPING DATE", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date")))),
-            ("SHIP TO ADDRESS", _mpl_clean(mpl.get("ship_to")).replace("\n", ", ")),
+            ("SHIP TO ADDRESS", _mpl_clean(mpl.get("ship_to"))),
             ("PHONE #", _mpl_clean(mpl.get("phone_number"))),
             ("CUSTOMER PO(S)", _mpl_clean(mpl.get("customer_po_number"))),
         ]
@@ -955,8 +955,9 @@ def _render_decopac_mpl_pages(
             c.setFont("Helvetica-Bold", 7.1)
             c.drawString(info_x, info_y, f"{label}:")
             value_x = info_x + 1.02 * inch
-            _draw_fitted_line(c, value, value_x, info_y, inner_w * 0.54, "Helvetica", 7.1, min_font_size=4.0)
-            info_y -= 0.16 * inch
+            for address_line in str(value).splitlines() or [""]:
+                _draw_fitted_line(c, address_line, value_x, info_y, inner_w * 0.54, "Helvetica", 7.1, min_font_size=4.0)
+                info_y -= 0.16 * inch
 
         logo_w = 2.55 * inch
         logo_h = 0.90 * inch
@@ -965,7 +966,7 @@ def _render_decopac_mpl_pages(
         c.setFont("Helvetica-Bold", 6.2)
         c.drawRightString(margin + inner_w, y - logo_h - 0.08 * inch, f"PAGE {page_index} OF {len(chunks)}")
 
-        title_top = page_h - 1.90 * inch
+        title_top = min(page_h - 1.90 * inch, info_y - 0.10 * inch)
         title_h = 0.28 * inch
         _draw_mpl_cell(c, margin, title_top - title_h, inner_w, title_h, theme["label_fill"], _MPL_GRID, 0.55)
         c.setFillColorRGB(0.08, 0.08, 0.08)
