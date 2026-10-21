@@ -946,7 +946,6 @@ def _render_decopac_mpl_pages(
         supplier_name = _mpl_clean(mpl.get("delivery_from_name")) or (supplier_lines[0] if supplier_lines else theme["brand_label"])
         detail_lines = [
             ("DELIVERY FROM", supplier_name),
-            ("COMPANY / WAREHOUSE", _mpl_clean(mpl.get("ship_to_company"))),
             ("SHIPPING DATE", _mpl_date_short(_mpl_clean(mpl.get("est_ship_date")))),
             ("SHIP TO ADDRESS", _mpl_clean(mpl.get("ship_to")).replace("\n", ", ")),
             ("PHONE #", _mpl_clean(mpl.get("phone_number"))),
@@ -955,7 +954,7 @@ def _render_decopac_mpl_pages(
         for label, value in detail_lines:
             c.setFont("Helvetica-Bold", 7.1)
             c.drawString(info_x, info_y, f"{label}:")
-            value_x = info_x + 1.35 * inch
+            value_x = info_x + 1.02 * inch
             _draw_fitted_line(c, value, value_x, info_y, inner_w * 0.54, "Helvetica", 7.1, min_font_size=4.0)
             info_y -= 0.16 * inch
 
@@ -966,7 +965,7 @@ def _render_decopac_mpl_pages(
         c.setFont("Helvetica-Bold", 6.2)
         c.drawRightString(margin + inner_w, y - logo_h - 0.08 * inch, f"PAGE {page_index} OF {len(chunks)}")
 
-        title_top = page_h - 2.06 * inch
+        title_top = page_h - 1.90 * inch
         title_h = 0.28 * inch
         _draw_mpl_cell(c, margin, title_top - title_h, inner_w, title_h, theme["label_fill"], _MPL_GRID, 0.55)
         c.setFillColorRGB(0.08, 0.08, 0.08)

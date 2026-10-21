@@ -605,7 +605,6 @@
         <div class="decopac-delivery-block">
           ${editorPdfInput(`${base}.pallet_heading`, mpl.pallet_heading || 'PALLET 1', 'decopac-pallet-heading')}
           <label><span>Delivery From</span>${editorPdfInput(`${base}.delivery_from_name`, mpl.delivery_from_name || firstLine(mpl.supplier_info))}</label>
-          <label><span>Company / Warehouse</span>${editorPdfInput(`${base}.ship_to_company`, mpl.ship_to_company || '')}</label>
           <label><span>Shipping Date</span>${editorPdfInput(`${base}.est_ship_date`, mpl.est_ship_date)}</label>
           <label class="decopac-inline-address"><span>Ship To Address ${renderInlineMplAddressPicker(mplIndex, 'ship_to', mpl.ship_to)}</span>${editorPdfTextarea(`${base}.ship_to`, mpl.ship_to)}</label>
           <label><span>Phone #</span>${editorPdfInput(`${base}.phone_number`, mpl.phone_number || '')}</label>
