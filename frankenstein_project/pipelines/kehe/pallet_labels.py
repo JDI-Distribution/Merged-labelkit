@@ -273,9 +273,11 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
         leading: float = 11.5,
         padding: float = 5,
         max_lines: int = 8,
+        address: bool = False,
     ) -> None:
         _draw_box(x, y, w, h)
-        clean_text = " | ".join(ln.strip() for ln in str(text or "").splitlines() if ln.strip())
+        from pipelines.address_text import normalize_address_text
+        clean_text = normalize_address_text(text) if address else str(text or "")
         vertical_line_limit = max(1, min(max_lines, int((h - 2 * padding) // max(leading, 1))))
         wrapped_lines, fitted_size = fit_text_lines(
             clean_text,
@@ -284,6 +286,7 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
             w - 2 * padding,
             vertical_line_limit,
             min_font_size=4.0,
+            preserve_line_breaks=True,
         )
         wrapped_lines = wrapped_lines or [""]
         fitted_leading = leading * (fitted_size / font_size)
@@ -346,6 +349,7 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
         box_w,
         from_h - 0.06 * inch,
         pallet.get("ship_from", ""),
+        address=True,
         font_name="Helvetica-Bold",
         font_size=10.0,
         leading=11.5,
@@ -361,6 +365,7 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
         box_w,
         to_h - 0.06 * inch,
         pallet.get("ship_to", ""),
+        address=True,
         font_name="Helvetica-Bold",
         font_size=10.0,
         leading=11.3,
@@ -463,6 +468,8 @@ def render_kehe_pallet_label_pdf(
     Each pallet entry is rendered `copies` times (default 2).
     Returns a report dict suitable for the frontend report panel.
     """
+    from pipelines.address_text import normalize_address_fields
+    normalize_address_fields(draft)
     pallets = draft.get("pallets") or []
     if not pallets:
         raise ValueError("Draft contains no pallets to render.")

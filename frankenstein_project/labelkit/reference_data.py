@@ -549,6 +549,8 @@ def _derived_directory_match_values(existing: Any, dc: str, name: str, address: 
 
 
 def normalize_dc_directory_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    from pipelines.address_text import normalize_address_fields
+    row = normalize_address_fields(dict(row))
     storefront = _normalize_storefront(_first_value(row, "storefront", "STOREFRONT", "Storefront"))
     dc = _first_value(row, "dc", "DC")
     name = _first_value(row, "name", "NAME")

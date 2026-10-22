@@ -963,6 +963,7 @@
   }
 
   function renderDocumentEditor(type, draft) {
+    window.LabelKitMasterData.normalizeAddressFields(draft);
     const cfg = KEHE_DOCUMENT_CONFIG[type];
     document.getElementById('document-editor-title').textContent = `Review & Edit ${cfg.label}`;
     if (type === 'masterPackingList') {

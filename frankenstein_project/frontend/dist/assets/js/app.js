@@ -2290,7 +2290,7 @@
         <td><input type="checkbox" class="excel-import-row-check" data-row-index="${index}" ${requiresReview ? '' : 'checked'} onchange="updateExcelImportSelectionState()"></td>
         <td>${escapeHtml(action)}</td>
         <td>${escapeHtml(importPreviewRowLabel(row, index))}</td>
-        <td>${escapeHtml(importPreviewRowDetails(row))}${qualityText ? `<small class="import-quality-note">${escapeHtml(qualityText)}</small>` : ''}</td>
+        <td>${escapeHtml(importPreviewRowDetails(row)).replace(/\n/g, '<br>')}${qualityText ? `<small class="import-quality-note">${escapeHtml(qualityText)}</small>` : ''}</td>
         <td>${escapeHtml(changeText)}</td>
       </tr>`;
     }).join('');
@@ -2330,8 +2330,8 @@
       return [
         row?.storefront ? `Storefront: ${row.storefront}` : '',
         row?.dc ? `Code: ${row.dc}` : '',
-        row?.address ? `${String(row.address_type || row.record_type || 'Address').replace(/_/g, ' ')}: ${truncateAuditValue(row.address)}` : '',
-      ].filter(Boolean).join(' | ');
+        row?.address ? `${String(row.address_type || row.record_type || 'Address').replace(/_/g, ' ')}: ${truncateAuditValue(window.LabelKitMasterData.normalizeAddressText(row.address))}` : '',
+      ].filter(Boolean).join('\n');
     }
     return [
       row?.storefront ? `Storefront: ${row.storefront}` : '',

@@ -190,7 +190,30 @@ export function deriveMatchValues(row = {}) {
   return values;
 }
 
+const ADDRESS_TEXT_FIELDS = new Set([
+  'address', 'ship_from', 'ship_to', 'bill_to', 'supplier_info',
+  'delivery_address', 'billing_address', 'shipping_address',
+  'ship_from_address', 'ship_to_address', 'bill_to_address',
+  ...['billing', 'shipping'].flatMap(prefix => [1, 2, 3].map(i => `${prefix}_street${i}`)),
+]);
+
+export function normalizeAddressText(value) {
+  return String(value ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]*\|[ \t]*/g, '\n').trim();
+}
+
+export function normalizeAddressFields(value) {
+  if (Array.isArray(value)) value.forEach(normalizeAddressFields);
+  else if (value && typeof value === 'object') {
+    Object.entries(value).forEach(([key, item]) => {
+      if (ADDRESS_TEXT_FIELDS.has(key.toLowerCase()) && typeof item === 'string') value[key] = normalizeAddressText(item);
+      else normalizeAddressFields(item);
+    });
+  }
+  return value;
+}
+
 export function normalizeDirectory(row = {}, { defaultShipFrom = '' } = {}) {
+  row = normalizeAddressFields({ ...row });
   const rawType = row.record_type ?? row.RECORD_TYPE ?? row.address_type ?? row.ADDRESS_TYPE;
   const legacyType = normalizeDirectoryRecordType(rawType);
   const roles = normalizeDirectoryRoles(row.address_roles ?? row.ADDRESS_ROLES ?? rawType, legacyType);
@@ -249,6 +272,8 @@ export const masterDataModel = Object.freeze({
   directoryRoleLabel,
   deriveMatchValues,
   normalizeDirectory,
+  normalizeAddressText,
+  normalizeAddressFields,
 });
 
 globalThis.LabelKitMasterData = masterDataModel;

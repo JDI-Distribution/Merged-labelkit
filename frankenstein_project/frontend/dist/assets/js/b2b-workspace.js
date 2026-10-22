@@ -522,6 +522,7 @@
   }
 
   function b2bPreviewValue(product, directory, runFields, ...fields) {
+    [product, directory, runFields || b2bRunFields].forEach(window.LabelKitMasterData.normalizeAddressFields);
     for (const source of [runFields || b2bRunFields, product || {}, directory || {}]) {
       for (const field of fields) {
         const value = String(source?.[field] ?? '').trim();
@@ -1919,6 +1920,7 @@
   }
 
   function b2bJobValue(payload, field) {
+    window.LabelKitMasterData.normalizeAddressFields(payload);
     for (const source of [payload.run || {}, payload.product || {}, payload.directory || {}]) {
       const value = source[field];
       if (String(value ?? '').trim()) return String(value).trim();

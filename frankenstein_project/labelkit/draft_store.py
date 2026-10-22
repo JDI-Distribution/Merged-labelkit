@@ -7,6 +7,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import Request
+from pipelines.address_text import normalize_address_fields, normalize_address_text
 
 from labelkit.draft_storage import (
     bounded_versions,
@@ -72,6 +73,7 @@ def _mpl_draft_for_storage(draft: Dict[str, Any]) -> Dict[str, Any]:
         return value
 
     cleaned_draft = clean(draft)
+    normalize_address_fields(cleaned_draft)
     return cleaned_draft if isinstance(cleaned_draft, dict) else {}
 
 
@@ -259,7 +261,7 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
         "revision": int(record.get("revision") or 0),
         "customer_po_number": mpl.get("customer_po_number", ""),
         "order_number": mpl.get("order_no", ""),
-        "ship_to": str(mpl.get("ship_to", "")).split("\n")[0] if mpl.get("ship_to") else "",
+        "ship_to": normalize_address_text(mpl.get("ship_to", "")).split("\n")[0],
         "total_pallets": mpl.get("total_pallets", ""),
         "item_count": len(items),
     }
@@ -292,6 +294,7 @@ def _hydrate_saved_mpl_record(
 ) -> Dict[str, Any]:
     """Refresh regenerable Product Master fields in a saved MPL response."""
     hydrated = copy.deepcopy(record)
+    normalize_address_fields(hydrated)
     draft = hydrated.get("draft") if isinstance(hydrated.get("draft"), dict) else {}
     draft["product_master"] = _dedupe_product_master_rows(product_rows)
     apply_product_master_to_mpl_draft(draft, force=False)

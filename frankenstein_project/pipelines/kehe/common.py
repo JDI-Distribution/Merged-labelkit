@@ -233,8 +233,9 @@ def _draw_value_lines(
     leading: float = 9,
     max_lines: int = 4,
 ) -> float:
-    source = " | ".join(str(line or "").strip() for line in lines if str(line or "").strip())
-    wrapped, fitted_size = fit_text_lines(source, "Helvetica", size, width, max_lines, min_font_size=5.0)
+    from pipelines.address_text import normalize_address_text
+    source = normalize_address_text("\n".join(str(line or "").strip() for line in lines if str(line or "").strip()))
+    wrapped, fitted_size = fit_text_lines(source, "Helvetica", size, width, max_lines, min_font_size=5.0, preserve_line_breaks=True)
     fitted_leading = leading * (fitted_size / size)
     c.setFont("Helvetica", fitted_size)
     for line in wrapped:

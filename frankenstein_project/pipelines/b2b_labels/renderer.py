@@ -296,11 +296,12 @@ def _run(job: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _job_value(job: Dict[str, Any], *keys: str, default: str = "") -> str:
+    from pipelines.address_text import ADDRESS_FIELDS, normalize_address_text
     for source in (_run(job), _product(job), _directory(job), job):
         for key in keys:
             value = source.get(key)
             if _text(value):
-                return _text(value)
+                return normalize_address_text(value) if key.lower() in ADDRESS_FIELDS else _text(value)
     return default
 
 

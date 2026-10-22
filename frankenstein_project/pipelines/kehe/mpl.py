@@ -226,6 +226,8 @@ def render_kehe_master_packing_list_pdf(
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Render Master Packing List pages from an edited draft."""
+    from pipelines.address_text import normalize_address_fields
+    normalize_address_fields(draft)
     apply_product_master_to_mpl_draft(draft, force=False)
     _validate_mpl_each_item_numbers(draft)
     packing_lists = draft.get("packing_lists") or []

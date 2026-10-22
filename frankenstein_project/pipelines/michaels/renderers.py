@@ -111,9 +111,10 @@ def format_michaels_item_number(raw_cb: str) -> str:
 
 
 def wrap_address_parts(parts: List[str], font_name: str, font_size: float, max_width: float) -> List[str]:
+    from pipelines.address_text import normalize_address_text
     lines: List[str] = []
     for part in parts:
-        for segment in str(part or "").splitlines():
+        for segment in normalize_address_text(part).splitlines():
             segment = segment.strip()
             if segment:
                 lines.extend(hard_wrap(segment, font_name, font_size, max_width))

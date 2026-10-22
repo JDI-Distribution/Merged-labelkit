@@ -67,7 +67,8 @@ def _analytics_first_row_value(row: Dict[str, Any], column_names: Tuple[str, ...
 
 
 def _analytics_order_details(rows: List[Dict[str, Any]]) -> Dict[str, str]:
-    return {
+    from pipelines.address_text import normalize_address_fields
+    return normalize_address_fields({
         field_name: next(
             (
                 value
@@ -77,7 +78,7 @@ def _analytics_order_details(rows: List[Dict[str, Any]]) -> Dict[str, str]:
             "",
         )
         for field_name, column_name in ANALYTICS_ORDER_DETAIL_COLUMNS.items()
-    }
+    })
 
 
 def _partner_customer_id_from_text(value: Any) -> str:
