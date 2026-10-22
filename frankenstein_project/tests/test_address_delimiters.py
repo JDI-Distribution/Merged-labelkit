@@ -31,6 +31,8 @@ class AddressDelimiterTests(unittest.TestCase):
         row = normalize_dc_directory_row(source)
         self.assertEqual(row['address'], 'Warehouse\n123 Main\nCA 92373')
         self.assertEqual(source['address'], 'Warehouse | 123 Main | CA 92373')
+        legacy = normalize_dc_directory_row({'Ship From': 'Supplier | Street', 'record_type': ''})
+        self.assertEqual(legacy['ship_from'], 'Supplier\nStreet')
         draft = {'packing_lists': [{'ship_to': source['address'], 'items': []}]}
         self.assertNotIn('|', _mpl_draft_for_storage(draft)['packing_lists'][0]['ship_to'])
         hydrated = _hydrate_saved_mpl_record({'draft': draft}, [])

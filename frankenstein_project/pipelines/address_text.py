@@ -19,7 +19,8 @@ def normalize_address_fields(value):
     """Normalize nested document addresses in place; leave other fields intact."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if str(key).lower() in ADDRESS_FIELDS and isinstance(item, str):
+            field = re.sub(r'[\s-]+', '_', str(key).strip().lower())
+            if field in ADDRESS_FIELDS and isinstance(item, str):
                 value[key] = normalize_address_text(item)
             else:
                 normalize_address_fields(item)

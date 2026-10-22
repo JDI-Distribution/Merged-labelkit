@@ -255,7 +255,7 @@ Build from the repository root so `.dockerignore` is applied:
 
 ```powershell
 Set-Location "C:\Users\JDI Employee\Downloads\merged_labelkit"
-$release = "2026.10.22-address-lines"
+$release = "2026.10.22-address-lines.2"
 $gitSha = git rev-parse --short HEAD
 docker build --pull `
   --build-arg APP_VERSION=$release `

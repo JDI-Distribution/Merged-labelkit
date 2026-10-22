@@ -206,7 +206,8 @@ export function normalizeAddressFields(value) {
   if (Array.isArray(value)) value.forEach(normalizeAddressFields);
   else if (value && typeof value === 'object') {
     Object.entries(value).forEach(([key, item]) => {
-      if (ADDRESS_TEXT_FIELDS.has(key.toLowerCase()) && typeof item === 'string') value[key] = normalizeAddressText(item);
+      const field = key.trim().toLowerCase().replace(/[\s-]+/g, '_');
+      if (ADDRESS_TEXT_FIELDS.has(field) && typeof item === 'string') value[key] = normalizeAddressText(item);
       else normalizeAddressFields(item);
     });
   }

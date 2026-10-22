@@ -21,4 +21,6 @@ test('directory normalization cleans existing pipe-separated addresses', () => {
   const row = model.normalizeDirectory({ record_type: 'SHIP_TO', address: 'Warehouse | Street | City' });
   assert.equal(row.address, 'Warehouse\nStreet\nCity');
   assert.equal(row.delivery_address, row.address);
+  const legacy = model.normalizeDirectory({ 'SHIP FROM': 'Supplier | Street' });
+  assert.equal(legacy.ship_from, 'Supplier\nStreet');
 });
