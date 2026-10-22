@@ -5,6 +5,7 @@ ADDRESS_FIELDS = frozenset({
     'address', 'ship_from', 'ship_to', 'bill_to', 'supplier_info',
     'delivery_address', 'billing_address', 'shipping_address',
     'ship_from_address', 'ship_to_address', 'bill_to_address',
+    'ship_from_name', 'ship_to_name', 'bill_to_name', 'delivery_from_name', 'billing_customer_name',
     *(f'{prefix}_street{i}' for prefix in ('billing', 'shipping') for i in (1, 2, 3)),
 })
 

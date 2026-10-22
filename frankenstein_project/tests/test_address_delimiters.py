@@ -18,10 +18,11 @@ class AddressDelimiterTests(unittest.TestCase):
     def test_only_address_fields_are_normalized_and_existing_order_is_preserved(self):
         data = {'ship_to': 'Contact | Warehouse\n123 Street | Suite 200',
                 'product': {'description': 'Sugar | Purple', 'sku': 'A|B'},
-                'order_details': {'shipping_street1': '123 Street|Suite 200'}}
+                'order_details': {'shipping_street1': '123 Street|Suite 200', 'ship_to_name': 'Contact | Warehouse'}}
         normalize_address_fields(data)
         self.assertEqual(data['ship_to'], 'Contact\nWarehouse\n123 Street\nSuite 200')
         self.assertEqual(data['order_details']['shipping_street1'], '123 Street\nSuite 200')
+        self.assertEqual(data['order_details']['ship_to_name'], 'Contact\nWarehouse')
         self.assertEqual(data['product'], {'description': 'Sugar | Purple', 'sku': 'A|B'})
         self.assertEqual(normalize_address_text('A\nB'), 'A\nB')
 

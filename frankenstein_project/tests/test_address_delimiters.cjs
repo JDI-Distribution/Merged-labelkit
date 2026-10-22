@@ -10,10 +10,11 @@ vm.runInContext(source, ctx);
 const model = ctx.LabelKitMasterData;
 
 test('address cleanup retains line order and leaves product pipes intact', () => {
-  const draft = { packing_lists: [{ ship_to: 'Contact | Warehouse\nStreet|Suite 200', description: 'Sugar | Purple' }] };
+  const draft = { packing_lists: [{ ship_to: 'Contact | Warehouse\nStreet|Suite 200', ship_from_name: 'Supplier | Warehouse', description: 'Sugar | Purple' }] };
   model.normalizeAddressFields(draft);
   assert.equal(draft.packing_lists[0].ship_to, 'Contact\nWarehouse\nStreet\nSuite 200');
   assert.equal(draft.packing_lists[0].description, 'Sugar | Purple');
+  assert.equal(draft.packing_lists[0].ship_from_name, 'Supplier\nWarehouse');
 });
 
 test('directory normalization cleans existing pipe-separated addresses', () => {

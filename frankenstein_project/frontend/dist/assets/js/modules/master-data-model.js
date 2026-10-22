@@ -194,6 +194,7 @@ const ADDRESS_TEXT_FIELDS = new Set([
   'address', 'ship_from', 'ship_to', 'bill_to', 'supplier_info',
   'delivery_address', 'billing_address', 'shipping_address',
   'ship_from_address', 'ship_to_address', 'bill_to_address',
+  'ship_from_name', 'ship_to_name', 'bill_to_name', 'delivery_from_name', 'billing_customer_name',
   ...['billing', 'shipping'].flatMap(prefix => [1, 2, 3].map(i => `${prefix}_street${i}`)),
 ]);
 
