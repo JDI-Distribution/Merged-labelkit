@@ -148,8 +148,16 @@ test('Packing-list total follows pallet weight edits and sums multiple pallets',
 });
 
 test('Ti-Hi settings expose optional overrides and a six-inch pallet base', async ({ page }) => {
+  let releaseCatalog;
+  const catalogGate = new Promise(resolve => { releaseCatalog = resolve; });
+  await page.route('**/api/mpl/product-master', async route => {
+    if (route.request().method() === 'GET') await catalogGate;
+    await route.continue();
+  });
   await openOperations(page);
   await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  releaseCatalog();
+  await expect(page).toHaveURL(/operations\/document-editor/);
   await page.getByRole('button', { name: 'Ti-Hi Settings', exact: true }).click();
   const ti = page.getByRole('spinbutton', { name: 'Cases per layer (Ti)', exact: true });
   const hi = page.getByRole('spinbutton', { name: 'Maximum layers (Hi)', exact: true });
@@ -331,6 +339,7 @@ for (const switchDraft of [false, true]) {
   test(`A delayed save preserves ${switchDraft ? 'a different active draft' : 'newer unsaved edits'}`, async ({ page, request }) => {
     await openOperations(page);
     await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+    await expect(page).toHaveURL(/operations\/document-editor/);
     let received, release;
     const arrived = new Promise(resolve => { received = resolve; });
     const gate = new Promise(resolve => { release = resolve; });

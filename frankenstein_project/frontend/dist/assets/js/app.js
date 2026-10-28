@@ -907,6 +907,8 @@
     if (page !== getCurrentPage()) {
       await applyPageFromNavigation(page);
     }
+    // Startup/reference loads can finish after the user has opened another view.
+    if (normalizeAppRoute(getRouteFromHash()) !== normalized) return;
     hideAllRouteViews({ keepTiHi: routeSubpath(normalized).startsWith('tihi/') });
     await showRouteView(normalized);
   }
@@ -956,11 +958,13 @@
     if (subpath === 'shared-product-master') {
       if (!b2bLabelTemplates.length) await loadB2BLabelTemplates();
       await loadMplProductMasterFromBackend();
+      if (normalizeAppRoute(getRouteFromHash()) !== normalized) return;
       showMplProductMasterView();
       return;
     }
     if (subpath === 'shared-directory') {
       await loadMplDirectoryFromBackend();
+      if (normalizeAppRoute(getRouteFromHash()) !== normalized) return;
       showMplDirectoryView();
       return;
     }

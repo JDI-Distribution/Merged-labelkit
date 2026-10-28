@@ -60,13 +60,13 @@ def health() -> Dict[str, Any]:
 
 
 @router.get("/api/auth/session")
-async def auth_session(request: Request) -> JSONResponse:
+def auth_session(request: Request) -> JSONResponse:
     from pipelines.kehe.tihi_layout import _mpl_tihi_constraints
     return JSONResponse(content={**_app_runtime_config(request), "pallet_defaults": _mpl_tihi_constraints()})
 
 
 @router.get("/api/admin/diagnostics")
-async def admin_diagnostics(request: Request) -> JSONResponse:
+def admin_diagnostics(request: Request) -> JSONResponse:
     _require_permission(request, "admin")
     checks: Dict[str, Any] = {
         "profile": LABELKIT_CONFIG_PROFILE,

@@ -165,7 +165,7 @@ async def save_mpl_directory(request: Request, payload: Dict[str, Any]) -> JSONR
 
 
 @router.get("/api/kehe/audit-log")
-async def get_kehe_audit_log(request: Request, limit: int = 200, table: str = "") -> JSONResponse:
+def get_kehe_audit_log(request: Request, limit: int = 200, table: str = "") -> JSONResponse:
     _require_permission(request, "audit_view")
     safe_limit = min(max(int(limit or 200), 1), 1000)
     return JSONResponse(content={"entries": _audit_log_read(limit=safe_limit, table=table, request=request)})

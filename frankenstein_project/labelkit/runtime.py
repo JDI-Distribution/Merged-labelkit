@@ -59,7 +59,6 @@ LOGGER = logging.getLogger("labelkit")
 
 _WRITE_LOCK = threading.RLock()
 _WRITE_DEPTH = threading.local()
-_ASYNC_WRITE_LOCK = asyncio.Lock()
 _WRITE_CONTEXT = ContextVar("labelkit_write", default=False)
 
 
@@ -95,17 +94,21 @@ def data_write_lock():
 
 
 def serialized_data_access(operation):
+    def run_operation(args, kwargs):
+        # Catalyst's SDK and the file lock are synchronous. Keep both off the
+        # ASGI event loop so a slow catalog request cannot stall the whole app.
+        with data_write_lock():
+            token = _WRITE_CONTEXT.set(True)
+            try:
+                return asyncio.run(operation(*args, **kwargs))
+            finally:
+                _WRITE_CONTEXT.reset(token)
+
     @wraps(operation)
     async def wrapped(*args, **kwargs):
         if _WRITE_CONTEXT.get():
             return await operation(*args, **kwargs)
-        async with _ASYNC_WRITE_LOCK:
-            with data_write_lock():
-                token = _WRITE_CONTEXT.set(True)
-                try:
-                    return await operation(*args, **kwargs)
-                finally:
-                    _WRITE_CONTEXT.reset(token)
+        return await asyncio.to_thread(run_operation, args, kwargs)
     return wrapped
 
 

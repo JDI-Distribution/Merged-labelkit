@@ -613,6 +613,7 @@
     document.getElementById('header-app-name').textContent = 'Order Documents';
     document.getElementById('header-app-sub').textContent = '';
     document.getElementById('header-app-sub').classList.add('hidden');
+    if (updateHistory) setHistoryPage('operations');
     hideAllRouteViews();
     if (!orderDocumentsState.initialized) {
       mplProductMasterRows = loadMplProductMasterFromStorage();
@@ -626,7 +627,6 @@
     if (['labels', 'packing', 'pallets', 'files'].includes(routeTab)) orderDocumentsState.activeTab = routeTab;
     renderOperationsWorkspace();
     if (entering) setStatus('', '');
-    if (updateHistory) setHistoryPage('operations');
   }
 
   function selectOperationsTab(tab, updateHistory = true) {

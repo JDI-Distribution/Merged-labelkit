@@ -30,13 +30,13 @@ router = APIRouter()
 
 
 @router.get("/api/b2b/label-templates")
-async def get_b2b_label_templates(request: Request) -> JSONResponse:
+def get_b2b_label_templates(request: Request) -> JSONResponse:
     _require_permission(request, "view")
     return JSONResponse(content=_load_b2b_label_templates())
 
 
 @router.get("/api/customer-workflows")
-async def get_customer_workflows(request: Request) -> JSONResponse:
+def get_customer_workflows(request: Request) -> JSONResponse:
     _require_permission(request, "view")
     return JSONResponse(content={"workflows": CUSTOMER_WORKFLOWS})
 
