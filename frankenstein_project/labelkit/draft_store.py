@@ -6,7 +6,8 @@ import copy
 import json
 from typing import Any, Dict, List, Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from labelkit.catalyst import replace_rows
 from pipelines.address_text import normalize_address_fields, normalize_address_text
 
 from labelkit.draft_storage import (
@@ -20,12 +21,12 @@ from labelkit.runtime import (
     MPL_DRAFTS_FILE,
     MPL_DRAFTS_STORE,
     MPL_DRAFTS_TABLE,
-    _chunked,
     _datastore_get_raw_rows,
     _datastore_table_named,
     _now_iso,
     _raise_datastore_unavailable,
     _store_requires_datastore,
+    _write_json_atomic,
 )
 from pipelines.kehe_pipeline import apply_product_master_to_mpl_draft
 
@@ -106,77 +107,16 @@ def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str
     if table_service is None:
         return False
     try:
-        existing_rows = _datastore_get_raw_rows(table_service)
-        wanted_document_type = _normalize_document_type(document_type, "") if document_type else ""
-
-        filtered_existing: List[Dict[str, Any]] = []
-        for row in existing_rows:
-            if str(row.get("IS_ACTIVE", True)).lower() in {"false", "0", "no"}:
-                continue
-            mapped = _datastore_row_to_mpl_draft(row)
-            if wanted_document_type and _normalize_document_type(mapped.get("document_type"), "") != wanted_document_type:
-                continue
-            filtered_existing.append(row)
-
-        existing_by_id: Dict[str, Dict[str, Any]] = {}
-        existing_rowid_by_id: Dict[str, Any] = {}
-        for row in filtered_existing:
-            draft_id = str(row.get("DRAFT_ID") or row.get("id") or "").strip()
-            if not draft_id:
-                continue
-            existing_by_id[draft_id] = row
-            existing_rowid_by_id[draft_id] = row.get("ROWID")
-
-        incoming_by_id = {
-            str(record.get("id") or "").strip(): record
-            for record in drafts
-            if str(record.get("id") or "").strip()
-        }
-
-        delete_rowids: List[Any] = []
-        update_rows: List[Dict[str, Any]] = []
-        insert_rows: List[Dict[str, Any]] = []
-
-        for draft_id, row in existing_by_id.items():
-            if draft_id not in incoming_by_id:
-                rowid = existing_rowid_by_id.get(draft_id)
-                if rowid:
-                    delete_rowids.append(rowid)
-
-        for draft_id, record in incoming_by_id.items():
-            prepared_record = dict(record)
-            if wanted_document_type:
-                prepared_record["document_type"] = wanted_document_type
-            next_row = _mpl_draft_to_datastore_row(prepared_record)
-            existing_row = existing_by_id.get(draft_id)
-            if existing_row is None:
-                insert_rows.append(next_row)
-                continue
-            current_compare = dict(existing_row)
-            current_compare.pop("ROWID", None)
-            if current_compare == next_row:
-                continue
-            rowid = existing_rowid_by_id.get(draft_id)
-            if rowid:
-                next_row["ROWID"] = rowid
-                update_rows.append(next_row)
-            else:
-                insert_rows.append(next_row)
-
-        for batch in _chunked(update_rows, 100):
-            if batch:
-                table_service.update_rows(batch)
-        for batch in _chunked(insert_rows, 100):
-            if batch:
-                table_service.insert_rows(batch)
-        for batch in _chunked(delete_rowids, 200):
-            if batch:
-                table_service.delete_rows(batch)
+        wanted = _normalize_document_type(document_type, "") if document_type else ""
+        def selected(row):
+            return (str(row.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
+                    and (not wanted or _datastore_row_to_mpl_draft(row)["document_type"] == wanted))
+        prepared = [{**record, "document_type": wanted} if wanted else record for record in drafts]
+        replace_rows(table_service, prepared, key=lambda row: str(row["id"]),
+                     decode=_datastore_row_to_mpl_draft, encode=_mpl_draft_to_datastore_row, select=selected)
         return True
     except Exception as exc:
-        if _store_requires_datastore(MPL_DRAFTS_STORE):
-            _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "write to it", exc)
-        return False
+        _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "write to it", exc)
 
 
 def _mpl_drafts_read(request: Optional[Request] = None, document_type: str = "") -> List[Dict[str, Any]]:
@@ -190,7 +130,9 @@ def _mpl_drafts_read(request: Optional[Request] = None, document_type: str = "")
         data = json.loads(MPL_DRAFTS_FILE.read_text(encoding="utf-8"))
         drafts = data.get("drafts") if isinstance(data, dict) else data
         if not isinstance(drafts, list):
-            return []
+            raise ValueError("Expected a list of drafts.")
+        if any(not isinstance(draft, dict) for draft in drafts):
+            raise ValueError("Invalid draft record.")
         rows = [draft for draft in drafts if isinstance(draft, dict)]
         if wanted_document_type:
             rows = [
@@ -198,8 +140,8 @@ def _mpl_drafts_read(request: Optional[Request] = None, document_type: str = "")
                 if _normalize_document_type(row.get("document_type"), "") == wanted_document_type
             ]
         return rows
-    except Exception:
-        return []
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Saved drafts could not be read. The file was preserved; restore or repair it before saving.") from exc
 
 
 def _mpl_drafts_write(
@@ -228,7 +170,7 @@ def _mpl_drafts_write(
         "drafts": existing_rows,
         "updated_at": _now_iso(),
     }
-    MPL_DRAFTS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_json_atomic(MPL_DRAFTS_FILE, payload)
     return drafts
 
 

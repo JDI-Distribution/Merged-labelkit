@@ -11,18 +11,21 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
+from labelkit.document_rules import pallet_plan
 from labelkit.directory_store import _sync_kehe_dc_directory_for_pipeline
 from labelkit.file_operations import (
     normalize_kit,
-    sanitize_filename,
     save_upload_file,
     unique_upload_destination,
 )
 from labelkit.jobs import (
     RESULT_JOBS,
     RESULT_REPORTS,
+    RESULT_JOBS_LOCK,
     create_result_job,
+    release_result_download,
     run_kehe_generation_job,
     run_kehe_master_packing_list_render_job,
     run_kehe_pack_label_render_job,
@@ -45,6 +48,15 @@ from pipelines.kehe_pipeline import (
 
 
 router = APIRouter()
+
+
+def _result_pdf_response(result_id, path, **kwargs):
+    with RESULT_JOBS_LOCK:
+        if result_id not in RESULT_JOBS or not Path(path).is_file():
+            raise HTTPException(status_code=404, detail="This temporary result expired. Generate it again.")
+        job = RESULT_JOBS[result_id]
+        job["downloads"] = job.get("downloads", 0) + 1
+    return FileResponse(path=path, background=BackgroundTask(release_result_download, result_id), **kwargs)
 
 
 @router.get("/results/{result_id}/status")
@@ -97,8 +109,8 @@ def get_result_file(request: Request, result_id: str) -> FileResponse:
         job.get("output_filename")
         or KIT_CONFIG.get(kit, KIT_CONFIG["michaels"])["output_filename"]
     )
-    return FileResponse(
-        path=job["output_path"],
+    return _result_pdf_response(
+        result_id, job["output_path"],
         media_type=str(job.get("media_type") or "application/pdf"),
         filename=filename,
         headers={"Access-Control-Expose-Headers": "X-Result-Id"},
@@ -114,8 +126,8 @@ def get_result_preview(request: Request, result_id: str) -> FileResponse:
     preview_path = job.get("preview_path") or job.get("output_path")
     if job.get("status") != "complete" or not preview_path:
         raise HTTPException(status_code=409, detail="PDF preview is not ready yet.")
-    return FileResponse(
-        path=preview_path,
+    return _result_pdf_response(
+        result_id, preview_path,
         media_type="application/pdf",
         filename="michaels_combined_preview.pdf",
         headers={"Access-Control-Expose-Headers": "X-Result-Id"},
@@ -222,10 +234,11 @@ async def _with_kehe_prepare_xml_files(
     temp_dir = Path(tempfile.mkdtemp(prefix=temp_prefix))
     try:
         xml_paths: List[str] = []
+        reserved_names: set[str] = set()
         for upload in xml_files:
             if not (upload.filename or "").lower().endswith(".xml"):
                 raise HTTPException(status_code=400, detail=f"Invalid XML file: {upload.filename}")
-            out_path = temp_dir / sanitize_filename(upload.filename or "input.xml")
+            out_path = unique_upload_destination(temp_dir, upload.filename or "input.xml", reserved_names)
             await save_upload_file(upload, out_path)
             xml_paths.append(str(out_path))
         return JSONResponse(content=operation(xml_paths))
@@ -275,6 +288,15 @@ async def prepare_kehe_pallet_label(
     )
 
 
+def _prepare_product_rows(request, product_master_json):
+    rows = parse_product_master_json(product_master_json)
+    if not rows:
+        rows = _datastore_load_product_master(request)
+        if rows is None:
+            rows = _shared_product_master_file_read()
+    return _kehe_product_master_rows(rows)
+
+
 @router.post("/prepare/kehe/master-packing-list")
 async def prepare_kehe_master_packing_list(
     request: Request,
@@ -284,14 +306,7 @@ async def prepare_kehe_master_packing_list(
     _require_permission(request, "generate")
 
     def build_draft(xml_paths: List[str]) -> Dict[str, Any]:
-        product_master_rows = parse_product_master_json(product_master_json)
-        if not product_master_rows:
-            product_master_rows = _datastore_load_product_master(request)
-            if product_master_rows is None:
-                product_master_rows = _shared_product_master_file_read()
-            product_master_rows = _kehe_product_master_rows(product_master_rows)
-        else:
-            product_master_rows = _kehe_product_master_rows(product_master_rows)
+        product_master_rows = _prepare_product_rows(request, product_master_json)
         _sync_kehe_dc_directory_for_pipeline(request)
         draft = build_kehe_master_packing_list_draft(xml_paths, product_master_rows=product_master_rows)
         # Attach extracted_headers for the frontend Extracted Data table
@@ -332,14 +347,7 @@ async def prepare_kehe_pack_labels(
     _require_permission(request, "generate")
 
     def build_draft(xml_paths: List[str]) -> Dict[str, Any]:
-        product_master_rows = parse_product_master_json(product_master_json)
-        if not product_master_rows:
-            product_master_rows = _datastore_load_product_master(request)
-            if product_master_rows is None:
-                product_master_rows = _shared_product_master_file_read()
-            product_master_rows = _kehe_product_master_rows(product_master_rows)
-        else:
-            product_master_rows = _kehe_product_master_rows(product_master_rows)
+        product_master_rows = _prepare_product_rows(request, product_master_json)
         _sync_kehe_dc_directory_for_pipeline(request)
         return build_kehe_pack_label_draft(xml_paths, product_master_rows=product_master_rows)
 
@@ -362,97 +370,59 @@ def _refresh_mpl_render_product_master(
     Master editor so a valid Each GTIN is not cleared by stale draft data.
     """
     refreshed_draft = copy.deepcopy(draft)
-    product_master_rows = _datastore_load_product_master(request)
-    if product_master_rows is None:
-        product_master_rows = _shared_product_master_file_read()
+    reviewed = refreshed_draft.get("reviewed_product_master")
+    if isinstance(reviewed, list):
+        product_master_rows = reviewed
+    else:
+        product_master_rows = _datastore_load_product_master(request)
+        if product_master_rows is None:
+            product_master_rows = _shared_product_master_file_read()
     refreshed_draft["product_master"] = _dedupe_product_master_rows(product_master_rows)
     apply_product_master_to_mpl_draft(refreshed_draft, force=False)
+    for mpl in refreshed_draft.get("packing_lists") or []:
+        plan = pallet_plan(mpl, refreshed_draft["product_master"])
+        previous = mpl.get("_tihi_snapshot") or {}
+        images = {entry.get("pallet_label"): entry.get("image_data_url", "") for entry in previous.get("entries") or []} if previous.get("source_signature") == plan["signature"] else {}
+        for entry in plan["entries"]:
+            entry["image_data_url"] = images.get(entry["pallet_label"], "")
+        mpl["_tihi_snapshot"] = {"constraints": plan["constraints"], "entries": plan["entries"], "warnings": plan["warnings"]}
+        mpl["_pallet_dimensions"] = plan["mpl"]["_pallet_dimensions"]
+        mpl["_pallet_tihi"] = plan["mpl"]["_pallet_tihi"]
     return refreshed_draft
+
+
+def _start_document_render(kit, draft, worker):
+    config = KIT_CONFIG[kit]
+    temp_dir = Path(tempfile.mkdtemp(prefix=config["temp_prefix"]))
+    result_id = create_result_job(temp_dir, kit, output_filename=config["output_filename"])
+    try:
+        threading.Thread(target=worker, args=(result_id, draft), daemon=True).start()
+    except Exception:
+        with RESULT_JOBS_LOCK:
+            RESULT_JOBS.pop(result_id, None)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    return JSONResponse(
+        content={"result_id": result_id, "kit": kit, "status": "processing",
+                 "detail": f"{config['label']} generation started…"},
+        headers={"X-Result-Id": result_id, "Access-Control-Expose-Headers": "X-Result-Id"},
+    )
 
 
 @router.post("/render/kehe/pallet-label")
 async def render_kehe_pallet_label_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_pallet_label"]["temp_prefix"]))
-    result_id = create_result_job(
-        temp_dir,
-        "kehe_pallet_label",
-        output_filename=KIT_CONFIG["kehe_pallet_label"]["output_filename"],
-    )
-    worker = threading.Thread(
-        target=run_kehe_pallet_label_render_job,
-        args=(result_id, draft),
-        daemon=True,
-    )
-    worker.start()
-    return JSONResponse(
-        content={
-            "result_id": result_id,
-            "kit": "kehe_pallet_label",
-            "status": "processing",
-            "detail": "KeHE Pallet Label generation started\u2026",
-        },
-        headers={
-            "X-Result-Id": result_id,
-            "Access-Control-Expose-Headers": "X-Result-Id",
-        },
-    )
+    return _start_document_render("kehe_pallet_label", draft, run_kehe_pallet_label_render_job)
 
 
 @router.post("/render/kehe/master-packing-list")
 async def render_kehe_master_packing_list_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    render_draft = _refresh_mpl_render_product_master(request, draft)
-    temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_master_packing_list"]["temp_prefix"]))
-    result_id = create_result_job(
-        temp_dir,
-        "kehe_master_packing_list",
-        output_filename=KIT_CONFIG["kehe_master_packing_list"]["output_filename"],
-    )
-    worker = threading.Thread(
-        target=run_kehe_master_packing_list_render_job,
-        args=(result_id, render_draft),
-        daemon=True,
-    )
-    worker.start()
-    return JSONResponse(
-        content={
-            "result_id": result_id,
-            "kit": "kehe_master_packing_list",
-            "status": "processing",
-            "detail": "KeHE Master Packing List generation started\u2026",
-        },
-        headers={
-            "X-Result-Id": result_id,
-            "Access-Control-Expose-Headers": "X-Result-Id",
-        },
-    )
+    return _start_document_render("kehe_master_packing_list", _refresh_mpl_render_product_master(request, draft),
+                                  run_kehe_master_packing_list_render_job)
 
 
 @router.post("/render/kehe/pack-labels")
 async def render_kehe_pack_labels_endpoint(request: Request, draft: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    temp_dir = Path(tempfile.mkdtemp(prefix=KIT_CONFIG["kehe_pack_labels"]["temp_prefix"]))
-    result_id = create_result_job(
-        temp_dir,
-        "kehe_pack_labels",
-        output_filename=KIT_CONFIG["kehe_pack_labels"]["output_filename"],
-    )
-    worker = threading.Thread(
-        target=run_kehe_pack_label_render_job,
-        args=(result_id, draft),
-        daemon=True,
-    )
-    worker.start()
-    return JSONResponse(
-        content={
-            "result_id": result_id,
-            "kit": "kehe_pack_labels",
-            "status": "processing",
-            "detail": "KeHE Pack Labels generation started…",
-        },
-        headers={
-            "X-Result-Id": result_id,
-            "Access-Control-Expose-Headers": "X-Result-Id",
-        },
-    )
+    return _start_document_render("kehe_pack_labels", draft, run_kehe_pack_label_render_job)

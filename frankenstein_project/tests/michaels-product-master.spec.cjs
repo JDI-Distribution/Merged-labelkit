@@ -5,14 +5,19 @@ const fs = require('node:fs');
 // whose MPL_PRODUCT_MASTER_FILE and AUDIT_LOG_FILE point to temporary files.
 test.skip(process.env.LABELKIT_ISOLATED_SANITY !== '1', 'Requires an isolated local catalog.');
 let originalRows;
+
+async function replaceCatalog(request, rows) {
+  const current = await (await request.get('/api/mpl/product-master')).json();
+  return request.put('/api/mpl/product-master', { data: { rows, expected_revision: current.revision } });
+}
 test.beforeAll(async ({ request }) => {
   originalRows = (await (await request.get('/api/mpl/product-master')).json()).rows;
 });
 test.beforeEach(async ({ request }) => {
-  expect((await request.put('/api/mpl/product-master', { data: { rows: originalRows } })).ok()).toBeTruthy();
+  expect((await replaceCatalog(request, originalRows)).ok()).toBeTruthy();
 });
 test.afterAll(async ({ request }) => {
-  if (originalRows) await request.put('/api/mpl/product-master', { data: { rows: originalRows } });
+  if (originalRows) await replaceCatalog(request, originalRows);
 });
 
 test('Michaels configurations stay together and survive CSV export/import', async ({ page, request }, testInfo) => {
@@ -25,7 +30,7 @@ test('Michaels configurations stay together and survive CSV export/import', asyn
     packaging_level: 'Each', gtin: '00850068684038', case_qty: '1', is_active: true,
     display_sku: sku, display_sku_uom: 'Each', package_net_weight_g: '42',
   };
-  const response = await request.put('/api/mpl/product-master', { data: { rows: [...initial.rows.filter(row => row.sku !== sku), seed] } });
+  const response = await replaceCatalog(request, [...initial.rows.filter(row => row.sku !== sku), seed]);
   expect(response.ok()).toBeTruthy();
 
   await page.goto('/#operations/product-master');

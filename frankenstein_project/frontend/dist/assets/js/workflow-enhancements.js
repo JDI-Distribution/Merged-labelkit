@@ -16,170 +16,52 @@
   let mplHistoryIndex = -1;
   let generatedOutputPreviewUrl = null;
 
-  function digits(value) { return String(value || '').replace(/\D/g, ''); }
-  function positive(value, whole = false) {
-    const number = Number(String(value ?? '').replace(/,/g, '').trim());
-    return Number.isFinite(number) && number > 0 && (!whole || Number.isInteger(number));
-  }
-  function gtinValid(value) {
-    const valueDigits = digits(value);
-    if (![8, 12, 13, 14].includes(valueDigits.length)) return false;
-    const body = valueDigits.slice(0, -1).split('').map(Number).reverse();
-    const sum = body.reduce((total, number, index) => total + number * (index % 2 === 0 ? 3 : 1), 0);
-    return ((10 - (sum % 10)) % 10) === Number(valueDigits.at(-1));
-  }
-  function qualityGroupKey(row, index = 0) {
-    const storefront = String(row?.storefront || '').trim().toLowerCase() || 'no-storefront';
-    const identity = String(row?.config_id || row?.sku || row?.customer_item_number || row?.gtin || `row-${index}`).trim().toLowerCase();
-    return `${storefront}|${identity}`;
-  }
-  function qualityIssue(code, message, severity = 'review') { return { code, message, severity }; }
-
-  function analyzeProductRows(rawRows = []) {
-    const rows = rawRows.map(row => typeof normalizeProductRow === 'function' ? normalizeProductRow(row) : { ...row });
-    const groups = new Map();
-    rows.forEach((row, index) => {
-      const key = qualityGroupKey(row, index);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push({ row, index });
+  let qualityState = null;
+  async function analyzeProductRows(rawRows = []) {
+    const rows = rawRows.map(normalizeProductRow);
+    const result = await window.LabelKitAPI.json('/api/mpl/product-master/validate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: rawRows }),
     });
-    const duplicateCounts = new Map();
-    rows.forEach(row => {
-      const key = [row.storefront, row.sku, row.packaging_level, digits(row.gtin), row.config_id].map(value => String(value || '').trim().toLowerCase()).join('|');
-      duplicateCounts.set(key, (duplicateCounts.get(key) || 0) + 1);
-    });
-    const groupResults = new Map();
-    const rowResults = rows.map((_row, index) => ({ index, issues: [], score: 0, status: 'ready' }));
-
-    groups.forEach((entries, key) => {
-      const level = wanted => entries.find(entry => normalizePackagingLevel(entry.row.packaging_level) === wanted)?.row;
-      const each = level('Each');
-      const inner = level('Inner Pack');
-      const caseRow = level('Case');
-      const primary = caseRow || inner || each || entries[0].row;
-      const groupIssues = [];
-      if (!each?.gtin) groupIssues.push(qualityIssue('missing_each_gtin', 'Each-level GTIN is missing.'));
-      const levelCounts = new Map();
-      entries.forEach(entry => {
-        const name = normalizePackagingLevel(entry.row.packaging_level);
-        levelCounts.set(name, (levelCounts.get(name) || 0) + 1);
-      });
-      levelCounts.forEach((count, name) => {
-        if (name !== 'Other' && count > 1) groupIssues.push(qualityIssue('duplicate_row', `${count} ${name} rows exist in this configuration.`, 'duplicate'));
-      });
-      const skuLevels = new Map();
-      entries.forEach(({ row }) => {
-        const levelSku = String(row.sku || '').trim().toLowerCase();
-        if (!levelSku) return;
-        if (!skuLevels.has(levelSku)) skuLevels.set(levelSku, new Set());
-        skuLevels.get(levelSku).add(normalizePackagingLevel(row.packaging_level));
-      });
-      skuLevels.forEach((assignedLevels, levelSku) => {
-        if (assignedLevels.size > 1) groupIssues.push(qualityIssue('duplicate_level_sku', `Level SKU '${levelSku.toUpperCase()}' is assigned to multiple packaging levels.`, 'invalid'));
-      });
-      const eachQty = Number(each?.case_qty || 0);
-      const innerQty = Number(inner?.case_qty || 0);
-      const caseQty = Number(caseRow?.case_qty || 0);
-      const innersPerCase = Number(caseRow?.inner_packs_per_case || 0);
-      if (each && positive(each.case_qty, true) && eachQty !== 1) groupIssues.push(qualityIssue('hierarchy_conflict', 'Each quantity must equal 1.', 'invalid'));
-      if (inner && caseRow && (!positive(innersPerCase, true) || caseQty !== innerQty * innersPerCase)) groupIssues.push(qualityIssue('hierarchy_conflict', 'Case quantity must equal eaches per inner × inner packs per case.', 'invalid'));
-
-      const criteria = {
-        identity: !!(each?.sku || primary.sku || primary.config_id),
-        description: !!primary.description,
-        gtin: !!primary.gtin && gtinValid(primary.gtin),
-        each_gtin: !!each?.gtin && gtinValid(each.gtin),
-        package_quantity: normalizePackagingLevel(primary.packaging_level) === 'Each' || positive(primary.case_qty, true),
-        dimensions: ['length_in', 'width_in', 'height_in'].every(field => positive(primary[field])),
-        product_weight: positive(primary.package_net_weight_g),
-        weight: positive(primary.gross_weight_lbs),
-        each_weight: positive(each?.each_net_weight_g || primary.each_net_weight_g),
-        label_template: primary.label_enabled ? !!primary.label_template_id : true,
-        verified: String(primary.verification_status || '').toUpperCase() === 'VERIFIED',
-        hierarchy: !groupIssues.some(issue => ['invalid', 'duplicate'].includes(issue.severity)),
-      };
-      const enabledLabelRows = entries.map(entry => entry.row).filter(row => row.label_enabled);
-      const hasOrderMatchKey = !!(each?.sku || each?.display_sku || primary.sku || primary.display_sku);
-      const capabilities = {
-        order_match: {
-          state: hasOrderMatchKey ? 'ready' : 'review',
-          label: hasOrderMatchKey ? 'Order match ready' : 'Order SKU needed',
-        },
-        packing_list: {
-          state: criteria.identity && criteria.description && criteria.package_quantity ? 'ready' : 'review',
-          label: criteria.identity && criteria.description && criteria.package_quantity ? 'Packing list ready' : 'Packing list review',
-        },
-        labels: {
-          state: !enabledLabelRows.length ? 'not-configured' : enabledLabelRows.every(row => row.label_template_id && row.gtin && gtinValid(row.gtin)) ? 'ready' : 'review',
-          label: !enabledLabelRows.length ? 'Labels off' : enabledLabelRows.every(row => row.label_template_id && row.gtin && gtinValid(row.gtin)) ? 'Labels ready' : 'Label setup needed',
-        },
-        tihi: {
-          state: criteria.dimensions && criteria.weight ? 'ready' : 'review',
-          label: criteria.dimensions && criteria.weight ? 'Ti-Hi ready' : 'Ti-Hi data needed',
-        },
-        verification: {
-          state: criteria.verified ? 'ready' : 'review',
-          label: criteria.verified ? 'Verified' : 'Needs review',
-        },
-      };
-      const score = Math.round(100 * Object.values(criteria).filter(Boolean).length / Object.keys(criteria).length);
-      const commonIssues = [...groupIssues];
-      if (!['length_in', 'width_in', 'height_in'].every(field => positive(primary[field]))) commonIssues.push(qualityIssue('missing_dimensions', `${primary.packaging_level || 'Outermost'} dimensions are incomplete.`));
-      if (!positive(primary.package_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Outermost total product weight is missing.'));
-      if (!positive(primary.gross_weight_lbs)) commonIssues.push(qualityIssue('missing_weight', 'Outermost packaged weight is missing.'));
-      if (!positive(each?.each_net_weight_g || primary.each_net_weight_g)) commonIssues.push(qualityIssue('missing_weight', 'Each weight is missing.'));
-      if (normalizePackagingLevel(primary.packaging_level) !== 'Each' && !positive(primary.case_qty, true)) commonIssues.push(qualityIssue('missing_case_quantity', `${primary.packaging_level} quantity is missing.`));
-      if (primary.label_enabled && !primary.label_template_id) commonIssues.push(qualityIssue('missing_label_template', 'Label template is missing.'));
-      if (String(primary.verification_status || '').toUpperCase() !== 'VERIFIED') commonIssues.push(qualityIssue('needs_review', 'Configuration is Draft or Needs Review.'));
-
-      entries.forEach(({ row, index }) => {
-        const issues = [...commonIssues];
-        if (!row.gtin) issues.push(qualityIssue('missing_gtin', 'GTIN is missing.'));
-        else if (!gtinValid(row.gtin)) issues.push(qualityIssue('invalid_gtin', 'GTIN check digit or length is invalid.', 'invalid'));
-        const duplicateKey = [row.storefront, row.sku, row.packaging_level, digits(row.gtin), row.config_id].map(value => String(value || '').trim().toLowerCase()).join('|');
-        if (duplicateKey.replaceAll('|', '') && duplicateCounts.get(duplicateKey) > 1) issues.push(qualityIssue('duplicate_row', 'Duplicate configuration row.', 'duplicate'));
-        rowResults[index] = {
-          index,
-          score,
-          issues: [...new Map(issues.map(issue => [`${issue.code}|${issue.message}`, issue])).values()],
-        };
-        rowResults[index].status = rowResults[index].issues.some(issue => issue.severity === 'invalid') ? 'invalid'
-          : rowResults[index].issues.some(issue => issue.severity === 'duplicate') ? 'duplicate'
-          : rowResults[index].issues.length ? 'review' : 'ready';
-      });
-      groupResults.set(key, { key, entries, primary, score, criteria, capabilities, issues: commonIssues });
-    });
-    const groupsList = [...groupResults.values()];
-    return {
-      groups: groupResults,
-      rows: rowResults,
-      summary: {
-        configurations: groupsList.length,
-        ready_configurations: groupsList.filter(group => group.score === 100).length,
-        average_score: groupsList.length ? Math.round(groupsList.reduce((sum, group) => sum + group.score, 0) / groupsList.length) : 0,
-        duplicate_rows: rowResults.filter(row => row.status === 'duplicate').length,
-        invalid_rows: rowResults.filter(row => row.status === 'invalid').length,
-        needs_review_rows: rowResults.filter(row => row.status !== 'ready').length,
-      },
-    };
+    result.groups = new Map(result.groups.map(group => [group.key, { ...group,
+      entries: group.row_indexes.map(index => ({ row: rows[index], index })), primary: rows[group.primary_index],
+    }]));
+    return result;
   }
-
-  function productQualitySnapshot() { return analyzeProductRows(typeof mplProductMasterRows === 'undefined' ? [] : mplProductMasterRows); }
-  function productGroupPassesFilter(group, filter, search = '') {
+  async function loadProductQuality() {
+    const rows = typeof mplProductMasterRows === 'undefined' ? [] : mplProductMasterRows;
+    const key = JSON.stringify(rows);
+    if (qualityState?.key === key && !qualityState.error) return qualityState.promise;
+    const state = { key, result: null, error: null };
+    qualityState = state;
+    state.promise = analyzeProductRows(rows).then(result => {
+      state.result = result;
+      if (qualityState === state) renderMplProductMasterTable();
+      return result;
+    }).catch(error => { state.error = error; throw error; });
+    return state.promise;
+  }
+  function productQualitySnapshot() {
+    loadProductQuality().catch(error => setStatus(`Product validation failed: ${error.message}`, 'error'));
+    return qualityState?.result || { groups: new Map(), rows: [], pending: true, summary: {
+      configurations: 0, ready_configurations: 0, average_score: 0, needs_review_rows: 0,
+    } };
+  }
+  function productGroupPassesFilter(group, filter, search = '', quality) {
     const haystack = group.entries.map(({ row }) => [row.storefront, row.display_sku, row.sku, row.config_id, row.gtin, row.description, row.customer_item_number].join(' ')).join(' ').toLowerCase();
     if (search && !haystack.includes(search.toLowerCase())) return false;
     if (!filter || filter === 'all') return true;
-    return group.entries.some(({ index }) => productQualitySnapshot().rows[index]?.issues?.some(issue => issue.code === filter));
+    return group.entries.some(({ index }) => quality.rows[index]?.issues?.some(issue => issue.code === filter));
   }
   function renderProductQualitySummary(quality = productQualitySnapshot(), shown = null) {
     const target = document.getElementById('product-quality-summary');
     if (!target) return;
     const summary = quality.summary;
+    if (quality.pending) { target.textContent = qualityState?.error ? 'Product validation unavailable. Retry after restoring the connection.' : 'Checking product information…'; return; }
     target.innerHTML = `<strong>${summary.average_score}% average completeness</strong> · ${summary.ready_configurations}/${summary.configurations} ready · ${summary.needs_review_rows} row(s) need review${shown === null ? '' : ` · ${shown} shown`}`;
   }
 
-  window.focusNextProductIssue = () => {
-    const quality = productQualitySnapshot();
+  window.focusNextProductIssue = async () => {
+    const quality = await loadProductQuality();
     const priority = ['hierarchy_conflict', 'duplicate_row', 'invalid_gtin', 'missing_gtin', 'missing_label_template', 'missing_case_quantity', 'missing_dimensions', 'missing_weight', 'needs_review'];
     const candidates = [...quality.groups.values()].filter(group => group.score < 100 || group.issues.length);
     candidates.sort((left, right) => {
@@ -202,98 +84,48 @@
     setStatus(`Opened the next configuration needing attention: ${next.issues[0]?.message || 'review required'}`, 'info');
   };
 
-  function readinessItem(sku, message, category, index = -1) { return { sku: sku || 'Unidentified SKU', message, category, index }; }
-  function collectB2BReadiness() {
-    if (Array.isArray(b2bOrderLabelJobs) && b2bOrderLabelJobs.length) {
-      const issues = [];
-      b2bOrderLabelJobs.forEach((job, index) => {
-        const templateIds = typeof b2bTemplateIdsForJob === 'function'
-          ? b2bTemplateIdsForJob(job)
-          : (job.template_id ? [job.template_id] : []);
-        const product = job.product || {};
-        const sku = product.sku || product.customer_item_number || `Order line ${index + 1}`;
-        if (job.match_status !== 'matched') {
-          issues.push(readinessItem(sku, job.match_reason || 'Product Master configuration was not matched; order data will be used.', 'product', index));
-        }
-        if (!templateIds.length) {
-          issues.push(readinessItem(sku, 'Choose at least one label template for this product.', 'review', index));
-        }
-      });
-      const expandedJobs = window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs);
-      expandedJobs.forEach((job, index) => {
-        if (job.print_selected === false) return;
-        const product = job.product || {};
-        const template = b2bLabelTemplates.find(candidate => candidate.template_id === job.template_id) || {};
-        const sku = product.sku || product.customer_item_number || `Order line ${index + 1}`;
-        if (job.match_status !== 'matched') issues.push(readinessItem(sku, job.match_reason || 'Product Master configuration was not matched; order data will be used.', 'product', index));
-        (template.required_product_fields || []).forEach(field => {
-          if (!String(product[field] ?? '').trim()) issues.push(readinessItem(sku, `${String(field).replace(/_/g, ' ')} is missing.`, /gtin|barcode/i.test(field) ? 'barcode' : /case|quantity/i.test(field) ? 'case' : 'product', index));
-        });
-        (template.required_run_fields || []).forEach(field => {
-          if (!String(job.run?.[field] ?? '').trim()) issues.push(readinessItem(sku, `${String(field).replace(/_/g, ' ')} is missing from this run.`, 'review', index));
-        });
-        if (product.verification_status && String(product.verification_status).toUpperCase() !== 'VERIFIED') {
-          issues.push(readinessItem(sku, `Product status is ${product.verification_status}.`, 'review', index));
-        }
-      });
-      return readinessResult(issues);
+  function labelReviewDraft() {
+    if (b2bOrderLabelJobs.length) {
+      return { jobs: [...window.LabelKitB2BOrderJobs.expandB2BTemplateJobs(b2bOrderLabelJobs),
+        ...b2bOrderLabelJobs.filter(job => job.print_selected !== false && !b2bTemplateIdsForJob(job).length)] };
     }
-    const product = getSelectedB2BProduct?.() || {};
-    const sku = product.sku || product.customer_item_number || 'Selected label';
-    const issues = (getB2BValidationWarnings?.() || []).map(message => readinessItem(sku, message, /barcode|gtin/i.test(message) ? 'barcode' : /case|quantity/i.test(message) ? 'case' : 'review'));
-    return readinessResult(issues);
+    return { jobs: b2bTemplateIdsForJob().map(id => buildB2BPayload(id)) };
   }
-  function collectMplReadiness(draft = activeKeheDocumentDraft) {
-    const issues = [];
-    (draft?.packing_lists || []).forEach((mpl, mplIndex) => {
-      const palletWeights = mpl?._pallet_weights || {};
-      const palletIds = Array.isArray(mpl?._pallet_ids) && mpl._pallet_ids.length ? mpl._pallet_ids : Object.keys(palletWeights);
-      palletIds.forEach(pallet => {
-        if (!String(palletWeights[pallet] || '').trim()) issues.push(readinessItem(`Pallet ${pallet}`, 'Pallet weight is missing.', 'dimensions'));
-      });
-      Object.entries(palletWeights).forEach(([pallet, weight]) => {
-        if (String(weight || '').trim() && !positive(String(weight).replace(/[^0-9.-]/g, ''))) issues.push(readinessItem(`Pallet ${pallet}`, 'Pallet weight must be a positive number.', 'review'));
-      });
-      (mpl.items || []).forEach((item, itemIndex) => {
-        const sku = item.sku || item.item_number || `MPL ${mplIndex + 1}, line ${itemIndex + 1}`;
-        const ordered = Number(item.total_ordered || 0);
-        const shipped = Number(item.total_shipped || 0);
-        const palletQty = Number(item.qty_on_pallet || 0);
-        [['Total ordered', item.total_ordered], ['Total shipped', item.total_shipped], ['Quantity on pallet', item.qty_on_pallet]].forEach(([label, value]) => {
-          if (String(value || '').trim() && (!Number.isFinite(Number(value)) || Number(value) < 0)) issues.push(readinessItem(sku, `${label} must be zero or a positive number.`, 'review'));
-        });
-        if (ordered > 0 && !String(item.total_shipped || '').trim()) issues.push(readinessItem(sku, 'Total shipped is missing.', 'review'));
-        if (ordered && shipped && ordered !== shipped) issues.push(readinessItem(sku, `Total ordered (${ordered}) does not match total shipped (${shipped}).`, 'review'));
-        if (shipped && palletQty && palletQty > shipped) issues.push(readinessItem(sku, 'Quantity on pallet exceeds total shipped.', 'review'));
-        if (!item.item_number) issues.push(readinessItem(sku, 'Item Number is missing.', 'product'));
-        if (!item.description) issues.push(readinessItem(sku, 'Item Description is missing.', 'product'));
-      });
-      (mpl.warnings || []).forEach(message => issues.push(readinessItem(mpl.customer_po_number || `MPL ${mplIndex + 1}`, message, 'review')));
-    });
-    return readinessResult(issues);
-  }
-  function collectKeheLabelReadiness(draft = activeKeheDocumentDraft) {
-    const issues = [];
-    if (activeKeheDocumentType === 'packLabels') {
-      (draft?.pack_labels || []).forEach((label, index) => {
-        if (label.print_selected === false) return;
-        const sku = label.sku || label.item_number || label.id || `Pack label ${index + 1}`;
-        if (!label.gtin || !gtinValid(label.gtin)) issues.push(readinessItem(sku, 'Barcode GTIN is missing or has an invalid check digit.', 'barcode', index));
-        if (!positive(label.case_qty, true)) issues.push(readinessItem(sku, 'Case-pack quantity is missing or invalid.', 'case', index));
-        if (!positive(String(label.gross_weight_lbs || label.weight_lbs || '').replace(/[^0-9.-]/g, ''))) issues.push(readinessItem(sku, 'Package weight is missing or invalid.', 'dimensions', index));
-        if (String(label.status || '').toLowerCase().includes('review')) issues.push(readinessItem(sku, 'Label source data requires review.', 'review', index));
-        (label.warnings || []).forEach(message => issues.push(readinessItem(sku, message, 'review', index)));
-      });
-    } else if (activeKeheDocumentType === 'palletLabel') {
-      (draft?.pallets || []).forEach((pallet, index) => {
-        const name = pallet.id || `Pallet ${index + 1}`;
-        if (!pallet.customer_po_numbers) issues.push(readinessItem(name, 'Customer PO number is missing.', 'review', index));
-        if (!pallet.ship_to) issues.push(readinessItem(name, 'Ship To information is missing.', 'product', index));
-        if (String(pallet.status || '').toLowerCase().includes('review')) issues.push(readinessItem(name, 'Pallet label source data requires review.', 'review', index));
-        (pallet.warnings || []).forEach(message => issues.push(readinessItem(name, message, 'review', index)));
-      });
+  const readinessStates = new Map();
+  function readinessInputs(scope) {
+    const mpl = typeof orderDocumentsState !== 'undefined' ? orderDocumentsState.mplDraft : activeKeheDocumentDraft;
+    if (scope === 'operations') {
+      const selected = operationsSelectedDocuments();
+      const documents = [];
+      if (selected.labels) documents.push({ kind: 'labels', draft: labelReviewDraft() });
+      if (selected.mpl || (selected.pallets && !operationsUsesManualPalletCount(selected))) documents.push({ kind: 'masterPackingList', draft: mpl || {} });
+      if (selected.pallets && operationsUsesManualPalletCount(selected)) documents.push({ kind: 'palletLabel', draft: buildOperationsManualPalletDraft() });
+      return documents;
     }
-    return readinessResult(issues);
+    return [{ kind: scope === 'b2b' ? 'labels' : scope === 'kehe' ? (activeKeheDocumentType || 'packLabels') : 'masterPackingList',
+      draft: scope === 'b2b' ? labelReviewDraft() : activeKeheDocumentDraft || {} }];
+  }
+  async function getReadiness(scope, force = false) {
+    const inputs = readinessInputs(scope), key = JSON.stringify(inputs);
+    const cached = readinessStates.get(scope);
+    if (!force && cached?.key === key) return cached.promise;
+    const state = { key, result: null, error: null };
+    readinessStates.set(scope, state);
+    state.promise = Promise.all(inputs.map(input => window.LabelKitAPI.json('/api/documents/readiness', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+    }))).then(results => { state.result = readinessResult(results.flatMap(result => result.issues)); return state.result; })
+      .catch(error => { state.error = error; throw error; });
+    return state.promise;
+  }
+  function labelWarnings() {
+    getReadiness('b2b').catch(() => {});
+    const state = readinessStates.get('b2b');
+    if (!state.notified) {
+      state.notified = true;
+      state.promise.then(() => renderB2BValidation(), () => renderB2BValidation());
+    }
+    return state.result ? state.result.issues.map(issue => issue.message)
+      : [state.error ? `Label validation unavailable: ${state.error.message}` : 'Checking label information…'];
   }
   function readinessResult(issues) {
     const unique = [...new Map(issues.map(issue => [`${issue.sku}|${issue.message}`, issue])).values()];
@@ -315,25 +147,6 @@
         product: count('product'), barcode: count('barcode'), case: count('case'), dimensions: count('dimensions'), review: count('review'),
       },
     };
-  }
-  function getReadiness(scope) {
-    if (scope === 'operations') {
-      const selections = typeof operationsSelectedDocuments === 'function'
-        ? operationsSelectedDocuments()
-        : { labels: true, mpl: true, pallets: false };
-      const issues = [];
-      if (selections.labels) issues.push(...collectB2BReadiness().issues);
-      const manualPalletRun = selections.pallets
-        && typeof operationsUsesManualPalletCount === 'function'
-        && operationsUsesManualPalletCount(selections);
-      if (selections.mpl || (selections.pallets && !manualPalletRun)) issues.push(...collectMplReadiness(
-        typeof orderDocumentsState !== 'undefined' ? orderDocumentsState.mplDraft : activeKeheDocumentDraft
-      ).issues);
-      return readinessResult(issues);
-    }
-    if (scope === 'b2b') return collectB2BReadiness();
-    if (scope === 'kehe') return collectKeheLabelReadiness();
-    return collectMplReadiness();
   }
   function readinessHtml(scope, result) {
     const m = result.metrics;
@@ -362,8 +175,8 @@
     return `<div class="workflow-readiness-grid">${cards.map(([label, value, state]) => `<div class="workflow-readiness-card ${state}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('')}</div>
       <section class="workflow-warning-panel"><header><div><strong>Items needing review</strong><small>Open an item only when you need its details or Product Master actions.</small></div><span>${affected} ${affected === 1 ? 'item' : 'items'}</span></header><div class="workflow-warning-list">${rows}</div></section>`;
   }
-  function showReadiness(scope, continueAction = null) {
-    const result = getReadiness(scope);
+  async function showReadiness(scope, continueAction = null, prepared = null) {
+    const result = prepared || await getReadiness(scope, true);
     document.getElementById('workflow-readiness-body').innerHTML = readinessHtml(scope, result);
     const button = document.getElementById('workflow-readiness-continue');
     button.textContent = result.ready ? 'Continue to generation' : 'Generate with warnings';
@@ -377,11 +190,12 @@
       : selectedKit === 'b2b' ? 'b2b'
         : activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe'
   ));
-  window.confirmDocumentReadiness = scope => {
-    if (getReadiness(scope).ready) return Promise.resolve(true);
+  window.confirmDocumentReadiness = async scopeOrResult => {
+    const result = typeof scopeOrResult === 'string' ? await getReadiness(scopeOrResult, true) : scopeOrResult;
+    if (result.ready) return true;
+    await showReadiness(typeof scopeOrResult === 'string' ? scopeOrResult : '', null, result);
     return new Promise(resolve => {
       readinessResolve = resolve;
-      showReadiness(scope);
       document.getElementById('workflow-readiness-continue').onclick = () => closeWorkflowReadiness(true);
     });
   };
@@ -411,15 +225,20 @@
   }
   window.recordGeneratedOutput = async (key, details = {}) => {
     const pages = Number(details.pages || 0) || await pdfPages(details.blob);
-    generatedOutputs.set(key, { ...details, pages });
+    const { isCurrent, ...output } = details;
+    if (isCurrent && !isCurrent()) return false;
+    generatedOutputs.set(key, { ...output, pages });
     if (details.scope === 'operations' && typeof renderOperationsFiles === 'function') renderOperationsFiles();
     return pages;
   };
   window.getGeneratedOutputs = (scope = '') => [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
-  window.clearGeneratedOutputs = (...keys) => keys.flat().forEach(key => generatedOutputs.delete(key));
-  window.showPrintSummary = (scope = selectedKit) => {
+  window.clearGeneratedOutputs = (...keys) => {
+    keys.flat().forEach(key => generatedOutputs.delete(key));
+    if (typeof renderOperationsFiles === 'function') renderOperationsFiles();
+  };
+  window.showPrintSummary = async (scope = selectedKit) => {
     const outputs = [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
-    const readiness = getReadiness(['partners', 'b2b', 'kehe', 'operations'].includes(scope) ? scope : 'mpl');
+    const readiness = await getReadiness(['partners', 'b2b', 'kehe', 'operations'].includes(scope) ? scope : 'mpl');
     const reviewSkuCount = scope === 'b2b' && b2bOrderLabelJobs.length
       ? new Set(b2bOrderLabelJobs.filter(job => (
         job.match_status !== 'matched'
@@ -570,7 +389,7 @@
   function historyComparable(draft) {
     const copy = cloneDraft(draft);
     delete copy.product_master;
-    delete copy._saved_draft_revision;
+    Object.keys(copy).filter(key => key.startsWith('_saved_draft_')).forEach(key => delete copy[key]);
     return JSON.stringify(copy);
   }
   function updateHistoryButtons() {
@@ -600,8 +419,11 @@
   function applyHistorySnapshot(index) {
     if (index < 0 || index >= mplHistory.length) return;
     mplHistoryIndex = index;
-    activeKeheDocumentDraft = cloneDraft(mplHistory[index]);
+    const saved = Object.fromEntries(Object.entries(activeKeheDocumentDraft).filter(([key]) => key.startsWith('_saved_draft_')));
+    Object.keys(activeKeheDocumentDraft).forEach(key => delete activeKeheDocumentDraft[key]);
+    Object.assign(activeKeheDocumentDraft, cloneDraft(mplHistory[index]), saved);
     mplHistoryDraftRef = activeKeheDocumentDraft;
+    markOperationsMplChanged();
     renderDocumentEditor('masterPackingList', activeKeheDocumentDraft);
     mplDraftSync?.schedule();
     updateHistoryButtons();
@@ -618,19 +440,23 @@
     mplDraftSync?.schedule();
   };
 
-  window.renderWorkflowWarningsInEditor = () => {
+  window.renderWorkflowWarningsInEditor = async () => {
     if (activeKeheDocumentType !== 'masterPackingList') return;
     const body = document.getElementById('document-editor-body');
     if (!body) return;
-    const result = collectMplReadiness(activeKeheDocumentDraft);
+    const draft = activeKeheDocumentDraft;
+    let result;
+    try { result = await getReadiness('mpl'); } catch (error) { setStatus(`Readiness check failed: ${error.message}`, 'error'); return; }
+    if (activeKeheDocumentDraft !== draft || activeKeheDocumentType !== 'masterPackingList' || !body.isConnected) return;
+    body.querySelector('.document-editor-warning-summary')?.remove();
     const panel = document.createElement('section');
     panel.className = 'workflow-warning-panel document-editor-warning-summary';
     panel.innerHTML = `<header><strong>Document readiness</strong><button class="btn-secondary" type="button" onclick="openDocumentReadiness('mpl')">${result.ready ? 'Ready to print' : `${result.issues.length} review item(s)`}</button></header>`;
     body.prepend(panel);
   };
 
-  window.downloadMissingProductInformation = () => {
-    const quality = productQualitySnapshot();
+  window.downloadMissingProductInformation = async () => {
+    const quality = await loadProductQuality();
     const rows = [['Customer', 'Product SKU', 'Level SKU', 'Packaging Level', 'GTIN', 'Completeness', 'Missing or invalid information']];
     quality.rows.forEach(result => {
       if (!result.issues.length) return;
@@ -639,10 +465,8 @@
     });
     downloadCsvRows('labelkit_missing_product_information.csv', rows);
   };
-  window.validateProductNumericInput = (input, whole = false) => {
-    const value = String(input?.value || '').trim();
-    const valid = !value || positive(value, whole);
-    input?.setCustomValidity(valid ? '' : whole ? 'Enter a positive whole number.' : 'Enter a positive number.');
+  window.validateProductNumericInput = input => {
+    const valid = input?.checkValidity() ?? true;
     input?.classList.toggle('input-invalid', !valid);
     return valid;
   };
@@ -729,7 +553,8 @@
     productQualitySnapshot,
     productGroupPassesFilter,
     renderProductQualitySummary,
-    gtinValid,
+    labelWarnings,
+    getReadiness,
     generatedOutputs,
   };
 })();

@@ -1,4 +1,76 @@
 /* Product Master and Customer Directory workspace logic. */
+  function createReferenceTable({ endpoint, label, getRows, setRows, normalizeRows, normalizeSavedRows = normalizeRows, loadLocal, saveLocal, render, migrate = () => false, mergeMessage }) {
+    let revision = null, saving = false, pending = false, timer = null;
+    const debounced = () => { clearTimeout(timer); timer = setTimeout(save, 500); };
+    async function load() {
+      const localRows = allowLocalFallback() ? loadLocal() : [];
+      try {
+        const payload = await window.LabelKitAPI.json(endpoint, { cache: 'no-store' }, 15000);
+        revision = payload.revision;
+        const rows = Array.isArray(payload.rows) ? normalizeRows(payload.rows) : [];
+        setRows(rows.length ? rows : localRows);
+        const migrated = migrate();
+        if (rows.length) {
+          saveLocal();
+          if (migrated && hasPermission('table_crud')) debounced();
+        } else if (localRows.length) await save();
+        render();
+        return payload;
+      } catch (_err) {
+        revision = null;
+        setRows(localRows);
+        migrate();
+        render();
+        return { rows: getRows(), source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
+      }
+    }
+    async function save() {
+      if (!hasPermission('table_crud')) return;
+      if (saving) { pending = true; return; }
+      if (!revision) { setStatus('Reload this table before saving; its data could not be loaded.', 'error'); return; }
+      saving = true;
+      pending = false;
+      const rows = getRows();
+      try {
+        const payload = await window.LabelKitAPI.json(endpoint, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows, expected_revision: revision }),
+        }, 0);
+        revision = payload.revision;
+        if (Array.isArray(payload.rows) && payload.rows.length < rows.length
+            && JSON.stringify(getRows()) === JSON.stringify(rows)) {
+          setRows(normalizeSavedRows(payload.rows));
+          render();
+          setStatus(mergeMessage, 'info');
+        }
+      } catch (err) {
+        pending = false;
+        setStatus(`${label} was not saved to the server: ${err.message || 'Save failed'}. Your edits remain open.`, 'error');
+      } finally {
+        saveLocal();
+        saving = false;
+        if (pending) debounced();
+      }
+    }
+    return { load, save, debounced };
+  }
+
+  const productMasterTable = createReferenceTable({
+    endpoint: '/api/mpl/product-master', label: 'Product Master',
+    getRows: getAllMplProductMasterRows, setRows: rows => { mplProductMasterRows = rows; },
+    normalizeRows: rows => rows.map(normalizeProductRow),
+    loadLocal: loadMplProductMasterFromStorage, saveLocal: saveMplProductMasterToStorage,
+    render: renderMplProductMasterTable, migrate: ensureMplProductEachRows,
+    mergeMessage: 'Product Master duplicate key merged. Unique key is Customer + Product SKU + Packaging Level (or legacy Customer + Packaging Level + Level SKU).',
+  });
+  const directoryTable = createReferenceTable({
+    endpoint: '/api/mpl/directory', label: 'Directory',
+    getRows: getMplDirectoryRows, setRows: rows => { mplDirectoryRows = rows; },
+    normalizeRows: expandLegacyMplDirectoryRows, normalizeSavedRows: rows => rows.map(normalizeDcDirectoryRow),
+    loadLocal: loadMplDirectoryFromStorage, saveLocal: saveMplDirectoryToStorage,
+    render: renderMplDirectoryTable,
+    mergeMessage: 'Directory duplicate key merged. Unique key is Storefront + Code.',
+  });
   function toggleKeheProductMasterPanel(isVisible) {
     const actions = document.getElementById('kehe-reference-actions');
     if (!actions) return;
@@ -52,9 +124,7 @@
 
   async function loadKeheProductMasterFromBackend() {
     try {
-      const res = await fetchWithTimeout('/api/kehe/product-master', { cache: 'no-store' }, 15000);
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.detail || 'Could not load product master.');
+      const payload = await window.LabelKitAPI.json('/api/kehe/product-master', { cache: 'no-store' }, 15000);
       if (Array.isArray(payload.rows)) {
         keheProductMasterRows = payload.rows.map(normalizeProductRow);
         saveKeheProductMasterToStorage();
@@ -442,70 +512,9 @@
     return changed;
   }
 
-  async function loadMplProductMasterFromBackend() {
-    const localRows = allowLocalFallback() ? loadMplProductMasterFromStorage() : [];
-    try {
-      const res = await fetchWithTimeout('/api/mpl/product-master', { cache: 'no-store' }, 15000);
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.detail || 'Could not load MPL product master.');
-      const backendRows = Array.isArray(payload.rows) ? payload.rows.map(normalizeProductRow) : [];
-      if (backendRows.length) {
-        mplProductMasterRows = backendRows;
-        const addedEachRows = ensureMplProductEachRows();
-        saveMplProductMasterToStorage();
-        if (addedEachRows && hasPermission('table_crud')) saveMplProductMasterToBackendDebounced();
-      } else if (allowLocalFallback() && localRows.length) {
-        mplProductMasterRows = localRows;
-        ensureMplProductEachRows();
-        await saveMplProductMasterToBackend();
-      } else {
-        mplProductMasterRows = [];
-      }
-      renderMplProductMasterTable();
-      return payload;
-    } catch (_err) {
-      mplProductMasterRows = allowLocalFallback() ? localRows : [];
-      ensureMplProductEachRows();
-      renderMplProductMasterTable();
-      return { rows: mplProductMasterRows, source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
-    }
-  }
-
-  function saveMplProductMasterToBackendDebounced() {
-    clearTimeout(mplProductMasterSaveTimer);
-    mplProductMasterSaveTimer = setTimeout(saveMplProductMasterToBackend, 500);
-  }
-
-  async function saveMplProductMasterToBackend() {
-    if (!hasPermission('table_crud')) return;
-    const rows = getAllMplProductMasterRows();
-    try {
-      const res = await fetch('/api/mpl/product-master', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows })
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.detail || 'Could not save Product Master.');
-      if (Array.isArray(payload.rows)) {
-        const savedRows = payload.rows.map(normalizeProductRow);
-        const wasMerged = savedRows.length < rows.length;
-        if (wasMerged) {
-          mplProductMasterRows = savedRows;
-          saveMplProductMasterToStorage();
-          renderMplProductMasterTable();
-          setStatus('Product Master duplicate key merged. Unique key is Customer + Product SKU + Packaging Level (or legacy Customer + Packaging Level + Level SKU).', 'info');
-        } else {
-          saveMplProductMasterToStorage();
-        }
-      } else {
-        saveMplProductMasterToStorage();
-      }
-    } catch (err) {
-      saveMplProductMasterToStorage();
-      setStatus(`Product Master was not saved to the server: ${err.message || 'Save failed'}. Your edits remain in this browser.`, 'error');
-    }
-  }
+  function loadMplProductMasterFromBackend() { return productMasterTable.load(); }
+  function saveMplProductMasterToBackendDebounced() { productMasterTable.debounced(); }
+  function saveMplProductMasterToBackend() { return productMasterTable.save(); }
 
   function showMplProductMasterView() {
     renderMplProductMasterTable();
@@ -971,7 +980,7 @@
       groups = groups.filter(group => group.entries.some(entry => String(entry.row.storefront || '').trim().toLowerCase() === storefrontFilter));
     }
     if (quality) {
-      groups = groups.filter(group => window.LabelKitWorkflow.productGroupPassesFilter(group, qualityFilter, search));
+      groups = groups.filter(group => window.LabelKitWorkflow.productGroupPassesFilter(group, qualityFilter, search, quality));
       window.LabelKitWorkflow.renderProductQualitySummary(quality, groups.length);
     } else if (search) {
       const needle = search.toLowerCase();
@@ -1014,10 +1023,12 @@
         const entry = mplProductLevelEntry(group.entries, level);
         if (!entry) return `<span class="product-level-badge not-configured">${escapeHtml(level)} · not configured</span>`;
         const row = entry.row;
-        const quantityReady = level === 'Each' || Number(row.case_qty) > 0;
-        const state = row.sku && quantityReady ? 'ready' : 'review';
-        const labelState = row.label_enabled ? (row.label_template_id ? 'label ready' : 'template needed') : 'label off';
-        const dimensionsReady = [row.length_in, row.width_in, row.height_in].every(value => Number(value) > 0);
+        const checks = quality?.rows?.[entry.index]?.checks;
+        if (!checks) return `<span class="product-level-badge">${escapeHtml(level)} · checking</span>`;
+        const quantityReady = checks.quantity;
+        const state = checks.identity && quantityReady ? 'ready' : 'review';
+        const labelState = checks.label_enabled ? (checks.label_template ? 'label ready' : 'template needed') : 'label off';
+        const dimensionsReady = checks.dimensions;
         const dimensionState = dimensionsReady ? 'dimensions ready' : 'dimensions needed';
         return `<span class="product-level-badge ${state}">${escapeHtml(level)} · ${escapeHtml(row.sku || 'SKU needed')} · ${escapeHtml(dimensionState)} · ${escapeHtml(labelState)}</span>`;
       }).join('');
@@ -1479,66 +1490,9 @@
     } catch (_err) {}
   }
 
-  async function loadMplDirectoryFromBackend() {
-    const localRows = allowLocalFallback() ? loadMplDirectoryFromStorage() : [];
-    try {
-      const res = await fetchWithTimeout('/api/mpl/directory', { cache: 'no-store' }, 15000);
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.detail || 'Could not load MPL directory.');
-      const backendRows = Array.isArray(payload.rows) ? expandLegacyMplDirectoryRows(payload.rows) : [];
-      if (backendRows.length) {
-        mplDirectoryRows = backendRows;
-        saveMplDirectoryToStorage();
-      } else if (allowLocalFallback() && localRows.length) {
-        mplDirectoryRows = localRows;
-        await saveMplDirectoryToBackend();
-      } else {
-        mplDirectoryRows = [];
-      }
-      renderMplDirectoryTable();
-      return payload;
-    } catch (_err) {
-      mplDirectoryRows = allowLocalFallback() ? localRows : [];
-      renderMplDirectoryTable();
-      return { rows: mplDirectoryRows, source: allowLocalFallback() ? 'localStorage' : 'unavailable' };
-    }
-  }
-
-  function saveMplDirectoryToBackendDebounced() {
-    clearTimeout(mplDirectorySaveTimer);
-    mplDirectorySaveTimer = setTimeout(saveMplDirectoryToBackend, 500);
-  }
-
-  async function saveMplDirectoryToBackend() {
-    if (!hasPermission('table_crud')) return;
-    const rows = getMplDirectoryRows();
-    try {
-      const res = await fetch('/api/mpl/directory', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows })
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.detail || 'Could not save Directory.');
-      if (Array.isArray(payload.rows)) {
-        const savedRows = payload.rows.map(normalizeDcDirectoryRow);
-        const wasMerged = savedRows.length < rows.length;
-        if (wasMerged) {
-          mplDirectoryRows = savedRows;
-          saveMplDirectoryToStorage();
-          renderMplDirectoryTable();
-          setStatus('Directory duplicate key merged. Unique key is Storefront + Code.', 'info');
-        } else {
-          saveMplDirectoryToStorage();
-        }
-      } else {
-        saveMplDirectoryToStorage();
-      }
-    } catch (_err) {
-      // Browser cache remains available if backend persistence is temporarily unavailable.
-      saveMplDirectoryToStorage();
-    }
-  }
+  function loadMplDirectoryFromBackend() { return directoryTable.load(); }
+  function saveMplDirectoryToBackendDebounced() { directoryTable.debounced(); }
+  function saveMplDirectoryToBackend() { return directoryTable.save(); }
 
   function showMplDirectoryView() {
     renderMplDirectoryTable();
@@ -1938,9 +1892,7 @@
 
   async function loadKeheDcDirectoryFromBackend() {
     try {
-      const res = await fetch('/api/kehe/dc-directory', { cache: 'no-store' });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload.detail || 'Could not load DC directory.');
+      const payload = await window.LabelKitAPI.json('/api/kehe/dc-directory', { cache: 'no-store' }, 0);
 
       if (Array.isArray(payload.rows)) {
         keheDcDirectoryRows = payload.rows.map(normalizeDcDirectoryRow);

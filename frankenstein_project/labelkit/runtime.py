@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import asyncio
 import logging
 import os
 import tempfile
+import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -50,6 +56,61 @@ GIT_SHA = str(os.getenv("GIT_SHA", "unknown") or "unknown").strip()
 
 
 LOGGER = logging.getLogger("labelkit")
+
+_WRITE_LOCK = threading.RLock()
+_WRITE_DEPTH = threading.local()
+_ASYNC_WRITE_LOCK = asyncio.Lock()
+_WRITE_CONTEXT = ContextVar("labelkit_write", default=False)
+
+
+@contextmanager
+def data_write_lock():
+    """Serialize read/check/write operations across threads and local workers."""
+    with _WRITE_LOCK:
+        if getattr(_WRITE_DEPTH, "active", False):
+            yield
+            return
+        lock_path = Path(tempfile.gettempdir()) / "merged-labelkit-data-write.lock"
+        with lock_path.open("a+b") as handle:
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_EX)
+            _WRITE_DEPTH.active = True
+            try:
+                yield
+            finally:
+                _WRITE_DEPTH.active = False
+                if os.name == "nt":
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def serialized_data_access(operation):
+    @wraps(operation)
+    async def wrapped(*args, **kwargs):
+        if _WRITE_CONTEXT.get():
+            return await operation(*args, **kwargs)
+        async with _ASYNC_WRITE_LOCK:
+            with data_write_lock():
+                token = _WRITE_CONTEXT.set(True)
+                try:
+                    return await operation(*args, **kwargs)
+                finally:
+                    _WRITE_CONTEXT.reset(token)
+    return wrapped
+
+
+def reference_revision(rows):
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -403,6 +464,18 @@ def _product_datastore_table(request: Request, table_name: str, store_mode: str)
 
 def _datastore_get_raw_rows(table_service: Any) -> List[Dict[str, Any]]:
     return get_raw_rows(table_service)
+
+
+def _read_reference_datastore(table_service, table_name, store_mode, normalize):
+    if table_service is None:
+        return None
+    try:
+        with data_write_lock():
+            return normalize(_datastore_get_raw_rows(table_service))
+    except Exception as exc:
+        if _store_requires_datastore(store_mode):
+            _raise_datastore_unavailable(table_name, "read from it", exc)
+        return None
 
 
 def _chunked(values: List[Any], size: int) -> List[List[Any]]:

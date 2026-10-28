@@ -468,8 +468,6 @@ def render_kehe_pallet_label_pdf(
     Each pallet entry is rendered `copies` times (default 2).
     Returns a report dict suitable for the frontend report panel.
     """
-    from pipelines.address_text import normalize_address_fields
-    normalize_address_fields(draft)
     pallets = draft.get("pallets") or []
     if not pallets:
         raise ValueError("Draft contains no pallets to render.")
@@ -521,7 +519,8 @@ def render_kehe_pallet_label_pdf(
             total_pages += 1
 
         # Ship-to display name for report
-        ship_to_lines = (pallet.get("ship_to") or "").split("\n")
+        from pipelines.address_text import normalize_address_text
+        ship_to_lines = normalize_address_text(pallet.get("ship_to")).split("\n")
         ship_to_display = ship_to_lines[0] if ship_to_lines else "—"
 
         rows.append({

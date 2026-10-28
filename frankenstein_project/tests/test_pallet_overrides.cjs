@@ -20,25 +20,32 @@ function context() {
     formatNumberString: value => String(value),
     itemQuantityForWeight: item => Number(item.qty_on_pallet),
     matchCaseProductForPallet: () => null,
-    roundProductWeightForPallet: value => Math.ceil(value * 1.05 / 10) * 10,
+    activeKeheDocumentDraft: null,
+    getActiveAllProductMasterRows: () => [],
   });
   return ctx;
 }
 
-test('Ti override changes browser placements, height, saved dimensions, and can be cleared', () => {
+test('browser displays backend Ti-Hi results and requests a new plan when an override changes', async () => {
   const ctx = context();
-  ctx.mpl = { _tihi_constraints: { cases_per_layer: 4 }, items: [
-    { sku: 'A', line: 1, location_on_pallet: '1', qty_on_pallet: '9', length_in: '12', width_in: '10', height_in: '5', unit_weight_lbs: '1' },
-  ] };
-  const entry = vm.runInContext('buildMplTiHiEntries(mpl).entries[0]', ctx);
-  assert.equal(entry.ti, 4);
-  assert.equal(entry.hi, 3);
-  assert.equal(entry.loadedHeight, 21);
-  assert.equal(entry.overflowCases, 0);
+  let calls = 0;
+  ctx.activeKeheDocumentType = '';
+  ctx.LabelKitPackingModel.configurePalletDefaults({ max_length_in: 48, max_width_in: 40, max_height_in: 70, max_gross_lbs: 2000, pallet_base_height_in: 6, cases_per_layer: 0, max_layers: 0 });
+  ctx.LabelKitAPI = { json: async (_url, options) => {
+    const { mpl } = JSON.parse(options.body); calls++;
+    const override = mpl._tihi_constraints.cases_per_layer;
+    return { mpl: { _pallet_dimensions: { '1': override ? '48 x 40 x 21 in' : '48 x 40 x 11 in' }, _pallet_tihi: { '1': override ? '4 x 3' : '9 x 1' } },
+      entries: [{ pallet_label: '1', ti: override || 9, hi: override ? 3 : 1, loaded_height: override ? 21 : 11, overflow_cases: 0 }], warnings: [], constraints: {} };
+  } };
+  ctx.mpl = { _tihi_constraints: { cases_per_layer: 4 }, items: [] };
+  await ctx.fetchMplPalletPlan(ctx.mpl);
+  const entry = ctx.buildMplTiHiEntries(ctx.mpl).entries[0];
+  assert.equal(entry.ti, 4); assert.equal(entry.hi, 3); assert.equal(entry.loadedHeight, 21);
   assert.equal(ctx.mpl._pallet_dimensions['1'], '48 x 40 x 21 in');
   ctx.mpl._tihi_constraints.cases_per_layer = '';
-  ctx.mpl._tihi_pallet_constraints = {};
-  assert.equal(vm.runInContext('buildMplTiHiEntries(mpl).entries[0].hi', ctx), 1);
+  await ctx.fetchMplPalletPlan(ctx.mpl);
+  assert.equal(ctx.buildMplTiHiEntries(ctx.mpl).entries[0].hi, 1);
+  assert.equal(calls, 2);
 });
 
 test('browser order balance sums split cases and preserves zero shipped', () => {
@@ -49,6 +56,17 @@ test('browser order balance sums split cases and preserves zero shipped', () => 
     { sku: 'B', total_ordered: '1', total_shipped: 0 },
   ] });
   assert.equal(balance, 2);
+});
+
+test('a failed backend pallet calculation never falls back to browser geometry', async () => {
+  const ctx = context();
+  ctx.LabelKitAPI = { json: async () => { throw new Error('Backend unavailable'); } };
+  const mpl = { items: [], _tihi_constraints: {} };
+  await assert.rejects(ctx.fetchMplPalletPlan(mpl), /Backend unavailable/);
+  const result = ctx.buildMplTiHiEntries(mpl);
+  assert.equal(result.entries.length, 0);
+  assert.equal(result.pending, false);
+  assert.match(result.warnings[0], /Backend unavailable/);
 });
 
 test('partner Balance Owed column shows zero only in the first row', () => {

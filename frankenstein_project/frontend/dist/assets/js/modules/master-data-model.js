@@ -202,6 +202,11 @@ export function normalizeAddressText(value) {
   return String(value ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]*\|[ \t]*/g, '\n').trim();
 }
 
+export function addressValue(field, value) {
+  return ADDRESS_TEXT_FIELDS.has(field.trim().toLowerCase().replace(/[\s-]+/g, '_'))
+    ? normalizeAddressText(value) : String(value ?? '').trim();
+}
+
 export function normalizeAddressFields(value) {
   if (Array.isArray(value)) value.forEach(normalizeAddressFields);
   else if (value && typeof value === 'object') {
@@ -275,6 +280,7 @@ export const masterDataModel = Object.freeze({
   deriveMatchValues,
   normalizeDirectory,
   normalizeAddressText,
+  addressValue,
   normalizeAddressFields,
 });
 

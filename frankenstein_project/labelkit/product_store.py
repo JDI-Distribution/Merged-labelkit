@@ -7,7 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from labelkit.catalyst import replace_rows
 
 from labelkit.audit_log import _product_row_key
 from labelkit.reference_data import (
@@ -21,11 +22,9 @@ from labelkit.runtime import (
     MPL_PRODUCT_MASTER_FILE,
     MPL_PRODUCT_MASTER_STORE,
     MPL_PRODUCT_MASTER_TABLE,
-    _chunked,
-    _datastore_get_raw_rows,
+    _read_reference_datastore,
     _product_datastore_table,
     _raise_datastore_unavailable,
-    _store_requires_datastore,
     _write_json_atomic,
 )
 
@@ -38,10 +37,12 @@ def _product_master_file_read(file_path: Optional[Path] = None) -> List[Dict[str
         data = json.loads(path.read_text(encoding="utf-8"))
         rows = data.get("rows") if isinstance(data, dict) else data
         if not isinstance(rows, list):
-            return []
+            raise ValueError("Expected a list of product records.")
+        if any(not isinstance(row, dict) for row in rows):
+            raise ValueError("Invalid product record.")
         return _dedupe_product_master_rows([r for r in rows if isinstance(r, dict)])
-    except Exception:
-        return []
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Product Master could not be read. The file was preserved; restore or repair it before saving.") from exc
 
 
 def _product_master_file_write(rows: List[Dict[str, Any]], file_path: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -113,16 +114,10 @@ def _product_to_datastore_row(row: Dict[str, Any], include_storefront: bool = Fa
 
 
 def _datastore_load_product_rows(request: Request, table_name: str, store_mode: str) -> Optional[List[Dict[str, str]]]:
-    table_service = _product_datastore_table(request, table_name, store_mode)
-    if table_service is None:
-        return None
-    try:
-        raw_rows = _datastore_get_raw_rows(table_service)
-        return _dedupe_product_master_rows([_datastore_row_to_product(r) for r in raw_rows])
-    except Exception as exc:
-        if _store_requires_datastore(store_mode):
-            _raise_datastore_unavailable(table_name, "read from it", exc)
-        return None
+    return _read_reference_datastore(
+        _product_datastore_table(request, table_name, store_mode), table_name, store_mode,
+        lambda rows: _dedupe_product_master_rows([_datastore_row_to_product(row) for row in rows]),
+    )
 
 
 def _datastore_load_product_master(request: Request) -> Optional[List[Dict[str, str]]]:
@@ -144,42 +139,11 @@ def _datastore_save_product_rows(
     _validate_configuration_rows(prepared)
     normalized = _dedupe_product_master_rows(prepared)
     try:
-        existing_rows = _datastore_get_raw_rows(table_service)
-        existing_by_key = {
-            _product_row_key(_datastore_row_to_product(raw)): raw
-            for raw in existing_rows
-            if raw.get("ROWID")
-        }
-        wanted_by_key = {_product_row_key(row): row for row in normalized}
-        update_rows: List[Dict[str, Any]] = []
-        insert_rows: List[Dict[str, Any]] = []
-        for key, row in wanted_by_key.items():
-            datastore_row = _product_to_datastore_row(row, include_storefront=include_storefront)
-            existing = existing_by_key.get(key)
-            if existing:
-                datastore_row["ROWID"] = existing["ROWID"]
-                update_rows.append(datastore_row)
-            else:
-                insert_rows.append(datastore_row)
-        delete_ids = [
-            raw.get("ROWID")
-            for key, raw in existing_by_key.items()
-            if key not in wanted_by_key and raw.get("ROWID")
-        ]
-        for batch in _chunked(update_rows, 100):
-            if batch:
-                table_service.update_rows(batch)
-        for batch in _chunked(insert_rows, 100):
-            if batch:
-                table_service.insert_rows(batch)
-        for batch in _chunked(delete_ids, 200):
-            if batch:
-                table_service.delete_rows(batch)
+        replace_rows(table_service, normalized, key=_product_row_key, decode=_datastore_row_to_product,
+                     encode=lambda row: _product_to_datastore_row(row, include_storefront=include_storefront))
         return normalized
     except Exception as exc:
-        if _store_requires_datastore(store_mode):
-            _raise_datastore_unavailable(table_name, "write to it", exc)
-        return None
+        _raise_datastore_unavailable(table_name, "write to it", exc)
 
 
 def _datastore_save_product_master(request: Request, rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:

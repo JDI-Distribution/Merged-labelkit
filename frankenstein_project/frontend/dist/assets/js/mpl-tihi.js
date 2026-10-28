@@ -1,947 +1,107 @@
-/* Master Packing List palletization and Ti-Hi layout logic. */
-  function maxCasesForProduct(product, warnings, label, constraints) {
-    const length = parsePositiveNumber(product.length_in);
-    const width = parsePositiveNumber(product.width_in);
-    const height = parsePositiveNumber(product.height_in);
-    const dims = length && width && height ? { l: length, w: width, h: height } : null;
-    const unitWeight = parseWeight(product.gross_weight_lbs);
-    if (!dims) warnings.push(`${label}: missing Case dimensions. Kept Unassigned / Needs Review.`);
-    if (unitWeight === null) warnings.push(`${label}: missing Case weight. Kept Unassigned / Needs Review.`);
-    if (!dims || unitWeight === null) return null;
-    const perLayerA = Math.floor(constraints.max_length_in / dims.l) * Math.floor(constraints.max_width_in / dims.w);
-    const perLayerB = Math.floor(constraints.max_length_in / dims.w) * Math.floor(constraints.max_width_in / dims.l);
-    const perLayer = Math.min(Math.max(perLayerA, perLayerB), constraints.cases_per_layer || Infinity);
-    const layers = Math.floor(constraints.max_height_in / dims.h);
-    const byDimensions = perLayer * layers;
-    if (byDimensions < 1) {
-      warnings.push(`${label}: Case dimensions exceed pallet footprint/height. Kept Unassigned / Needs Review.`);
-      return null;
-    }
-    const maxProductWeight = Math.max(0, constraints.max_gross_lbs - TIHI_PALLET_TARE_LBS);
-    const byWeight = Math.floor((maxProductWeight / TIHI_PALLET_BUFFER_FACTOR) / unitWeight);
-    if (byWeight < 1) {
-      warnings.push(`${label}: one Case exceeds the ${constraints.max_gross_lbs} lb pallet limit after buffer/pallet weight. Kept Unassigned / Needs Review.`);
-      return null;
-    }
-    return { dims, unitWeight, maxCases: Math.min(byDimensions, byWeight), caseVolume: dims.l * dims.w * dims.h };
+/* The backend owns pallet assignment and Ti-Hi geometry; this file draws its results. */
+  const mplPalletPlans = new WeakMap();
+  function defaultTiHiConstraints() { return window.LabelKitPackingModel.defaultConstraints(); }
+  function normalizeTiHiConstraints(raw = {}) { return window.LabelKitPackingModel.normalizeConstraints(raw); }
+  function getMplTiHiConstraints(mpl, palletId = '') {
+    return normalizeTiHiConstraints(mpl?._tihi_pallet_constraints?.[normalizePalletId(palletId)] || mpl?._tihi_constraints || {});
   }
-
-  function autoPalletizeMpl(mplIndex, options = {}) {
+  function tihiColorToRgb(color) { return window.LabelKitPackingModel.colorToRgb(color); }
+  function palletPlanInput(mpl) {
+    return {
+      mpl: { items: mpl.items || [], warnings: mpl.warnings || [], _tihi_constraints: mpl._tihi_constraints || {},
+        _tihi_pallet_constraints: mpl._tihi_pallet_constraints || {}, _pallet_ids: mpl._pallet_ids || [],
+        _pallet_weights: mpl._pallet_weights || {} },
+      product_master: activeKeheDocumentDraft?.reviewed_product_master || getActiveAllProductMasterRows(),
+    };
+  }
+  function palletPlanView(value, key = '') {
+    if (key === 'constraints') return value;
+    if (key === 'color' && Array.isArray(value)) return '#' + value.map(number => Math.round(number * 255).toString(16).padStart(2, '0')).join('');
+    if (key === 'dimensions' && Array.isArray(value)) return { l: value[0], w: value[1], h: value[2] };
+    if (Array.isArray(value)) return value.map(item => palletPlanView(item));
+    if (!value || typeof value !== 'object') return value;
+    const aliases = { case_length: 'length', case_width: 'width', case_height: 'height', dimensions: 'dims', unit_weight_lbs: 'weightLbs' };
+    return Object.fromEntries(Object.entries(value).map(([name, item]) => [
+      aliases[name] || name.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()), palletPlanView(item, name),
+    ]));
+  }
+  async function fetchMplPalletPlan(mpl, action = 'plan') {
+    const input = palletPlanInput(mpl), key = JSON.stringify(input);
+    const previous = mplPalletPlans.get(mpl);
+    if (action === 'plan' && previous?.key === key) {
+      if (previous.error) throw previous.error;
+      return previous.promise;
+    }
+    const state = { key, result: null, error: null };
+    const draft = activeKeheDocumentDraft;
+    state.promise = window.LabelKitAPI.json('/api/documents/pallet-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...input, action }),
+    }, 0).then(payload => {
+      if (JSON.stringify(palletPlanInput(mpl)) !== key || activeKeheDocumentDraft !== draft) throw new Error('Pallet inputs changed during calculation. Recalculate the current version.');
+      if (action !== 'plan') {
+        Object.assign(mpl, payload.mpl);
+        documentEditorRevision += 1;
+        mplDraftSync?.schedule();
+      } else {
+        const weights = mpl._pallet_weights ||= {};
+        for (const [pallet, weight] of Object.entries(payload.mpl._pallet_weights || {})) {
+          if (!String(weights[pallet] || '').trim()) weights[pallet] = weight;
+        }
+        (mpl.items || []).forEach((item, index) => {
+          const calculated = payload.mpl.items[index];
+          item.calculated_weight_lbs = calculated.calculated_weight_lbs || '';
+          if (!String(item.pallet_weight || '').trim()) item.pallet_weight = calculated.pallet_weight || '';
+        });
+        mpl.total_weight = payload.mpl.total_weight;
+      }
+      mpl._pallet_dimensions = payload.mpl._pallet_dimensions;
+      mpl._pallet_tihi = payload.mpl._pallet_tihi;
+      state.key = JSON.stringify(palletPlanInput(mpl));
+      state.result = { entries: payload.entries.map(entry => palletPlanView(entry)), warnings: payload.warnings, constraints: payload.constraints, signature: payload.signature };
+      if (action === 'plan' && activeKeheDocumentType === 'masterPackingList' && !window.documentPipelineActive) {
+        const focused = document.activeElement, path = focused?.dataset?.draftPath;
+        const selection = path ? [focused.selectionStart, focused.selectionEnd] : null;
+        renderDocumentEditor(activeKeheDocumentType, draft, { refreshOnly: true });
+        if (path) {
+          const input = [...document.querySelectorAll('[data-draft-path]')].find(element => element.dataset.draftPath === path);
+          input?.focus({ preventScroll: true });
+          try { input?.setSelectionRange(...selection); } catch (_err) {}
+        }
+      }
+      return state.result;
+    }).catch(error => { state.error = error; throw error; });
+    mplPalletPlans.set(mpl, state);
+    return state.promise;
+  }
+  function buildMplTiHiEntries(mpl) {
+    const state = mplPalletPlans.get(mpl);
+    if (state?.key === JSON.stringify(palletPlanInput(mpl))) {
+      if (state.result) return state.result;
+      return { entries: [], warnings: [state.error?.message || 'Calculating Ti-Hi on the server…'], constraints: getMplTiHiConstraints(mpl), pending: !state.error };
+    }
+    fetchMplPalletPlan(mpl).catch(error => setStatus(`Ti-Hi calculation failed: ${error.message}`, 'error'));
+    return { entries: [], warnings: ['Calculating Ti-Hi on the server…'], constraints: getMplTiHiConstraints(mpl), pending: true };
+  }
+  async function autoPalletizeMpl(mplIndex, options = {}) {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
     ensureMplPalletState(mpl);
     captureXmlPalletSnapshot(mpl);
-    const originalItems = (mpl.items || []).map(item => ({ ...item }));
-    const warnings = [];
-    const pallets = [];
-    const unassigned = [];
-    const defaultConstraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
-    mpl._tihi_constraints = defaultConstraints;
-    mpl._tihi_pallet_constraints = mpl._tihi_pallet_constraints || {};
-
-    const constraintsForPallet = (palletId = '') => getMplTiHiConstraints(mpl, palletId);
-    const maxCasesWithinConstraints = (meta, constraints) => {
-      if (!meta || !constraints) return 0;
-      const perLayerA = Math.floor(constraints.max_length_in / meta.dims.l) * Math.floor(constraints.max_width_in / meta.dims.w);
-      const perLayerB = Math.floor(constraints.max_length_in / meta.dims.w) * Math.floor(constraints.max_width_in / meta.dims.l);
-      const perLayer = Math.min(Math.max(perLayerA, perLayerB), constraints.cases_per_layer || Infinity);
-      const layers = Math.min(Math.floor(constraints.max_height_in / meta.dims.h), constraints.max_layers || Infinity);
-      const byDimensions = perLayer * layers;
-      const maxProductWeight = Math.max(0, constraints.max_gross_lbs - TIHI_PALLET_TARE_LBS);
-      const byWeight = Math.floor((maxProductWeight / TIHI_PALLET_BUFFER_FACTOR) / meta.unitWeight);
-      return Math.min(byDimensions, byWeight);
-    };
-
-    function ensurePallet() {
-      const nextId = String(pallets.length + 1);
-      const p = { id: nextId, productWeight: 0, volume: 0, items: [] };
-      pallets.push(p);
-      return p;
+    try {
+      await fetchMplPalletPlan(mpl, 'auto');
+      const note = getXmlPalletMismatchNote(mpl, mpl._pallet_ids.length);
+      markMplPalletizationSource(mpl, 'Auto Palletize', note);
+      keheLastMplDraft = activeKeheDocumentDraft;
+      if (options.render !== false) {
+        renderKeheUnifiedReport(activeKeheDocumentDraft);
+        renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+      }
+      if (options.showStatus !== false) setStatus('Auto Palletize completed. Review any warnings.', 'info');
+      return { palletCount: mpl._pallet_ids.length, warnings: mpl.warnings || [] };
+    } catch (error) {
+      setStatus(`Auto Palletize failed: ${error.message}`, 'error');
+      throw error;
     }
-
-    function buildAutoPalletItemCopy(item, palletId, qty, meta) {
-      const copy = { ...item };
-      copy.location_on_pallet = palletId;
-      copy.qty_on_pallet = String(qty);
-      copy.total_ordered = String(qty);
-      copy.total_shipped = String(qty);
-      copy.unit_weight_lbs = String(meta.unitWeight);
-      copy.calculated_weight_lbs = formatLbs(meta.unitWeight * qty);
-      copy.packaging_level = 'Case';
-      copy.pallet_weight = '';
-      return copy;
-    }
-
-    function fitsTiHiLayout(pallet, item, meta, qty) {
-      const palletId = normalizePalletId(pallet?.id) || '1';
-      const candidateItems = [
-        ...(pallet?.items || []).map(existing => ({ ...existing })),
-        buildAutoPalletItemCopy(item, palletId, qty, meta)
-      ];
-      const tempMpl = {
-        ...mpl,
-        items: candidateItems,
-        _tihi_constraints: normalizeTiHiConstraints(mpl._tihi_constraints || {}),
-        _tihi_pallet_constraints: { ...(mpl._tihi_pallet_constraints || {}) }
-      };
-      const { entries } = buildMplTiHiEntries(tempMpl);
-      const entry = entries.find(row => normalizePalletId(row.pallet) === palletId);
-      if (!entry) return false;
-      const constraints = constraintsForPallet(palletId);
-      if ((entry.overflowCases || 0) > 0) return false;
-      if (Number(entry.usedHeight || 0) > Number(constraints.max_height_in || 0) + 0.0001) return false;
-      if (Number(entry.grossWeightLbs || 0) > Number(constraints.max_gross_lbs || 0) + 0.0001) return false;
-      return true;
-    }
-
-    function fits(pallet, item, meta, qty) {
-      if (!pallet || !meta || qty <= 0) return false;
-      const constraints = constraintsForPallet(pallet?.id);
-      const maxCases = maxCasesWithinConstraints(meta, constraints);
-      if (qty > maxCases) return false;
-      const palletVolumeLimit = constraints.max_length_in * constraints.max_width_in * constraints.max_height_in;
-      if (pallet.volume + meta.caseVolume * qty > palletVolumeLimit) return false;
-      if (roundProductWeightForPallet((pallet.productWeight + meta.unitWeight * qty)) + TIHI_PALLET_TARE_LBS > constraints.max_gross_lbs) return false;
-      return fitsTiHiLayout(pallet, item, meta, qty);
-    }
-
-    function addToPallet(pallet, item, qty, meta) {
-      const copy = buildAutoPalletItemCopy(item, pallet.id, qty, meta);
-      pallet.productWeight += meta.unitWeight * qty;
-      pallet.volume += meta.caseVolume * qty;
-      pallet.items.push(copy);
-    }
-
-    const palletizeQueue = originalItems
-      .map((item, index) => {
-        const product = matchCaseProductForPallet(item);
-        const unitWeight = product ? (parseWeight(product.gross_weight_lbs) ?? 0) : 0;
-        return { item, index, product, unitWeight };
-      })
-      .sort((a, b) => (b.unitWeight - a.unitWeight) || (a.index - b.index));
-
-    palletizeQueue.forEach(({ item, index, product }) => {
-      const label = item.item_number || item.gtin || item.case_upc || item.sku || `Line ${index + 1}`;
-      if (!product) {
-        warnings.push(`${label}: no checked Case row matched in GTIN / Packaging Master. Kept Unassigned / Needs Review.`);
-        unassigned.push({ ...item, location_on_pallet: '', pallet_weight: '' });
-        return;
-      }
-      const meta = maxCasesForProduct(product, warnings, label, defaultConstraints);
-      const qty = Math.max(0, Math.ceil(itemQuantityForWeight(item)));
-      if (!meta || qty < 1) {
-        unassigned.push({ ...item, location_on_pallet: '', pallet_weight: '' });
-        return;
-      }
-
-      let placedWhole = false;
-      for (const pallet of pallets) {
-        if (fits(pallet, item, meta, qty)) {
-          addToPallet(pallet, item, qty, meta);
-          placedWhole = true;
-          break;
-        }
-      }
-      if (!placedWhole) {
-        const newPallet = ensurePallet();
-        if (fits(newPallet, item, meta, qty)) {
-          addToPallet(newPallet, item, qty, meta);
-          placedWhole = true;
-        }
-      }
-      if (placedWhole) return;
-
-      let remaining = qty;
-      while (remaining > 0) {
-        let moved = false;
-        const chunkLimit = Math.max(0, Math.min(remaining, maxCasesWithinConstraints(meta, constraintsForPallet())));
-        for (let chunk = chunkLimit; chunk >= 1; chunk -= 1) {
-          const existingPallets = pallets.length ? pallets : [ensurePallet()];
-          const targetPallet = existingPallets.find(pallet => fits(pallet, item, meta, chunk));
-          if (targetPallet) {
-            addToPallet(targetPallet, item, chunk, meta);
-            remaining -= chunk;
-            moved = true;
-            break;
-          }
-        }
-        if (!moved) {
-          const lastPallet = pallets[pallets.length - 1];
-          const newPallet = lastPallet && lastPallet.items.length === 0 ? lastPallet : ensurePallet();
-          for (let chunk = chunkLimit; chunk >= 1; chunk -= 1) {
-            if (fits(newPallet, item, meta, chunk)) {
-              addToPallet(newPallet, item, chunk, meta);
-              remaining -= chunk;
-              moved = true;
-              break;
-            }
-          }
-          if (!moved) break;
-        }
-      }
-      if (remaining > 0) {
-        const leftover = { ...item, qty_on_pallet: String(remaining), total_ordered: String(remaining), total_shipped: String(remaining), location_on_pallet: '', pallet_weight: '' };
-        unassigned.push(leftover);
-        warnings.push(`${label}: ${remaining} case(s) could not be palletized. Kept Unassigned / Needs Review.`);
-      }
-    });
-
-    const newItems = [];
-    const weights = {};
-    pallets.forEach(pallet => {
-      weights[pallet.id] = palletDisplayWeight(pallet.productWeight);
-      pallet.items.forEach(item => {
-        item.pallet_weight = weights[pallet.id];
-        newItems.push(item);
-      });
-    });
-    unassigned.forEach(item => newItems.push(item));
-
-    const mergeKeyForAutoItem = (item) => {
-      const pallet = normalizePalletId(item.location_on_pallet);
-      const identity = canonicalId(item.sku || item.item_number || item.gtin || item.case_upc || item.upc)
-        || String(item.description || '').trim().toLowerCase();
-      return [
-        pallet || 'unassigned',
-        identity,
-        String(item.description || '').trim().toLowerCase(),
-        String(item.uom || '').trim().toUpperCase(),
-        String(item.expiration_date || '').trim(),
-        String(item.unit_weight_lbs || '').trim(),
-        String(item.dimensions_in || '').trim()
-      ].join('|');
-    };
-    const mergedItems = [];
-    const mergedMap = new Map();
-    newItems.forEach(item => {
-      const pallet = normalizePalletId(item.location_on_pallet);
-      if (!pallet) {
-        mergedItems.push(item);
-        return;
-      }
-      const key = mergeKeyForAutoItem(item);
-      const qty = Math.max(0, Math.ceil(itemQuantityForWeight(item)));
-      const existing = mergedMap.get(key);
-      if (!existing) {
-        const copy = { ...item };
-        copy.qty_on_pallet = String(qty);
-        copy.total_ordered = String(qty);
-        copy.total_shipped = String(qty);
-        mergedMap.set(key, copy);
-        mergedItems.push(copy);
-        return;
-      }
-      const updatedQty = Math.max(0, Math.ceil(itemQuantityForWeight(existing))) + qty;
-      existing.qty_on_pallet = String(updatedQty);
-      existing.total_ordered = String(updatedQty);
-      existing.total_shipped = String(updatedQty);
-      const existingLines = String(existing.line || '').split(',').map(part => part.trim()).filter(Boolean);
-      const nextLines = String(item.line || '').split(',').map(part => part.trim()).filter(Boolean);
-      const mergedLines = [...new Set([...existingLines, ...nextLines])];
-      if (mergedLines.length) existing.line = mergedLines.join(', ');
-    });
-    // Re-palletization redistributes shipped cases; retain the original order demand.
-    const demandKey = item => item.sku || item.gtin || item.item_number || item.description || String(item.line);
-    const demand = new Map();
-    originalItems.forEach(item => {
-      const key = demandKey(item);
-      demand.set(key, (demand.get(key) || 0) + Math.max(0, Number(item.total_ordered ?? item.qty_on_pallet) || 0));
-    });
-    const remainingRows = new Map();
-    mergedItems.forEach(item => remainingRows.set(demandKey(item), (remainingRows.get(demandKey(item)) || 0) + 1));
-    mergedItems.forEach(item => {
-      const key = demandKey(item);
-      const remaining = demand.get(key) || 0;
-      const ordered = remainingRows.get(key) === 1 ? remaining : Math.min(remaining, Number(item.qty_on_pallet) || 0);
-      item.total_ordered = String(ordered);
-      demand.set(key, remaining - ordered);
-      remainingRows.set(key, remainingRows.get(key) - 1);
-    });
-    mpl.items = mergedItems;
-    mpl._pallet_ids = pallets.map(p => p.id);
-    mpl._pallet_weights = weights;
-    syncMplTotalWeight(mplIndex);
-    mpl.total_pallets = String(mpl._pallet_ids.length || 1);
-    const note = getXmlPalletMismatchNote(mpl, mpl._pallet_ids.length);
-    markMplPalletizationSource(mpl, 'Auto Palletize', note);
-    if (!Array.isArray(mpl.warnings)) mpl.warnings = [];
-    mpl.warnings = [...new Set([...(mpl.warnings || []), ...warnings, note])];
-    syncMplLineNumbers(mpl);
-    keheLastMplDraft = activeKeheDocumentDraft;
-    if (options.render !== false) {
-      renderKeheUnifiedReport(activeKeheDocumentDraft);
-      renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
-    }
-    if (options.showStatus !== false) {
-      setStatus(warnings.length ? 'Auto Palletize completed with Needs Review items. Check Unassigned rows and warnings.' : 'Auto Palletize completed.', warnings.length ? 'error' : 'success');
-    }
-    return { palletCount: mpl._pallet_ids.length, warnings: [...warnings] };
-  }
-
-  const TIHI_PALLET_TARE_LBS = 50;
-  const TIHI_PALLET_BUFFER_FACTOR = 1.05;
-
-  function defaultTiHiConstraints() {
-    return window.LabelKitPackingModel.defaultConstraints();
-  }
-
-  function normalizeTiHiConstraints(raw = {}) {
-    return window.LabelKitPackingModel.normalizeConstraints(raw);
-  }
-
-  function getMplTiHiConstraints(mpl, palletId = '') {
-    if (!mpl) return defaultTiHiConstraints();
-    mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
-    const normalizedPallet = normalizePalletId(palletId);
-    if (normalizedPallet) {
-      if (!mpl._tihi_pallet_constraints || typeof mpl._tihi_pallet_constraints !== 'object') {
-        mpl._tihi_pallet_constraints = {};
-      }
-      mpl._tihi_pallet_constraints[normalizedPallet] = normalizeTiHiConstraints(
-        mpl._tihi_pallet_constraints[normalizedPallet] || mpl._tihi_constraints
-      );
-      return mpl._tihi_pallet_constraints[normalizedPallet];
-    }
-    return mpl._tihi_constraints;
-  }
-
-  function bestTiHiOrientation(dims, constraints) {
-    return window.LabelKitPackingModel.bestOrientation(dims, constraints);
-  }
-
-  function tihiLayerCapacity(group, constraints) {
-    const orientation = group.baseOrientation || bestTiHiOrientation(group.dims, constraints);
-    return Math.max(1, Number(orientation?.ti || 1));
-  }
-
-  function tihiItemLabel(item, index = 0) {
-    return item?.sku || item?.item_number || item?.gtin || item?.case_upc || item?.description || `Line ${index + 1}`;
-  }
-
-  function tihiColorForIndex(index) {
-    return window.LabelKitPackingModel.colorForIndex(index);
-  }
-
-  function tihiColorIdentity(group) {
-    return canonicalId(group?.sku || group?.itemNumber || group?.gtin || '')
-      || String(group?.description || group?.label || '').trim().toLowerCase();
-  }
-
-  function tihiColorToRgb(color) {
-    return window.LabelKitPackingModel.colorToRgb(color);
-  }
-
-  function tihiIntersectionArea(a, b) {
-    return window.LabelKitPackingModel.intersectionArea(a, b);
-  }
-
-  function tihiRectsOverlap(a, b) {
-    return tihiIntersectionArea(a, b) > 0.001;
-  }
-
-  function tihiTopZ(placement) {
-    return window.LabelKitPackingModel.topZ(placement);
-  }
-
-  function tihiZOverlaps(placement, baseZ, height) {
-    const bottom = Number(placement.z || 0);
-    const top = tihiTopZ(placement);
-    return bottom < Number(baseZ || 0) + Number(height || 0) - 0.001 && top > Number(baseZ || 0) + 0.001;
-  }
-
-  function tihiSupportSurfaces(placements, layerBaseZ, constraints) {
-    if (layerBaseZ <= 0.001) {
-      return [{ x: 0, y: 0, length: constraints.max_length_in, width: constraints.max_width_in }];
-    }
-    return placements
-      .filter(p => Math.abs((Number(p.z || 0) + Number(p.height || 0)) - layerBaseZ) <= 0.001)
-      .map(p => ({ x: p.x, y: p.y, length: p.length, width: p.width, unitWeight: Number(p.unitWeight || 0) }));
-  }
-
-  function tihiSupportLevels(placements, constraints) {
-    const levels = [0];
-    (placements || []).forEach(placement => {
-      const top = tihiTopZ(placement);
-      if (top <= Number(constraints.max_height_in || 0) + 0.001 && !levels.some(level => Math.abs(level - top) <= 0.001)) {
-        levels.push(top);
-      }
-    });
-    return levels.sort((a, b) => a - b);
-  }
-
-  function tihiSupportRatio(placement, supportSurfaces, minSupportWeight = 0) {
-    const area = placement.length * placement.width;
-    if (!(area > 0)) return 0;
-    const supported = supportSurfaces
-      .filter(surface => !Number.isFinite(Number(surface.unitWeight)) || Number(surface.unitWeight || 0) + 0.001 >= minSupportWeight)
-      .reduce((sum, surface) => sum + tihiIntersectionArea(placement, surface), 0);
-    return Math.min(1, supported / area);
-  }
-
-  function tihiHasLighterSupportOverlap(placement, supportSurfaces, minSupportWeight = 0) {
-    const requiredWeight = Number(minSupportWeight || 0);
-    if (!(requiredWeight > 0)) return false;
-    return supportSurfaces.some(surface => (
-      Number.isFinite(Number(surface.unitWeight))
-      && Number(surface.unitWeight || 0) + 0.001 < requiredWeight
-      && tihiIntersectionArea(placement, surface) > 0.001
-    ));
-  }
-
-  function tihiCandidateValues(rawValues, maxValue) {
-    const values = [];
-    rawValues.forEach(value => {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return;
-      const clamped = Math.min(Math.max(n, 0), maxValue);
-      if (!values.some(existing => Math.abs(existing - clamped) < 0.001)) values.push(clamped);
-    });
-    return values.sort((a, b) => a - b);
-  }
-
-  function pickBestLayerPlacement(layerPlacements, supportSurfaces, itemDims, constraints, preferRotated = false, minSupportWeight = 0, blockingPlacements = null, baseZ = 0) {
-    const options = [
-      { length: itemDims.l, width: itemDims.w, height: itemDims.h, rotated: false },
-      { length: itemDims.w, width: itemDims.l, height: itemDims.h, rotated: true }
-    ].filter((opt, idx, arr) => idx === arr.findIndex(other => other.length === opt.length && other.width === opt.width));
-
-    let best = null;
-    const blockers = Array.isArray(blockingPlacements) ? blockingPlacements : layerPlacements;
-    const isBetterScore = (left, right) => {
-      for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-        const lv = left[i] ?? 0;
-        const rv = right[i] ?? 0;
-        if (lv === rv) continue;
-        return lv > rv;
-      }
-      return false;
-    };
-
-    options.forEach(opt => {
-      if (opt.length > constraints.max_length_in || opt.width > constraints.max_width_in) return;
-      const maxX = constraints.max_length_in - opt.length;
-      const maxY = constraints.max_width_in - opt.width;
-      const xSeeds = [0, maxX];
-      const ySeeds = [0, maxY];
-      blockers.forEach(p => {
-        xSeeds.push(p.x, p.x + p.length, p.x - opt.length);
-        ySeeds.push(p.y, p.y + p.width, p.y - opt.width);
-      });
-      supportSurfaces.forEach(surface => {
-        xSeeds.push(surface.x, surface.x + surface.length - opt.length, surface.x + surface.length, surface.x - opt.length);
-        ySeeds.push(surface.y, surface.y + surface.width - opt.width, surface.y + surface.width, surface.y - opt.width);
-      });
-
-      const xs = tihiCandidateValues(xSeeds, maxX);
-      const ys = tihiCandidateValues(ySeeds, maxY);
-      xs.forEach(x => {
-        ys.forEach(y => {
-          const placement = { ...opt, x, y };
-          if (blockers.some(existing => tihiZOverlaps(existing, baseZ, opt.height) && tihiRectsOverlap(placement, existing))) return;
-          if (tihiHasLighterSupportOverlap(placement, supportSurfaces, minSupportWeight)) return;
-          const supportRatio = tihiSupportRatio(placement, supportSurfaces, minSupportWeight);
-          if (supportRatio < 0.8) return;
-          const orientationTie = Math.floor(constraints.max_length_in / opt.length) * Math.floor(constraints.max_width_in / opt.width);
-          const score = [
-            opt.rotated === preferRotated ? 1 : 0,
-            orientationTie,
-            supportRatio,
-            -(y),
-            -(x)
-          ];
-          if (!best || isBetterScore(score, best.score)) {
-            best = { placement, score, supportRatio };
-          }
-        });
-      });
-    });
-    return best;
-  }
-
-  function subtractTihiRect(rect, cover) {
-    const x1 = Math.max(rect.x, cover.x);
-    const y1 = Math.max(rect.y, cover.y);
-    const x2 = Math.min(rect.x + rect.length, cover.x + cover.length);
-    const y2 = Math.min(rect.y + rect.width, cover.y + cover.width);
-    if (x2 <= x1 || y2 <= y1) return [rect];
-
-    const pieces = [];
-    if (x1 > rect.x) pieces.push({ x: rect.x, y: rect.y, length: x1 - rect.x, width: rect.width });
-    if (x2 < rect.x + rect.length) pieces.push({ x: x2, y: rect.y, length: rect.x + rect.length - x2, width: rect.width });
-    const middleLength = x2 - x1;
-    if (y1 > rect.y) pieces.push({ x: x1, y: rect.y, length: middleLength, width: y1 - rect.y });
-    if (y2 < rect.y + rect.width) pieces.push({ x: x1, y: y2, length: middleLength, width: rect.y + rect.width - y2 });
-    return pieces.filter(piece => piece.length > 0.001 && piece.width > 0.001);
-  }
-
-  function isTihiPlacementFullyCovered(placement, higherPlacements) {
-    let uncovered = [{ x: placement.x, y: placement.y, length: placement.length, width: placement.width }];
-    higherPlacements.forEach(higher => {
-      const cover = { x: higher.x, y: higher.y, length: higher.length, width: higher.width };
-      uncovered = uncovered.flatMap(piece => subtractTihiRect(piece, cover));
-    });
-    const uncoveredArea = uncovered.reduce((sum, piece) => sum + (piece.length * piece.width), 0);
-    return uncoveredArea <= 0.001;
-  }
-
-  function visibleTopPlacementsForTiHi(placements) {
-    return placements.filter(placement => {
-      const top = Number(placement.z || 0) + Number(placement.height || 0);
-      const higher = placements.filter(other => (Number(other.z || 0) + Number(other.height || 0)) > top + 0.001);
-      return !isTihiPlacementFullyCovered(placement, higher);
-    }).sort((a, b) => {
-      const atop = Number(a.z || 0) + Number(a.height || 0);
-      const btop = Number(b.z || 0) + Number(b.height || 0);
-      return (atop - btop) || (Number(a.layerIndex || 0) - Number(b.layerIndex || 0));
-    });
-  }
-
-  function tihiPatternLetter(index) {
-    let n = Math.max(0, Number(index) || 0);
-    let label = '';
-    do {
-      label = String.fromCharCode(65 + (n % 26)) + label;
-      n = Math.floor(n / 26) - 1;
-    } while (n >= 0);
-    return label;
-  }
-
-  function tihiPatternSignature(layerPlacements) {
-    const q = value => Number(value || 0).toFixed(3);
-    return [...layerPlacements]
-      .sort((a, b) => (Number(a.y || 0) - Number(b.y || 0)) || (Number(a.x || 0) - Number(b.x || 0)) || String(a.label || '').localeCompare(String(b.label || '')))
-      .map(p => [
-        q(p.x),
-        q(p.y),
-        q(p.length),
-        q(p.width),
-        q(p.height),
-        p.rotated ? 'R' : 'N',
-        String(p.label || ''),
-        String(p.color || '')
-      ].join(':'))
-      .join('|');
-  }
-
-  function buildTiHiLayerPatternData(placements) {
-    const layers = new Map();
-    (placements || []).forEach(placement => {
-      const layerIndex = Number(placement.layerIndex || 0);
-      if (!layers.has(layerIndex)) layers.set(layerIndex, []);
-      layers.get(layerIndex).push(placement);
-    });
-
-    const signatureMap = new Map();
-    const patterns = [];
-    const rows = [];
-    [...layers.keys()].sort((a, b) => a - b).forEach(layerIndex => {
-      const layerPlacements = [...(layers.get(layerIndex) || [])].sort((a, b) => (Number(a.y || 0) - Number(b.y || 0)) || (Number(a.x || 0) - Number(b.x || 0)));
-      const signature = tihiPatternSignature(layerPlacements);
-      let patternIndex = signatureMap.get(signature);
-      if (patternIndex === undefined) {
-        patternIndex = patterns.length;
-        signatureMap.set(signature, patternIndex);
-        patterns.push({
-          letter: tihiPatternLetter(patternIndex),
-          signature,
-          layers: [],
-          placements: layerPlacements.map(p => ({ ...p }))
-        });
-      }
-      const pattern = patterns[patternIndex];
-      pattern.layers.push(layerIndex + 1);
-      const z = Math.min(...layerPlacements.map(p => Number(p.z || 0)));
-      const top = Math.max(...layerPlacements.map(p => Number(p.z || 0) + Number(p.height || 0)));
-      layerPlacements.forEach(p => {
-        p.patternLetter = pattern.letter;
-        p.patternIndex = patternIndex;
-      });
-      rows.push({
-        layerIndex,
-        layerNumber: layerIndex + 1,
-        letter: pattern.letter,
-        z,
-        height: Math.max(0, top - z),
-        placements: layerPlacements
-      });
-    });
-    return { patterns, rows };
-  }
-
-  function transformTiHiLayer(layer, constraints, flipX, flipY) {
-    return (layer || []).map(placement => {
-      const x = Number(placement.x || 0);
-      const y = Number(placement.y || 0);
-      const length = Number(placement.length || 0);
-      const width = Number(placement.width || 0);
-      return {
-        ...placement,
-        x: flipX ? Math.max(0, Number(constraints.max_length_in || 0) - x - length) : x,
-        y: flipY ? Math.max(0, Number(constraints.max_width_in || 0) - y - width) : y
-      };
-    });
-  }
-
-  function tihiInternalXEdges(layer, maxLength) {
-    const edges = [];
-    (layer || []).forEach(placement => {
-      const x = Number(placement.x || 0);
-      const length = Number(placement.length || 0);
-      [x, x + length].forEach(edge => {
-        if (edge > 0.001 && edge < Number(maxLength || 0) - 0.001) {
-          edges.push(Number(edge.toFixed(3)));
-        }
-      });
-    });
-    return edges;
-  }
-
-  function tihiEdgeOverlapScore(leftEdges, rightEdges) {
-    let score = 0;
-    const used = new Set();
-    (leftEdges || []).forEach(left => {
-      for (let index = 0; index < (rightEdges || []).length; index += 1) {
-        if (used.has(index)) continue;
-        if (Math.abs(left - rightEdges[index]) <= 0.001) {
-          score += 1;
-          used.add(index);
-          break;
-        }
-      }
-    });
-    return score;
-  }
-
-  function tihiLayerVariantValid(originalLayer, candidateLayer, placements, constraints, levelZ) {
-    const supportSurfaces = tihiSupportSurfaces(placements, levelZ, constraints);
-    const originalSet = new Set(originalLayer || []);
-
-    for (const placement of candidateLayer || []) {
-      const placementWeight = Number(placement.unitWeight || 0);
-      if (tihiHasLighterSupportOverlap(placement, supportSurfaces, placementWeight)) return false;
-      const supportRatio = tihiSupportRatio(placement, supportSurfaces, placementWeight);
-      if (supportRatio < 0.8) return false;
-      placement.supportRatio = supportRatio;
-    }
-
-    for (let index = 0; index < candidateLayer.length; index += 1) {
-      const placement = candidateLayer[index];
-      for (let otherIndex = 0; otherIndex < candidateLayer.length; otherIndex += 1) {
-        if (index === otherIndex) continue;
-        const other = candidateLayer[otherIndex];
-        if (tihiZOverlaps(other, Number(placement.z || 0), Number(placement.height || 0)) && tihiRectsOverlap(placement, other)) return false;
-      }
-      for (const other of placements || []) {
-        if (originalSet.has(other)) continue;
-        if (tihiZOverlaps(other, Number(placement.z || 0), Number(placement.height || 0)) && tihiRectsOverlap(placement, other)) return false;
-      }
-    }
-    return true;
-  }
-
-  function finalizeHeightZonePatterns(placements, constraints) {
-    if (!Array.isArray(placements) || !placements.length) return;
-    const levels = [];
-    placements.forEach(placement => {
-      const z = Number(placement.z || 0);
-      if (!levels.some(level => Math.abs(level - z) <= 0.001)) levels.push(z);
-    });
-    levels.sort((a, b) => a - b);
-
-    levels.forEach((levelZ, levelIndex) => {
-      const layer = placements.filter(placement => Math.abs(Number(placement.z || 0) - levelZ) <= 0.001);
-      layer.forEach(placement => {
-        placement.layerIndex = levelIndex;
-      });
-
-      const previousLayers = levels.slice(Math.max(0, levelIndex - 3), levelIndex)
-        .map(previousZ => placements.filter(placement => Math.abs(Number(placement.z || 0) - previousZ) <= 0.001));
-      const previousEdges = previousLayers.map(previousLayer => tihiInternalXEdges(previousLayer, constraints.max_length_in));
-      const previousSignature = previousLayers.length ? tihiPatternSignature(previousLayers[previousLayers.length - 1]) : '';
-      const variants = [
-        [0, false, false],
-        [1, true, false],
-        [2, false, true],
-        [3, true, true]
-      ];
-      let bestVariant = null;
-      let bestScore = null;
-      const isBetterScore = (left, right) => {
-        if (!right) return true;
-        for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-          const lv = left[index] ?? 0;
-          const rv = right[index] ?? 0;
-          if (lv === rv) continue;
-          return lv > rv;
-        }
-        return false;
-      };
-
-      variants.forEach(([transformIndex, flipX, flipY]) => {
-        const candidateLayer = transformTiHiLayer(layer, constraints, flipX, flipY);
-        if (!tihiLayerVariantValid(layer, candidateLayer, placements, constraints, levelZ)) return;
-        const candidateEdges = tihiInternalXEdges(candidateLayer, constraints.max_length_in);
-        const immediatePenalty = previousEdges.length ? tihiEdgeOverlapScore(candidateEdges, previousEdges[previousEdges.length - 1]) : 0;
-        const recentPenalty = previousEdges.slice(0, -1).reduce((sum, edges) => sum + tihiEdgeOverlapScore(candidateEdges, edges), 0);
-        const signature = tihiPatternSignature(candidateLayer);
-        const transformPreference = transformIndex === levelIndex % 4 ? 1 : 0;
-        const score = [
-          -(immediatePenalty * 3 + recentPenalty),
-          signature === previousSignature ? 0 : 1,
-          transformPreference,
-          -transformIndex
-        ];
-        if (isBetterScore(score, bestScore)) {
-          bestScore = score;
-          bestVariant = candidateLayer;
-        }
-      });
-
-      if (!bestVariant) return;
-      layer.forEach((placement, index) => {
-        placement.x = bestVariant[index].x;
-        placement.y = bestVariant[index].y;
-        placement.supportRatio = bestVariant[index].supportRatio;
-      });
-    });
-  }
-
-  function buildPalletTiHiLayout(itemGroups, constraints) {
-    const placements = [];
-    const overflow = [];
-
-    const activeGroups = [...itemGroups]
-      .sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex))
-      .map(group => ({ ...group, remainingCases: group.assignedCases }));
-
-    while (activeGroups.some(group => group.remainingCases > 0)) {
-      let candidate = null;
-      const supportLevels = tihiSupportLevels(placements, constraints);
-      const isBetterCandidateScore = (left, right) => {
-        for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-          const lv = left[i] ?? 0;
-          const rv = right[i] ?? 0;
-          if (lv === rv) continue;
-          return lv > rv;
-        }
-        return false;
-      };
-      activeGroups.forEach(group => {
-        if (group.remainingCases <= 0) return;
-        supportLevels.forEach((baseZ, levelIndex) => {
-          const layerCount = placements.filter(p => Math.abs(Number(p.z || 0) - baseZ) <= 0.001).length;
-          if (constraints.cases_per_layer && layerCount >= constraints.cases_per_layer) return;
-          const lowerLevels = new Set(placements.filter(p => Number(p.z || 0) < baseZ - 0.001).map(p => Number(p.z || 0).toFixed(3)));
-          if (constraints.max_layers && lowerLevels.size >= constraints.max_layers) return;
-          if (baseZ >= Number(constraints.max_height_in || 0) - 0.001) return;
-          const supportSurfaces = tihiSupportSurfaces(placements, baseZ, constraints);
-          if (!supportSurfaces.length) return;
-          const bestFit = pickBestLayerPlacement([], supportSurfaces, group.dims, constraints, levelIndex % 2 === 1, group.unitWeight || 0, placements, baseZ);
-          if (!bestFit) return;
-          const placement = bestFit.placement;
-          if (baseZ + Number(placement.height || 0) > constraints.max_height_in + 0.001) return;
-          const layerCapacity = tihiLayerCapacity(group, constraints);
-          const layerCaseCount = Math.min(Number(group.remainingCases || 0), layerCapacity);
-          const score = [
-            -(Number(baseZ || 0)),
-            group.unitWeight || 0,
-            Number(group.remainingCases || 0) >= layerCapacity ? 1 : 0,
-            layerCaseCount,
-            placement.length * placement.width,
-            ...(bestFit.score || [])
-          ];
-          if (!candidate || isBetterCandidateScore(score, candidate.score)) {
-            candidate = { group, bestFit, score, baseZ };
-          }
-        });
-      });
-
-      if (!candidate) {
-        activeGroups.forEach(group => {
-          while (group.remainingCases > 0) {
-            overflow.push(group);
-            group.remainingCases -= 1;
-          }
-        });
-        break;
-      }
-
-      const { group, bestFit } = candidate;
-      const finalPlacement = bestFit.placement;
-      const baseZ = Number(candidate.baseZ || 0);
-      const placed = {
-        pallet: group.pallet,
-        label: group.label,
-        color: group.color,
-        lineLabel: group.lines.join(', '),
-        x: finalPlacement.x,
-        y: finalPlacement.y,
-        z: baseZ,
-        layerIndex: 0,
-        length: finalPlacement.length,
-        width: finalPlacement.width,
-        height: finalPlacement.height,
-        rotated: !!finalPlacement.rotated,
-        supportRatio: Number(bestFit.supportRatio || 1),
-        unitWeight: Number(group.unitWeight || 0)
-      };
-      placements.push(placed);
-
-      group.remainingCases -= 1;
-    }
-
-    finalizeHeightZonePatterns(placements, constraints);
-
-    const usedHeight = placements.reduce((max, placement) => Math.max(max, tihiTopZ(placement)), 0);
-    const caseVolume = placements.reduce((sum, p) => sum + (p.length * p.width * p.height), 0);
-    return {
-      placements,
-      usedHeight,
-      overflowCount: overflow.length,
-      palletFillPct: Math.min(100, (caseVolume / (constraints.max_length_in * constraints.max_width_in * constraints.max_height_in)) * 100)
-    };
-  }
-
-  function buildMplTiHiEntries(mpl) {
-    const items = Array.isArray(mpl?.items) ? mpl.items : [];
-    const grouped = new Map();
-    const warnings = [];
-    const constraints = getMplTiHiConstraints(mpl);
-
-    items.forEach((item, index) => {
-      const pallet = normalizePalletId(item.location_on_pallet) || '1';
-      const assignedCases = Math.max(0, Math.ceil(itemQuantityForWeight(item)));
-      if (!assignedCases) return;
-
-      const fallbackProduct = matchCaseProductForPallet(item) || {};
-      const lengthIn = parsePositiveNumber(item.length_in || fallbackProduct.length_in);
-      const widthIn = parsePositiveNumber(item.width_in || fallbackProduct.width_in);
-      const heightIn = parsePositiveNumber(item.height_in || fallbackProduct.height_in);
-      const dimensionsIn = lengthIn && widthIn && heightIn
-        ? `${formatNumberString(lengthIn)} x ${formatNumberString(widthIn)} x ${formatNumberString(heightIn)}`
-        : '';
-      const weightLbs = String(item.unit_weight_lbs || fallbackProduct.gross_weight_lbs || '').trim();
-      const dims = lengthIn && widthIn && heightIn ? { l: lengthIn, w: widthIn, h: heightIn } : null;
-      const unitWeight = parseWeight(weightLbs);
-      const label = tihiItemLabel(item, index);
-
-      if (!dims) {
-        warnings.push(`Pallet ${pallet} / ${label}: missing Case dimensions in product master.`);
-        return;
-      }
-      if (unitWeight === null || unitWeight <= 0) {
-        warnings.push(`Pallet ${pallet} / ${label}: missing Case weight in product master.`);
-        return;
-      }
-
-      const entityKey = canonicalId(item.sku || item.item_number || item.gtin || item.case_upc || item.upc)
-        || String(item.description || '').trim().toLowerCase()
-        || `line-${index + 1}`;
-      const key = [pallet, entityKey, lengthIn, widthIn, heightIn, weightLbs].join('|');
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          pallet,
-          sku: item.sku || fallbackProduct.sku || '',
-          itemNumber: item.item_number || '',
-          gtin: item.gtin || item.case_upc || item.upc || fallbackProduct.gtin || '',
-          description: item.description || fallbackProduct.description || '',
-          dimensionsIn,
-          weightLbs,
-          dims,
-          unitWeight,
-          assignedCases: 0,
-          lines: [],
-          sortIndex: index
-        });
-      }
-      const group = grouped.get(key);
-      group.assignedCases += assignedCases;
-      if (item.line !== undefined && item.line !== null && String(item.line).trim()) {
-        group.lines.push(String(item.line).trim());
-      }
-    });
-
-    const palletGroups = {};
-    const colorBySku = new Map();
-    Array.from(grouped.values())
-      .sort((a, b) => (Number(a.pallet) || 0) - (Number(b.pallet) || 0) || a.sortIndex - b.sortIndex)
-      .forEach((group, index) => {
-        const label = group.sku || group.itemNumber || group.gtin || group.description || `Item ${index + 1}`;
-        const groupConstraints = getMplTiHiConstraints(mpl, group.pallet);
-        const orientation = bestTiHiOrientation(group.dims, groupConstraints);
-        if (!orientation) {
-          warnings.push(`Pallet ${group.pallet} / ${label}: Case footprint exceeds the pallet base.`);
-          return;
-        }
-        group.label = label;
-        const colorKey = tihiColorIdentity({ ...group, label }) || `group-${index}`;
-        if (!colorBySku.has(colorKey)) {
-          colorBySku.set(colorKey, tihiColorForIndex(colorBySku.size));
-        }
-        group.color = colorBySku.get(colorKey);
-        group.baseOrientation = orientation;
-        group.lines = [...new Set(group.lines)].sort((a, b) => Number(a) - Number(b));
-        if (!palletGroups[group.pallet]) palletGroups[group.pallet] = [];
-        palletGroups[group.pallet].push(group);
-      });
-
-    const entries = Object.entries(palletGroups).map(([palletId, groups]) => {
-      const palletConstraints = getMplTiHiConstraints(mpl, palletId);
-      const totalWeight = groups.reduce((sum, group) => sum + (group.unitWeight * group.assignedCases), 0);
-      const grossWeightLbs = roundProductWeightForPallet(totalWeight) + TIHI_PALLET_TARE_LBS;
-      if (grossWeightLbs > palletConstraints.max_gross_lbs) {
-        warnings.push(`Pallet ${palletId}: gross pallet weight ${Math.round(grossWeightLbs)} lbs exceeds the ${palletConstraints.max_gross_lbs} lb limit.`);
-      }
-      groups.sort((a, b) => (b.unitWeight - a.unitWeight) || (a.sortIndex - b.sortIndex));
-      const layout = buildPalletTiHiLayout(groups, palletConstraints);
-      const { placements, usedHeight, overflowCount } = layout;
-      if (!placements.length) {
-        warnings.push(`Pallet ${palletId}: no TI-Hi layout could be created from the assigned case measurements.`);
-        return null;
-      }
-      const layerBuckets = new Map();
-      placements.forEach(p => {
-        const key = Number(p.layerIndex || 0);
-        if (!layerBuckets.has(key)) layerBuckets.set(key, []);
-        layerBuckets.get(key).push(p);
-      });
-      const maxLayer = Math.max(...placements.map(p => p.layerIndex));
-      const displayLayer = maxLayer;
-      const topPlacements = visibleTopPlacementsForTiHi(placements);
-      const topRowsUsed = new Set(topPlacements.map(p => `${p.y.toFixed(4)}:${p.width.toFixed(4)}`)).size || 1;
-      const maxCasesInLayer = Math.max(...[...layerBuckets.values()].map(layer => layer.length));
-      const layerPatternData = buildTiHiLayerPatternData(placements);
-      const caseCount = placements.length;
-      return {
-        pallet: palletId,
-        palletLabel: palletId,
-        constraints: palletConstraints,
-        placements,
-        topPlacements,
-        layerPatterns: layerPatternData.patterns,
-        layerPatternRows: layerPatternData.rows,
-        groups,
-        assignedCases: groups.reduce((sum, group) => sum + group.assignedCases, 0),
-        shownCases: caseCount,
-        overflowCases: overflowCount,
-        ti: palletConstraints.cases_per_layer || maxCasesInLayer,
-        hi: maxLayer + 1,
-        displayLayer,
-        topRowsUsed,
-        topLayerCases: topPlacements.length,
-        grossWeightLbs,
-        palletFillPct: Number(layout.palletFillPct || 0),
-        usedHeight,
-        loadedHeight: usedHeight + palletConstraints.pallet_base_height_in,
-        lines: [...new Set(groups.flatMap(group => group.lines))].sort((a, b) => Number(a) - Number(b))
-      };
-    }).filter(Boolean);
-
-    entries.sort((a, b) => (Number(a.pallet) || 0) - (Number(b.pallet) || 0));
-    mpl._pallet_dimensions = Object.fromEntries(entries.map(entry => [entry.palletLabel, `${entry.constraints.max_length_in} x ${entry.constraints.max_width_in} x ${Number(entry.loadedHeight.toFixed(2))} in`]));
-    mpl._pallet_tihi = Object.fromEntries(entries.map(entry => [entry.palletLabel, `${entry.ti} x ${entry.hi}`]));
-
-    return { entries, warnings: [...new Set(warnings)], constraints };
   }
 
   function drawSnapshotRect(ctx, x, y, w, h, fill = '#ffffff', stroke = '#cbd5e1', lineWidth = 1) {
@@ -1173,7 +333,7 @@
   }
 
   async function buildMplTiHiSnapshotPayload(mpl) {
-    const { entries, warnings, constraints } = buildMplTiHiEntries(mpl);
+    const { entries, warnings, constraints, signature } = await fetchMplPalletPlan(mpl);
     const entryImageDataUrls = [];
     for (const entry of entries) {
       entryImageDataUrls.push(await captureMplTiHiEntrySnapshot(mpl, entry));
@@ -1197,6 +357,7 @@
       placements: (pattern.placements || []).map(mapPlacement)
     });
     return {
+      source_signature: signature,
       constraints: {
         max_length_in: Number(constraints.max_length_in),
         max_width_in: Number(constraints.max_width_in),
@@ -1248,14 +409,7 @@
   }
 
   async function captureCurrentMplTiHiSnapshots(draft) {
-    for (const mpl of (draft?.packing_lists || [])) {
-      try {
-        mpl._tihi_snapshot = await buildMplTiHiSnapshotPayload(mpl);
-      } catch (err) {
-        console.warn('TI-HI snapshot capture failed; MPL will use backend fallback rendering.', err);
-        delete mpl._tihi_snapshot;
-      }
-    }
+    for (const mpl of draft?.packing_lists || []) mpl._tihi_snapshot = await buildMplTiHiSnapshotPayload(mpl);
   }
 
   function getMplTiHiSectionId(mplIndex, palletId, prefix = 'tihi') {
@@ -1437,12 +591,12 @@
       </div>`;
   }
 
-  function refreshMplLiveTiHiNow(mplIndex) {
+  async function refreshMplLiveTiHiNow(mplIndex) {
     const mpl = getMpl(mplIndex);
     const panels = [...document.querySelectorAll(`[data-mpl-live-tihi="${mplIndex}"]`)];
     if (!mpl || !panels.length) return;
     try {
-      const { entries, warnings, constraints } = buildMplTiHiEntries(mpl);
+      const { entries, warnings, constraints } = await fetchMplPalletPlan(mpl);
       const entriesByPallet = new Map(
         entries.map(entry => [normalizePalletId(entry.palletLabel), entry])
       );
@@ -1577,7 +731,7 @@
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
   }
 
-  function recalcMplTiHiPopup(mplIndex, palletId = '') {
+  async function recalcMplTiHiPopup(mplIndex, palletId = '') {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
     const normalizedPallet = normalizePalletId(palletId);
@@ -1598,7 +752,7 @@
     if (activeKeheDocumentDraft) {
       applyProductMasterToDraft(activeKeheDocumentDraft, false);
     }
-    autoPalletizeMpl(mplIndex, { render: true, showStatus: false });
+    await autoPalletizeMpl(mplIndex, { render: true, showStatus: false });
     mpl._show_tihi = true;
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
     setStatus(`TI-Hi recalculated for ${normalizedPallet ? `pallet ${normalizedPallet}` : (mpl.id || `MPL ${mplIndex + 1}`)} and the order was re-optimized to the updated pallet limits.`, 'success');

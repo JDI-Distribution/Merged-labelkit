@@ -3,12 +3,14 @@ export function createMplDraftSync(options) {
     let timer = null;
     let dirty = false;
     let saving = false;
+    let generation = 0;
 
     function notify(state, detail) {
       options.onState?.(state, detail || '');
     }
 
     function schedule() {
+      generation += 1;
       dirty = true;
       notify('unsaved');
       clearTimeout(timer);
@@ -20,12 +22,12 @@ export function createMplDraftSync(options) {
       timer = null;
       if (!dirty || saving || !options.canSave()) return false;
       saving = true;
+      const savedGeneration = generation;
       notify('saving');
       try {
         const saved = await options.save();
         if (saved) {
-          dirty = false;
-          notify('saved', new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+          markSaved(savedGeneration);
         } else {
           notify('error');
         }
@@ -35,10 +37,13 @@ export function createMplDraftSync(options) {
         return false;
       } finally {
         saving = false;
+        if (dirty && generation !== savedGeneration && timer === null) timer = setTimeout(flush, delayMs);
       }
     }
 
-    function markSaved() {
+    function markSaved(expectedGeneration) {
+      if (expectedGeneration !== undefined && expectedGeneration !== generation) return;
+      if (expectedGeneration === undefined) generation += 1;
       dirty = false;
       clearTimeout(timer);
       timer = null;
@@ -46,9 +51,9 @@ export function createMplDraftSync(options) {
     }
 
     function hasUnsavedChanges() { return dirty; }
-    function discard() { dirty = false; clearTimeout(timer); timer = null; }
+    function discard() { generation += 1; dirty = false; clearTimeout(timer); timer = null; }
     function dispose() { clearTimeout(timer); timer = null; }
-    return { schedule, flush, markSaved, hasUnsavedChanges, discard, dispose };
+    return { schedule, flush, markSaved, hasUnsavedChanges, discard, dispose, version: () => generation };
 }
 
 export const draftSync = Object.freeze({ create: createMplDraftSync });

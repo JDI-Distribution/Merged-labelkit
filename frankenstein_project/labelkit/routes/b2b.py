@@ -20,11 +20,9 @@ from labelkit.order_intake import (
     _analytics_source_metadata,
     _b2b_analytics_order_items_for_products,
     _partner_customer_id_from_order,
-    _select_analytics_order_instance,
-    _validated_sales_order_number,
+    resolve_order_context,
 )
-from labelkit.product_store import _datastore_load_product_master, _shared_product_master_file_read
-from labelkit.runtime import ANALYTICS_CLIENT, CUSTOMER_WORKFLOWS, _require_permission
+from labelkit.runtime import CUSTOMER_WORKFLOWS, _require_permission
 from pipelines.b2b_labels import MAX_B2B_RENDER_PAGES, render_b2b_label_pdf
 
 
@@ -46,23 +44,7 @@ async def get_customer_workflows(request: Request) -> JSONResponse:
 @router.post("/api/b2b/orders/lookup")
 def lookup_b2b_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    sales_order_number = _validated_sales_order_number(payload)
-    requested_ecomdash_id = str(payload.get("ecomdash_id") or "").strip() if isinstance(payload, dict) else ""
-
-    analytics_rows = ANALYTICS_CLIENT.export_order_rows(request, sales_order_number)
-    if not analytics_rows:
-        raise HTTPException(status_code=404, detail=f"No rows were found for Sales Order Number '{sales_order_number}'.")
-
-    product_rows = _datastore_load_product_master(request)
-    if product_rows is None:
-        product_rows = _shared_product_master_file_read()
-
-    analytics_rows, selected_ecomdash_id, selection = _select_analytics_order_instance(
-        analytics_rows,
-        requested_ecomdash_id,
-        sales_order_number,
-        product_rows,
-    )
+    sales_order_number, analytics_rows, product_rows, _product_source, selected_ecomdash_id, selection = resolve_order_context(request, payload)
     if selection is not None:
         return JSONResponse(content=selection)
 

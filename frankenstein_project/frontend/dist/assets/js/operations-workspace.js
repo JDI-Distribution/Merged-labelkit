@@ -1,7 +1,9 @@
 /* Unified order-document workspace. The existing B2B, MPL, Ti-Hi, and pallet
    generators remain the single owners of their document formats. */
-  const orderDocumentsState = (globalThis.__labelKitState ||= Object.create(null)).orderDocuments ||= {
+  function initialOperationsState() {
+    return {
     payload: null,
+    reviewedOrder: null,
     orderNumber: '',
     ecomdashId: '',
     customerId: '',
@@ -10,6 +12,7 @@
     palletDraft: null,
     activeTab: 'labels',
     loading: false,
+    initializingOrder: false,
     selectingOrderInstance: false,
     rendering: false,
     initialized: false,
@@ -23,30 +26,12 @@
     finalizing: false,
     approvingDocument: '',
   };
+  }
+  const orderDocumentsState = (globalThis.__labelKitState ||= Object.create(null)).orderDocuments ||= initialOperationsState();
 
   function resetOperationsWorkspaceState() {
-    Object.assign(orderDocumentsState, {
-      payload: null,
-      orderNumber: '',
-      ecomdashId: '',
-      customerId: '',
-      customerName: '',
-      mplDraft: null,
-      palletDraft: null,
-      activeTab: 'labels',
-      loading: false,
-      selectingOrderInstance: false,
-      rendering: false,
-      customMode: '',
-      manualPalletCount: 1,
-      manualPalletCopies: 1,
-      reviewedDocuments: { labels: false, mpl: false, pallets: false },
-      labelPreviewReady: false,
-      pendingReviewDocument: '',
-      documentSelection: null,
-      finalizing: false,
-      approvingDocument: '',
-    });
+    mplDraftSync?.discard();
+    Object.assign(orderDocumentsState, initialOperationsState(), { initialized: orderDocumentsState.initialized });
     resetOperationsReviewState();
     resetB2BManualWorkspaceState();
     const orderInput = document.getElementById('operations-sales-order-number');
@@ -69,19 +54,40 @@
   function markOperationsPalletsChanged() {
     if (selectedKit !== 'operations') return;
     orderDocumentsState.palletDraft = activeKeheDocumentDraft;
+    activeKeheDocumentDraft.review_status = 'DRAFT';
     orderDocumentsState.reviewedDocuments.pallets = false;
     window.clearGeneratedOutputs?.('operations-pallets-review', 'operations-pallets');
+  }
+
+  function clearOperationsDocumentReview() {
+    orderDocumentsState.pendingReviewDocument = '';
+    delete document.body.dataset.operationsReview;
+    for (const id of ['btn-operations-review-continue', 'btn-operations-review-top', 'btn-operations-review-back']) {
+      document.getElementById(id)?.classList.add('hidden');
+    }
+  }
+
+  async function completeOperationsDocumentReview(documentType) {
+    orderDocumentsState.reviewedDocuments[documentType] = true;
+    if (orderDocumentsState.pendingReviewDocument === documentType) clearOperationsDocumentReview();
+    if (documentType === 'labels') closePreview(false);
+    else closeDocumentEditor(false);
+    const tab = { labels: 'labels', mpl: 'packing', pallets: 'pallets' }[documentType];
+    await navigateToRoute(`operations/${tab}`);
+    renderOperationsWorkspace();
+    setStatus({
+      labels: 'Labels approved and added to Finished Files. Continue to the next selected section.',
+      mpl: 'Packing list and Ti-Hi approved and added to Finished Files.',
+      pallets: 'Pallet labels approved and added to Finished Files.',
+    }[documentType], 'success');
+    return true;
   }
 
   function resetOperationsReviewState() {
     orderDocumentsState.reviewedDocuments = { labels: false, mpl: false, pallets: false };
     orderDocumentsState.labelPreviewReady = false;
-    orderDocumentsState.pendingReviewDocument = '';
     orderDocumentsState.documentSelection = null;
-    delete document.body.dataset.operationsReview;
-    document.getElementById('btn-operations-review-continue')?.classList.add('hidden');
-    document.getElementById('btn-operations-review-top')?.classList.add('hidden');
-    document.getElementById('btn-operations-review-back')?.classList.add('hidden');
+    clearOperationsDocumentReview();
     renderOperationsApprovalActions();
   }
 
@@ -113,14 +119,15 @@
       setStatus('Generate a label preview before approving the labels.', 'error');
       return false;
     }
-    await recordGeneratedOutput('operations-labels', { ...output, scope: 'operations' });
-    orderDocumentsState.reviewedDocuments.labels = true;
-    if (orderDocumentsState.pendingReviewDocument === 'labels') orderDocumentsState.pendingReviewDocument = '';
-    closePreview(false);
-    await navigateToRoute('operations/labels');
-    renderOperationsWorkspace();
-    setStatus('Labels approved and added to Finished Files. Continue to the next selected section.', 'success');
-    return true;
+    const previewRevision = b2bPreviewRevision;
+    const isCurrent = () => b2bPreviewRevision === previewRevision && orderDocumentsState.labelPreviewReady;
+    const approved = await runDocumentPipeline({ kind: 'labels', draft: output.documentSnapshot,
+      isCurrent, skipReadiness: true, output: { ...output, key: 'operations-labels', scope: 'operations' },
+      render: async () => ({ blob: output.blob, pages: output.pages }),
+    });
+    if (!approved) return false;
+    if (!isCurrent()) return false;
+    return completeOperationsDocumentReview('labels');
   }
 
   function operationsPalletCount(draft = orderDocumentsState.mplDraft) {
@@ -179,7 +186,10 @@
     if (!['mpl', 'pallets'].includes(documentType) || orderDocumentsState.approvingDocument) return;
     const expectedType = documentType === 'mpl' ? 'masterPackingList' : 'palletLabel';
     if (activeKeheDocumentType !== expectedType || !activeKeheDocumentDraft) return;
-    orderDocumentsState.approvingDocument = documentType;
+    const reviewDraft = activeKeheDocumentDraft;
+    const isCurrent = () => activeKeheDocumentDraft === reviewDraft && activeKeheDocumentType === expectedType
+      && orderDocumentsState.pendingReviewDocument === documentType && reviewDraft.review_status === 'APPROVED';
+    orderDocumentsState.approvingDocument = reviewDraft;
     const buttons = ['btn-operations-review-continue', 'btn-operations-review-top', 'btn-operations-review-back']
       .map(id => document.getElementById(id)).filter(Boolean);
     buttons.forEach(button => { button.disabled = true; });
@@ -196,54 +206,43 @@
         orderDocumentsState.reviewedDocuments.pallets = false;
         window.clearGeneratedOutputs?.('operations-mpl-review', 'operations-pallets-review', 'operations-mpl', 'operations-pallets');
       } else {
+        reviewDraft.review_status = 'APPROVED';
         orderDocumentsState.palletDraft = activeKeheDocumentDraft;
         window.clearGeneratedOutputs?.('operations-pallets-review', 'operations-pallets');
       }
       const ok = await renderEditedKeheDocument({
+        isCurrent,
         saveMplDraft: documentType === 'mpl', skipReadiness: true,
         keepEditorOpen: true,
         openPreview: false, showSummary: false, scope: 'operations',
         outputKey: documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets',
       });
-      if (ok !== true) {
-        if (documentType === 'mpl') window.setMplReviewStatus?.('DRAFT');
+      if (ok !== true || !isCurrent()) {
+        if (activeKeheDocumentDraft === reviewDraft) {
+          if (documentType === 'mpl') window.setMplReviewStatus?.('DRAFT');
+          clearGeneratedOutputs(documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets');
+        }
         return false;
       }
-      orderDocumentsState.reviewedDocuments[documentType] = true;
-      orderDocumentsState.pendingReviewDocument = '';
-      delete document.body.dataset.operationsReview;
-      document.getElementById('btn-operations-review-continue')?.classList.add('hidden');
-      document.getElementById('btn-operations-review-top')?.classList.add('hidden');
-      document.getElementById('btn-operations-review-back')?.classList.add('hidden');
-      closeDocumentEditor(false);
-      const tab = documentType === 'mpl' ? 'packing' : 'pallets';
-      await navigateToRoute(`operations/${tab}`);
-      renderOperationsWorkspace();
-      setStatus(documentType === 'mpl'
-        ? 'Packing list and Ti-Hi approved and added to Finished Files.'
-        : 'Pallet labels approved and added to Finished Files.', 'success');
-      return true;
+      return await completeOperationsDocumentReview(documentType);
     } catch (error) {
       orderDocumentsState.reviewedDocuments[documentType] = false;
       if (documentType === 'mpl') window.setMplReviewStatus?.('DRAFT');
       window.clearGeneratedOutputs?.(documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets');
-      renderOperationsFiles();
       setStatus(`Approval failed: ${error?.message || 'Could not prepare the PDF.'}`, 'error');
       return false;
     } finally {
-      orderDocumentsState.approvingDocument = '';
-      buttons.forEach(button => { button.disabled = false; });
+      if (orderDocumentsState.approvingDocument === reviewDraft) {
+        orderDocumentsState.approvingDocument = '';
+        buttons.forEach(button => { button.disabled = false; });
+      }
     }
   }
 
   async function goBackFromOperationsReview() {
     if (orderDocumentsState.approvingDocument) return;
     const tab = orderDocumentsState.pendingReviewDocument === 'pallets' ? 'pallets' : 'packing';
-    orderDocumentsState.pendingReviewDocument = '';
-    delete document.body.dataset.operationsReview;
-    for (const id of ['btn-operations-review-continue', 'btn-operations-review-top', 'btn-operations-review-back']) {
-      document.getElementById(id)?.classList.add('hidden');
-    }
+    clearOperationsDocumentReview();
     closeDocumentEditor(false);
     await navigateToRoute(`operations/${tab}`);
     renderOperationsWorkspace();
@@ -400,6 +399,7 @@
   }
 
   function renderOperationsWorkspace() {
+    if (orderDocumentsState.initializingOrder) return;
     const loaded = !!orderDocumentsState.payload || !!orderDocumentsState.customMode || !!orderDocumentsState.mplDraft;
     document.getElementById('operations-empty-state')?.classList.toggle('hidden', loaded);
     document.getElementById('operations-session')?.classList.toggle('hidden', !loaded);
@@ -721,10 +721,9 @@
     loadOperationsOrder(null, id, order);
   }
 
-  function appendPartnerOnlyLabelJobs(payload, customerId) {
+  function appendPartnerOnlyLabelJobs(payload, customerId, context) {
     if (!customerId) return;
-    partnerLabelJobs = buildPartnerLabelJobs(payload, customerId);
-    const specialJobs = partnerLabelJobs.filter(job => isPartnerPalletLabelJob(job));
+    const specialJobs = buildPartnerLabelJobs(payload, customerId, context).filter(isPartnerPalletLabelJob);
     specialJobs.forEach(job => {
       const duplicate = b2bOrderLabelJobs.some(candidate => candidate.template_id === job.template_id && String(candidate.product?.sku || '') === String(job.product?.sku || ''));
       if (duplicate) return;
@@ -735,7 +734,9 @@
     });
   }
 
-  function completeOperationsOrderLoad(payload, orderNumber, ecomdashId = '') {
+  async function completeOperationsOrderLoad(payload, orderNumber, ecomdashId = '') {
+    mplDraftSync?.discard();
+    orderDocumentsState.initializingOrder = true;
     const replacedCurrentSession = !!(orderDocumentsState.payload || orderDocumentsState.customMode || orderDocumentsState.mplDraft);
     orderDocumentsState.payload = payload;
     orderDocumentsState.orderNumber = orderNumber;
@@ -747,22 +748,22 @@
     orderDocumentsState.manualPalletCopies = 1;
 
     resetB2BManualWorkspaceState();
-    completeB2BOrderLoad(payload, orderNumber);
-    partnerOrderPayload = payload;
-    partnerCustomerId = orderDocumentsState.customerId;
-    partnerResolvedOrderContext = resolveOrderContext(payload, { customer: orderDocumentsState.customerName });
-    appendPartnerOnlyLabelJobs(payload, orderDocumentsState.customerId);
+    payload = JSON.parse(JSON.stringify(payload));
+    orderDocumentsState.payload = payload;
+    const context = resolveOrderContext(payload, { customer: orderDocumentsState.customerName });
+    completeB2BOrderLoad(payload, orderNumber, context);
+    appendPartnerOnlyLabelJobs(payload, orderDocumentsState.customerId, context);
 
     const draft = orderDocumentsState.customerId
-      ? buildPartnerMplDraft(payload, orderDocumentsState.customerId)
-      : buildAnalyticsOrderMplDraft(payload, 'standard');
+      ? buildPartnerMplDraft(payload, orderDocumentsState.customerId, context)
+      : buildAnalyticsOrderMplDraft(payload, 'standard', context);
     orderDocumentsState.mplDraft = draft;
     orderDocumentsState.palletDraft = null;
-    partnerMplDraft = orderDocumentsState.customerId ? draft : null;
+    initializeReviewedOrder(payload, context, draft);
     activeKeheDocumentType = 'masterPackingList';
     activeKeheDocumentDraft = draft;
     keheLastMplDraft = draft;
-    const palletization = autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
+    const palletization = await autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
     orderDocumentsState.mplDraft = activeKeheDocumentDraft;
     document.getElementById('operations-order-instance-picker')?.classList.add('hidden');
     orderDocumentsState.selectingOrderInstance = false;
@@ -775,6 +776,7 @@
     orderDocumentsState.activeTab = b2bOrderLabelJobs.length ? 'labels' : 'packing';
     setHistoryRoute(`operations/${orderDocumentsState.activeTab}`, true);
     clearGeneratedOutputs('operations-labels', 'operations-mpl', 'operations-pallets');
+    orderDocumentsState.initializingOrder = false;
     renderOperationsWorkspace();
     scrollOperationsTo('operations-session');
     const reviewCount = Number(payload?.summary?.unmatched_products || 0) + Number(payload?.summary?.ambiguous_products || 0) + Number(payload?.summary?.defaulted_level_skus || 0);
@@ -802,12 +804,13 @@
         return;
       }
       updateWorkflowProgress('Matching SKUs', 'Matching order lines to Product Master and customer templates…');
-      completeOperationsOrderLoad(payload, orderNumber, selectedEcomdashId);
+      await completeOperationsOrderLoad(payload, orderNumber, selectedEcomdashId);
       closeWorkflowProgress();
     } catch (error) {
       closeWorkflowProgress();
       setStatus(`Order load failed: ${error?.message || 'unknown error'}`, 'error');
     } finally {
+      orderDocumentsState.initializingOrder = false;
       setOperationsOrderBusy(false);
     }
   }
@@ -853,7 +856,9 @@
   }
 
   async function openOperationsCustomMpl() {
+    mplDraftSync?.discard();
     window.clearGeneratedOutputs?.('operations-labels', 'operations-mpl', 'operations-pallets');
+    orderDocumentsState.reviewedOrder = null;
     orderDocumentsState.customMode = 'mpl';
     resetOperationsReviewState();
     orderDocumentsState.payload = null;
@@ -868,6 +873,7 @@
     beginOperationsDocumentReview('mpl');
     await openManualMasterPackingList();
     orderDocumentsState.mplDraft = activeKeheDocumentDraft;
+    initializeManualReviewedOrder(activeKeheDocumentDraft);
     orderDocumentsState.palletDraft = null;
     const labels = document.getElementById('operations-generate-labels');
     const mpl = document.getElementById('operations-generate-mpl');
@@ -890,7 +896,9 @@
   }
 
   function openOperationsCustomLabels() {
+    mplDraftSync?.discard();
     window.clearGeneratedOutputs?.('operations-labels', 'operations-mpl', 'operations-pallets');
+    orderDocumentsState.reviewedOrder = null;
     orderDocumentsState.customMode = 'labels';
     orderDocumentsState.payload = null;
     orderDocumentsState.orderNumber = '';
@@ -932,6 +940,7 @@
     orderDocumentsState.palletDraft = null;
     orderDocumentsState.payload = null;
     orderDocumentsState.customMode = 'saved-mpl';
+    initializeManualReviewedOrder(draft);
     orderDocumentsState.orderNumber = String(draft?.summary?.sales_order_number || draft?.packing_lists?.[0]?.order_no || '').trim();
     orderDocumentsState.customerName = String(draft?.storefront || draft?.packing_lists?.[0]?.customer_name || draft?.packing_lists?.[0]?.dc_name || 'Saved packing list').trim();
     orderDocumentsState.activeTab = 'packing';

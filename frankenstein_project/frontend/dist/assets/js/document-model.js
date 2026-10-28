@@ -36,7 +36,7 @@
     return partnerCustomerIdFromText(candidates.join(' | '));
   }
 
-  function partnerCustomerLabel(customerId = partnerCustomerId) {
+  function partnerCustomerLabel(customerId = '') {
     return PARTNER_WORKFLOW_CONFIG[customerId]?.label || 'Unknown';
   }
 
@@ -77,7 +77,7 @@
     return mplProductOutermostEntry(entries)?.row || null;
   }
 
-  function partnerShipFromRecord(customerId = partnerCustomerId) {
+  function partnerShipFromRecord(customerId = '') {
     const customerRows = partnerDirectoryRows(customerId).filter(row => directoryHasRole(row, 'SHIP_FROM'));
     const allOrigins = mplDirectoryRows.map(normalizeDcDirectoryRow)
       .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
@@ -87,7 +87,7 @@
       || {};
   }
 
-  function partnerDirectoryRows(customerId = partnerCustomerId) {
+  function partnerDirectoryRows(customerId = '') {
     const config = PARTNER_WORKFLOW_CONFIG[customerId] || {};
     const customerNames = [config.label, ...(config.detectionAliases || [])]
       .map(value => normalizeStorefront(value).toLowerCase())
@@ -103,11 +103,11 @@
       });
   }
 
-  function buildPartnerLabelJobs(payload, customerId) {
+  function buildPartnerLabelJobs(payload, customerId, resolvedContext) {
     const details = payload?.order_details || {};
     const customer = partnerCustomerLabel(customerId);
     const shippingAddress = analyticsMplAddress(details, 'shipping');
-    const context = partnerResolvedOrderContext || resolveOrderContext(payload, { customer });
+    const context = resolvedContext || resolveOrderContext(payload, { customer });
     const shipToRecord = context.directoryShipTo?.row || {};
     const billToRecord = context.directoryBillTo?.row || {};
     const shipFromRecord = context.shipFrom?.row || partnerShipFromRecord(customerId);
@@ -224,15 +224,15 @@
     return jobs;
   }
 
-  function buildPartnerMplDraft(payload, customerId) {
+  function buildPartnerMplDraft(payload, customerId, resolvedContext) {
     const mplTemplateId = PARTNER_WORKFLOW_CONFIG[customerId]?.mplTemplateId || 'standard';
-    const draft = buildAnalyticsOrderMplDraft(payload, mplTemplateId);
+    const draft = buildAnalyticsOrderMplDraft(payload, mplTemplateId, resolvedContext);
     draft.template_id = mplTemplateId;
     draft.brand_id = 'bakell';
     draft.storefront = partnerCustomerLabel(customerId);
     const mpl = draft.packing_lists?.[0];
     if (mpl) {
-      const context = partnerResolvedOrderContext || resolveOrderContext(payload, { customer: partnerCustomerLabel(customerId) });
+      const context = resolvedContext || resolveOrderContext(payload, { customer: partnerCustomerLabel(customerId) });
       const shipToRecord = context.directoryShipTo?.row || {};
       mpl.template_id = mplTemplateId;
       mpl.brand_id = 'bakell';

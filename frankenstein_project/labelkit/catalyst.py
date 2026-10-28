@@ -7,6 +7,10 @@ from typing import Any, Callable, Optional
 from fastapi import HTTPException, Request
 
 
+class DatastoreRecoveryError(RuntimeError):
+    pass
+
+
 def store_requires_datastore(store_mode: str) -> bool:
     return str(store_mode or "").strip().lower() == "datastore"
 
@@ -20,6 +24,8 @@ def datastore_unavailable(table_name: str, action: str, exc: Optional[Exception]
         logger.exception("Catalyst Data Store failure table=%s action=%s", table_name, action, exc_info=exc)
     if exc is not None and app_env != "production":
         detail += f" {exc.__class__.__name__}: {exc}"
+    elif isinstance(exc, DatastoreRecoveryError):
+        detail += " Save recovery also failed. Check the table before retrying."
     raise HTTPException(status_code=503, detail=detail)
 
 
@@ -63,3 +69,35 @@ def get_raw_rows(table_service: Any) -> list[dict[str, Any]]:
         if not next_token:
             more_records = False
     return rows
+
+
+def replace_rows(table, rows, *, key, decode, encode, select=lambda row: True):
+    """Apply a reviewed snapshot; compensate a failed batch from the prior data."""
+    def read():
+        return [row for row in get_raw_rows(table) if select(row)]
+
+    def apply(wanted, existing):
+        current = {key(decode(row)): row for row in existing if row.get("ROWID")}
+        desired = {key(row): row for row in wanted}
+        updates, inserts = [], []
+        for identity, row in desired.items():
+            encoded = encode(row)
+            if identity in current:
+                encoded["ROWID"] = current[identity]["ROWID"]
+                updates.append(encoded)
+            else:
+                inserts.append(encoded)
+        deletes = [row["ROWID"] for identity, row in current.items() if identity not in desired]
+        for operation, values, size in ((table.update_rows, updates, 100), (table.insert_rows, inserts, 100), (table.delete_rows, deletes, 200)):
+            for offset in range(0, len(values), size):
+                operation(values[offset:offset + size])
+
+    before = read()
+    try:
+        apply(rows, before)
+    except Exception:
+        try:
+            apply([decode(row) for row in before], read())
+        except Exception as rollback_error:
+            raise DatastoreRecoveryError("Data Store save and recovery both failed. Check the table before retrying.") from rollback_error
+        raise

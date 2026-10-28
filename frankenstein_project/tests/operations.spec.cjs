@@ -5,6 +5,12 @@ async function openOperations(page) {
   await expect(page.getByRole('heading', { name: 'Order Documents' })).toBeVisible();
 }
 
+async function continueLabelReadiness(page) {
+  const modal = page.locator('#workflow-readiness-modal');
+  await Promise.race([modal.waitFor({ state: 'visible' }), page.waitForURL(/operations\/preview/)]);
+  if (await modal.isVisible()) await modal.getByRole('button', { name: 'Generate with warnings' }).click();
+}
+
 async function loadOrder(page, orderNumber) {
   await page.locator('#operations-sales-order-number').fill(orderNumber);
   await page.locator('#btn-load-operations-order').click();
@@ -243,7 +249,7 @@ test('Custom label generation appears in Finished Files and opens its PDF previe
   await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Continue to Label Preview');
   await page.locator('#btn-generate-operations-documents').click();
   const readiness = page.locator('#workflow-readiness-modal');
-  if (await readiness.isVisible()) await readiness.getByRole('button', { name: 'Generate with warnings' }).click();
+  await continueLabelReadiness(page);
   await expect(page).toHaveURL(/operations\/preview/);
   await expect(page.getByRole('link', { name: 'Save PDF' })).toBeVisible();
   await expect(page.locator('#btn-approve-preview-labels')).toBeVisible();
@@ -260,7 +266,7 @@ test('Custom label generation appears in Finished Files and opens its PDF previe
   await expect(page.locator('.operations-file-row')).toHaveCount(0);
   await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Continue to Label Preview');
   await page.locator('#btn-generate-operations-documents').click();
-  if (await readiness.isVisible()) await readiness.getByRole('button', { name: 'Generate with warnings' }).click();
+  await continueLabelReadiness(page);
   await expect(page).toHaveURL(/operations\/preview/);
   await page.locator('#btn-approve-preview-labels').click();
   await expect(page).toHaveURL(/operations\/labels/);
@@ -319,4 +325,190 @@ test('Legacy workflow hashes redirect into the matching Order Documents tab', as
   }
   await expect(page.locator('#operations-labels-mount > .b2b-creator-layout')).toHaveCount(1);
   await expect(page.locator('#mpl-workspace-page, #b2b-workspace-page, #partner-workspace-page')).toHaveCount(0);
+});
+
+for (const switchDraft of [false, true]) {
+  test(`A delayed save preserves ${switchDraft ? 'a different active draft' : 'newer unsaved edits'}`, async ({ page, request }) => {
+    await openOperations(page);
+    await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+    let received, release;
+    const arrived = new Promise(resolve => { received = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/api/kehe/mpl-drafts', async route => {
+      received(); await gate; await route.continue();
+    });
+    await page.evaluate(() => {
+      ensureMplDraftSync();
+      activeKeheDocumentDraft.packing_lists[0].ship_to = 'Original destination';
+      window.originalSavingDraft = activeKeheDocumentDraft;
+      window.delayedSave = saveActiveMplDraft({ showStatus: false });
+    });
+    await arrived;
+    await page.evaluate(changeDraft => {
+      if (changeDraft) {
+        window.queuedSave = saveActiveMplDraft({ showStatus: false });
+        activeKeheDocumentDraft = JSON.parse(JSON.stringify(activeKeheDocumentDraft));
+        mplDraftSync.discard();
+      }
+      activeKeheDocumentDraft.packing_lists[0].ship_to = 'Later destination';
+      activeKeheDocumentDraft._saved_draft_name = 'Later name';
+      mplDraftSync.schedule();
+    }, switchDraft);
+    release();
+    expect(await page.evaluate(() => window.delayedSave)).toBe(true);
+    const result = await page.evaluate(() => ({
+      savedId: window.originalSavingDraft._saved_draft_id,
+      activeId: activeKeheDocumentDraft._saved_draft_id,
+      dirty: mplDraftSync.hasUnsavedChanges(),
+      address: activeKeheDocumentDraft.packing_lists[0].ship_to,
+      name: activeKeheDocumentDraft._saved_draft_name,
+    }));
+    expect(result.dirty).toBe(true);
+    expect(result.address).toBe('Later destination');
+    expect(result.name).toBe('Later name');
+    if (switchDraft) {
+      expect(result.activeId).toBeUndefined();
+      expect(await page.evaluate(() => window.queuedSave)).toBe(false);
+    }
+    const persisted = await (await request.get(`/api/kehe/mpl-drafts/${result.savedId}`)).json();
+    expect(persisted.draft.draft.packing_lists[0].ship_to).toBe('Original destination');
+    await request.delete(`/api/kehe/mpl-drafts/${result.savedId}`);
+  });
+}
+
+test('Directory reports failed server saves while keeping edits open', async ({ page }) => {
+  await openOperations(page);
+  await page.evaluate(() => loadMplDirectoryFromBackend());
+  await page.route('**/api/mpl/directory', route => route.request().method() === 'PUT'
+    ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Injected save failure' }) })
+    : route.continue());
+  await page.evaluate(() => saveMplDirectoryToBackend());
+  await expect(page.locator('#operations-status-bar')).toContainText('Directory was not saved to the server: Injected save failure');
+  await expect(page.locator('#operations-status-bar')).toHaveClass(/error/);
+});
+
+test('Undo and redo preserve saved draft identity and the latest revision', async ({ page, request }) => {
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  await page.locator('[data-draft-path="packing_lists.0.ship_to"]').fill('Edited destination');
+  const saved = await page.evaluate(async () => {
+    if (!(await saveActiveMplDraft({ showStatus: false }))) throw new Error('Initial save failed');
+    return { id: activeKeheDocumentDraft._saved_draft_id, revision: activeKeheDocumentDraft._saved_draft_revision };
+  });
+  try {
+    await page.locator('#btn-mpl-undo').click();
+    expect(await page.evaluate(() => activeKeheDocumentDraft._saved_draft_id)).toBe(saved.id);
+    expect(await page.evaluate(() => activeKeheDocumentDraft._saved_draft_revision)).toBe(saved.revision);
+    expect(await page.evaluate(() => saveActiveMplDraft({ showStatus: false }))).toBe(true);
+    await page.locator('#btn-mpl-redo').click();
+    expect(await page.evaluate(() => activeKeheDocumentDraft._saved_draft_id)).toBe(saved.id);
+    expect(await page.evaluate(() => activeKeheDocumentDraft._saved_draft_revision)).toBe(saved.revision + 1);
+    expect(await page.evaluate(() => saveActiveMplDraft({ showStatus: false }))).toBe(true);
+  } finally { await request.delete(`/api/kehe/mpl-drafts/${saved.id}`); }
+});
+
+test('Editing during packing-list rendering prevents approval of the older PDF', async ({ page }) => {
+  await openOperations(page);
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  let release, received;
+  const gate = new Promise(resolve => { release = resolve; });
+  const arrived = new Promise(resolve => { received = resolve; });
+  await page.route('**/render/kehe/master-packing-list', async route => {
+    received(); await gate; await route.continue();
+  });
+  await page.evaluate(() => { window.pendingApproval = finishOperationsDocumentReview(); });
+  await arrived;
+  expect(await page.evaluate(() => mplDraftSync.flush())).toBe(false);
+  await page.locator('[data-draft-path="packing_lists.0.ship_to"]').fill('Changed during rendering');
+  release();
+  await page.evaluate(() => window.pendingApproval);
+  expect(await page.evaluate(() => orderDocumentsState.reviewedDocuments.mpl)).toBe(false);
+  await expect(page.locator('.operations-file-row')).toHaveCount(0);
+  await expect(page.locator('#btn-operations-review-top')).toBeVisible();
+});
+
+test('Changing label settings during rendering discards the older preview', async ({ page }) => {
+  await openOperations(page);
+  await setUpManualLabel(page);
+  let release, received;
+  const gate = new Promise(resolve => { release = resolve; });
+  const arrived = new Promise(resolve => { received = resolve; });
+  await page.route('**/api/b2b/render*', async route => {
+    received(); await gate; await route.continue();
+  });
+  await page.evaluate(() => { window.pendingLabels = generateB2BPreview(false, {
+    skipReadiness: true, showSummary: false, scope: 'operations-review', outputKey: 'operations-labels-review',
+  }); });
+  await arrived;
+  await page.locator('[data-b2b-run-field="copies"]').fill('2');
+  release();
+  expect(await page.evaluate(() => window.pendingLabels)).toBe(false);
+  expect(await page.evaluate(() => getGeneratedOutputs('operations-review').length)).toBe(0);
+});
+
+test('KeHE pack-label edits invalidate an in-progress PDF', async ({ page }) => {
+  await page.goto('/#kehe');
+  await page.evaluate(() => {
+    activeKeheDocumentType = 'packLabels';
+    activeKeheDocumentDraft = { pack_labels: [{ gtin: '10850079841588', description: 'Original label', copies: '1', case_qty: '12' }] };
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
+    openDocumentEditor();
+  });
+  let release, received;
+  const gate = new Promise(resolve => { release = resolve; });
+  const arrived = new Promise(resolve => { received = resolve; });
+  await page.route('**/render/kehe/pack-labels', async route => { received(); await gate; await route.continue(); });
+  await page.evaluate(() => { window.pendingPack = renderEditedKeheDocument({
+    skipReadiness: true, keepEditorOpen: true, openPreview: false, showSummary: false,
+  }); });
+  await arrived;
+  await page.locator('[data-draft-path="pack_labels.0.description"]').fill('Updated label');
+  release();
+  expect(await page.evaluate(() => window.pendingPack)).toBe(false);
+  expect(await page.evaluate(() => getGeneratedOutputs('kehe').length)).toBe(0);
+});
+
+test('shared reviewed PO and address edits feed labels and pallet labels and revoke approvals', async ({ page }) => {
+  await openOperations(page);
+  await loadOrder(page, '38800');
+  await page.locator('[data-operations-tab="packing"]').click();
+  await page.locator('#operations-review-mpl').click();
+  const po = page.locator('[data-draft-path="packing_lists.0.customer_po_number"]');
+  await expect(po).toBeVisible();
+  await page.evaluate(() => { orderDocumentsState.reviewedDocuments = { labels: true, mpl: true, pallets: true }; });
+  await po.fill('029902');
+  const address = 'Shanna Stephens\nMcDonalds Wholesale\n7531 Metro Air Pkwy\nSuite 200\nSacramento CA 95837\nUnited States';
+  await page.locator('[data-draft-path="packing_lists.0.ship_to"]').fill(address);
+  const result = await page.evaluate(() => ({
+    order: reviewedOrderSnapshot(), run: b2bRunFields.po_number,
+    pallet: buildOperationsManualPalletDraft().pallets[0], reviewed: orderDocumentsState.reviewedDocuments,
+    addresses: b2bOrderLabelJobs.map(job => job.directory.delivery_address),
+  }));
+  expect(result.order.fields.po_number).toBe('029902');
+  expect(result.run).toBe('029902');
+  expect(result.pallet.customer_po_numbers).toBe('029902');
+  expect(result.pallet.ship_to).toBe(address);
+  expect(result.addresses.every(value => value === address)).toBe(true);
+  expect(result.reviewed).toEqual({ labels: false, mpl: false, pallets: false });
+});
+
+test('browser Ti-Hi displays the backend plan and clearing an override requests new geometry', async ({ page }) => {
+  await openOperations(page);
+  await page.waitForFunction(() => appRuntimeConfig.permissions.view);
+  const results = await page.evaluate(async () => {
+    const mpl = { items: [{ sku: 'A', location_on_pallet: '1', qty_on_pallet: '9', total_shipped: '9',
+      length_in: '12', width_in: '10', height_in: '5', unit_weight_lbs: '1' }],
+      _tihi_constraints: { cases_per_layer: 4 } };
+    activeKeheDocumentType = 'packLabels';
+    activeKeheDocumentDraft = { packing_lists: [mpl], reviewed_product_master: [] };
+    const first = await fetchMplPalletPlan(mpl);
+    const dimensions = mpl._pallet_dimensions['1'];
+    mpl._tihi_constraints.cases_per_layer = '';
+    const second = await fetchMplPalletPlan(mpl);
+    return { first: [first.entries[0].ti, first.entries[0].hi, first.entries[0].loadedHeight],
+      dimensions, secondHi: second.entries[0].hi };
+  });
+  expect(results.first).toEqual([4, 3, 21]);
+  expect(results.dimensions).toBe('48 x 40 x 21 in');
+  expect(results.secondHi).toBe(1);
 });

@@ -22,13 +22,14 @@ from labelkit.draft_store import (
 )
 from labelkit.product_store import _datastore_load_product_master, _shared_product_master_file_read
 from labelkit.reference_data import _boolish
-from labelkit.runtime import _now_iso, _request_actor, _require_permission
+from labelkit.runtime import _now_iso, _request_actor, _require_permission, serialized_data_access
 
 
 router = APIRouter()
 
 
 @router.get("/api/kehe/mpl-drafts")
+@serialized_data_access
 async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
     _require_permission(request, "view")
     drafts = _mpl_drafts_read(request, "MPL")
@@ -38,6 +39,7 @@ async def list_kehe_mpl_drafts(request: Request) -> JSONResponse:
 
 
 @router.get("/api/kehe/mpl-drafts/{draft_id}")
+@serialized_data_access
 async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "view")
     for record in _mpl_drafts_read(request, "MPL"):
@@ -52,6 +54,7 @@ async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
 
 
 @router.post("/api/kehe/mpl-drafts")
+@serialized_data_access
 async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "save_mpl")
     draft = payload.get("draft") if isinstance(payload, dict) else None
@@ -71,6 +74,8 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
     current_revision = int((old_record or {}).get("revision") or 0)
     expected_revision_raw = payload.get("expected_revision")
+    if old_record is not None and expected_revision_raw in (None, ""):
+        raise HTTPException(status_code=428, detail="Reopen the saved MPL before saving; its revision is required.")
     if old_record is not None and expected_revision_raw not in (None, ""):
         try:
             expected_revision = int(expected_revision_raw)
@@ -133,6 +138,7 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
 
 
 @router.get("/api/kehe/mpl-drafts/{draft_id}/versions")
+@serialized_data_access
 async def list_kehe_mpl_draft_versions(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "view")
     versions = [
@@ -151,6 +157,7 @@ async def list_kehe_mpl_draft_versions(request: Request, draft_id: str) -> JSONR
 
 
 @router.get("/api/kehe/mpl-drafts/{draft_id}/versions/{version_id}")
+@serialized_data_access
 async def get_kehe_mpl_draft_version(request: Request, draft_id: str, version_id: str) -> JSONResponse:
     _require_permission(request, "view")
     version = next((
@@ -164,6 +171,7 @@ async def get_kehe_mpl_draft_version(request: Request, draft_id: str, version_id
 
 
 @router.post("/api/kehe/mpl-drafts/{draft_id}/versions/{version_id}/restore")
+@serialized_data_access
 async def restore_kehe_mpl_draft_version(
     request: Request,
     draft_id: str,
@@ -177,7 +185,11 @@ async def restore_kehe_mpl_draft_version(
     if current is None or version is None or str((version.get("draft") or {}).get("_version_parent_id") or "") != draft_id:
         raise HTTPException(status_code=404, detail="Saved MPL version not found.")
     expected = payload.get("expected_revision")
-    if expected not in (None, "") and int(expected) != int(current.get("revision") or 0):
+    try:
+        expected = int(expected)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Expected revision must be a whole number.")
+    if expected != int(current.get("revision") or 0):
         raise HTTPException(status_code=409, detail="This MPL changed after version history was opened. Reopen it and try again.")
     restored_draft = copy.deepcopy(version.get("draft") or {})
     restored_draft.pop("_version_parent_id", None)
@@ -199,6 +211,7 @@ async def restore_kehe_mpl_draft_version(
 
 @router.post("/api/kehe/mpl-drafts/{draft_id}/delete")
 @router.delete("/api/kehe/mpl-drafts/{draft_id}")
+@serialized_data_access
 async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "delete_mpl")
     drafts = _mpl_drafts_read(request, "MPL")
@@ -237,6 +250,7 @@ async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse
 
 
 @router.get("/api/documents/drafts")
+@serialized_data_access
 async def list_document_drafts(request: Request, document_type: str = "") -> JSONResponse:
     _require_permission(request, "view")
     normalized_document_type = _normalize_document_type(document_type, "") if document_type else ""
@@ -247,6 +261,7 @@ async def list_document_drafts(request: Request, document_type: str = "") -> JSO
 
 
 @router.get("/api/documents/drafts/{draft_id}")
+@serialized_data_access
 async def get_document_draft(request: Request, draft_id: str, document_type: str = "") -> JSONResponse:
     _require_permission(request, "view")
     normalized_document_type = _normalize_document_type(document_type, "") if document_type else ""
@@ -257,6 +272,7 @@ async def get_document_draft(request: Request, draft_id: str, document_type: str
 
 
 @router.post("/api/documents/drafts")
+@serialized_data_access
 async def save_document_draft(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "save_mpl")
     draft = payload.get("draft") if isinstance(payload, dict) else None
@@ -264,6 +280,10 @@ async def save_document_draft(request: Request, payload: Dict[str, Any]) -> JSON
         raise HTTPException(status_code=400, detail="Document draft payload is required.")
 
     document_type = _normalize_document_type(payload.get("document_type") or draft.get("document_type") or "MPL")
+    if document_type == "MPL":
+        return await save_kehe_mpl_draft(request, payload)
+    if document_type == "MPL_VERSION":
+        raise HTTPException(status_code=400, detail="MPL versions are created through the packing-list save workflow.")
     drafts = _mpl_drafts_read(request, document_type)
     draft_id = str(payload.get("id") or draft.get("_saved_draft_id") or uuid.uuid4().hex)
     now = _now_iso()
@@ -294,6 +314,7 @@ async def save_document_draft(request: Request, payload: Dict[str, Any]) -> JSON
 
 
 @router.delete("/api/documents/drafts/{draft_id}")
+@serialized_data_access
 async def delete_document_draft(request: Request, draft_id: str, document_type: str = "") -> JSONResponse:
     _require_permission(request, "delete_mpl")
     normalized_document_type = _normalize_document_type(document_type, "") if document_type else ""

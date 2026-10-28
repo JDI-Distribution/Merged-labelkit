@@ -1,15 +1,8 @@
-export const PALLET_DEFAULTS = Object.freeze({
-  max_length_in: 48,
-  max_width_in: 40,
-  max_height_in: 70,
-  max_gross_lbs: 2000,
-  cases_per_layer: 0,
-  max_layers: 0,
-  pallet_base_height_in: 6,
-});
-
-export const PALLET_TARE_LBS = 50;
-export const PALLET_BUFFER_FACTOR = 1.05;
+const PALLET_DEFAULTS = {};
+export function configurePalletDefaults(defaults) {
+  if (!defaults || !Number(defaults.max_length_in)) throw new Error('Pallet defaults could not be loaded from the server.');
+  Object.assign(PALLET_DEFAULTS, defaults);
+}
 
 export const SKU_COLORS = Object.freeze([
   '#d99a4b', '#7db3ff', '#8fd19e', '#f5a3a3',
@@ -34,31 +27,8 @@ export function normalizeConstraints(raw = {}) {
     max_gross_lbs: readPositive(raw.max_gross_lbs, PALLET_DEFAULTS.max_gross_lbs),
     cases_per_layer: Math.floor(readPositive(raw.cases_per_layer, 0)),
     max_layers: Math.floor(readPositive(raw.max_layers, 0)),
-    pallet_base_height_in: readPositive(raw.pallet_base_height_in, 6),
+    pallet_base_height_in: readPositive(raw.pallet_base_height_in, PALLET_DEFAULTS.pallet_base_height_in),
   };
-}
-
-export function bestOrientation(dimensions, constraints = PALLET_DEFAULTS) {
-  if (!dimensions) return null;
-  const seen = new Set();
-  const candidates = [
-    [dimensions.l, dimensions.w],
-    [dimensions.w, dimensions.l],
-  ].map(([caseLength, caseWidth]) => {
-    const key = `${caseLength}x${caseWidth}`;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    const columns = Math.floor(constraints.max_length_in / caseLength);
-    const rows = Math.floor(constraints.max_width_in / caseWidth);
-    const ti = columns * rows;
-    if (ti < 1) return null;
-    const fillRatio = (columns * caseLength * rows * caseWidth)
-      / (constraints.max_length_in * constraints.max_width_in);
-    return { caseLength, caseWidth, caseHeight: dimensions.h, columns, rows, ti, fillRatio };
-  }).filter(Boolean);
-  return candidates.sort((left, right) =>
-    (right.ti - left.ti) || (right.fillRatio - left.fillRatio) || (left.caseWidth - right.caseWidth)
-  )[0] || null;
 }
 
 export function colorForIndex(index) {
@@ -85,12 +55,10 @@ export function topZ(placement) {
 
 export const packingModel = Object.freeze({
   PALLET_DEFAULTS,
-  PALLET_TARE_LBS,
-  PALLET_BUFFER_FACTOR,
   SKU_COLORS,
   defaultConstraints,
   normalizeConstraints,
-  bestOrientation,
+  configurePalletDefaults,
   colorForIndex,
   colorToRgb,
   intersectionArea,

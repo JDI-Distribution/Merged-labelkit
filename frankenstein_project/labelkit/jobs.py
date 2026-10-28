@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pymupdf as fitz
+from fastapi import HTTPException
 
 from labelkit.file_operations import (
     MAX_MICHAELS_OUTPUT_PAGES,
@@ -31,6 +32,7 @@ from pipelines.michaels_label_pipeline import (
 
 
 MAX_CACHED_REPORTS = 25
+MAX_ACTIVE_JOBS = 2
 
 
 RESULT_REPORTS: Dict[str, Dict[str, Any]] = {}
@@ -52,7 +54,7 @@ def _prune_old_results() -> None:
                 (
                     result_id
                     for result_id, job in RESULT_JOBS.items()
-                    if str(job.get("status") or "").lower() != "processing"
+                    if str(job.get("status") or "").lower() != "processing" and not job.get("downloads")
                 ),
                 None,
             )
@@ -67,6 +69,9 @@ def _prune_old_results() -> None:
 def create_result_job(temp_dir: Path, kit: str, output_filename: Optional[str] = None) -> str:
     result_id = uuid.uuid4().hex
     with RESULT_JOBS_LOCK:
+        if sum(job.get("status") == "processing" for job in RESULT_JOBS.values()) >= MAX_ACTIVE_JOBS:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise HTTPException(status_code=429, detail="Two document jobs are already running. Wait for one to finish, then retry.")
         RESULT_JOBS[result_id] = {
             "kit": kit,
             "status": "processing",
@@ -79,6 +84,14 @@ def create_result_job(temp_dir: Path, kit: str, output_filename: Optional[str] =
         }
     _prune_old_results()
     return result_id
+
+
+def release_result_download(result_id: str) -> None:
+    with RESULT_JOBS_LOCK:
+        if result_id in RESULT_JOBS:
+            job = RESULT_JOBS[result_id]
+            job["downloads"] = max(0, job.get("downloads", 0) - 1)
+    _prune_old_results()
 
 
 def update_result_job(result_id: str, **changes: Any) -> None:
@@ -227,85 +240,32 @@ def run_kehe_generation_job(result_id: str, xml_paths: List[str]) -> None:
         update_result_job(result_id, status="error", detail=str(exc))
 
 
-def run_kehe_pallet_label_render_job(result_id: str, draft: Dict[str, Any]) -> None:
+def _run_document_render_job(result_id, draft, renderer):
     job = RESULT_JOBS[result_id]
-    temp_dir = Path(job["temp_dir"])
-    output_path = temp_dir / KIT_CONFIG["kehe_pallet_label"]["output_filename"]
+    config = KIT_CONFIG[job["kit"]]
+    output_path = Path(job["temp_dir"]) / config["output_filename"]
     try:
-        def _progress(message: str) -> None:
-            update_result_job(result_id, detail=message)
-
-        update_result_job(result_id, detail="Rendering edited KeHE Pallet Label PDF\u2026")
-        report = render_kehe_pallet_label_pdf(
-            draft=draft,
-            out_pdf=str(output_path),
-            progress_callback=_progress,
+        update_result_job(result_id, detail=f"Rendering edited {config['label']} PDF…")
+        report = renderer(
+            draft=draft, out_pdf=str(output_path),
+            progress_callback=lambda message: update_result_job(result_id, detail=message),
         )
         if not output_path.exists():
             raise RuntimeError("Output PDF was not generated.")
         RESULT_REPORTS[result_id] = report
-        update_result_job(
-            result_id,
-            status="complete",
-            detail="KeHE Pallet Label generated successfully.",
-            report=report,
-            output_path=str(output_path),
-        )
+        update_result_job(result_id, status="complete", detail=f"{config['label']} generated successfully.",
+                          report=report, output_path=str(output_path))
     except Exception as exc:
         update_result_job(result_id, status="error", detail=str(exc))
+
+
+def run_kehe_pallet_label_render_job(result_id: str, draft: Dict[str, Any]) -> None:
+    _run_document_render_job(result_id, draft, render_kehe_pallet_label_pdf)
 
 
 def run_kehe_master_packing_list_render_job(result_id: str, draft: Dict[str, Any]) -> None:
-    job = RESULT_JOBS[result_id]
-    temp_dir = Path(job["temp_dir"])
-    output_path = temp_dir / KIT_CONFIG["kehe_master_packing_list"]["output_filename"]
-    try:
-        def _progress(message: str) -> None:
-            update_result_job(result_id, detail=message)
-
-        update_result_job(result_id, detail="Rendering edited KeHE Master Packing List PDF\u2026")
-        report = render_kehe_master_packing_list_pdf(
-            draft=draft,
-            out_pdf=str(output_path),
-            progress_callback=_progress,
-        )
-        if not output_path.exists():
-            raise RuntimeError("Output PDF was not generated.")
-        RESULT_REPORTS[result_id] = report
-        update_result_job(
-            result_id,
-            status="complete",
-            detail="KeHE Master Packing List generated successfully.",
-            report=report,
-            output_path=str(output_path),
-        )
-    except Exception as exc:
-        update_result_job(result_id, status="error", detail=str(exc))
+    _run_document_render_job(result_id, draft, render_kehe_master_packing_list_pdf)
 
 
 def run_kehe_pack_label_render_job(result_id: str, draft: Dict[str, Any]) -> None:
-    job = RESULT_JOBS[result_id]
-    temp_dir = Path(job["temp_dir"])
-    output_path = temp_dir / KIT_CONFIG["kehe_pack_labels"]["output_filename"]
-    try:
-        def _progress(message: str) -> None:
-            update_result_job(result_id, detail=message)
-
-        update_result_job(result_id, detail="Rendering edited KeHE Pack Labels PDF…")
-        report = render_kehe_pack_label_pdf(
-            draft=draft,
-            out_pdf=str(output_path),
-            progress_callback=_progress,
-        )
-        if not output_path.exists():
-            raise RuntimeError("Output PDF was not generated.")
-        RESULT_REPORTS[result_id] = report
-        update_result_job(
-            result_id,
-            status="complete",
-            detail="KeHE Pack Labels generated successfully.",
-            report=report,
-            output_path=str(output_path),
-        )
-    except Exception as exc:
-        update_result_job(result_id, status="error", detail=str(exc))
+    _run_document_render_job(result_id, draft, render_kehe_pack_label_pdf)

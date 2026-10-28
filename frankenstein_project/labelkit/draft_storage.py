@@ -59,6 +59,8 @@ def decode_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
                     base64.urlsafe_b64decode(encoded[5:].encode("ascii"))
                 ).decode("utf-8")
             parsed = json.loads(encoded)
+            if not isinstance(parsed, dict):
+                raise ValueError("Expected a draft object.")
             if isinstance(parsed, dict):
                 if (
                     parsed.get("_labelkit_storage_version") == STORAGE_VERSION
@@ -69,8 +71,8 @@ def decode_draft_row(row: Dict[str, Any]) -> Dict[str, Any]:
                     draft = parsed["draft"]
                 else:
                     draft = parsed
-        except Exception:
-            draft = {}
+        except Exception as exc:
+            raise ValueError("Saved draft data is unreadable; preserve the record and restore it before editing.") from exc
     return {
         "id": row.get("DRAFT_ID") or row.get("id") or row.get("ROWID") or "",
         "name": row.get("NAME") or row.get("name") or "",

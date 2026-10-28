@@ -61,7 +61,8 @@ def health() -> Dict[str, Any]:
 
 @router.get("/api/auth/session")
 async def auth_session(request: Request) -> JSONResponse:
-    return JSONResponse(content=_app_runtime_config(request))
+    from pipelines.kehe.tihi_layout import _mpl_tihi_constraints
+    return JSONResponse(content={**_app_runtime_config(request), "pallet_defaults": _mpl_tihi_constraints()})
 
 
 @router.get("/api/admin/diagnostics")
@@ -127,7 +128,9 @@ async def spa_fallback(full_path: str, request: Request):
     if full_path.startswith(("api", "generate", "prepare", "render", "results", "health", "docs", "openapi.json", "redoc", "accounts/")):
         raise HTTPException(status_code=404, detail="Not found")
 
-    requested_path = FRONTEND_DIST / full_path
+    requested_path = (FRONTEND_DIST / full_path).resolve()
+    if not requested_path.is_relative_to(FRONTEND_DIST.resolve()):
+        raise HTTPException(status_code=404, detail="Not found")
     if requested_path.is_file():
         if requested_path.name.lower() == "index.html":
             return serve_frontend_index()

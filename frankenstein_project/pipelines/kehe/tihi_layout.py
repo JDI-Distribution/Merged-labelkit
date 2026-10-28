@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import math
 import re
+import copy
+import json
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from .common import (
@@ -627,6 +630,22 @@ def _mpl_finalize_height_zone_patterns(
 
 
 def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dict[str, float]) -> Dict[str, Any]:
+    ordered = sorted(groups, key=lambda group: (-float(group.get('unit_weight') or 0), int(group.get('sort_index') or 0)))
+    inputs = [{**{key: group.get(key) for key in ('dimensions', 'unit_weight', 'assigned_cases', 'label', 'color', 'base_orientation')},
+               'sort_index': index} for index, group in enumerate(ordered)]
+    return copy.deepcopy(_cached_pallet_layout(json.dumps(inputs, sort_keys=True), json.dumps(constraints, sort_keys=True)))
+
+
+@lru_cache(maxsize=16)
+def _cached_pallet_layout(groups_json, constraints_json):
+    groups = json.loads(groups_json)
+    for group in groups:
+        group['dimensions'] = tuple(group['dimensions'])
+        group['color'] = tuple(group['color'])
+    return _calculate_pallet_layout(groups, json.loads(constraints_json))
+
+
+def _calculate_pallet_layout(groups: List[Dict[str, Any]], constraints: Dict[str, float]) -> Dict[str, Any]:
     placements: List[Dict[str, Any]] = []
     overflow_count = 0
 

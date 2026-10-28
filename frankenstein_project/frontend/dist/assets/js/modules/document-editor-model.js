@@ -65,27 +65,11 @@ export function ensurePalletState(mpl) {
   mpl._pallet_ids.forEach(id => {
     const weightedItem = mpl.items.find(item => normalizePalletId(item.location_on_pallet) === id && String(item.pallet_weight || '').trim());
     if (weightedItem && !mpl._pallet_weights[id]) mpl._pallet_weights[id] = weightedItem.pallet_weight;
-    if (!Object.hasOwn(mpl._pallet_dimensions, id)) mpl._pallet_dimensions[id] = '48 x 40 in';
+    if (!Object.hasOwn(mpl._pallet_dimensions, id)) mpl._pallet_dimensions[id] = '';
     if (!Object.hasOwn(mpl._pallet_tihi, id)) mpl._pallet_tihi[id] = '';
   });
   mpl.total_pallets = String(mpl._pallet_ids.length || assignedIds.length || 1);
-  syncPalletTotalWeight(mpl);
   return mpl;
-}
-
-export function syncPalletTotalWeight(mpl) {
-  const ids = [...new Set([...(mpl._pallet_ids || []), ...(mpl.items || []).map(item => item.location_on_pallet)]
-    .map(normalizePalletId).filter(Boolean))];
-  let total = 0;
-  for (const id of ids) {
-    const value = String(mpl._pallet_weights?.[id] ?? '').replace(/,/g, '').trim();
-    const match = value.match(/^([0-9]+(?:\.[0-9]+)?)\s*(?:lbs?\.?|pounds?)?$/i);
-    if (!match) { mpl.total_weight = ''; return; }
-    total += Number(match[1]);
-    (mpl.items || []).filter(item => normalizePalletId(item.location_on_pallet) === id)
-      .forEach(item => { item.pallet_weight = mpl._pallet_weights[id]; });
-  }
-  mpl.total_weight = ids.length ? `${Number(total.toFixed(2))} lbs` : '';
 }
 
 export function orderBalanceCases(mpl) {
@@ -219,7 +203,6 @@ export const documentEditorModel = Object.freeze({
   normalizePalletId,
   shouldDefaultToPalletOne,
   ensurePalletState,
-  syncPalletTotalWeight,
   orderBalanceCases,
   itemUnits,
   defaultColumns,

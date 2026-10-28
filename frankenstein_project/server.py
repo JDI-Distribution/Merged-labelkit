@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from labelkit.routes import b2b, drafts, generation, orders, reference, system
+from labelkit.routes import b2b, documents, drafts, generation, orders, reference, system
 from labelkit.runtime import APP_NAME, DEFAULT_PORT, FRONTEND_ASSETS, _config_value
 from labelkit.security import allowed_origins, apply_security_headers
 
@@ -51,7 +51,7 @@ async def disable_frontend_asset_cache(request: Request, call_next):
 if FRONTEND_ASSETS.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_ASSETS)), name="assets")
 
-for _router in (reference.router, b2b.router, orders.router, drafts.router, generation.router):
+for _router in (reference.router, b2b.router, documents.router, orders.router, drafts.router, generation.router):
     app.include_router(_router)
 # The SPA catch-all must be registered last.
 app.include_router(system.router)

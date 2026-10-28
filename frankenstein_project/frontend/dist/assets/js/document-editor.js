@@ -1,4 +1,5 @@
 /* Shared KeHE, MPL, pack-label, pallet-label, and PDF editor logic. */
+  let documentEditorRevision = 0;
   function showDocumentEditorView() {
     if (!activeKeheDocumentDraft) return;
     document.getElementById('document-editor-panel').classList.add('visible');
@@ -41,12 +42,17 @@
     window.LabelKitDocumentEditor.ensurePalletState(mpl);
   }
 
-  function syncMplTotalWeight(mplIndex) {
+  async function syncMplTotalWeight(mplIndex) {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
-    window.LabelKitDocumentEditor.syncPalletTotalWeight(mpl);
-    document.querySelectorAll(`[data-draft-path="packing_lists.${mplIndex}.total_weight"]`)
-      .forEach(input => { input.value = mpl.total_weight; });
+    mpl.total_weight = '';
+    const fields = () => document.querySelectorAll(`[data-draft-path="packing_lists.${mplIndex}.total_weight"]`);
+    fields().forEach(input => { input.value = ''; input.placeholder = 'Calculating…'; });
+    try {
+      await fetchMplPalletPlan(mpl);
+      if (getMpl(mplIndex) !== mpl) return;
+      fields().forEach(input => { input.value = mpl.total_weight; input.placeholder = ''; });
+    } catch (error) { setStatus(`Total weight could not be calculated: ${error.message}`, 'error'); }
   }
 
   function syncMplLineNumbers(mpl) {
@@ -227,6 +233,7 @@
     if (!mpl || !['supplier_info', 'bill_to', 'ship_to'].includes(field)) return;
     captureMplHistoryCheckpoint();
     mpl[field] = String(value || '');
+    updateReviewedOrder(field, mpl[field]);
     mplDraftSync?.schedule();
     renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
   }
@@ -962,8 +969,8 @@
     setStatus('Pallet Label pallet group removed. Source now shows Manual.', 'info');
   }
 
-  function renderDocumentEditor(type, draft) {
-    window.LabelKitMasterData.normalizeAddressFields(draft);
+  function renderDocumentEditor(type, draft, options = {}) {
+    if (!options.refreshOnly) documentEditorRevision += 1;
     const cfg = KEHE_DOCUMENT_CONFIG[type];
     document.getElementById('document-editor-title').textContent = `Review & Edit ${cfg.label}`;
     if (type === 'masterPackingList') {
@@ -1024,6 +1031,8 @@
     }
     const last = parts[parts.length - 1];
     ref[last] = input.value;
+    updateReviewedOrder(last, input.value);
+    documentEditorRevision += 1;
     if (/^packing_lists\.\d+\.items\.\d+\.qty_on_pallet$/.test(path)) {
       ref.total_shipped = input.value;
       const unitsPerCase = Number(ref.quantity_per_case);
@@ -1067,6 +1076,7 @@
           scheduleMplLiveTiHiRefresh(Number(mplMatch[1]));
         }
       }
+      if (/\.items\./.test(path)) syncReviewedOrderItems();
       captureMplHistoryCheckpoint();
     }
   }
@@ -1612,31 +1622,40 @@
 
   async function renderEditedKeheDocument(options = {}) {
     if (!activeKeheDocumentType || !activeKeheDocumentDraft) return;
-    const cfg = KEHE_DOCUMENT_CONFIG[activeKeheDocumentType];
+    const renderType = activeKeheDocumentType;
+    const renderDraft = activeKeheDocumentDraft;
+    const editorVersion = documentEditorRevision;
+    const editVersion = renderType === 'masterPackingList' ? mplDraftSync?.version() : null;
+    const isCurrent = () => activeKeheDocumentType === renderType && activeKeheDocumentDraft === renderDraft
+      && documentEditorRevision === editorVersion
+      && (renderType !== 'masterPackingList' || mplDraftSync?.version() === editVersion)
+      && (!options.isCurrent || options.isCurrent());
+    const ensureCurrent = () => { if (!isCurrent()) throw new Error('Document changed during generation. Review and approve the current version again.'); };
+
+    const cfg = KEHE_DOCUMENT_CONFIG[renderType];
     const btn = document.getElementById('btn-render-edited-document');
     const saveGenerateBtn = document.getElementById('btn-save-mpl-draft');
-    const saveBeforeGenerate = !!options.saveMplDraft && activeKeheDocumentType === 'masterPackingList';
-    const outputScope = options.scope || (selectedKit === 'operations' ? 'operations' : (activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe'));
+    const saveBeforeGenerate = !!options.saveMplDraft && renderType === 'masterPackingList';
+    const outputScope = options.scope || (selectedKit === 'operations' ? 'operations' : (renderType === 'masterPackingList' ? 'mpl' : 'kehe'));
     const outputKey = options.outputKey || (selectedKit === 'operations'
-      ? `operations-${activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'pallets'}`
-      : `${selectedKit || 'kehe'}-${activeKeheDocumentType}`);
+      ? `operations-${renderType === 'masterPackingList' ? 'mpl' : 'pallets'}`
+      : `${selectedKit || 'kehe'}-${renderType}`);
     const workingButtons = [btn, saveGenerateBtn].filter(Boolean);
     workingButtons.forEach(button => { button.disabled = true; });
     try {
-      const readinessScope = activeKeheDocumentType === 'masterPackingList' ? 'mpl' : 'kehe';
-      if (!options.skipReadiness && !(await confirmDocumentReadiness(readinessScope))) return false;
-      showWorkflowProgress(activeKeheDocumentType === 'masterPackingList' ? 4 : 3, `Preparing ${cfg.label}…`);
-      activeKeheDocumentDraft.product_master = getActiveAllProductMasterRows();
-      applyProductMasterToDraft(activeKeheDocumentDraft, true);
-      if (activeKeheDocumentType === 'masterPackingList') {
-        const storefrontCheck = validateMplStorefrontConsistency(activeKeheDocumentDraft);
+      ensureCurrent();
+      showWorkflowProgress(renderType === 'masterPackingList' ? 4 : 3, `Preparing ${cfg.label}…`);
+      renderDraft.product_master = renderDraft.reviewed_product_master || getActiveAllProductMasterRows();
+      if (renderType === 'masterPackingList') {
+        const storefrontCheck = validateMplStorefrontConsistency(renderDraft);
         if (!storefrontCheck.ok) {
           throw new Error(`MPL generation blocked: ${storefrontCheck.message}`);
         }
         finalizeMplPalletDraft();
         setStatus('Preparing TI-HI preview snapshot for MPL...', 'info');
-        await captureCurrentMplTiHiSnapshots(activeKeheDocumentDraft);
+        await captureCurrentMplTiHiSnapshots(renderDraft);
       }
+      ensureCurrent();
       setStatus(`Generating ${cfg.label} PDF from edited values\u2026`, 'info');
       if (!options.keepEditorOpen) closeDocumentEditor();
       // Clear any previously rendered preview so the new PDF always renders fresh
@@ -1644,74 +1663,71 @@
       resetPreviewSurface();
       setDownloadReady(false);
       // Keep the KeHE XML data/report visible while the PDF is generated.
-      const res = await fetch(cfg.renderEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(activeKeheDocumentDraft)
+      const generated = await runDocumentPipeline({
+        kind: renderType, draft: renderDraft, isCurrent, skipReadiness: options.skipReadiness,
+        output: { key: outputKey, scope: outputScope, name: cfg.outputName, labelType: cfg.label,
+          labels: renderType === 'packLabels' ? (renderDraft.pack_labels || []).reduce((sum, row) => sum + Math.max(1, Number(row.copies || 1)), 0)
+            : renderType === 'palletLabel' ? (renderDraft.pallets || []).reduce((sum, row) => sum + Math.max(1, Number(row.copies || 1)), 0) : 0,
+          pallets: renderType === 'masterPackingList' ? (renderDraft.packing_lists || []).reduce((sum, row) => sum + Math.max(0, Number(row.total_pallets || 0)), 0) : (renderDraft.pallets || []).length },
+        render: async (snapshot, ensureCurrent) => {
+          const response = await window.LabelKitAPI.response(cfg.renderEndpoint, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot),
+          }, 0);
+          const payload = await response.json();
+          ensureCurrent();
+          const resultId = response.headers.get('X-Result-Id') || payload.result_id;
+          if (!resultId) throw new Error('Generation could not be started.');
+          currentResultId = resultId;
+          document.getElementById('btn-download').download = cfg.outputName;
+          await waitForGeneration(resultId);
+          const blob = await window.LabelKitAPI.blob(`/results/${encodeURIComponent(resultId)}/file`, {}, 0);
+          ensureCurrent();
+          if (saveBeforeGenerate) {
+            updateWorkflowProgress('Saving MPL', 'Saving the generated MPL draft…');
+            if (!(await saveActiveMplDraft({ savingMessage: 'Saving MPL draft...', successMessage: 'MPL draft saved.' }))) {
+              throw new Error('The packing list was not saved. Review and approve it again.');
+            }
+          }
+          return { blob };
+        },
       });
-      const resultIdFromHeader = res.headers.get('X-Result-Id');
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(payload.detail || `Could not start ${cfg.label} generation.`);
-      }
-      currentResultId = resultIdFromHeader || payload.result_id;
-      if (!currentResultId) throw new Error('Generation could not be started.');
-
-      document.getElementById('btn-download').download = cfg.outputName;
-      const status = await waitForGeneration(currentResultId);
-
-      const fileRes = await fetch(`/results/${encodeURIComponent(currentResultId)}/file`);
-      if (!fileRes.ok) {
-        const fileErr = await fileRes.json().catch(() => ({ detail: fileRes.statusText }));
-        throw new Error(fileErr.detail || 'Generated PDF could not be downloaded.');
-      }
-      const blob = await fileRes.blob();
-      await recordGeneratedOutput(outputKey, {
-        scope: outputScope,
-        name: cfg.outputName,
-        labelType: cfg.label,
-        labels: activeKeheDocumentType === 'packLabels'
-          ? (activeKeheDocumentDraft.pack_labels || []).reduce((total, label) => total + Math.max(1, Number(label.copies || 1)), 0)
-          : activeKeheDocumentType === 'palletLabel'
-            ? (activeKeheDocumentDraft.pallets || []).reduce((total, pallet) => total + Math.max(1, Number(pallet.copies || 1)), 0)
-            : 0,
-        pallets: activeKeheDocumentType === 'masterPackingList'
-          ? (activeKeheDocumentDraft.packing_lists || []).reduce((total, mpl) => total + Math.max(0, Number(mpl.total_pallets || 0)), 0)
-          : Number(activeKeheDocumentDraft.pallets?.length || 0),
-        blob,
-      });
+      if (!generated) return false;
+      const { blob } = generated;
+      ensureCurrent();
       blobUrl = window.LabelKitPreview.create(blob);
       setDownloadReady(true, blobUrl);
-      setKehePreviewReady(activeKeheDocumentType, true, blobUrl);
-      setActivePreviewFormat(KEHE_PREVIEW_CONFIG[activeKeheDocumentType]?.format || 'rollo');
-      if (activeKeheDocumentType === 'masterPackingList') {
-        keheLastMplDraft = activeKeheDocumentDraft;
-        keheMplPalletizationSource = activeKeheDocumentDraft.packing_lists?.[0]?.palletization_source || keheMplPalletizationSource || 'Manual';
+      setKehePreviewReady(renderType, true, blobUrl);
+      setActivePreviewFormat(KEHE_PREVIEW_CONFIG[renderType]?.format || 'rollo');
+      if (renderType === 'masterPackingList') {
+        keheLastMplDraft = renderDraft;
+        keheMplPalletizationSource = renderDraft.packing_lists?.[0]?.palletization_source || keheMplPalletizationSource || 'Manual';
       }
-      if (activeKeheDocumentType === 'palletLabel') {
-        keheLastPalletLabelDraft = activeKeheDocumentDraft;
-        kehePalletLabelSource = activeKeheDocumentDraft.palletization_source || kehePalletLabelSource || 'MPL';
+      if (renderType === 'palletLabel') {
+        keheLastPalletLabelDraft = renderDraft;
+        kehePalletLabelSource = renderDraft.palletization_source || kehePalletLabelSource || 'MPL';
       }
 
-      renderKeheUnifiedReport(activeKeheDocumentDraft);
-      if (saveBeforeGenerate) {
-        updateWorkflowProgress('Saving MPL', 'Saving the generated MPL draft…');
-        const saved = await saveActiveMplDraft({ savingMessage: 'Saving MPL draft...', successMessage: 'MPL draft saved.' });
-        if (!saved) { closeWorkflowProgress(); return false; }
-      }
+      renderKeheUnifiedReport(renderDraft);
+      ensureCurrent();
       updateWorkflowProgress('Opening preview', 'Opening the completed PDF preview…');
       resetPreviewSurface();
       if (options.openPreview !== false) await openPreview();
+      ensureCurrent();
       setStatus(saveBeforeGenerate ? `${cfg.label} saved and generated successfully.` : `${cfg.label} generated successfully.`, 'success');
       closeWorkflowProgress();
       if (options.showSummary !== false) showPrintSummary(outputScope);
       return true;
     } catch (err) {
-      closeWorkflowProgress();
-      setStatus('Error: ' + (err.message || 'Generation failed.'), 'error');
+      if (activeKeheDocumentDraft === renderDraft) {
+        closeWorkflowProgress();
+        setStatus('Error: ' + (err.message || 'Generation failed.'), 'error');
+        clearGeneratedOutputs(outputKey);
+      }
       return false;
     } finally {
-      if (btn) btn.disabled = false;
-      updateMplSaveButtonState(activeKeheDocumentType);
+      if (activeKeheDocumentDraft === renderDraft) {
+        if (btn) btn.disabled = false;
+        updateMplSaveButtonState(renderType);
+      }
     }
   }

@@ -442,11 +442,9 @@
   let keheDcDirectoryLoadPromise = null;
   let mplProductMasterRows = [];
   let mplProductMasterLoadPromise = null;
-  let mplProductMasterSaveTimer = null;
   let mplProductEditorGroupKey = '';
   let mplDirectoryRows = [];
   let mplDirectoryLoadPromise = null;
-  let mplDirectorySaveTimer = null;
   let mplDirectoryEditorIndex = -1;
   let mplDirectoryEditorMode = 'view';
   let mplDirectoryEditorIsNew = false;
@@ -470,11 +468,6 @@
   let b2bSettingsProductIndex = -1;
   let b2bOpenSkuRowIndex = null;
   let b2bPreviewUrl = null;
-  let partnerOrderPayload = null;
-  let partnerResolvedOrderContext = null;
-  let partnerCustomerId = '';
-  let partnerLabelJobs = [];
-  let partnerMplDraft = null;
   // Baseline shape for every run-settings field; used to reset b2bRunFields so
   // stale values never leak between SKU/template combinations in the queue.
   const B2B_RUN_FIELD_DEFAULTS = Object.freeze({
@@ -522,7 +515,8 @@
     if (!mplDraftSync && window.LabelKitDraftSync) {
       mplDraftSync = window.LabelKitDraftSync.create({
         delayMs: 30000,
-        canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft && hasPermission('save_mpl'),
+        canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft
+          && hasPermission('save_mpl') && !(selectedKit === 'operations' && orderDocumentsState.approvingDocument),
         save: () => saveActiveMplDraft({ showStatus: false, autoSave: true, createVersion: false }),
         onState: updateMplSaveState
       });
@@ -589,6 +583,7 @@
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.detail || 'Could not load app session.');
       Object.assign(appRuntimeConfig, payload);
+      window.LabelKitPackingModel.configurePalletDefaults(payload.pallet_defaults);
     } catch (_err) {
       Object.assign(appRuntimeConfig, {
         auth_required: true,
@@ -1341,7 +1336,7 @@
   }
 
   function matchProductMaster(item, options = {}) {
-    const rows = getActiveProductMasterRows()
+    const rows = (options.rows || getActiveProductMasterRows())
       .filter(row => !options.caseOnly || isProductInPackingList(row));
     const candidates = [item.config_id, item.gtin, item.case_upc, item.upc, item.item_number, item.customer_item_number, item.sku]
       .map(canonicalId)
@@ -1382,13 +1377,13 @@
     return parts.join(' - ');
   }
 
-  function findEachProductForCaseProduct(product) {
+  function findEachProductForCaseProduct(product, rows = getActiveAllProductMasterRows()) {
     if (!product) return null;
     const wantedSku = String(product.sku || '').trim().toLowerCase();
     const wantedConfig = String(product.config_id || '').trim().toLowerCase();
     const wantedStorefront = normalizeStorefront(product.storefront || '').toLowerCase();
     if (!wantedSku && !wantedConfig) return null;
-    const matches = getActiveAllProductMasterRows().filter(row => (
+    const matches = rows.filter(row => (
       normalizePackagingLevel(row.packaging_level) === 'Each'
       && (
         (wantedConfig && String(row.config_id || '').trim().toLowerCase() === wantedConfig)
@@ -1656,7 +1651,7 @@
     ].map(value => String(value || '').trim()).filter(Boolean).join('\n');
   }
 
-  function buildAnalyticsOrderMplDraft(payload, templateId = 'standard') {
+  function buildAnalyticsOrderMplDraft(payload, templateId = 'standard', resolvedContext = null) {
     const orderNumber = String(payload?.sales_order_number || '').trim();
     const sourceItems = Array.isArray(payload?.items) ? payload.items : [];
     const matchedStorefronts = [...new Set(sourceItems
@@ -1672,7 +1667,7 @@
     const orderDetails = payload?.order_details && typeof payload.order_details === 'object'
       ? payload.order_details
       : {};
-    const orderContext = resolveOrderContext(payload, {
+    const orderContext = resolvedContext || resolveOrderContext(payload, {
       customer: matchedStorefronts.length === 1 ? matchedStorefronts[0] : ''
     });
     const analyticsBillTo = analyticsMplAddress(orderDetails, 'billing');
@@ -1708,6 +1703,7 @@
       item.pallet_weight = String(sourceItem?.pallet_weight || '').trim();
       item.gtin = String(sourceItem?.gtin || '').trim();
       item.order_match_status = String(sourceItem?.match_status || '').trim();
+      item.review_line_index = index;
       item.qty_on_pallet = quantity;
       item.total_ordered = quantity;
       item.total_shipped = quantity;
@@ -1895,7 +1891,15 @@
     mplDraftSync?.schedule();
   }
 
-  async function saveActiveMplDraft(options = {}) {
+  let mplDraftSaveRequest = null;
+  function saveActiveMplDraft(options = {}) {
+    const requestedDraft = activeKeheDocumentDraft;
+    if (mplDraftSaveRequest) return mplDraftSaveRequest.then(() => activeKeheDocumentDraft === requestedDraft ? saveActiveMplDraft(options) : false);
+    mplDraftSaveRequest = persistActiveMplDraft(options).finally(() => { mplDraftSaveRequest = null; });
+    return mplDraftSaveRequest;
+  }
+
+  async function persistActiveMplDraft(options = {}) {
     const showStatus = options.showStatus !== false;
     if (!hasPermission('save_mpl')) {
       setStatus('Your role can preview and generate, but cannot save MPL drafts.', 'error');
@@ -1906,25 +1910,27 @@
       return false;
     }
 
+    const savingDraft = activeKeheDocumentDraft;
+    const saveGeneration = mplDraftSync?.version();
     finalizeMplPalletDraft();
-    const existingName = defaultMplDraftName(activeKeheDocumentDraft);
+    const existingName = defaultMplDraftName(savingDraft);
     const name = options.name || currentMplDraftName() || existingName;
     const trimmedName = String(name || '').trim() || existingName || 'Untitled MPL';
-    activeKeheDocumentDraft._saved_draft_name = trimmedName;
-    const firstMpl = activeKeheDocumentDraft.packing_lists?.[0] || {};
-    const reviewStatus = String(activeKeheDocumentDraft.review_status || firstMpl.review_status || 'DRAFT').toUpperCase();
-    activeKeheDocumentDraft.review_status = ['DRAFT', 'REVIEWED', 'APPROVED'].includes(reviewStatus) ? reviewStatus : 'DRAFT';
+    savingDraft._saved_draft_name = trimmedName;
+    const firstMpl = savingDraft.packing_lists?.[0] || {};
+    const reviewStatus = String(savingDraft.review_status || firstMpl.review_status || 'DRAFT').toUpperCase();
+    savingDraft.review_status = ['DRAFT', 'REVIEWED', 'APPROVED'].includes(reviewStatus) ? reviewStatus : 'DRAFT';
 
     const payload = {
-      id: activeKeheDocumentDraft._saved_draft_id || '',
+      id: savingDraft._saved_draft_id || '',
       name: trimmedName,
-      expected_revision: Number(activeKeheDocumentDraft._saved_draft_revision || 0),
+      expected_revision: Number(savingDraft._saved_draft_revision || 0),
       create_version: options.createVersion !== false && !options.autoSave,
       version_reason: options.versionReason || 'Explicit save',
-      status: activeKeheDocumentDraft.review_status,
-      customer_code: activeKeheDocumentDraft.storefront || firstMpl.customer_name || firstMpl.ship_to_name || '',
+      status: savingDraft.review_status,
+      customer_code: savingDraft.storefront || firstMpl.customer_name || firstMpl.ship_to_name || '',
       po_number: firstMpl.customer_po_number || '',
-      draft: activeKeheDocumentDraft
+      draft: savingDraft
     };
 
     try {
@@ -1940,14 +1946,19 @@
         throw new Error(`${data.detail || 'A newer saved version exists.'}${editor}`);
       }
       if (!res.ok) throw new Error(data.detail || 'Could not save MPL draft.');
-      activeKeheDocumentDraft._saved_draft_id = data.draft?.id || activeKeheDocumentDraft._saved_draft_id;
-      activeKeheDocumentDraft._saved_draft_name = data.draft?.name || trimmedName;
-      activeKeheDocumentDraft._saved_draft_revision = Number(data.draft?.revision || activeKeheDocumentDraft._saved_draft_revision || 0);
-      const nameInput = document.getElementById('mpl-draft-name-input');
-      if (nameInput) nameInput.value = activeKeheDocumentDraft._saved_draft_name;
-      mplDraftSync?.markSaved();
-      updateMplSaveButtonState();
-      if (showStatus) setStatus(options.successMessage || 'MPL draft saved.', 'success');
+      savingDraft._saved_draft_id = data.draft?.id || savingDraft._saved_draft_id;
+      if (savingDraft._saved_draft_name === trimmedName) savingDraft._saved_draft_name = data.draft?.name || trimmedName;
+      savingDraft._saved_draft_revision = Number(data.draft?.revision || savingDraft._saved_draft_revision || 0);
+      if (activeKeheDocumentDraft === savingDraft) {
+        const nameInput = document.getElementById('mpl-draft-name-input');
+        if (nameInput) nameInput.value = savingDraft._saved_draft_name;
+        mplDraftSync?.markSaved(saveGeneration);
+        updateMplSaveButtonState();
+      }
+      if (showStatus && activeKeheDocumentDraft === savingDraft) {
+        const pending = mplDraftSync?.hasUnsavedChanges();
+        setStatus(pending ? 'Earlier changes saved; newer edits are still pending.' : (options.successMessage || 'MPL draft saved.'), pending ? 'info' : 'success');
+      }
       return true;
     } catch (err) {
       setStatus('Error: ' + (err.message || 'Could not save MPL draft.'), 'error');
@@ -2405,6 +2416,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not confirm Excel import.');
       if (target === 'dc-directory') {
+        mplDirectoryRevision = data.revision;
         mplDirectoryRows = (data.rows || []).map(normalizeDcDirectoryRow);
         keheDcDirectoryRows = mplDirectoryRows.filter(row => isKeheStorefront(row.storefront));
         saveMplDirectoryToStorage();
@@ -2412,6 +2424,7 @@
         renderMplDirectoryTable();
         renderKeheDcDirectoryTable();
       } else {
+        mplProductMasterRevision = data.revision;
         mplProductMasterRows = (data.rows || []).map(normalizeProductRow);
         keheProductMasterRows = mplProductMasterRows.filter(row => isKeheStorefront(row.storefront));
         saveMplProductMasterToStorage();
@@ -2576,6 +2589,9 @@
     if (!isProductInPackingList(product)) return;
     ensureMplPalletState(mpl);
     applyProductRowToMplItem(item, product);
+    item.order_match_status = 'matched';
+    refreshReviewedProductSnapshot();
+    replaceReviewedLineProduct(item.review_line_index, product);
     if (mpl.manual_mpl && !normalizePalletId(item.location_on_pallet)) {
       item.location_on_pallet = (mpl._pallet_ids && mpl._pallet_ids[0]) || '1';
     }
@@ -2597,23 +2613,6 @@
     }
   }
 
-  function matchCaseProductForPallet(item) {
-    const rows = getActiveProductMasterRows().filter(isProductInPackingList);
-    const exactCandidates = [item.case_upc].map(canonicalId).filter(Boolean);
-    const exact = rows.find(row => exactCandidates.includes(canonicalId(row.gtin)));
-    if (exact) return exact;
-    const skuCandidates = [item.sku].map(canonicalId).filter(Boolean);
-    return rows.find(row => skuCandidates.includes(canonicalId(row.sku))) || null;
-  }
-
-  function roundProductWeightForPallet(productWeight) {
-    return Math.ceil((productWeight * 1.05) / 10) * 10;
-  }
-
-  function palletDisplayWeight(productWeight) {
-    return `${roundProductWeightForPallet(productWeight) + 50} lbs`;
-  }
-
   function itemQuantityForWeight(item) {
     const n = Number(String(item.qty_on_pallet || item.total_shipped || item.qty || '0').replace(/,/g, ''));
     return Number.isFinite(n) ? n : 0;
@@ -2621,11 +2620,10 @@
 
   function applyProductMasterToDraft(draft, preserveManualWeights = true) {
     if (!draft) return;
-    draft.product_master = getActiveProductMasterRows();
+    draft.product_master = draft.reviewed_product_master || getActiveAllProductMasterRows();
     if (!Array.isArray(draft.packing_lists)) return;
     draft.packing_lists.forEach(mpl => {
       ensureMplPalletState(mpl);
-      const totals = {};
       const itemNumberWarnings = [];
       mpl.warnings = (mpl.warnings || []).filter(warning => (
         !String(warning).includes('required for MPL Item Number')
@@ -2635,7 +2633,7 @@
         const orderMatchStatus = String(item.order_match_status || '').toLowerCase();
         const product = ['unmatched', 'ambiguous'].includes(orderMatchStatus)
           ? null
-          : matchProductMaster(item, { caseOnly: true });
+          : matchProductMaster(item, { caseOnly: true, rows: draft.reviewed_product_master });
         const hasIdentity = [item.item_number, item.sku, item.gtin, item.case_upc, item.upc, item.description]
           .some(value => !!String(value || '').trim());
         if (!product) {
@@ -2646,17 +2644,11 @@
             itemNumberWarnings.push(orderMatchStatus === 'ambiguous'
               ? `SKU ${identity}: multiple Product Master matches; using order data. Select a product for case pack, weight, and TI-HI.`
               : `SKU ${identity}: using order data; add Product Master data for GTIN, weight, and TI-HI.`);
-            const orderUnitWeight = parseWeight(item.unit_weight_lbs);
-            if (orderUnitWeight !== null) {
-              const pallet = normalizePalletId(item.location_on_pallet);
-              const itemWeight = orderUnitWeight * itemQuantityForWeight(item);
-              item.calculated_weight_lbs = formatLbs(itemWeight);
-              if (pallet) totals[pallet] = (totals[pallet] || 0) + itemWeight;
-            }
+
           }
           return;
         }
-        const eachProduct = findEachProductForCaseProduct(product);
+        const eachProduct = findEachProductForCaseProduct(product, draft.reviewed_product_master || getActiveAllProductMasterRows());
         const eachGtin = String(eachProduct?.gtin || item.each_gtin || '').trim();
         item.item_number = eachGtin || product.sku || item.sku || item.item_number || '';
         item.each_gtin = eachGtin;
@@ -2674,38 +2666,19 @@
         item.height_in = product.height_in || '';
         item.dimensions_in = product.dimensions_display || '';
         item.unit_weight_lbs = product.gross_weight_lbs || '';
-        const unitWeight = parseWeight(product.gross_weight_lbs);
-        if (unitWeight === null) return;
-        const pallet = normalizePalletId(item.location_on_pallet);
-        const itemWeight = unitWeight * itemQuantityForWeight(item);
-        item.calculated_weight_lbs = formatLbs(itemWeight);
-        if (!pallet) return;
-        totals[pallet] = (totals[pallet] || 0) + itemWeight;
+
       });
       if (itemNumberWarnings.length) {
         mpl.warnings = [...new Set([...(mpl.warnings || []), ...itemNumberWarnings])];
         mpl.status = 'Needs Review';
       }
-      Object.keys(totals).forEach(pallet => {
-        const calculated = formatLbs(totals[pallet]);
-        if (!mpl._pallet_weights) mpl._pallet_weights = {};
-        if (!preserveManualWeights || !String(mpl._pallet_weights[pallet] || '').trim()) {
-          mpl._pallet_weights[pallet] = calculated;
-        }
-        (mpl.items || []).forEach(item => {
-          if (normalizePalletId(item.location_on_pallet) === pallet && (!preserveManualWeights || !String(item.pallet_weight || '').trim())) {
-            item.pallet_weight = mpl._pallet_weights[pallet] || calculated;
-          }
-        });
-      });
-      window.LabelKitDocumentEditor.syncPalletTotalWeight(mpl);
     });
   }
 
-  function recalculateMplWeights(mplIndex) {
+  async function recalculateMplWeights(mplIndex) {
     const mpl = getMpl(mplIndex);
     if (!mpl || !activeKeheDocumentDraft) return;
-    applyProductMasterToDraft(activeKeheDocumentDraft, false);
+    await fetchMplPalletPlan(mpl, 'weights');
     if (mpl.manual_mpl) {
       markMplPalletizationSource(
         mpl,
@@ -2932,10 +2905,6 @@
 
   function resetToSelection(updateHistory = true) {
     if (typeof resetOperationsWorkspaceState === 'function') resetOperationsWorkspaceState();
-    partnerOrderPayload = null;
-    partnerCustomerId = '';
-    partnerLabelJobs = [];
-    partnerMplDraft = null;
     selectedKit = null;
     document.body.dataset.module = 'home';
     document.title = 'JDI Label Kits';
@@ -3262,9 +3231,7 @@
 
   async function loadReport(resultId) {
     if (!resultId) return null;
-    const res = await fetch(`/results/${encodeURIComponent(resultId)}/report`);
-    if (!res.ok) throw new Error('Could not load report.');
-    return await res.json();
+    return window.LabelKitAPI.json(`/results/${encodeURIComponent(resultId)}/report`, {}, 0);
   }
 
   function exportReport() {
@@ -3493,10 +3460,7 @@
   async function waitForGeneration(resultId) {
     const deadline = Date.now() + (10 * 60 * 1000);
     while (Date.now() < deadline) {
-      const res = await fetch(`/results/${encodeURIComponent(resultId)}/status`);
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) throw new Error(data.detail || 'Could not check generation status.');
+      const data = await window.LabelKitAPI.json(`/results/${encodeURIComponent(resultId)}/status`, {}, 0);
 
       if (data.report) renderReport(data.report);
       if (data.status === 'complete') return data;
@@ -3552,15 +3516,9 @@
     }
 
     try {
-      const res = await fetch(cfg.endpoint, { method: 'POST', body: form });
+      const res = await window.LabelKitAPI.response(cfg.endpoint, { method: 'POST', body: form }, 0);
       const resultIdFromHeader = res.headers.get('X-Result-Id');
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        if (err.report) renderReport(err.report);
-        throw new Error(err.detail || 'Server error');
-      }
 
       currentResultId = resultIdFromHeader;
 
@@ -3572,11 +3530,7 @@
         setStatus(payload.detail || 'Files uploaded. Generation started…', 'info');
         const status = await waitForGeneration(currentResultId);
 
-        const fileRes = await fetch(`/results/${encodeURIComponent(currentResultId)}/file`);
-        if (!fileRes.ok) {
-          const fileErr = await fileRes.json().catch(() => ({ detail: fileRes.statusText }));
-          throw new Error(fileErr.detail || 'Generated PDF could not be downloaded.');
-        }
+        const fileRes = await window.LabelKitAPI.response(`/results/${encodeURIComponent(currentResultId)}/file`, {}, 0);
 
         const downloadBlob = await fileRes.blob();
         const outputMediaType = String(status.media_type || fileRes.headers.get('content-type') || 'application/pdf').toLowerCase();
@@ -3584,12 +3538,7 @@
         setDownloadPresentation(status.output_filename || cfg.outputName, outputMediaType);
 
         if (outputMediaType.includes('zip')) {
-          const previewRes = await fetch(`/results/${encodeURIComponent(currentResultId)}/preview`);
-          if (!previewRes.ok) {
-            const previewErr = await previewRes.json().catch(() => ({ detail: previewRes.statusText }));
-            throw new Error(previewErr.detail || 'Combined PDF preview could not be loaded.');
-          }
-          blobUrl = window.LabelKitPreview.create(await previewRes.blob());
+          blobUrl = window.LabelKitPreview.create(await window.LabelKitAPI.blob(`/results/${encodeURIComponent(currentResultId)}/preview`, {}, 0));
           setDownloadReady(true, downloadBlobUrl);
           setPreviewReady(true);
           const outputPages = Number(status.report?.summary?.output_pages || 0);
@@ -3646,6 +3595,7 @@
         setStatus('PDF generated and the report is ready, but the in-app preview could not be rendered here.', 'error');
       }
     } catch (err) {
+      if (err.payload?.report) renderReport(err.payload.report);
       setStatus('Error: ' + (err.message || 'Generation failed.'), 'error');
     } finally {
       btn.disabled = false;

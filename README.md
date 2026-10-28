@@ -50,6 +50,31 @@ renamed templates.
 Editing a section revokes its approval and removes its previous finished file.
 Changes to the packing list also revoke pallet-label approval. Failed rendering
 does not approve or publish a file.
+Edits made during generation discard the older result and require a fresh review.
+Undo and redo preserve the saved packing list's identity and current revision.
+
+Document readiness and Product Master quality checks come from the backend.
+Pallet assignments, weights, and Ti-Hi geometry are calculated in Python; the
+browser displays those results and does not fall back to a second layout engine.
+Generation checks readiness, renders an isolated reviewed snapshot, and publishes
+only if its inputs are still current. Shared order PO, shipping date, and addresses
+feed labels, packing lists, and pallet labels; changing them revokes approvals.
+Per-label lots, copies, templates, and carton ranges remain document settings.
+
+Finished Files contains the current browser session's generated documents. Download
+the PDFs to retain them after closing the page. Server generation accepts at most
+two active jobs and retains up to 25 results; active downloads are protected from
+cleanup. A server restart requires regenerating a temporary result. Saved Packing
+Lists remain in the configured persistent store and can be reopened.
+
+Product Master and Directory saves include the revision returned by their GET
+endpoint. Missing revisions are rejected with HTTP 428 and stale revisions with
+HTTP 409. Local workers serialize data access through a shared file lock; this
+does not provide a transaction across separate Catalyst container instances.
+Failed Data Store batches attempt to restore the prior snapshot and report a
+save failure. Recovery can also fail during an outage; the error then explicitly
+requires checking the table before retrying. Unreadable local files are preserved
+and reported instead of being treated as empty data.
 
 Product Master is authoritative for packaging hierarchy, label templates, GTINs, case quantities, dimensions, and weights. Missing data produces review warnings where output can still be generated safely.
 
@@ -221,7 +246,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 ### JavaScript unit tests
 
 ```powershell
-node --test tests/test_b2b_order_jobs.cjs tests/test_operations_readiness.cjs
+node --test tests/test_b2b_order_jobs.cjs tests/test_operations_readiness.cjs tests/test_address_delimiters.cjs tests/test_pallet_overrides.cjs tests/test_save_races.cjs
 ```
 
 ### Browser workflow tests

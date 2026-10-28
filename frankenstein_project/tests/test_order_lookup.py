@@ -691,7 +691,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         with (
             patch("labelkit.routes.orders._require_permission"),
             patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
-            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
+            patch("labelkit.product_store._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "70913"})
 
@@ -734,7 +734,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         with (
             patch("labelkit.routes.orders._require_permission"),
             patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
-            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
+            patch("labelkit.product_store._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "DISPLAY-1"})
 
@@ -794,7 +794,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         with (
             patch("labelkit.routes.orders._require_permission"),
             patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
-            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
+            patch("labelkit.product_store._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "SHARED-LEVEL-SKU"})
 
@@ -863,7 +863,7 @@ class AnalyticsOrderInstanceTests(unittest.TestCase):
         with (
             patch("labelkit.routes.orders._require_permission"),
             patch("labelkit.runtime.ANALYTICS_CLIENT.export_order_rows", return_value=order_rows),
-            patch("labelkit.routes.orders._datastore_load_product_master", return_value=products),
+            patch("labelkit.product_store._datastore_load_product_master", return_value=products),
         ):
             response = lookup_mpl_order(object(), {"sales_order_number": "LEVEL-SPECIFIC-SKUS"})
 
@@ -1242,12 +1242,12 @@ class MplDraftStorageTests(unittest.TestCase):
 
 
 class FrontendDeliveryTests(unittest.TestCase):
-    def test_unified_order_documents_workspace_coordinates_existing_generators(self):
+    def test_unified_order_documents_shell_is_delivered(self):
+        # Behavior is covered by operations.spec.cjs and the JavaScript unit tests.
         html = serve_frontend_index().body.decode("utf-8")
-        javascript = _frontend_javascript_bundle()
 
         self.assertIn('id="operations-workspace-page"', html)
-        self.assertIn('onclick="selectOperationsWorkspace()"', html)
+        self.assertIn('id="operations-sales-order-number"', html)
         self.assertIn('id="operations-generate-labels"', html)
         self.assertIn('id="operations-generate-mpl"', html)
         self.assertIn('id="operations-generate-pallets"', html)
@@ -1256,15 +1256,9 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn('id="operations-review-mpl"', html)
         self.assertIn('id="operations-review-pallet-labels"', html)
         self.assertIn('/assets/js/operations-workspace.js', html)
-        self.assertIn("function completeOperationsOrderLoad(payload, orderNumber", javascript)
-        self.assertIn("completeB2BOrderLoad(payload, orderNumber)", javascript)
-        self.assertIn("buildAnalyticsOrderMplDraft(payload, 'standard')", javascript)
-        self.assertIn("openMplPalletLabels(orderDocumentsState.mplDraft)", javascript)
-        self.assertIn("Approve Packing List & Ti-Hi", javascript)
-        self.assertIn("scope: 'operations'", javascript)
-        self.assertIn("Choose at least one label template for this product.", javascript)
-        self.assertIn("Assign the packing-list items to at least one pallet", javascript)
-        self.assertIn("'/api/order-documents/orders/lookup'", javascript)
+        for legacy_page in ("partner-workspace-page", "b2b-workspace-page", "mpl-workspace-page"):
+            with self.subTest(legacy_page=legacy_page):
+                self.assertNotIn(f'id="{legacy_page}"', html)
 
     def test_frontend_styles_and_pdf_runtime_are_local_modules(self):
         html = serve_frontend_index().body.decode("utf-8")
@@ -1279,6 +1273,7 @@ class FrontendDeliveryTests(unittest.TestCase):
             "b2b.css",
             "responsive.css",
             "tokens.css",
+            "module-system.css",
         ):
             with self.subTest(filename=filename):
                 self.assertIn(f'/assets/css/{filename}', html)
@@ -1314,24 +1309,19 @@ class FrontendDeliveryTests(unittest.TestCase):
 
     def test_feature_scripts_are_delivered_as_separate_modules(self):
         html = serve_frontend_index().body.decode("utf-8")
-        app_javascript = (FRONTEND_DIST / "assets" / "js" / "app.js").read_text(encoding="utf-8")
-        expected_modules = {
-            "reference-data.js": "function normalizeProductRow",
-            "mpl-tihi.js": "function autoPalletizeMpl",
-            "b2b-workspace.js": "function renderB2BCreator",
-            "document-model.js": "function buildPartnerMplDraft",
-            "document-editor.js": "function renderDocumentEditor",
-            "operations-workspace.js": "function renderOperationsWorkspace",
-        }
+        expected_modules = (
+            "reference-data.js",
+            "mpl-tihi.js",
+            "b2b-workspace.js",
+            "document-model.js",
+            "document-editor.js",
+            "operations-workspace.js",
+        )
 
-        for filename, owned_function in expected_modules.items():
+        for filename in expected_modules:
             with self.subTest(filename=filename):
                 self.assertIn(f'/assets/js/{filename}', html)
-                module_javascript = (
-                    FRONTEND_DIST / "assets" / "js" / filename
-                ).read_text(encoding="utf-8")
-                self.assertIn(owned_function, module_javascript)
-                self.assertNotIn(owned_function, app_javascript)
+                self.assertTrue((FRONTEND_DIST / "assets" / "js" / filename).is_file())
 
     def test_index_html_is_not_cached(self):
         response = serve_frontend_index()
@@ -1341,38 +1331,19 @@ class FrontendDeliveryTests(unittest.TestCase):
 
     def test_mpl_autosave_and_version_controls_are_delivered(self):
         html = serve_frontend_index().body.decode("utf-8")
-        javascript = _frontend_javascript_bundle()
 
         self.assertIn('/assets/js/modules/mpl-draft-sync.js', html)
+        self.assertTrue((FRONTEND_DIST / "assets" / "js" / "modules" / "mpl-draft-sync.js").is_file())
         self.assertIn('id="mpl-save-state"', html)
         self.assertIn('id="btn-mpl-versions"', html)
-        self.assertIn('expected_revision:', javascript)
-        self.assertIn('create_version:', javascript)
-        self.assertIn("renderBtn.classList.toggle('hidden', type === 'masterPackingList')", javascript)
-        self.assertNotIn("? 'Generate PDF Only'", javascript)
 
-    def test_product_setup_uses_level_skus_then_calculated_summary(self):
+    def test_product_setup_places_packaging_levels_before_summary(self):
         javascript = (FRONTEND_DIST / "assets" / "js" / "reference-data.js").read_text(encoding="utf-8")
 
-        self.assertIn("Its packaging levels belong to this configuration only.", javascript)
-        self.assertIn("Matching SKUs appear together across customers.", javascript)
-        self.assertIn("The same product name is available to labels and packing lists.", javascript)
-        self.assertIn("Used as the customer-facing Item #; the Level SKU still determines the order UOM.", javascript)
-        self.assertIn("entries.forEach(({ index }) => { mplProductMasterRows[index][key] = normalizedValue; });", javascript)
-        self.assertIn("The matching SKU determines whether the quantity is Each, Inner Pack, or Case.", javascript)
-        self.assertIn("Matches orders sold at this package level.", javascript)
-        self.assertIn("Each Weight (g)", javascript)
-        self.assertIn("Product summary", javascript)
-        self.assertIn("Calculated product weight", javascript)
         self.assertLess(
             javascript.index('<section class="mpl-product-levels-card">'),
             javascript.index('<section class="mpl-product-final-details mpl-product-summary-card">'),
         )
-        self.assertNotIn("<summary>Advanced matching details</summary>", javascript)
-        self.assertNotIn("Alternate incoming SKU", javascript)
-        self.assertNotIn("Product Group ID <input", javascript)
-        self.assertNotIn("It is copied automatically", javascript)
-        self.assertNotIn("mplProductMasterRows[groupIndex].display_sku = String(value || '').trim()", javascript)
 
     def test_b2b_unique_review_groups_keep_every_order_job_and_order_ship_to_wins(self):
         javascript = (FRONTEND_DIST / "assets" / "js" / "b2b-workspace.js").read_text(encoding="utf-8")
@@ -1386,30 +1357,6 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("orderDetails.ship_to_name", javascript)
         self.assertIn("details.shipping_street1", context_javascript)
         self.assertIn("const destinationName = b2bOrderShipToName || destinationRow.name", javascript)
-
-    def test_frontend_shell_is_fluid_and_routes_are_canonical_hash_urls(self):
-        html = serve_frontend_index().body.decode("utf-8")
-        responsive_css = (FRONTEND_DIST / "assets" / "css" / "responsive.css").read_text(encoding="utf-8")
-        router_javascript = (FRONTEND_DIST / "assets" / "js" / "modules" / "router.js").read_text(encoding="utf-8")
-
-        self.assertIn('/assets/css/responsive.css', html)
-        self.assertIn("--workspace-inline-gutter", responsive_css)
-        self.assertIn(".selection-shell", responsive_css)
-        self.assertIn("max-width: none", responsive_css)
-        self.assertIn("@media (max-width: 900px)", responsive_css)
-        self.assertIn('const nextHash = `#${normalized}`;', router_javascript)
-
-    def test_all_modules_receive_the_shared_visual_system(self):
-        html = serve_frontend_index().body.decode("utf-8")
-        module_css = (FRONTEND_DIST / "assets" / "css" / "module-system.css").read_text(encoding="utf-8")
-
-        self.assertIn('/assets/css/module-system.css', html)
-        self.assertGreaterEqual(html.count('module-header-card'), 2)
-        self.assertGreaterEqual(html.count('module-surface-card'), 6)
-        self.assertIn('[data-module="michaels"]', module_css)
-        self.assertIn('[data-module="kehe"]', module_css)
-        self.assertIn('.kehe-reference-btn', module_css)
-        self.assertIn('@media (max-width: 700px)', (FRONTEND_DIST / "assets" / "css" / "responsive.css").read_text(encoding="utf-8"))
 
     def test_b2b_creator_uses_progressive_hierarchy_and_dynamic_run_fields(self):
         response = serve_frontend_index()
@@ -1441,8 +1388,6 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("window.LabelKitB2BOrderJobs.buildB2BOrderLabelJobs", javascript)
         self.assertIn("job.order_only_product_index = index", javascript)
         self.assertIn("order_only: true", javascript)
-        self.assertIn("window.LabelKitB2BOrderJobs.buildB2BOrderLabelJobs", javascript)
-        self.assertIn("job.order_only_product_index = index", javascript)
         self.assertIn("const editActionLabel = selectedTemplateIds.length ? 'Edit active label' : 'Choose templates'", javascript)
         self.assertIn("editor.scrollIntoView({ behavior: 'smooth', block: 'start' })", javascript)
         self.assertIn("function toggleB2BTemplate(templateId, selected, context = 'manual', jobIndex = null)", javascript)
@@ -1473,7 +1418,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("Object.prototype.hasOwnProperty.call(level || {}, 'label_enabled')", javascript)
         self.assertIn("needs_label_review: reviewReasons.length > 0", javascript)
         self.assertIn('/assets/js/modules/b2b-label-model.js', html)
-        self.assertIn("selectedOrderJob?.review_reasons", javascript)
+        self.assertIn("job.get('review_reasons')", (Path(__file__).resolve().parents[1] / "labelkit/document_rules.py").read_text(encoding="utf-8"))
         self.assertIn("No Enabled Labels for This Order", javascript)
         self.assertIn("function organizeB2BProductSettings(template, product)", javascript)
         self.assertIn('id="b2b-product-settings-current"', html)
@@ -1484,12 +1429,10 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn('aria-label="Available label templates"', javascript)
         self.assertIn('class="b2b-template-group-label"', javascript)
         self.assertNotIn('class="b2b-other-template-options"', javascript)
-        self.assertIn("Order values stay separate from Product Master", html)
         self.assertIn("function detectB2BOrderCustomer(payload, matchedProduct)", javascript)
         self.assertIn("payload?.detected_partner_customer", javascript)
         self.assertIn("payload?.detected_customer?.name", javascript)
         self.assertIn("function b2bOrderReviewGroupKey(job)", javascript)
-        self.assertIn('id="b2b-order-destination-input"', javascript)
         self.assertIn("function updateB2BOrderDestination(value)", javascript)
         self.assertIn("line(s)", javascript)
         self.assertIn('id="b2b-sku-template-list"', html)
@@ -1499,30 +1442,6 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("/api/b2b/render-batch", javascript)
         self.assertIn("Label Job${count === 1 ? '' : 's'} & Open PDF", javascript)
         self.assertNotIn("await generateB2BPreview(true, { automatic: true })", javascript)
-
-    def test_combined_customer_order_module_uses_kehe_style_editors_and_previews(self):
-        html = serve_frontend_index().body.decode("utf-8")
-        javascript = _frontend_javascript_bundle()
-
-        self.assertIn('id="operations-workspace-page"', html)
-        self.assertIn('id="operations-sales-order-number"', html)
-        self.assertIn('id="operations-labels-mount"', html)
-        self.assertIn('class="b2b-creator-layout"', html)
-        self.assertIn('id="operations-review-mpl"', html)
-        self.assertIn('id="operations-review-pallet-labels"', html)
-        self.assertIn('data-operations-panel="files"', html)
-        self.assertNotIn('id="partner-workspace-page"', html)
-        self.assertNotIn('id="b2b-workspace-page"', html)
-        self.assertNotIn('id="mpl-workspace-page"', html)
-        self.assertIn("function detectPartnerCustomer(payload)", javascript)
-        self.assertIn("function buildPartnerLabelJobs(payload, customerId)", javascript)
-        self.assertIn("function buildPartnerMplDraft(payload, customerId)", javascript)
-        self.assertIn("appendPartnerOnlyLabelJobs(payload, orderDocumentsState.customerId)", javascript)
-        self.assertIn("openMplPalletLabels(orderDocumentsState.mplDraft)", javascript)
-        self.assertIn("function renderInlineMplAddressPicker(mplIndex, field, value)", javascript)
-        self.assertIn("openGeneratedOutput", javascript)
-        self.assertIn("Open each PDF directly from here", javascript)
-        self.assertIn("const saveBeforeGenerate = !!options.saveMplDraft && activeKeheDocumentType === 'masterPackingList';", javascript)
 
 
 if __name__ == "__main__":

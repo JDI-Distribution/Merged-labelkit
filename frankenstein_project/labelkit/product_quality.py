@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List
 
@@ -35,7 +36,7 @@ def _positive_number(value: Any, *, whole: bool = False) -> bool:
         number = float(raw)
     except (TypeError, ValueError):
         return False
-    return number > 0 and (not whole or number.is_integer())
+    return math.isfinite(number) and number > 0 and (not whole or number.is_integer())
 
 
 def _group_key(row: Dict[str, Any], index: int) -> str:
@@ -149,12 +150,13 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
             group_issues.append(_issue("hierarchy_conflict", "Case quantity must equal eaches per inner × inner packs per case.", "invalid"))
 
         criteria = {
-            "identity": bool(primary.get("sku") or primary.get("config_id")),
+            "identity": bool((each_row or {}).get("sku") or primary.get("sku") or primary.get("config_id")),
             "description": bool(primary.get("description")),
             "gtin": bool(primary.get("gtin")) and gtin_check_digit_valid(primary.get("gtin")),
             "each_gtin": bool(each_row and each_row.get("gtin") and gtin_check_digit_valid(each_row.get("gtin"))),
             "package_quantity": normalize_packaging_level(primary.get("packaging_level")) == "Each" or _positive_number(primary.get("case_qty"), whole=True),
             "dimensions": all(_positive_number(primary.get(field)) for field in MEASUREMENT_FIELDS),
+            "product_weight": _positive_number(primary.get("package_net_weight_g")),
             "weight": _positive_number(primary.get("gross_weight_lbs")),
             "each_weight": _positive_number((each_row or {}).get("each_net_weight_g") or primary.get("each_net_weight_g")),
             "label_template": bool(primary.get("label_template_id")) if primary.get("label_enabled") else True,
@@ -166,6 +168,8 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
             row_issues[index].extend(group_issues)
             if not all(_positive_number(primary.get(field)) for field in MEASUREMENT_FIELDS):
                 row_issues[index].append(_issue("missing_dimensions", f"{primary.get('packaging_level') or 'Outermost'} dimensions are incomplete."))
+            if not _positive_number(primary.get("package_net_weight_g")):
+                row_issues[index].append(_issue("missing_weight", "Outermost total product weight is missing."))
             if not _positive_number(primary.get("gross_weight_lbs")):
                 row_issues[index].append(_issue("missing_weight", "Outermost packaged weight is missing."))
             if not _positive_number((each_row or {}).get("each_net_weight_g") or primary.get("each_net_weight_g")):
@@ -176,6 +180,18 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
                 row_issues[index].append(_issue("missing_label_template", "Label template is missing."))
             if str(primary.get("verification_status") or "").upper() != "VERIFIED":
                 row_issues[index].append(_issue("needs_review", "Configuration status requires review."))
+        enabled = [row for row in group_rows if row.get("label_enabled")]
+        match_ready = bool((each_row or {}).get("sku") or (each_row or {}).get("display_sku") or primary.get("sku") or primary.get("display_sku"))
+        label_ready = all(row.get("label_template_id") and gtin_check_digit_valid(row.get("gtin")) for row in enabled)
+        def capability(ready, yes, no):
+            return {"state": "ready" if ready else "review", "label": yes if ready else no}
+        capabilities = {
+            "order_match": capability(match_ready, "Order match ready", "Order SKU needed"),
+            "packing_list": capability(criteria["identity"] and criteria["description"] and criteria["package_quantity"], "Packing list ready", "Packing list review"),
+            "labels": capability(label_ready, "Labels ready", "Label setup needed") if enabled else {"state": "not-configured", "label": "Labels off"},
+            "tihi": capability(criteria["dimensions"] and criteria["weight"], "Ti-Hi ready", "Ti-Hi data needed"),
+            "verification": capability(criteria["verified"], "Verified", "Needs review"),
+        }
         group_results.append({
             "key": key,
             "storefront": primary.get("storefront", ""),
@@ -184,7 +200,9 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
             "description": primary.get("description", ""),
             "score": score,
             "criteria": criteria,
-            "issues": group_issues,
+            "capabilities": capabilities,
+            "primary_index": indexes[group_rows.index(primary)],
+            "issues": list({(issue["code"], issue["message"]): issue for index in indexes for issue in row_issues[index]}.values()),
             "row_indexes": indexes,
         })
 
@@ -194,6 +212,13 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         group = next((item for item in group_results if index in item["row_indexes"]), None)
         rows_result.append({
             "index": index,
+            "checks": {
+                "identity": bool(row.get("sku")),
+                "quantity": normalize_packaging_level(row.get("packaging_level")) == "Each" or _positive_number(row.get("case_qty"), whole=True),
+                "dimensions": all(_positive_number(row.get(field)) for field in MEASUREMENT_FIELDS),
+                "label_enabled": bool(row.get("label_enabled")),
+                "label_template": bool(row.get("label_template_id")),
+            },
             "unique_key": row.get("unique_key", ""),
             "score": (group or {}).get("score", 0),
             "status": "invalid" if any(issue["severity"] == "invalid" for issue in issues)

@@ -18,13 +18,10 @@ from labelkit.order_intake import (
     _partner_customer_id_from_order,
     _preferred_shared_level_sku_row,
     _product_each_gtin,
-    _select_analytics_order_instance,
-    _validated_sales_order_number,
+    resolve_order_context,
 )
-from labelkit.product_store import _datastore_load_product_master, _shared_product_master_file_read
 from labelkit.reference_data import _dedupe_product_master_rows, normalize_packaging_level
 from labelkit.runtime import (
-    ANALYTICS_CLIENT,
     ANALYTICS_QUANTITY_COLUMN,
     ANALYTICS_SKU_COLUMN,
     _require_permission,
@@ -37,28 +34,7 @@ router = APIRouter()
 @router.post("/api/mpl/orders/lookup")
 def lookup_mpl_order(request: Request, payload: Dict[str, Any]) -> JSONResponse:
     _require_permission(request, "generate")
-    sales_order_number = _validated_sales_order_number(payload)
-    requested_ecomdash_id = str(payload.get("ecomdash_id") or "").strip() if isinstance(payload, dict) else ""
-
-    analytics_rows = ANALYTICS_CLIENT.export_order_rows(request, sales_order_number)
-    if not analytics_rows:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No rows were found for Sales Order Number '{sales_order_number}'.",
-        )
-
-    product_rows = _datastore_load_product_master(request)
-    product_source = "datastore"
-    if product_rows is None:
-        product_rows = _shared_product_master_file_read()
-        product_source = "file"
-
-    analytics_rows, selected_ecomdash_id, selection = _select_analytics_order_instance(
-        analytics_rows,
-        requested_ecomdash_id,
-        sales_order_number,
-        product_rows,
-    )
+    sales_order_number, analytics_rows, product_rows, product_source, selected_ecomdash_id, selection = resolve_order_context(request, payload)
     if selection is not None:
         return JSONResponse(content=selection)
 

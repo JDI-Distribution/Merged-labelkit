@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from labelkit.catalyst import replace_rows
 
 from labelkit.audit_log import _dc_row_key
 from labelkit.reference_data import (
@@ -18,8 +19,7 @@ from labelkit.runtime import (
     MPL_DIRECTORY_FILE,
     MPL_DIRECTORY_STORE,
     MPL_DIRECTORY_TABLE,
-    _chunked,
-    _datastore_get_raw_rows,
+    _read_reference_datastore,
     _datastore_table_named,
     _now_iso,
     _raise_datastore_unavailable,
@@ -38,21 +38,27 @@ def _dc_directory_file_read(file_path: Optional[Path] = None) -> List[Dict[str, 
         data = json.loads(path.read_text(encoding="utf-8"))
 
         if isinstance(data, dict):
-            if isinstance(data.get("rows"), list):
-                return _dedupe_dc_directory_rows([r for r in data.get("rows", []) if isinstance(r, dict)])
+            if "rows" in data:
+                if not isinstance(data["rows"], list) or any(not isinstance(row, dict) for row in data["rows"]):
+                    raise ValueError("Invalid directory rows.")
+                return _dedupe_dc_directory_rows(data["rows"])
             rows = []
             for dc, row in data.items():
                 if isinstance(row, dict):
                     merged = {"dc": dc, **row}
                     rows.append(merged)
+                else:
+                    raise ValueError("Invalid directory record.")
             return _dedupe_dc_directory_rows(rows)
 
         if isinstance(data, list):
-            return _dedupe_dc_directory_rows([r for r in data if isinstance(r, dict)])
+            if any(not isinstance(row, dict) for row in data):
+                raise ValueError("Invalid directory record.")
+            return _dedupe_dc_directory_rows(data)
 
-        return []
-    except Exception:
-        return []
+        raise ValueError("Expected directory records.")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Directory could not be read. The file was preserved; restore or repair it before saving.") from exc
 
 
 def _dc_directory_file_write(
@@ -112,17 +118,10 @@ def _dc_datastore_table_named(request: Request, table_name: str, store_mode: str
 
 
 def _datastore_load_dc_rows(request: Request, table_name: str, store_mode: str) -> Optional[List[Dict[str, Any]]]:
-    table_service = _dc_datastore_table_named(request, table_name, store_mode)
-    if table_service is None:
-        return None
-
-    try:
-        raw_rows = _datastore_get_raw_rows(table_service)
-        return _dedupe_dc_directory_rows([_datastore_row_to_dc(r) for r in raw_rows])
-    except Exception as exc:
-        if _store_requires_datastore(store_mode):
-            _raise_datastore_unavailable(table_name, "read from it", exc)
-        return None
+    return _read_reference_datastore(
+        _dc_datastore_table_named(request, table_name, store_mode), table_name, store_mode,
+        lambda rows: _dedupe_dc_directory_rows([_datastore_row_to_dc(row) for row in rows]),
+    )
 
 
 def _datastore_load_dc_directory(request: Request) -> Optional[List[Dict[str, Any]]]:
@@ -144,43 +143,11 @@ def _datastore_save_dc_rows(
     normalized = _dedupe_dc_directory_rows(rows)
 
     try:
-        existing_rows = _datastore_get_raw_rows(table_service)
-        existing_by_key = {
-            _dc_row_key(_datastore_row_to_dc(raw)): raw
-            for raw in existing_rows
-            if raw.get("ROWID")
-        }
-        wanted_by_key = {_dc_row_key(row): row for row in normalized}
-        update_rows: List[Dict[str, Any]] = []
-        insert_rows: List[Dict[str, Any]] = []
-        for key, row in wanted_by_key.items():
-            datastore_row = _dc_to_datastore_row(row, include_storefront=include_storefront)
-            existing = existing_by_key.get(key)
-            if existing:
-                datastore_row["ROWID"] = existing["ROWID"]
-                update_rows.append(datastore_row)
-            else:
-                insert_rows.append(datastore_row)
-        delete_ids = [
-            raw.get("ROWID")
-            for key, raw in existing_by_key.items()
-            if key not in wanted_by_key and raw.get("ROWID")
-        ]
-        for batch in _chunked(update_rows, 100):
-            if batch:
-                table_service.update_rows(batch)
-        for batch in _chunked(insert_rows, 100):
-            if batch:
-                table_service.insert_rows(batch)
-        for batch in _chunked(delete_ids, 200):
-            if batch:
-                table_service.delete_rows(batch)
-
+        replace_rows(table_service, normalized, key=_dc_row_key, decode=_datastore_row_to_dc,
+                     encode=lambda row: _dc_to_datastore_row(row, include_storefront=include_storefront))
         return normalized
     except Exception as exc:
-        if _store_requires_datastore(store_mode):
-            _raise_datastore_unavailable(table_name, "write to it", exc)
-        return None
+        _raise_datastore_unavailable(table_name, "write to it", exc)
 
 
 def _datastore_save_dc_directory(request: Request, rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:

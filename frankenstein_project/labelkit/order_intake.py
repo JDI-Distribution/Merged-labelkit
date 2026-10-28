@@ -50,6 +50,25 @@ def configure_order_intake(**values: Any) -> None:
         if name in globals_dict:
             globals_dict[name] = value
 
+def resolve_order_context(request, payload):
+    from labelkit.runtime import ANALYTICS_CLIENT
+    from labelkit.product_store import _datastore_load_product_master, _shared_product_master_file_read
+
+    order_number = _validated_sales_order_number(payload)
+    rows = ANALYTICS_CLIENT.export_order_rows(request, order_number)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No rows were found for Sales Order Number '{order_number}'.")
+    products = _datastore_load_product_master(request)
+    source = "datastore"
+    if products is None:
+        products = _shared_product_master_file_read()
+        source = "file"
+    rows, instance, selection = _select_analytics_order_instance(
+        rows, str(payload.get("ecomdash_id") or "").strip(), order_number, products,
+    )
+    return order_number, rows, products, source, instance, selection
+
+
 def _analytics_row_value(row: Dict[str, Any], column_name: str) -> str:
     wanted = str(column_name or "").strip().lower()
     for key, value in row.items():

@@ -232,6 +232,170 @@
     };
   }
 
+  function initializeManualReviewedOrder(draft) {
+    const mpl = draft.packing_lists?.[0] || {};
+    initializeReviewedOrder({ sales_order_number: mpl.order_no || 'manual' }, {
+      shipTo: { address: mpl.ship_to || '' }, billTo: { address: mpl.bill_to || '' }, shipFrom: { address: mpl.supplier_info || '' },
+    }, draft);
+  }
+  function initializeReviewedOrder(payload, context, draft) {
+    const mpl = draft.packing_lists?.[0] || {};
+    const productMaster = JSON.parse(JSON.stringify(draft.reviewed_product_master || mplProductMasterRows));
+    orderDocumentsState.reviewedOrder = {
+      id: `${payload.sales_order_number || 'manual'}:${payload.source?.ecomdash_id || ''}`,
+      revision: 0, context,
+      fields: { po_number: mpl.customer_po_number || b2bRunFields.po_number || '',
+        ship_date: mpl.est_ship_date || b2bRunFields.ship_date || '',
+        ship_to: mpl.ship_to || context.shipTo?.address || '', bill_to: mpl.bill_to || context.billTo?.address || '',
+        ship_from: mpl.supplier_info || context.shipFrom?.address || '' },
+    };
+    draft.reviewed_product_master = productMaster;
+    draft.product_master = productMaster;
+    applyReviewedOrder();
+  }
+
+  const REVIEWED_ORDER_FIELDS = {
+    customer_po_number: 'po_number', customer_po_numbers: 'po_number', po_number: 'po_number',
+    est_ship_date: 'ship_date', ship_date: 'ship_date', date: 'ship_date',
+    ship_to: 'ship_to', delivery_address: 'ship_to', bill_to: 'bill_to', billing_address: 'bill_to',
+    supplier_info: 'ship_from', ship_from: 'ship_from',
+  };
+  function reviewedProductRows() {
+    return typeof orderDocumentsState !== 'undefined' && selectedKit === 'operations'
+      ? orderDocumentsState.mplDraft?.reviewed_product_master : null;
+  }
+  function refreshReviewedProductSnapshot(field = null, value = null, product = null) {
+    const rows = reviewedProductRows();
+    if (!rows || !orderDocumentsState.reviewedOrder) return;
+    const snapshot = JSON.parse(JSON.stringify(field ? rows : mplProductMasterRows));
+    if (field && product) {
+      const previous = snapshot.find(row => row.config_id === product.config_id && row.storefront === product.storefront
+        && normalizePackagingLevel(row.packaging_level) === normalizePackagingLevel(product.packaging_level));
+      const previousSku = previous?.sku || product.sku;
+      if (previous) previous[field] = value;
+      else snapshot.push({ ...product, [field]: value });
+      if (normalizePackagingLevel(product.packaging_level) === 'Case') {
+        for (const item of orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items || [])) {
+          if (item.sku !== previousSku) continue;
+          if (field === 'description' || field === 'sku') item[field] = value;
+          if (field === 'gtin') item.case_upc = value;
+        }
+      }
+    }
+    orderDocumentsState.mplDraft.reviewed_product_master = snapshot;
+    orderDocumentsState.mplDraft.product_master = snapshot;
+    for (const job of b2bOrderLabelJobs) {
+      const product = job.product || {};
+      const replacement = snapshot.find(row => row.config_id === product.config_id && row.storefront === product.storefront
+        && normalizePackagingLevel(row.packaging_level) === normalizePackagingLevel(product.packaging_level));
+      if (replacement) {
+        job.product = { ...replacement };
+        if (job.order_only_product_index >= 0) b2bOrderFallbackProducts[job.order_only_product_index] = { ...replacement };
+      }
+    }
+    applyProductMasterToDraft(orderDocumentsState.mplDraft, true);
+    syncReviewedOrderItems();
+    invalidateReviewedOrder();
+  }
+  function invalidateReviewedOrder() {
+    orderDocumentsState.reviewedDocuments = { labels: false, mpl: false, pallets: false };
+    if (orderDocumentsState.mplDraft) {
+      orderDocumentsState.mplDraft.review_status = 'DRAFT';
+      (orderDocumentsState.mplDraft.packing_lists || []).forEach(mpl => { mpl.review_status = 'DRAFT'; });
+    }
+    clearGeneratedOutputs('operations-labels', 'operations-mpl', 'operations-pallets', 'operations-labels-review');
+    clearB2BPreview();
+    mplDraftSync?.schedule();
+  }
+  function updateReviewedOrder(field, value) {
+    const session = typeof orderDocumentsState !== 'undefined' && selectedKit === 'operations' && orderDocumentsState.reviewedOrder;
+    const key = REVIEWED_ORDER_FIELDS[field];
+    if (!session || !key || session.fields[key] === String(value ?? '')) return;
+    session.fields[key] = String(value ?? '');
+    session.revision += 1;
+    applyReviewedOrder();
+    invalidateReviewedOrder();
+  }
+
+  function applyReviewedOrder() {
+    const session = orderDocumentsState.reviewedOrder;
+    if (!session) return;
+    const fields = session.fields;
+    Object.assign(b2bRunFields, { po_number: fields.po_number, ship_date: fields.ship_date });
+    for (const job of b2bOrderLabelJobs) {
+      for (const run of [job.run, ...Object.values(job.template_runs || {})].filter(Boolean)) {
+        Object.assign(run, { po_number: fields.po_number, ship_date: fields.ship_date });
+      }
+      Object.assign(job.directory ||= {}, { delivery_address: fields.ship_to, address: fields.ship_to,
+        billing_address: fields.bill_to, ship_from: fields.ship_from });
+    }
+    for (const run of Object.values(b2bTemplateRunFields || {})) Object.assign(run, { po_number: fields.po_number, ship_date: fields.ship_date });
+    b2bOrderDestinationOverride = fields.ship_to;
+    Object.assign(b2bResolvedDirectoryFallback ||= {}, { address: fields.ship_to, delivery_address: fields.ship_to,
+      billing_address: fields.bill_to, ship_from: fields.ship_from });
+    for (const mpl of orderDocumentsState.mplDraft?.packing_lists || []) Object.assign(mpl, {
+      customer_po_number: fields.po_number, est_ship_date: fields.ship_date,
+      ship_to: fields.ship_to, bill_to: fields.bill_to, supplier_info: fields.ship_from,
+    });
+    for (const pallet of orderDocumentsState.palletDraft?.pallets || []) Object.assign(pallet, {
+      customer_po_numbers: fields.po_number, date: fields.ship_date, ship_to: fields.ship_to, ship_from: fields.ship_from,
+    });
+  }
+  function replaceReviewedLineProduct(lineIndex, product) {
+    const rows = reviewedProductRows();
+    if (!rows || lineIndex == null) return;
+    for (const job of b2bOrderLabelJobs.filter(job => job.line_index === lineIndex)) {
+      const row = rows.find(row => row.config_id === product.config_id && row.storefront === product.storefront
+        && normalizePackagingLevel(row.packaging_level) === normalizePackagingLevel(job.product?.packaging_level));
+      job.product = row ? { ...row } : { storefront: product.storefront, config_id: product.config_id,
+        description: product.description, packaging_level: job.product?.packaging_level,
+        verification_status: 'NEEDS_REVIEW', sku: '', gtin: '', case_qty: '', label_enabled: true };
+      job.match_status = row ? 'matched' : 'unmatched';
+      if (!row) {
+        job.match_reason = 'Select a label configuration for the reviewed product.';
+        job.template_id = ''; job.template_ids = []; job.template_selection_required = true;
+      }
+      b2bOrderFallbackProducts[job.order_only_product_index] = { ...job.product };
+    }
+    syncReviewedOrderItems();
+  }
+  function syncReviewedOrderItems() {
+    const session = typeof orderDocumentsState !== 'undefined' && selectedKit === 'operations' && orderDocumentsState.reviewedOrder;
+    if (!session) return;
+    const draft = orderDocumentsState.mplDraft;
+    const products = draft?.reviewed_product_master || [];
+    const items = draft?.packing_lists?.flatMap(mpl => mpl.items || []) || [];
+    for (const job of b2bOrderLabelJobs) {
+      const product = job.product || {};
+      const caseRow = products.find(row => row.config_id && row.config_id === product.config_id
+        && row.storefront === product.storefront && normalizePackagingLevel(row.packaging_level) === 'Case');
+      const matches = items.filter(item => item.review_line_index != null && job.line_index != null
+        ? item.review_line_index === job.line_index
+        : String(item.sku || '').toLowerCase() === String(caseRow?.sku || product.sku || '').toLowerCase());
+      if (!matches.length) continue;
+      const eaches = matches.reduce((sum, item) => sum + (Number(item.qty_on_pallet || item.total_shipped) || 0) * (Number(item.quantity_per_case || caseRow?.case_qty) || 1), 0);
+      const total = Math.ceil(eaches / (Number(product.case_qty) || 1));
+      for (const run of [job.run, ...Object.values(job.template_runs || {})].filter(Boolean)) {
+        const fullRange = String(run.carton_end) === String(run.carton_total);
+        run.carton_total = String(total);
+        run.carton_end = String(fullRange ? total : Math.min(total, Number(run.carton_end) || total));
+        run.carton_start = String(Math.min(total || 1, Number(run.carton_start) || 1));
+      }
+      if (matches[0].description) job.product.description = matches[0].description;
+    }
+    session.revision += 1;
+    clearB2BPreview();
+  }
+
+  function reviewedOrderSnapshot() {
+    if (typeof orderDocumentsState === 'undefined' || selectedKit !== 'operations' || !orderDocumentsState.reviewedOrder) return null;
+    const { id, revision, fields } = orderDocumentsState.reviewedOrder;
+    return JSON.parse(JSON.stringify({ id, revision, fields,
+      items: orderDocumentsState.mplDraft?.packing_lists?.flatMap(mpl => mpl.items || []) || [],
+      label_jobs: b2bOrderLabelJobs,
+    }));
+  }
+
   function applyResolvedOrderContextToMpl(mpl, context) {
     if (!mpl || !context) return mpl;
     if (context.shipFrom?.address) mpl.supplier_info = context.shipFrom.address;
