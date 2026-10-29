@@ -2,9 +2,12 @@
   let operationsPackingLine = 0;
   function closeOperationsPacking() {
     document.getElementById('operations-packing-modal')?.classList.remove('visible');
+    const checkbox = document.getElementById('operations-customize-packing');
+    if (checkbox) checkbox.checked = false;
   }
   function openOperationsPacking() {
     if (!orderDocumentsState.payload?.items?.length) return;
+    document.getElementById('operations-customize-packing').checked = true;
     persistB2BActiveRunFields();
     const select = document.getElementById('operations-packing-line');
     select.innerHTML = orderDocumentsState.payload.items.map((item, index) =>
@@ -62,6 +65,8 @@
     const lineIndex = operationsPackingLine;
     const button = document.getElementById('operations-packing-apply');
     const errorTarget = document.getElementById('operations-packing-error');
+    const checkbox = document.getElementById('operations-customize-packing');
+    let reprocessing = false;
     try {
       const groups = operationsPackingGroups();
       const measurements = Object.fromEntries(['length', 'width', 'height', 'gross'].map(key => [key, Number(document.getElementById(`operations-packing-${key}`).value)]));
@@ -122,7 +127,11 @@
       draft.reviewed_product_master = [...(draft.reviewed_product_master || []).filter(row => !products.some(product => product.config_id === row.config_id)), ...products];
       draft.product_master = draft.reviewed_product_master;
       button.disabled = true;
-      errorTarget.textContent = 'Recalculating the pallet plan…';
+      checkbox.disabled = true;
+      reprocessing = true;
+      closeOperationsPacking();
+      updateWorkflowProgress('Planning pallets', 'Reprocessing order with your new packing quantities and box sizes…');
+      setStatus('Reprocessing order with your new packing information…', 'info');
       // Commit only after a successful calculation; failed requests preserve the session.
       const input = { mpl, product_master: draft.reviewed_product_master, action: 'auto' };
       const result = await window.LabelKitAPI.json('/api/documents/pallet-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 45000);
@@ -152,6 +161,16 @@
       renderOperationsWorkspace();
       closeOperationsPacking();
       setStatus(`Packing updated: ${totalBoxes} boxes. Pallets recalculated. Review labels and packing list before printing.`, 'success');
-    } catch (error) { errorTarget.textContent = error.message; }
-    finally { button.disabled = false; }
+    } catch (error) {
+      errorTarget.textContent = error.message;
+      if (reprocessing) {
+        document.getElementById('operations-packing-modal').classList.add('visible');
+        checkbox.checked = true;
+        setStatus(`Reprocessing failed: ${error.message}`, 'error');
+      }
+    } finally {
+      if (reprocessing) closeWorkflowProgress();
+      checkbox.disabled = false;
+      button.disabled = false;
+    }
   }

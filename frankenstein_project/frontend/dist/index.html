@@ -370,7 +370,7 @@
           <div><span>Pallets</span><strong id="operations-pallet-count">0</strong><small>From MPL and Ti-Hi</small></div>
         </section>
 
-        <div id="operations-box-actions" class="operations-box-actions"><button class="btn-secondary" type="button" onclick="openOperationsPacking()">Customize packing</button></div>
+        <div id="operations-box-actions" class="operations-box-actions"><label><input id="operations-customize-packing" type="checkbox" onchange="if (this.checked) openOperationsPacking(); else closeOperationsPacking()"> Customize packing</label></div>
 
         <section class="operations-output-selector module-surface-card">
           <div class="operations-output-heading">
@@ -1321,7 +1321,7 @@
           </div>
           <p>A changed pack quantity clears the saved product barcode. Review labels before printing.</p>
           <button class="btn-secondary" type="button" onclick="document.getElementById('operations-packing-quantity-step').classList.remove('hidden'); document.getElementById('operations-packing-size-step').classList.add('hidden')">Back</button>
-          <button class="btn-generate" id="operations-packing-apply" type="button" onclick="applyOperationsPacking()">Apply &amp; recalculate</button>
+          <button class="btn-generate" id="operations-packing-apply" type="button" onclick="applyOperationsPacking()">OK</button>
         </div>
         <p id="operations-packing-summary" aria-live="polite"></p>
         <p id="operations-packing-error" role="status"></p>
