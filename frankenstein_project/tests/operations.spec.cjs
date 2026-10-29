@@ -94,7 +94,7 @@ test('optional box customization preserves the source and shares partial boxes w
     jobs: b2bOrderLabelJobs.filter(job => job.order_packaging),
   }));
   expect((await state()).boxes).toBe(650);
-  await page.getByRole('button', { name: 'Customize boxes', exact: true }).click();
+  await page.getByRole('button', { name: 'Customize packing', exact: true }).click();
   const dialog = page.locator('#operations-packing-modal');
   await expect(page.locator('#operations-packing-value')).toHaveValue('');
   await page.locator('#operations-packing-value').fill('30');
@@ -102,7 +102,7 @@ test('optional box customization preserves the source and shares partial boxes w
   await dialog.getByRole('button', { name: 'Next: box size' }).click();
   for (const [field, value] of Object.entries({ length: '20', width: '16', height: '10', gross: '31' })) await page.locator(`#operations-packing-${field}`).fill(value);
   await page.screenshot({ path: test.info().outputPath('box-setup.png') });
-  await dialog.getByRole('button', { name: 'Apply boxes & recalculate pallets' }).click();
+  await dialog.getByRole('button', { name: 'Apply & recalculate' }).click();
   await expect(dialog).toBeHidden();
   const packed = await state();
   expect(packed.source).toBe(650);
@@ -112,17 +112,17 @@ test('optional box customization preserves the source and shares partial boxes w
   expect(packed.jobs.map(job => [job.run.carton_start, job.run.carton_end, job.run.carton_total, job.run.net_weight])).toEqual([
     ['1', '21', '22', '30 lb'], ['22', '22', '22', '20 lb'],
   ]);
-  await page.getByRole('button', { name: 'Customize boxes', exact: true }).click();
+  await page.getByRole('button', { name: 'Customize packing', exact: true }).click();
   await page.locator('#operations-packing-mode').selectOption('boxes');
   await page.locator('#operations-packing-value').fill('26');
   await expect(page.locator('#operations-packing-summary')).toHaveText('26 box(es) × 25 lb');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await state()).boxes).toBe(22);
   failCustom = true;
-  await page.getByRole('button', { name: 'Customize boxes', exact: true }).click();
+  await page.getByRole('button', { name: 'Customize packing', exact: true }).click();
   await page.locator('#operations-packing-value').fill('25');
   await dialog.getByRole('button', { name: 'Next: box size' }).click();
-  await dialog.getByRole('button', { name: 'Apply boxes & recalculate pallets' }).click();
+  await dialog.getByRole('button', { name: 'Apply & recalculate' }).click();
   await expect(page.locator('#operations-packing-error')).toContainText('Pallet calculation unavailable');
   expect((await state()).boxes).toBe(22);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();

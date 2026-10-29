@@ -126,7 +126,7 @@
       // Commit only after a successful calculation; failed requests preserve the session.
       const input = { mpl, product_master: draft.reviewed_product_master, action: 'auto' };
       const result = await window.LabelKitAPI.json('/api/documents/pallet-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 45000);
-      if (orderDocumentsState.mplDraft !== previousDraft || JSON.stringify(previousDraft) !== previousVersion || operationsPackingLine !== lineIndex) throw new Error('The active order changed. Reopen Customize boxes.');
+      if (orderDocumentsState.mplDraft !== previousDraft || JSON.stringify(previousDraft) !== previousVersion || operationsPackingLine !== lineIndex) throw new Error('The active order changed. Reopen Customize packing.');
       draft.packing_lists[0] = result.mpl;
       orderDocumentsState.mplDraft = draft;
       activeKeheDocumentDraft = draft;
@@ -151,7 +151,7 @@
       selectB2BOrderJob(Math.max(0, b2bOrderLabelJobs.findIndex(job => job.line_index === lineIndex && job.order_packaging)));
       renderOperationsWorkspace();
       closeOperationsPacking();
-      setStatus(`Box customization applied: ${totalBoxes} boxes. Review labels and packing list before printing.`, 'success');
+      setStatus(`Packing updated: ${totalBoxes} boxes. Pallets recalculated. Review labels and packing list before printing.`, 'success');
     } catch (error) { errorTarget.textContent = error.message; }
     finally { button.disabled = false; }
   }

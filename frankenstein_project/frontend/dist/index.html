@@ -370,7 +370,7 @@
           <div><span>Pallets</span><strong id="operations-pallet-count">0</strong><small>From MPL and Ti-Hi</small></div>
         </section>
 
-        <div id="operations-box-actions" class="operations-box-actions"><span>Need a different carton quantity or box size for this order?</span><button class="btn-secondary" type="button" onclick="openOperationsPacking()">Customize boxes</button></div>
+        <div id="operations-box-actions" class="operations-box-actions"><button class="btn-secondary" type="button" onclick="openOperationsPacking()">Customize packing</button></div>
 
         <section class="operations-output-selector module-surface-card">
           <div class="operations-output-heading">
@@ -1299,7 +1299,7 @@
 
   <div class="editor-panel workflow-popup-panel" id="operations-packing-modal" role="dialog" aria-modal="true" aria-labelledby="operations-packing-title">
     <div class="editor-dialog workflow-popup-dialog">
-      <div class="editor-toolbar"><div><div class="editor-title" id="operations-packing-title">Customize boxes for this order</div><p>Defaults stay unchanged until you apply. Product Master is not updated.</p></div><button class="btn-secondary" type="button" onclick="closeOperationsPacking()">Cancel</button></div>
+      <div class="editor-toolbar"><div><div class="editor-title" id="operations-packing-title">Customize packing</div><p>Set carton quantities and box sizes, then recalculate this order.</p></div><button class="btn-secondary" type="button" onclick="closeOperationsPacking()">Cancel</button></div>
       <div class="editor-body operations-packing-body">
         <label>Order line<select id="operations-packing-line" onchange="selectOperationsPackingLine(this.value)"></select></label>
         <p id="operations-packing-source"></p>
@@ -1321,7 +1321,7 @@
           </div>
           <p>A changed pack quantity clears the saved product barcode. Review labels before printing.</p>
           <button class="btn-secondary" type="button" onclick="document.getElementById('operations-packing-quantity-step').classList.remove('hidden'); document.getElementById('operations-packing-size-step').classList.add('hidden')">Back</button>
-          <button class="btn-generate" id="operations-packing-apply" type="button" onclick="applyOperationsPacking()">Apply boxes &amp; recalculate pallets</button>
+          <button class="btn-generate" id="operations-packing-apply" type="button" onclick="applyOperationsPacking()">Apply &amp; recalculate</button>
         </div>
         <p id="operations-packing-summary" aria-live="polite"></p>
         <p id="operations-packing-error" role="status"></p>
