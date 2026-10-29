@@ -274,9 +274,12 @@
       const previousSku = previous?.sku || product.sku;
       if (previous) previous[field] = value;
       else snapshot.push({ ...product, [field]: value });
+      for (const item of orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items || [])) {
+        if (item.order_packaging?.product?.config_id === product.config_id) item.order_packaging.product[field] = value;
+      }
       if (normalizePackagingLevel(product.packaging_level) === 'Case') {
         for (const item of orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items || [])) {
-          if (item.sku !== previousSku) continue;
+          if (item.sku !== previousSku || (item.order_packaging && item.order_packaging.product.config_id !== product.config_id)) continue;
           if (field === 'description' || field === 'sku') item[field] = value;
           if (field === 'gtin') item.case_upc = value;
         }
@@ -367,12 +370,24 @@
     const items = draft?.packing_lists?.flatMap(mpl => mpl.items || []) || [];
     for (const job of b2bOrderLabelJobs) {
       const product = job.product || {};
+      if (normalizePackagingLevel(product.packaging_level) === 'Pallet') continue;
       const caseRow = products.find(row => row.config_id && row.config_id === product.config_id
         && row.storefront === product.storefront && normalizePackagingLevel(row.packaging_level) === 'Case');
       const matches = items.filter(item => item.review_line_index != null && job.line_index != null
         ? item.review_line_index === job.line_index
         : String(item.sku || '').toLowerCase() === String(caseRow?.sku || product.sku || '').toLowerCase());
       if (!matches.length) continue;
+      if (job.order_packaging) {
+        const groupRows = matches.filter(item => item.order_packing_group === job.order_packing_group);
+        const keys = [...new Set(matches.map(item => item.order_packing_group))].sort();
+        const count = rows => rows.reduce((sum, item) => sum + Number(item.qty_on_pallet || item.total_shipped || 0), 0);
+        const total = count(matches);
+        const start = 1 + count(matches.filter(item => keys.indexOf(item.order_packing_group) < keys.indexOf(job.order_packing_group)));
+        for (const run of [job.run, ...Object.values(job.template_runs || {})].filter(Boolean)) {
+          Object.assign(run, { carton_total: String(total), carton_start: String(start), carton_end: String(start + count(groupRows) - 1) });
+        }
+        continue;
+      }
       const eaches = matches.reduce((sum, item) => sum + (Number(item.qty_on_pallet || item.total_shipped) || 0) * (Number(item.quantity_per_case || caseRow?.case_qty) || 1), 0);
       const total = Math.ceil(eaches / (Number(product.case_qty) || 1));
       for (const run of [job.run, ...Object.values(job.template_runs || {})].filter(Boolean)) {

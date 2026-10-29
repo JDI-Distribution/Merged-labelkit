@@ -196,6 +196,12 @@ def _product_master_lookup(rows: List[Dict[str, Any]], *, packing_list_only: boo
 
 
 def _match_product_master_row(item: Dict[str, Any], rows: List[Dict[str, Any]], *, packing_list_only: bool = False) -> Optional[Dict[str, Any]]:
+    # A reviewed order can repack the same SKU into different physical boxes.
+    # Keep those measurements local to this line, including partial final boxes.
+    packing = item.get('order_packaging')
+    override = packing.get('product') if isinstance(packing, dict) else None
+    if isinstance(override, dict):
+        return normalize_product_master_row(override)
     lookup = _product_master_lookup(rows, packing_list_only=packing_list_only)
     for value in (item.get("gtin"), item.get("case_upc"), item.get("upc")):
         key = _canonical_id(value)

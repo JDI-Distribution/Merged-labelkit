@@ -204,7 +204,7 @@ def auto_palletize(mpl, products):
         weights[number] = _format_lbs(_mpl_round_product_weight_for_pallet(weight) + _MPL_PALLET_TARE_LBS)
         merged = {}
         for row in pallet['items']:
-            key = tuple(str(row.get(field) or '').strip().lower() for field in ('sku', 'description', 'uom', 'expiration_date', 'unit_weight_lbs', 'dimensions_in', 'review_line_index'))
+            key = tuple(str(row.get(field) or '').strip().lower() for field in ('sku', 'description', 'uom', 'expiration_date', 'unit_weight_lbs', 'dimensions_in', 'review_line_index', 'order_packing_group'))
             if key in merged:
                 amount = qty(merged[key]) + qty(row)
                 merged[key].update(qty_on_pallet=str(amount), total_shipped=str(amount))

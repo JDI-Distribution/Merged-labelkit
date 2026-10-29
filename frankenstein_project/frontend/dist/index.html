@@ -370,6 +370,8 @@
           <div><span>Pallets</span><strong id="operations-pallet-count">0</strong><small>From MPL and Ti-Hi</small></div>
         </section>
 
+        <div id="operations-box-actions" class="operations-box-actions"><span>Need a different carton quantity or box size for this order?</span><button class="btn-secondary" type="button" onclick="openOperationsPacking()">Customize boxes</button></div>
+
         <section class="operations-output-selector module-surface-card">
           <div class="operations-output-heading">
             <div><span class="operations-step">02</span><div><div class="mpl-order-lookup-kicker" id="operations-output-kicker">Documents</div><h2 id="operations-output-title">Choose what this order needs</h2><p id="operations-output-description">Select every document that should be generated from this reviewed order.</p></div></div>
@@ -1295,6 +1297,38 @@
 
 </div>
 
+  <div class="editor-panel workflow-popup-panel" id="operations-packing-modal" role="dialog" aria-modal="true" aria-labelledby="operations-packing-title">
+    <div class="editor-dialog workflow-popup-dialog">
+      <div class="editor-toolbar"><div><div class="editor-title" id="operations-packing-title">Customize boxes for this order</div><p>Defaults stay unchanged until you apply. Product Master is not updated.</p></div><button class="btn-secondary" type="button" onclick="closeOperationsPacking()">Cancel</button></div>
+      <div class="editor-body operations-packing-body">
+        <label>Order line<select id="operations-packing-line" onchange="selectOperationsPackingLine(this.value)"></select></label>
+        <p id="operations-packing-source"></p>
+        <div id="operations-packing-quantity-step">
+          <h3>1. Choose how to pack this line</h3>
+          <label>Pack by<select id="operations-packing-mode" onchange="updateOperationsPackingSummary()"><option value="lbs">Pounds per box</option><option value="units">Ordered units per box</option><option value="boxes">Total boxes</option></select></label>
+          <label><span id="operations-packing-value-label">Pounds per box</span><input id="operations-packing-value" type="number" min="0.000001" step="any" oninput="updateOperationsPackingSummary()"></label>
+          <label>Pounds per ordered unit<input id="operations-packing-unit-lbs" type="number" min="0.000001" step="any" oninput="updateOperationsPackingSummary()"><small>Confirm this value when packing by weight. Gross shipping weight is entered in the next step.</small></label>
+          <button class="btn-generate" type="button" onclick="continueOperationsPacking()">Next: box size</button>
+        </div>
+        <div id="operations-packing-size-step" class="hidden">
+          <h3>2. Configure the actual shipping box</h3>
+          <p>Measurements apply to every box on this line. Packed weight is for the fullest box; smaller boxes keep the same box tare weight.</p>
+          <div class="operations-packing-measurements">
+            <label>Length (in)<input id="operations-packing-length" type="number" min="0.01" step="any"></label>
+            <label>Width (in)<input id="operations-packing-width" type="number" min="0.01" step="any"></label>
+            <label>Height (in)<input id="operations-packing-height" type="number" min="0.01" step="any"></label>
+            <label>Packed box weight (lb)<input id="operations-packing-gross" type="number" min="0.01" step="any"></label>
+          </div>
+          <p>A changed pack quantity clears the saved product barcode. Review labels before printing.</p>
+          <button class="btn-secondary" type="button" onclick="document.getElementById('operations-packing-quantity-step').classList.remove('hidden'); document.getElementById('operations-packing-size-step').classList.add('hidden')">Back</button>
+          <button class="btn-generate" id="operations-packing-apply" type="button" onclick="applyOperationsPacking()">Apply boxes &amp; recalculate pallets</button>
+        </div>
+        <p id="operations-packing-summary" aria-live="polite"></p>
+        <p id="operations-packing-error" role="status"></p>
+      </div>
+    </div>
+  </div>
+
 <script src="/assets/vendor/pdfjs-3.11.174/pdf.min.js"></script>
   <script type="module" src="/assets/js/modules/api-client.js"></script>
   <script type="module" src="/assets/js/modules/document-pipeline.js"></script>
@@ -1305,6 +1339,7 @@
   <script type="module" src="/assets/js/modules/packing-model.js"></script>
   <script type="module" src="/assets/js/modules/master-data-model.js"></script>
   <script type="module" src="/assets/js/modules/order-documents-model.js"></script>
+  <script type="module" src="/assets/js/modules/order-packing-model.js"></script>
   <script type="module" src="/assets/js/modules/document-editor-model.js"></script>
   <script type="module" src="/assets/js/modules/preview-manager.js"></script>
   <script src="/assets/js/reference-data.js"></script>
@@ -1315,6 +1350,7 @@
   <script src="/assets/js/document-editor.js"></script>
   <script src="/assets/js/app.js"></script>
   <script src="/assets/js/operations-workspace.js"></script>
+  <script src="/assets/js/operations-packing.js"></script>
   <script src="/assets/js/workflow-enhancements.js"></script>
 
 <script>

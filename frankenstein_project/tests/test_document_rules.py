@@ -8,6 +8,27 @@ from labelkit.routes.generation import _refresh_mpl_render_product_master
 
 
 class DocumentRulesTests(unittest.TestCase):
+    def test_order_only_boxes_keep_custom_dimensions_weights_and_partial_demand(self):
+        products = [dict(sku='CMB109-1LB', packaging_level='Case', case_qty='1', length_in='3',
+                         width_in='3', height_in='3', gross_weight_lbs='1', in_packing_list=True)]
+        before = copy.deepcopy(products)
+        items = []
+        for group, count, units in [('0', 21, 30), ('1', 1, 20)]:
+            product = dict(products[0], config_id='ORDER-' + group, length_in='20', width_in='16', height_in='10',
+                           case_qty=str(units), gross_weight_lbs=str(units + 1))
+            items.append(dict(sku='CMB109-1LB', qty_on_pallet=str(count), total_ordered=str(count), total_shipped=str(count),
+                              review_line_index=0, order_packing_group=group, location_on_pallet='1',
+                              quantity_per_case=str(units), order_packaging=dict(product=product)))
+        result = pallet_plan(dict(items=items), products, 'auto')
+        packed = result['mpl']['items']
+        self.assertEqual(sum(int(row['qty_on_pallet']) for row in packed), 22)
+        self.assertEqual(sum(int(row['qty_on_pallet']) * float(row['quantity_per_case']) for row in packed), 650)
+        self.assertEqual(sum(int(row['qty_on_pallet']) * float(row['unit_weight_lbs']) for row in packed), 672)
+        self.assertEqual({row['length_in'] for row in packed}, {'20'})
+        self.assertEqual({row['height_in'] for row in packed}, {'10'})
+        self.assertTrue(all(entry['overflow_cases'] == 0 for entry in result['entries']))
+        self.assertEqual(products, before)
+
     def setUp(self):
         self.products = [dict(sku='CASE', gtin='10850079841588', description='Crown', packaging_level='Case',
                               storefront='Dutch Bros', config_id='A', case_qty='12', length_in='8', width_in='5',

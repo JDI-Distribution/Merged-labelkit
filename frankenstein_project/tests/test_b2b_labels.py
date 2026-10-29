@@ -68,6 +68,23 @@ class B2BLabelRendererTests(unittest.TestCase):
             },
         }
 
+    def test_custom_boxes_render_full_and_partial_ranges_with_one_shared_total(self):
+        template = next(row for row in self.templates if row['template_id'] == 'FANCY_SRD_3X3')
+        jobs = []
+        for start, end, units in [(1, 21, 30), (22, 22, 20)]:
+            job = self._job(template)
+            job['product'].update(sku='CMB109-1LB', description='Candy Mini Bits - Bubblegum (1LB)',
+                                  gtin='', barcode_type='NONE', case_qty=str(units))
+            job['run'].update(carton_start=str(start), carton_end=str(end), carton_total='22', copies='1', print_barcode=False)
+            jobs.append(job)
+        pdf, pages, _ = _render_b2b_batch_pdf(jobs)
+        self.assertEqual(pages, 22)
+        with fitz.open(stream=pdf, filetype='pdf') as document:
+            self.assertIn('Box 1 of 22', document[0].get_text())
+            self.assertIn('Box 22 of 22', document[-1].get_text())
+            self.assertIn('30', document[0].get_text())
+            self.assertIn('20', document[-1].get_text())
+
     def test_registry_has_a_working_renderer_for_every_supported_label(self):
         self.assertEqual(13, len(self.templates))
         for template in self.templates:

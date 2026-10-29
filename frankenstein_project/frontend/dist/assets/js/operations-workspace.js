@@ -508,6 +508,7 @@
     const orderInput = document.getElementById('operations-sales-order-number');
     const loadOrderButton = document.getElementById('btn-load-operations-order');
     const customMode = customLabels || customMpl;
+    document.getElementById('operations-box-actions')?.classList.toggle('hidden', customMode || !payload.items?.length);
     setText('operations-order-kicker', customMode ? 'Optional order autofill' : 'Sales order');
     setText('operations-order-title', customLabels
       ? 'Optional: load an order to auto-fill this label'

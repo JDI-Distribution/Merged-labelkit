@@ -1340,6 +1340,7 @@
   }
 
   function matchProductMaster(item, options = {}) {
+    if (item?.order_packaging?.product) return normalizeProductRow(item.order_packaging.product);
     const rows = (options.rows || getActiveProductMasterRows())
       .filter(row => !options.caseOnly || isProductInPackingList(row));
     const candidates = [item.config_id, item.gtin, item.case_upc, item.upc, item.item_number, item.customer_item_number, item.sku]

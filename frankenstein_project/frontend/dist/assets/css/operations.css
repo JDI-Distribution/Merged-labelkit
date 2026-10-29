@@ -2262,3 +2262,9 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
       gap: 8px;
       flex-wrap: wrap;
     }
+/* Optional order-only shipping box setup. */
+.operations-box-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding: 12px 0; }
+.operations-packing-body label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.operations-packing-body input, .operations-packing-body select { width: 100%; min-height: 40px; }
+.operations-packing-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#operations-packing-error { color: var(--danger, #b42318); }
