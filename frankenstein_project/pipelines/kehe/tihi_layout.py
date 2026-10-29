@@ -291,6 +291,13 @@ def _mpl_pick_best_layer_placement(
     base_z: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     options = _mpl_tihi_placement_options(dimensions)
+    # Orientation is the leading part of the existing score. Search in that
+    # order so a lower-ranked orientation need not be scanned after a fit.
+    options.sort(key=lambda option: (
+        bool(option.get('rotated')) == prefer_rotated,
+        math.floor(constraints['max_length_in'] / option['case_length'])
+        * math.floor(constraints['max_width_in'] / option['case_width']),
+    ), reverse=True)
     best: Optional[Dict[str, Any]] = None
     blockers = blocking_placements if blocking_placements is not None else layer_placements
     for option in options:
@@ -313,13 +320,28 @@ def _mpl_pick_best_layer_placement(
             x_seeds.extend([x, x + length - option["case_length"], x + length, x - option["case_length"]])
             y_seeds.extend([y, y + width - option["case_width"], y + width, y - option["case_width"]])
 
-        for x in _mpl_tihi_candidate_values(x_seeds, max_x):
-            for y in _mpl_tihi_candidate_values(y_seeds, max_y):
+        x_values = _mpl_tihi_candidate_values(x_seeds, max_x)
+        y_values = _mpl_tihi_candidate_values(y_seeds, max_y)
+        relevant_blockers = [
+            (float(placed.get('x') or 0.0), float(placed.get('y') or 0.0),
+             float(placed.get('x') or 0.0) + _mpl_rect_length(placed),
+             float(placed.get('y') or 0.0) + _mpl_rect_width(placed))
+            for placed in blockers
+            if _mpl_tihi_z_overlaps(placed, base_z, float(option['case_height']))
+        ]
+        # The final score prefers lower y, then lower x. A fully supported fit
+        # encountered in this order is already the best possible candidate.
+        for y in y_values:
+            # Only blockers crossing this row can collide. Keep the original
+            # intersection-area tolerance, with coordinates converted once.
+            row_blockers = [(left, right, min(y + option['case_width'], top) - max(y, bottom))
+                            for left, bottom, right, top in relevant_blockers
+                            if bottom < y + option['case_width'] and top > y]
+            for x in x_values:
                 placement = {**option, "x": x, "y": y}
                 if any(
-                    _mpl_tihi_z_overlaps(existing, base_z, float(option["case_height"]))
-                    and _mpl_tihi_rects_overlap(placement, existing)
-                    for existing in blockers
+                    (min(x + option['case_length'], right) - max(x, left)) * overlap_y > 0.001
+                    for left, right, overlap_y in row_blockers
                 ):
                     continue
                 if _mpl_tihi_has_lighter_support_overlap(placement, support_surfaces, min_support_weight):
@@ -337,6 +359,10 @@ def _mpl_pick_best_layer_placement(
                 )
                 if best is None or _mpl_score_gt(score, best["score"]):
                     best = {"placement": placement, "score": score, "support_ratio": support_ratio}
+                if support_ratio == 1.0:
+                    return best
+        if best is not None:
+            return best
     return best
 
 
@@ -664,6 +690,8 @@ def _calculate_pallet_layout(groups: List[Dict[str, Any]], constraints: Dict[str
             if group["remaining_cases"] <= 0:
                 continue
             for level_index, base_z in enumerate(support_levels):
+                if candidate is not None and base_z > candidate['base_z']:
+                    break
                 layer_count = sum(abs(float(p.get("z") or 0) - base_z) <= 0.001 for p in placements)
                 if constraints.get("cases_per_layer") and layer_count >= constraints["cases_per_layer"]:
                     continue
@@ -708,6 +736,8 @@ def _calculate_pallet_layout(groups: List[Dict[str, Any]], constraints: Dict[str
                         "score": score,
                         "base_z": base_z,
                     }
+                # Higher levels cannot improve the leading -base_z score.
+                break
 
         if candidate is None:
             for group in active_groups:

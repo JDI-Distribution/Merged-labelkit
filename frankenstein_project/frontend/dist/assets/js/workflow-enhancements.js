@@ -3,6 +3,7 @@
   const PROGRESS_STEPS = [
     'Loading order',
     'Matching SKUs',
+    'Planning pallets',
     'Calculating cartons',
     'Preparing labels',
     'Rendering packing list',

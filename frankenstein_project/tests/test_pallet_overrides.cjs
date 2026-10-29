@@ -31,7 +31,8 @@ test('browser displays backend Ti-Hi results and requests a new plan when an ove
   let calls = 0;
   ctx.activeKeheDocumentType = '';
   ctx.LabelKitPackingModel.configurePalletDefaults({ max_length_in: 48, max_width_in: 40, max_height_in: 70, max_gross_lbs: 2000, pallet_base_height_in: 6, cases_per_layer: 0, max_layers: 0 });
-  ctx.LabelKitAPI = { json: async (_url, options) => {
+  ctx.LabelKitAPI = { json: async (_url, options, timeoutMs) => {
+    assert.equal(timeoutMs, 45000);
     const { mpl } = JSON.parse(options.body); calls++;
     const override = mpl._tihi_constraints.cases_per_layer;
     return { mpl: { _pallet_dimensions: { '1': override ? '48 x 40 x 21 in' : '48 x 40 x 11 in' }, _pallet_tihi: { '1': override ? '4 x 3' : '9 x 1' } },

@@ -36,7 +36,7 @@
     const draft = activeKeheDocumentDraft;
     state.promise = window.LabelKitAPI.json('/api/documents/pallet-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...input, action }),
-    }, 0).then(payload => {
+    }, 45000).then(payload => {
       if (JSON.stringify(palletPlanInput(mpl)) !== key || activeKeheDocumentDraft !== draft) throw new Error('Pallet inputs changed during calculation. Recalculate the current version.');
       if (action !== 'plan') {
         Object.assign(mpl, payload.mpl);

@@ -1,10 +1,37 @@
 import unittest
+from unittest.mock import patch
 
+from pipelines.kehe import tihi_layout
 from pipelines.kehe.tihi_layout import _mpl_build_tihi_entries, _mpl_tihi_constraints
 from pipelines.kehe.mpl_renderer import _mpl_order_balance_cases, _mpl_prepare_items
 
 
 class PalletOverrideTests(unittest.TestCase):
+    def test_optimal_floor_fit_stops_searching_after_full_support(self):
+        constraints = _mpl_tihi_constraints()
+        surfaces = tihi_layout._mpl_tihi_support_surfaces([], 0, constraints)
+        with patch.object(tihi_layout, '_mpl_tihi_support_ratio', wraps=tihi_layout._mpl_tihi_support_ratio) as support:
+            best = tihi_layout._mpl_pick_best_layer_placement([], surfaces, (8, 5, 5), constraints)
+        self.assertEqual((best['placement']['x'], best['placement']['y']), (0, 0))
+        self.assertEqual(best['support_ratio'], 1)
+        self.assertEqual(support.call_count, 1)
+
+    def test_mixed_stack_preserves_case_count_support_and_collision_rules(self):
+        items = [dict(self.item(40), sku='HEAVY', length_in='8', width_in='5', unit_weight_lbs='2'),
+                 dict(self.item(40), sku='LIGHT', length_in='10', width_in='6', height_in='4')]
+        entries, warnings = _mpl_build_tihi_entries({}, items)
+        self.assertEqual(warnings, [])
+        placements = entries[0]['placements']
+        self.assertEqual(len(placements), 80)
+        constraints = _mpl_tihi_constraints()
+        for index, placed in enumerate(placements):
+            for other in placements[index + 1:]:
+                if tihi_layout._mpl_tihi_z_overlaps(other, placed['z'], placed['case_height']):
+                    self.assertFalse(tihi_layout._mpl_tihi_rects_overlap(placed, other))
+            supports = tihi_layout._mpl_tihi_support_surfaces(placements, placed['z'], constraints)
+            self.assertGreaterEqual(tihi_layout._mpl_tihi_support_ratio(placed, supports, placed['unit_weight']), 0.8)
+            self.assertFalse(tihi_layout._mpl_tihi_has_lighter_support_overlap(placed, supports, placed['unit_weight']))
+
     def item(self, quantity=9):
         return dict(line=1, location_on_pallet="1", sku="CASE", qty_on_pallet=str(quantity),
                     total_ordered=str(quantity), total_shipped=str(quantity),

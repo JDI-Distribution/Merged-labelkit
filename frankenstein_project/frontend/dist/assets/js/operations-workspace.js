@@ -763,6 +763,7 @@
     activeKeheDocumentType = 'masterPackingList';
     activeKeheDocumentDraft = draft;
     keheLastMplDraft = draft;
+    updateWorkflowProgress('Planning pallets', 'Calculating pallet assignments and Ti-Hi layouts…');
     const palletization = await autoPalletizeMpl(0, { render: false, showStatus: false }) || {};
     orderDocumentsState.mplDraft = activeKeheDocumentDraft;
     document.getElementById('operations-order-instance-picker')?.classList.add('hidden');

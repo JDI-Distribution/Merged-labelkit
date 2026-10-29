@@ -43,6 +43,28 @@ async function setUpManualLabel(page) {
   await expect(page.locator('#b2b-sku-template-list .b2b-sku-row')).toHaveCount(1);
 }
 
+test('order loading identifies the pallet planning stage and completes after its response', async ({ page }) => {
+  let releasePlan, planStarted;
+  const gate = new Promise(resolve => { releasePlan = resolve; });
+  const started = new Promise(resolve => { planStarted = resolve; });
+  await page.route('**/api/documents/pallet-plan', async route => {
+    planStarted();
+    await gate;
+    await route.continue();
+  });
+  await openOperations(page);
+  const loading = loadOrder(page, '38800');
+  try {
+    await started;
+    await expect(page.locator('#workflow-progress-list .active strong')).toHaveText('Planning pallets');
+    await expect(page.locator('#workflow-progress-message')).toContainText('Ti-Hi');
+  } finally {
+    releasePlan();
+  }
+  await loading;
+  await expect(page.locator('#btn-load-operations-order')).toBeEnabled();
+});
+
 test('Custom Labels resets order state, selects multiple templates, and reports readiness', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
