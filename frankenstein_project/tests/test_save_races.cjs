@@ -14,6 +14,36 @@ function load(files) {
   return ctx;
 }
 
+test('explicit table flush waits for an earlier save and writes the latest edit with its new revision', async () => {
+  const ctx = load(['reference-data.js']);
+  let rows = [{ value: 'loaded' }], finish;
+  const requests = [];
+  Object.assign(ctx, {
+    allowLocalFallback: () => false, hasPermission: () => true, setStatus: () => {},
+    LabelKitAPI: { json: async (_, options) => {
+      if (!options.body) return { rows, revision: 'r1' };
+      requests.push(JSON.parse(options.body));
+      if (requests.length === 1) return new Promise(resolve => { finish = resolve; });
+      return { rows, revision: 'r3' };
+    } },
+  });
+  const table = ctx.createReferenceTable({ endpoint: '/table', label: 'Table', getRows: () => rows,
+    setRows: value => { rows = value; }, normalizeRows: value => value, loadLocal: () => [],
+    saveLocal: () => {}, render: () => {} });
+  await table.load();
+  assert.equal(await table.flush(), true);
+  assert.equal(requests.length, 0);
+  rows = [{ value: 'earlier' }];
+  const earlier = table.save();
+  rows = [{ value: 'latest' }];
+  const flush = table.flush(true);
+  finish({ rows: [{ value: 'earlier' }], revision: 'r2' });
+  await earlier;
+  assert.equal(await flush, true);
+  assert.deepEqual(requests.map(request => request.expected_revision), ['r1', 'r2']);
+  assert.equal(requests[1].rows[0].value, 'latest');
+});
+
 test('automatic Directory selection excludes drafts and cannot replace a resolved buyer', () => {
   const ctx = load(['modules/master-data-model.js', 'order-context.js']);
   Object.assign(ctx, {

@@ -1146,14 +1146,14 @@
     );
   }
 
-  function buildB2BOrderLabelJobs(orderItems) {
+  function buildB2BOrderLabelJobs(orderItems, fallbackProducts = b2bOrderFallbackProducts) {
     const destination = { ...(b2bResolvedDirectoryFallback || {}) };
     const shipFrom = getSelectedB2BShipFrom();
     destination.ship_from_name = String(shipFrom.name || '').trim();
     destination.ship_from = String(shipFrom.address || shipFrom.ship_from || '').replace(/\\n/g, '\n').trim();
     return window.LabelKitB2BOrderJobs.buildB2BOrderLabelJobs({
       orderItems,
-      fallbackProducts: b2bOrderFallbackProducts,
+      fallbackProducts,
       productRows: mplProductMasterRows,
       templates: b2bLabelTemplates,
       destination,

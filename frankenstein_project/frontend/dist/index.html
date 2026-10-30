@@ -370,6 +370,7 @@
           <div><span>Pallets</span><strong id="operations-pallet-count">0</strong><small>From MPL and Ti-Hi</small></div>
         </section>
 
+        <div id="operations-missing-products" class="operations-box-actions"></div>
         <div id="operations-box-actions" class="operations-box-actions"><label><input id="operations-customize-packing" type="checkbox" onchange="openOperationsPacking()"> Customize packing</label></div>
 
         <section class="operations-output-selector module-surface-card">
@@ -1042,7 +1043,8 @@
       </div>
       <div class="editor-body master-record-editor-body" id="mpl-product-editor-body"></div>
       <div class="editor-footer master-record-editor-footer">
-        <button class="btn-secondary" type="button" onclick="closeMplProductEditor()">Done</button>
+        <button class="btn-secondary" id="mpl-product-editor-done" type="button" onclick="closeMplProductEditor()">Done</button>
+        <p id="mpl-product-order-error" role="alert"></p>
       </div>
     </div>
   </div>
@@ -1351,6 +1353,7 @@
   <script src="/assets/js/app.js"></script>
   <script src="/assets/js/operations-workspace.js"></script>
   <script src="/assets/js/operations-packing.js"></script>
+  <script src="/assets/js/operations-products.js"></script>
   <script src="/assets/js/workflow-enhancements.js"></script>
 
 <script>

@@ -6,6 +6,78 @@ const fs = require('node:fs');
 test.skip(process.env.LABELKIT_ISOLATED_SANITY !== '1', 'Requires an isolated local catalog.');
 let originalRows;
 
+test('missing order SKU can be created inline, cancelled, retried, and rematched without losing other order edits', async ({ page, request }) => {
+  test.skip(process.env.LABELKIT_INLINE_SKU_SANITY !== '1', 'Requires the isolated inline order fixture.');
+  const sku = 'CMB109-1LB';
+  let rejectSave = true, rejectPlan = true;
+  await page.route('**/api/mpl/product-master', async route => {
+    if (route.request().method() === 'PUT' && rejectSave && route.request().postDataJSON().rows.some(row => row.sku === sku)) {
+      rejectSave = false;
+      return route.fulfill({ status: 503, json: { detail: 'Injected master save failure' } });
+    }
+    await route.continue();
+  });
+  await page.route('**/api/documents/pallet-plan', async route => {
+    const body = route.request().postDataJSON();
+    if (body.action === 'auto' && rejectPlan && body.mpl.items.some(item => item.review_line_index === 0 && item.order_match_status === 'matched')) {
+      rejectPlan = false;
+      return route.fulfill({ status: 503, json: { detail: 'Injected plan failure' } });
+    }
+    await route.continue();
+  });
+  await page.goto('/#operations');
+  await page.locator('#operations-sales-order-number').fill('99126030');
+  await page.getByRole('button', { name: 'Load Order', exact: true }).click();
+  await expect(page.locator('#operations-order-number')).toHaveText('99126030');
+  const add = page.locator('#operations-missing-products').getByRole('button', { name: `Add ${sku} to Product Master`, exact: true });
+  const editor = page.locator('#mpl-product-editor-modal');
+  await add.click();
+  await expect(editor).toBeVisible();
+  await expect(editor.getByLabel('Each SKU', { exact: false })).toHaveValue(sku);
+  await expect(editor.locator('.mpl-product-description-field input')).toHaveValue('Candy Mini Bits - Bubblegum (1LB)');
+  await page.screenshot({ path: test.info().outputPath('inline-sku-setup.png') });
+  expect((await (await request.get('/api/mpl/product-master')).json()).rows.some(row => row.sku === sku)).toBe(false);
+  await editor.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(editor).toBeHidden();
+  expect(await page.evaluate(() => mplProductMasterRows.some(row => row.sku === 'CMB109-1LB'))).toBe(false);
+  const before = await page.evaluate(() => {
+    updateReviewedOrder('po_number', 'KEEP-PO');
+    const other = orderDocumentsState.mplDraft.packing_lists[0].items.find(item => item.review_line_index === 1);
+    other.notes = 'Keep this order-only note';
+    const product = orderDocumentsState.payload.items[1].product;
+    other.order_packaging = { product, settings: { mode: 'boxes', value: 1 } };
+    return { notes: other.notes, packing: JSON.stringify(other.order_packaging) };
+  });
+  await add.click();
+  await editor.locator('.mpl-product-level-add').selectOption('Case');
+  const caseCard = editor.locator('.mpl-packaging-level-card').filter({ has: page.locator('header strong', { hasText: /^Case$/ }) });
+  for (const [label, value] of [['Case SKU', 'CMB109-CASE'], ['Eaches per Case', '25'], ['Length (in)', '24'], ['Width (in)', '16'], ['Height (in)', '10']]) {
+    const field = caseCard.getByLabel(label, { exact: false });
+    await field.fill(value); await field.press('Tab');
+  }
+  await editor.getByLabel('Packaged Weight (lb)', { exact: false }).fill('26');
+  await editor.getByLabel('Packaged Weight (lb)', { exact: false }).press('Tab');
+  await editor.getByRole('button', { name: 'Save & update order', exact: true }).click();
+  await expect(editor.getByRole('alert')).toContainText('not saved');
+  expect((await (await request.get('/api/mpl/product-master')).json()).rows.some(row => row.sku === sku)).toBe(false);
+  await editor.getByRole('button', { name: 'Save & update order', exact: true }).click();
+  await expect(editor.getByRole('alert')).toContainText('Product saved; order update failed');
+  expect((await (await request.get('/api/mpl/product-master')).json()).rows.filter(row => row.sku === sku)).toHaveLength(1);
+  await editor.getByRole('button', { name: 'Retry order update', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect(add).toHaveCount(0);
+  const after = await page.evaluate(() => {
+    const items = orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items);
+    const other = items.find(item => item.review_line_index === 1);
+    return { po: orderDocumentsState.reviewedOrder.fields.po_number, source: orderDocumentsState.payload.items[0].quantity_ordered_eaches,
+      matched: orderDocumentsState.payload.items[0].match_status, boxes: items.filter(item => item.review_line_index === 0).reduce((sum, item) => sum + Number(item.qty_on_pallet), 0),
+      notes: other.notes, packing: JSON.stringify(other.order_packaging), pallets: operationsPalletCount() };
+  });
+  expect(after).toMatchObject({ po: 'KEEP-PO', source: 650, matched: 'matched', boxes: 26, ...before });
+  expect(after.pallets).toBeGreaterThan(0);
+  await page.screenshot({ path: test.info().outputPath('inline-sku-added.png') });
+});
+
 async function replaceCatalog(request, rows) {
   const current = await (await request.get('/api/mpl/product-master')).json();
   return request.put('/api/mpl/product-master', { data: { rows, expected_revision: current.revision } });

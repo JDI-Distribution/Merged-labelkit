@@ -2565,21 +2565,22 @@
   }
 
   function renderMplProductSelect(mplIndex, itemIndex, item) {
+    const addProduct = selectedKit === 'operations' ? operationsAddProductButton(item.review_line_index) : '';
     const rows = getActiveProductMasterRows();
     const caseRows = rows
       .map((row, index) => ({ row, index }))
       .filter(entry => isProductInPackingList(entry.row));
-    if (!rows.length) return '';
+    if (!rows.length) return addProduct;
     if (!caseRows.length) {
       return `
-        <div class="mpl-product-picker">
+        ${addProduct}<div class="mpl-product-picker">
           <label>Product</label>
           <select disabled><option>No active shipping configurations</option></select>
         </div>`;
     }
     const selectedIndex = getMplItemProductIndex(item);
     return `
-      <div class="mpl-product-picker">
+      ${addProduct}<div class="mpl-product-picker">
         <label>Product</label>
         <select onchange="selectMplItemProduct(${mplIndex}, ${itemIndex}, this.value)">
           <option value="">Select product</option>

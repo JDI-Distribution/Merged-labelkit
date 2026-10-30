@@ -1,6 +1,6 @@
 /* Product Master and Customer Directory workspace logic. */
   function createReferenceTable({ endpoint, label, getRows, setRows, normalizeRows, normalizeSavedRows = normalizeRows, loadLocal, saveLocal, render, migrate = () => false, mergeMessage }) {
-    let revision = null, saving = false, pending = false, timer = null;
+    let revision = null, saving = false, pending = false, timer = null, inFlight = null, finish = null;
     const debounced = () => { clearTimeout(timer); timer = setTimeout(save, 500); };
     async function load() {
       const localRows = allowLocalFallback() ? loadLocal() : [];
@@ -25,10 +25,12 @@
       }
     }
     async function save() {
-      if (!hasPermission('table_crud')) return;
+      if (!hasPermission('table_crud')) return false;
       if (saving) { pending = true; return; }
-      if (!revision) { setStatus('Reload this table before saving; its data could not be loaded.', 'error'); return; }
+      clearTimeout(timer); timer = null;
+      if (!revision) { setStatus('Reload this table before saving; its data could not be loaded.', 'error'); return false; }
       saving = true;
+      inFlight = new Promise(resolve => { finish = resolve; });
       pending = false;
       const rows = getRows();
       try {
@@ -43,16 +45,27 @@
           render();
           setStatus(mergeMessage, 'info');
         }
+        return true;
       } catch (err) {
         pending = false;
         setStatus(`${label} was not saved to the server: ${err.message || 'Save failed'}. Your edits remain open.`, 'error');
+        return false;
       } finally {
         saveLocal();
         saving = false;
+        finish(); inFlight = null;
         if (pending) debounced();
       }
     }
-    return { load, save, debounced };
+    async function flush(force = false) {
+      let needed = force || !!timer || pending;
+      clearTimeout(timer); timer = null;
+      if (inFlight) await inFlight;
+      needed ||= !!timer || pending;
+      clearTimeout(timer); timer = null;
+      return needed ? save() : !!revision;
+    }
+    return { load, save, debounced, flush };
   }
 
   const productMasterTable = createReferenceTable({
@@ -235,7 +248,8 @@
   }
 
   function getAllMplProductMasterRows() {
-    return mplProductMasterRows
+    const staged = typeof operationsNewProduct !== 'undefined' && operationsNewProduct;
+    return (staged?.originalRows && !staged.saving && !staged.saved ? staged.originalRows : mplProductMasterRows)
       .map(normalizeProductRow)
       .filter(row => row.gtin || row.description || row.length_in || row.width_in || row.height_in || row.gross_weight_lbs || row.case_qty || row.default_copies || row.sku || row.config_id || row.customer_item_number || row.label_template_id);
   }
@@ -444,6 +458,7 @@
   }
 
   function saveMplProductMasterToStorage() {
+    if (typeof operationsNewProduct !== 'undefined' && operationsNewProduct && !operationsNewProduct.saved) return;
     if (!allowBrowserLocalCache()) return;
     try {
       localStorage.setItem(MPL_PRODUCT_MASTER_STORAGE_KEY, JSON.stringify(getAllMplProductMasterRows()));
@@ -513,7 +528,10 @@
   }
 
   function loadMplProductMasterFromBackend() { return productMasterTable.load(); }
-  function saveMplProductMasterToBackendDebounced() { productMasterTable.debounced(); }
+  function saveMplProductMasterToBackendDebounced() {
+    if (typeof operationsNewProduct !== 'undefined' && operationsNewProduct && !operationsNewProduct.saved) return;
+    productMasterTable.debounced();
+  }
   function saveMplProductMasterToBackend() { return productMasterTable.save(); }
 
   function showMplProductMasterView() {
@@ -852,6 +870,11 @@
   }
 
   function closeMplProductEditor() {
+    if (typeof operationsNewProduct !== 'undefined' && operationsNewProduct) {
+      if (operationsNewProduct.busy) return;
+      if (!operationsNewProduct.saved && operationsNewProduct.originalRows) mplProductMasterRows = operationsNewProduct.originalRows;
+      operationsNewProduct = null;
+    }
     document.getElementById('mpl-product-editor-modal')?.classList.remove('visible');
     mplProductEditorGroupKey = '';
     renderMplProductMasterTable();
@@ -875,8 +898,17 @@
       closeMplProductEditor();
       return;
     }
-    const canEdit = hasPermission('table_crud');
+    const inline = typeof operationsNewProduct !== 'undefined' && operationsNewProduct;
+    const canEdit = hasPermission('table_crud') && !inline?.busy;
     const editDisabled = canEdit ? '' : 'disabled';
+    document.querySelectorAll('#mpl-product-editor-modal .editor-toolbar button').forEach(button => { button.disabled = !!inline?.busy; });
+    if (!inline) document.getElementById('mpl-product-order-error').textContent = '';
+    const done = document.getElementById('mpl-product-editor-done');
+    if (done) {
+      done.textContent = inline ? (inline.saved ? 'Retry order update' : 'Save & update order') : 'Done';
+      done.disabled = !!inline?.busy;
+      done.onclick = inline ? saveOperationsNewProduct : closeMplProductEditor;
+    }
     const eachEntry = mplProductLevelEntry(entries, 'Each') || entries[0];
     const outermost = mplProductOutermostEntry(entries) || eachEntry;
     const shared = eachEntry.row;
@@ -909,7 +941,7 @@
         }).join('')}</div>
       </section>` : ''}
       <section class="mpl-product-shared-card">
-        <header><div><span>Product identity</span><h3>${escapeHtml(shared.description || sharedSku || 'New product')}</h3><p>Its packaging levels belong to this configuration only.</p></div>${canEdit ? `<button class="btn-table-preview" type="button" title="Add a different product with the same SKU" ${sharedSku ? '' : 'disabled'} onclick="addSkuConfiguration('${jsString(mplProductEditorGroupKey)}')">+ Add configuration</button>` : ''}</header>
+        <header><div><span>Product identity</span><h3>${escapeHtml(shared.description || sharedSku || 'New product')}</h3><p>${inline ? 'Saves to Product Master for future orders. Keep the incoming SKU on its correct packaging level. Add a Case with quantities and box measurements for pallet calculation.' : 'Its packaging levels belong to this configuration only.'}</p></div>${canEdit && !inline ? `<button class="btn-table-preview" type="button" title="Add a different product with the same SKU" ${sharedSku ? '' : 'disabled'} onclick="addSkuConfiguration('${jsString(mplProductEditorGroupKey)}')">+ Add configuration</button>` : ''}</header>
         <div class="mpl-product-shared-grid master-product-shared-grid">
           <label>Customer <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'storefront', this.value)">${selectOptionsHtml(uniqueTextValues([...b2bCustomerOptions(outer.storefront), 'Michaels']), outer.storefront, 'Select customer')}</select></label>
           <label>Product SKU <input ${editDisabled} value="${escapeHtml(sharedSku)}" onchange="updateProductSku('${jsString(mplProductEditorGroupKey)}', this.value)"><small>Matching SKUs appear together across customers. Changing this moves only this configuration.</small></label>
@@ -933,7 +965,7 @@
           <label>Verification Status <select ${editDisabled} onchange="updateMplProductGroupField('${jsString(mplProductEditorGroupKey)}', 'verification_status', this.value)">${selectOptionsHtml(B2B_VERIFICATION_STATUSES, outer.verification_status, 'Select status')}</select><small>Applies to the complete product configuration.</small></label>
         </div>
       </section>
-      ${canEdit ? '<div class="master-record-danger-zone"><div><strong>Delete configuration</strong><span>Removes the Each, Inner Pack, and Case records for this product.</span></div><button class="btn-mini-danger" type="button" onclick="deleteMplProductConfiguration()">Delete product</button></div>' : ''}
+      ${canEdit && !inline ? '<div class="master-record-danger-zone"><div><strong>Delete configuration</strong><span>Removes the Each, Inner Pack, and Case records for this product.</span></div><button class="btn-mini-danger" type="button" onclick="deleteMplProductConfiguration()">Delete product</button></div>' : ''}
     </div>`;
     applyPermissionUi();
     enhanceSearchableSelects(body);

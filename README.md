@@ -82,6 +82,14 @@ order notes are shown for confirmation rather than silently used as the PO.
 Each-only configurations require a shipping Case before claiming packing-list
 or Ti-Hi readiness. Unassigned lines remain visible in partner packing lists.
 
+Unmatched order lines offer **Add SKU to Product Master** from the loaded order
+and the packing-list product selector. The existing product editor opens with
+the customer, incoming SKU, description and available GTIN. **Save & update order**
+saves the reusable configuration, rematches that line, and recalculates pallets.
+Closing before saving discards the new configuration. Failed saves keep the form
+open; failed order recalculations can be retried without creating another product.
+Other order edits and custom packing are retained. Table-edit permission is required.
+
 Product Master and Directory saves include the revision returned by their GET
 endpoint. Missing revisions are rejected with HTTP 428 and stale revisions with
 HTTP 409. Local workers serialize data access through a shared file lock; this

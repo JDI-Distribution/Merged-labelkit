@@ -436,6 +436,8 @@
       else session.insertBefore(outputSelector, tabs);
     }
     const setText = (id, value) => { const element = document.getElementById(id); if (element) element.textContent = value; };
+    const missingProducts = document.getElementById('operations-missing-products');
+    if (missingProducts) missingProducts.innerHTML = (orderDocumentsState.payload?.items || []).map((_item, index) => operationsAddProductButton(index)).join('');
     const summary = document.querySelector('.operations-order-summary');
     if (summary && customLabels) {
       const product = getSelectedB2BProduct?.();
