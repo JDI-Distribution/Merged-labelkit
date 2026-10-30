@@ -79,6 +79,19 @@ def _mpl_draft_for_storage(draft: Dict[str, Any]) -> Dict[str, Any]:
         return value
 
     cleaned_draft = clean(draft)
+    snapshot = cleaned_draft.get("reviewed_product_master")
+    if isinstance(snapshot, list):
+        items = [item for mpl in cleaned_draft.get("packing_lists", []) for item in mpl.get("items", [])]
+        fields = ("config_id", "sku", "gtin", "case_upc", "each_gtin", "item_number", "customer_item_number")
+        def keys(row):
+            return {str(row.get(field) or "").strip().lower() for field in fields} - {""}
+        references = [ref for item in items for ref in (item, (item.get("order_packaging") or {}).get("product") or {})]
+        selected = [row for row in snapshot if any(
+            keys(row) & keys(ref) and (not ref.get("storefront") or str(ref["storefront"]).lower() == str(row.get("storefront", "")).lower())
+            for ref in references)]
+        groups = {(row.get("storefront"), row["config_id"]) for row in selected if row.get("config_id")}
+        cleaned_draft["reviewed_product_master"] = [row for row in snapshot
+            if row in selected or (row.get("storefront"), row.get("config_id")) in groups]
     normalize_address_fields(cleaned_draft)
     return cleaned_draft if isinstance(cleaned_draft, dict) else {}
 
@@ -253,6 +266,11 @@ def _hydrate_saved_mpl_record(
     normalize_address_fields(hydrated)
     draft = hydrated.get("draft") if isinstance(hydrated.get("draft"), dict) else {}
     draft["product_master"] = _dedupe_product_master_rows(product_rows)
+    frozen = draft.get("reviewed_product_master")
+    if isinstance(frozen, list):
+        groups = {(row.get("storefront"), row.get("config_id")) for row in frozen if row.get("config_id")}
+        draft["reviewed_product_master"] = frozen + [row for row in draft["product_master"]
+            if row not in frozen and (row.get("storefront"), row.get("config_id")) not in groups]
     apply_product_master_to_mpl_draft(draft, force=False)
     hydrated["draft"] = draft
     return hydrated

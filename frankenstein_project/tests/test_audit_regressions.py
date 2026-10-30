@@ -167,6 +167,20 @@ class AuditRegressions(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'size limit'):
             encode_draft_row({'id': 'large', 'draft': {'payload': payload}}, 'now')
 
+    def test_stored_snapshot_keeps_every_level_of_order_configs_and_rehydrates_other_choices(self):
+        frozen = [{'storefront': 'Buyer', 'config_id': 'used', 'sku': f'used-{level}', 'packaging_level': level}
+                  for level in ('Each', 'Inner Pack', 'Case')]
+        other = {'storefront': 'Buyer', 'config_id': 'other', 'sku': 'other'}
+        original = {'reviewed_product_master': frozen + [other],
+                    'packing_lists': [{'items': [{'sku': 'used-Case', 'storefront': 'Buyer'}]}]}
+        stored = draft_store._mpl_draft_for_storage(original)
+        self.assertEqual(stored['reviewed_product_master'], frozen)
+        self.assertEqual(len(original['reviewed_product_master']), 4)
+        with patch.object(draft_store, 'apply_product_master_to_mpl_draft'):
+            reopened = draft_store._hydrate_saved_mpl_record({'draft': stored}, frozen + [other])['draft']
+        self.assertEqual(len(reopened['reviewed_product_master']), 4)
+        self.assertEqual(reopened['reviewed_product_master'][:3], frozen)
+
     def test_active_job_limit_and_download_protection(self):
         with patch.dict(jobs.RESULT_JOBS, {}, clear=True), patch.dict(jobs.RESULT_REPORTS, {}, clear=True), \
              tempfile.TemporaryDirectory() as directory:

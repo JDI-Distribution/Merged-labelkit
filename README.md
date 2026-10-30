@@ -71,6 +71,9 @@ Damaged cloud drafts are listed as unreadable and preserved without blocking
 healthy drafts from saving. They require recovery from a backup; the application
 does not overwrite them with an empty draft. Saves exceeding the deployed
 10,000-character draft column are rejected before any batch write.
+Saved order snapshots retain every packaging level of the configurations used
+by that order. Unrelated catalog entries are restored as choices when reopened,
+while the order's saved configurations stay fixed for review.
 
 Order customer detection is retained across the label and packing-list screens.
 Automatic Directory selection excludes draft, blocked, inactive, and incomplete

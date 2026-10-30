@@ -424,10 +424,10 @@
     const editorQueue = document.getElementById('b2b-editor-queue-track');
     const editorQueueName = document.getElementById('b2b-editor-queue-name');
     if (title) title.textContent = loadedOrder
-      ? `${configuredProducts} of ${totalProducts} products configured · ${items.length} label job${items.length === 1 ? '' : 's'}`
+      ? `${configuredProducts} of ${totalProducts} packaging levels configured · ${items.length} selected label output${items.length === 1 ? '' : 's'}`
       : `${items.length} selected label${items.length === 1 ? '' : 's'}`;
     if (help) help.textContent = unresolvedProducts
-      ? `${unresolvedProducts} product${unresolvedProducts === 1 ? '' : 's'} still need a template. Open a row below to finish setup.`
+      ? `${unresolvedProducts} packaging level${unresolvedProducts === 1 ? '' : 's'} still need a template. Open a row below to finish setup.`
       : 'Every product has a template. Use the editing queue below to review each label.';
     if (!items.length) {
       if (position) position.textContent = '0 of 0';
@@ -1237,7 +1237,7 @@
     const selectedLabelCard = uniqueGroups.length
       ? `<section class="b2b-selected-label-card ${selectedIssue ? 'review' : 'ready'}"><div class="b2b-selected-label-copy"><span>Selected label</span><strong>${escapeHtml(selectedReviewProduct.description || selectedReviewProduct.sku || 'Order label')}</strong><small>${escapeHtml(selectedReviewProduct.sku || 'SKU not set')} · ${escapeHtml(selectedReviewProduct.packaging_level || 'Level not set')} · ${escapeHtml(reviewReason)}</small></div><div class="b2b-selected-label-facts"><div><span>Output</span><strong>${escapeHtml((selectedOutputCount || 0) * selectedTemplateCount)} label unit(s)</strong></div><div><span>Status</span><strong class="b2b-selected-label-state">${selectedIssue ? 'Needs review' : 'Ready'}</strong></div></div><button class="btn-secondary b2b-edit-order-label" type="button" onclick="reviewB2BProductMatch(${selectedReviewIndex})">${escapeHtml(editActionLabel)}</button></section>`
       : '<section class="b2b-selected-label-card review"><div class="b2b-selected-label-copy"><span>Order label batch</span><strong>No enabled labels found</strong><small>Add or enable the required packaging-level label in Product Master, then reload this order.</small></div></section>';
-    container.innerHTML = `<div class="b2b-resolution-top"><div class="b2b-resolution-heading"><span>Loaded Sales Order ${escapeHtml(loadedOrder)}</span><strong>${uniqueGroups.length || 1} product${uniqueGroups.length === 1 ? '' : 's'} · ${configuredGroupCount} configured · ${incompleteGroupCount} incomplete · ${selectedTemplateJobCount} label job${selectedTemplateJobCount === 1 ? '' : 's'}</strong><small>Assign templates in Batch Setup, then review every selected label in the editor queue.</small></div>${customerPicker}</div>${selectedLabelCard}${destinationEditor}`;
+    container.innerHTML = `<div class="b2b-resolution-top"><div class="b2b-resolution-heading"><span>Loaded Sales Order ${escapeHtml(loadedOrder)}</span><strong>${uniqueGroups.length || 1} packaging level${uniqueGroups.length === 1 ? '' : 's'} · ${configuredGroupCount} configured · ${incompleteGroupCount} incomplete · ${selectedTemplateJobCount} selected label output${selectedTemplateJobCount === 1 ? '' : 's'}</strong><small>Assign templates in Batch Setup, then review every selected label in the editor queue.</small></div>${customerPicker}</div>${selectedLabelCard}${destinationEditor}`;
     container.classList.add('is-resolved');
     if (details && !details.dataset.userOpened) details.open = false;
     renderB2BSkuTemplateList(uniqueGroups, selectedReviewIndex);
