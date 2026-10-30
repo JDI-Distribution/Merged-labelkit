@@ -73,7 +73,12 @@ test('optional box customization preserves the source and shares partial boxes w
     sales_order_number: '72638', source: { ecomdash_id: '144540224' }, summary: { matched_products: 1 },
     order_details: { email_id: 'orders@fancysprinkles.com', storefront: 'BAKELL.COM' },
     items: [{ sku: 'CMB109-1LB', description: 'Candy Mini Bits - Bubblegum (1LB)', quantity_ordered: 650,
-      quantity_ordered_eaches: 650, quantity_uom: 'EACHES', match_status: 'matched', product: {
+      quantity_ordered_eaches: 650, quantity_uom: 'EACHES', match_status: 'matched',
+      packaging_summary: [
+        { packaging_level: 'Each', sku: 'CMB109-1LB', eaches_per_unit: 1, label_enabled: true },
+        { packaging_level: 'Inner Pack', sku: 'CMB-INNER', eaches_per_unit: 5, label_enabled: true },
+        { packaging_level: 'Case', sku: 'CMB109-1LB', eaches_per_unit: 1, label_enabled: true },
+      ], product: {
         sku: 'CMB109-1LB', description: 'Candy Mini Bits - Bubblegum (1LB)', storefront: 'Fancy Sprinkles', config_id: 'TEST-CMB',
         packaging_level: 'Case', case_qty: '1', length_in: '8', width_in: '5', height_in: '5', gross_weight_lbs: '1',
         label_enabled: true, in_packing_list: true, is_active: true,
@@ -97,10 +102,11 @@ test('optional box customization preserves the source and shares partial boxes w
     boxes: orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items).reduce((sum, item) => sum + Number(item.qty_on_pallet), 0),
     rows: orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items),
     jobs: b2bOrderLabelJobs.filter(job => job.order_packaging),
+    otherJobs: b2bOrderLabelJobs.filter(job => !job.order_packaging && job.product.packaging_level !== 'Pallet'),
   }));
   expect((await state()).boxes).toBe(650);
   await expect(page.getByRole('checkbox', { name: 'Customize packing', exact: true })).not.toBeChecked();
-  await page.getByRole('checkbox', { name: 'Customize packing', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'Customize packing', exact: true }).click();
   const dialog = page.locator('#operations-packing-modal');
   await expect(page.locator('#operations-packing-value')).toHaveValue('');
   await page.locator('#operations-packing-value').fill('30');
@@ -114,6 +120,7 @@ test('optional box customization preserves the source and shares partial boxes w
   expect((await state()).boxes).toBe(650);
   releaseReprocessing();
   await expect(page.locator('#workflow-progress-modal')).toBeHidden();
+  await expect(page.getByRole('checkbox', { name: 'Customize packing', exact: true })).toBeChecked();
   const packed = await state();
   expect(packed.source).toBe(650);
   expect(packed.boxes).toBe(22);
@@ -122,15 +129,17 @@ test('optional box customization preserves the source and shares partial boxes w
   expect(packed.jobs.map(job => [job.run.carton_start, job.run.carton_end, job.run.carton_total, job.run.net_weight])).toEqual([
     ['1', '21', '22', '30 lb'], ['22', '22', '22', '20 lb'],
   ]);
-  await page.getByRole('checkbox', { name: 'Customize packing', exact: true }).check();
+  expect(packed.otherJobs.map(job => [job.product.packaging_level, job.run.carton_total])).toEqual([['Each', '650'], ['Inner Pack', '130']]);
+  await page.getByRole('checkbox', { name: 'Customize packing', exact: true }).click();
+  await expect(page.locator('#operations-packing-value')).toHaveValue('30');
   await page.locator('#operations-packing-mode').selectOption('boxes');
   await page.locator('#operations-packing-value').fill('26');
   await expect(page.locator('#operations-packing-summary')).toHaveText('26 box(es) × 25 lb');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: 'Customize packing', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Customize packing', exact: true })).toBeChecked();
   expect((await state()).boxes).toBe(22);
   failCustom = true;
-  await page.getByRole('checkbox', { name: 'Customize packing', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'Customize packing', exact: true }).click();
   await page.locator('#operations-packing-value').fill('25');
   await dialog.getByRole('button', { name: 'Next: box size' }).click();
   await dialog.getByRole('button', { name: 'OK', exact: true }).click();
@@ -597,23 +606,39 @@ test('shared reviewed PO and address edits feed labels and pallet labels and rev
   expect(result.reviewed).toEqual({ labels: false, mpl: false, pallets: false });
 });
 
-test('browser Ti-Hi displays the backend plan and clearing an override requests new geometry', async ({ page }) => {
+test('Ti-Hi controls persist edited limits and Recalculate uses them for real allocation', async ({ page }) => {
   await openOperations(page);
-  await page.waitForFunction(() => appRuntimeConfig.permissions.view);
-  const results = await page.evaluate(async () => {
-    const mpl = { items: [{ sku: 'A', location_on_pallet: '1', qty_on_pallet: '9', total_shipped: '9',
-      length_in: '12', width_in: '10', height_in: '5', unit_weight_lbs: '1' }],
-      _tihi_constraints: { cases_per_layer: 4 } };
-    activeKeheDocumentType = 'packLabels';
-    activeKeheDocumentDraft = { packing_lists: [mpl], reviewed_product_master: [] };
-    const first = await fetchMplPalletPlan(mpl);
-    const dimensions = mpl._pallet_dimensions['1'];
-    mpl._tihi_constraints.cases_per_layer = '';
-    const second = await fetchMplPalletPlan(mpl);
-    return { first: [first.entries[0].ti, first.entries[0].hi, first.entries[0].loadedHeight],
-      dimensions, secondHi: second.entries[0].hi };
+  await page.getByRole('button', { name: 'Create Packing List Without an Order' }).click();
+  await expect(page).toHaveURL(/operations\/document-editor/);
+  await page.evaluate(() => {
+    const product = { sku: 'CONTROL-CASE', config_id: 'CONTROL', storefront: 'Generic B2B', packaging_level: 'Case',
+      case_qty: '1', length_in: '12', width_in: '10', height_in: '5', gross_weight_lbs: '1', in_packing_list: true, is_active: true };
+    activeKeheDocumentDraft.reviewed_product_master = [product];
+    activeKeheDocumentDraft.product_master = [product];
+    const mpl = activeKeheDocumentDraft.packing_lists[0];
+    mpl.items = [{ ...product, location_on_pallet: '1', qty_on_pallet: '9', total_ordered: '9', total_shipped: '9', unit_weight_lbs: '1' }];
+    mpl._tihi_constraints = defaultTiHiConstraints();
+    mpl._tihi_pallet_constraints = {};
+    renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);
   });
-  expect(results.first).toEqual([4, 3, 21]);
-  expect(results.dimensions).toBe('48 x 40 x 21 in');
-  expect(results.secondHi).toBe(1);
+  await page.getByRole('button', { name: 'Ti-Hi Settings', exact: true }).click();
+  const ti = page.getByRole('spinbutton', { name: 'Cases per layer (Ti)', exact: true });
+  const hi = page.getByRole('spinbutton', { name: 'Maximum layers (Hi)', exact: true });
+  await ti.fill('4'); await ti.press('Tab');
+  await hi.fill('2'); await hi.press('Tab');
+  const planResponse = () => page.waitForResponse(response => response.url().endsWith('/api/documents/pallet-plan') && response.request().postDataJSON()?.action === 'auto');
+  const first = planResponse();
+  await page.getByRole('button', { name: 'Recalculate', exact: true }).click();
+  const split = await (await first).json();
+  expect(split.mpl._pallet_ids).toHaveLength(2);
+  expect(split.entries[0].ti).toBe(4);
+  expect(split.entries[0].hi).toBe(2);
+  await expect(ti).toHaveValue('4');
+  await ti.fill(''); await ti.press('Tab');
+  const second = planResponse();
+  await page.getByRole('button', { name: 'Recalculate', exact: true }).click();
+  const combined = await (await second).json();
+  expect(combined.mpl._pallet_ids).toHaveLength(1);
+  expect(combined.entries[0].hi).toBe(1);
+  expect(combined.mpl.items.reduce((sum, item) => sum + Number(item.qty_on_pallet), 0)).toBe(9);
 });

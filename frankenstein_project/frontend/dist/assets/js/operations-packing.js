@@ -3,7 +3,7 @@
   function closeOperationsPacking() {
     document.getElementById('operations-packing-modal')?.classList.remove('visible');
     const checkbox = document.getElementById('operations-customize-packing');
-    if (checkbox) checkbox.checked = false;
+    if (checkbox) checkbox.checked = !!orderDocumentsState.mplDraft?.packing_lists?.some(mpl => mpl.items?.some(item => item.order_packaging));
   }
   function openOperationsPacking() {
     if (!orderDocumentsState.payload?.items?.length) return;
@@ -24,9 +24,10 @@
     const units = window.LabelKitOrderPackingModel.orderedUnits(source);
     const lbs = window.LabelKitOrderPackingModel.unitNetLbs(source);
     document.getElementById('operations-packing-source').textContent = `${units} ordered unit(s)${lbs ? ` · ${formatNumberString(units * lbs)} lb total` : ''}. Current packing: ${rows.filter(row => row.review_line_index === operationsPackingLine).reduce((sum, row) => sum + Number(row.qty_on_pallet || 0), 0)} boxes.`;
-    document.getElementById('operations-packing-unit-lbs').value = lbs || '';
-    document.getElementById('operations-packing-mode').value = lbs ? 'lbs' : 'units';
-    document.getElementById('operations-packing-value').value = '';
+    const settings = item.order_packaging?.settings;
+    document.getElementById('operations-packing-unit-lbs').value = settings?.unitLbs ?? lbs ?? '';
+    document.getElementById('operations-packing-mode').value = settings?.mode || (lbs ? 'lbs' : 'units');
+    document.getElementById('operations-packing-value').value = settings?.value || '';
     for (const [id, field] of [['length', 'length_in'], ['width', 'width_in'], ['height', 'height_in'], ['gross', 'gross_weight_lbs']]) {
       document.getElementById(`operations-packing-${id}`).value = product[field] || item[field] || '';
     }
@@ -82,8 +83,13 @@
       const previousItems = draft.packing_lists.flatMap(list => list.items || []);
       const original = previousItems.find(item => item.review_line_index === operationsPackingLine);
       if (!original) throw new Error('This order line has no packing-list row.');
-      const baseJob = b2bOrderLabelJobs.find(job => job.line_index === operationsPackingLine && normalizePackagingLevel(job.product?.packaging_level) === 'Case' && !isPartnerPalletLabelJob(job))
-        || b2bOrderLabelJobs.find(job => job.line_index === operationsPackingLine && !isPartnerPalletLabelJob(job));
+      const boxJobs = b2bOrderLabelJobs.filter(job => job.line_index === lineIndex && ['Case', 'Master Case'].includes(normalizePackagingLevel(job.product?.packaging_level)));
+      // Collapse only previously split custom jobs; keep every template/level.
+      const baseJobs = boxJobs.filter((job, index) => boxJobs.findIndex(other => other.product.packaging_level === job.product.packaging_level && JSON.stringify(b2bTemplateIdsForJob(other)) === JSON.stringify(b2bTemplateIdsForJob(job))) === index);
+      if (!baseJobs.length) {
+        const job = b2bOrderLabelJobs.find(job => job.line_index === lineIndex && !isPartnerPalletLabelJob(job));
+        if (job) baseJobs.push(job);
+      }
       const totalBoxes = groups.reduce((sum, group) => sum + group.count, 0);
       const products = [], replacements = [], jobs = [];
       let start = 1;
@@ -103,16 +109,17 @@
         });
         products.push(product);
         replacements.push({ ...original, review_line_index: operationsPackingLine, order_packing_group: group.key,
-          order_packaging: { product, source_units: window.LabelKitOrderPackingModel.orderedUnits(source), net_lbs_per_box: group.netLbs },
+          order_packaging: { product, source_units: window.LabelKitOrderPackingModel.orderedUnits(source), net_lbs_per_box: group.netLbs,
+            settings: { mode: document.getElementById('operations-packing-mode').value, value: Number(document.getElementById('operations-packing-value').value), unitLbs: Number(document.getElementById('operations-packing-unit-lbs').value) } },
           qty_on_pallet: String(group.count), total_shipped: String(group.count), total_ordered: String(group.count),
           quantity_per_case: String(group.units), eaches_per_case: String(group.units), uom: 'CASES',
           product_size: group.netLbs == null ? original.product_size : `${formatNumberString(group.netLbs)} lb per box`,
           gtin: product.gtin, case_upc: product.gtin, each_gtin: '', location_on_pallet: '', pallet_weight: '',
           notes: `Order-only packing: ${group.count} box(es), ${group.units} ordered units per box.`,
         });
-        if (baseJob) {
+        for (const baseJob of baseJobs) {
           const job = JSON.parse(JSON.stringify(baseJob));
-          Object.assign(job, { product, order_packing_group: group.key, order_packaging: true });
+          Object.assign(job, { product: { ...product, packaging_level: boxJobs.includes(baseJob) ? baseJob.product.packaging_level : 'Case' }, order_packing_group: group.key, order_packaging: true });
           for (const run of [job.run, ...Object.values(job.template_runs || {})].filter(Boolean)) Object.assign(run, {
             carton_total: String(totalBoxes), carton_start: String(start), carton_end: String(start + group.count - 1),
             net_weight: group.netLbs == null ? '' : `${formatNumberString(group.netLbs)} lb`, print_barcode: !!product.gtin && run.print_barcode !== false,
@@ -133,20 +140,18 @@
       updateWorkflowProgress('Planning pallets', 'Reprocessing order with your new packing quantities and box sizes…');
       setStatus('Reprocessing order with your new packing information…', 'info');
       // Commit only after a successful calculation; failed requests preserve the session.
-      const input = { mpl, product_master: draft.reviewed_product_master, action: 'auto' };
-      const result = await window.LabelKitAPI.json('/api/documents/pallet-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 45000);
+      await autoPalletizeMpl(0, { draft, render: false, showStatus: false });
       if (orderDocumentsState.mplDraft !== previousDraft || JSON.stringify(previousDraft) !== previousVersion || operationsPackingLine !== lineIndex) throw new Error('The active order changed. Reopen Customize packing.');
-      draft.packing_lists[0] = result.mpl;
       orderDocumentsState.mplDraft = draft;
       activeKeheDocumentDraft = draft;
       activeKeheDocumentType = 'masterPackingList';
       keheLastMplDraft = draft;
       orderDocumentsState.palletDraft = null;
-      b2bOrderLabelJobs = b2bOrderLabelJobs.filter(job => job.line_index !== operationsPackingLine || isPartnerPalletLabelJob(job));
+      b2bOrderLabelJobs = b2bOrderLabelJobs.filter(job => job.line_index !== lineIndex || (!job.order_packaging && !boxJobs.includes(job)));
       b2bOrderLabelJobs.push(...jobs);
       for (const job of b2bOrderLabelJobs.filter(isPartnerPalletLabelJob)) {
         for (const run of [job.run, ...Object.values(job.template_runs || {})].filter(Boolean)) Object.assign(run, {
-          carton_total: String(result.mpl.total_pallets), carton_start: '1', carton_end: String(result.mpl.total_pallets),
+          carton_total: String(mpl.total_pallets), carton_start: '1', carton_end: String(mpl.total_pallets),
         });
       }
       b2bOrderFallbackProducts = [];

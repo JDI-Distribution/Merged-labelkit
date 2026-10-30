@@ -170,9 +170,10 @@ def auto_palletize(mpl, products):
             continue
         remaining = amount
         while remaining:
-            moved = False
+            target, largest = None, 0
             for pallet in pallets:
-                # Binary search assumes a supported smaller stack also fits.
+                # Preserve the original largest-fitting-chunk choice across
+                # pallets, rather than filling the first pallet with any fit.
                 low, high = 0, min(remaining, capacity(pallet, product))
                 if high and fits(pallet, item, high, product):
                     low = high
@@ -182,12 +183,12 @@ def auto_palletize(mpl, products):
                         low = middle
                     else:
                         high = middle - 1
-                if low:
-                    pallet['items'].append(copy_item(item, pallet, low, product))
-                    remaining -= low
-                    moved = True
-                    break
-            if not moved:
+                if low > largest:
+                    target, largest = pallet, low
+            if target:
+                target['items'].append(copy_item(item, target, largest, product))
+                remaining -= largest
+            else:
                 if not pallets[-1]['items']:
                     break
                 new_pallet()

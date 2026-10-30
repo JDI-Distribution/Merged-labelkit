@@ -49,6 +49,21 @@ test('browser displays backend Ti-Hi results and requests a new plan when an ove
   assert.equal(calls, 2);
 });
 
+test('Ti-Hi control handlers save global and pallet-specific edits into the request', () => {
+  const ctx = context();
+  ctx.LabelKitPackingModel.configurePalletDefaults({ max_length_in: 48, max_width_in: 40, max_height_in: 70, max_gross_lbs: 2000, pallet_base_height_in: 6 });
+  const mpl = { items: [], _tihi_constraints: { cases_per_layer: 0 } };
+  ctx.getMpl = () => mpl;
+  ctx.updateMplTiHiConstraint(0, '', 'cases_per_layer', '4');
+  ctx.updateMplTiHiConstraint(0, '1', 'max_layers', '2');
+  const input = ctx.palletPlanInput(mpl);
+  assert.equal(Number(input.mpl._tihi_constraints.cases_per_layer), 4);
+  assert.equal(Number(input.mpl._tihi_pallet_constraints['1'].max_layers), 2);
+  assert.equal(input.mpl._tihi_pallet_constraints['1'].cases_per_layer, 4);
+  ctx.updateMplTiHiConstraint(0, '', 'cases_per_layer', '');
+  assert.equal(ctx.palletPlanInput(mpl).mpl._tihi_constraints.cases_per_layer, '');
+});
+
 test('browser order balance sums split cases and preserves zero shipped', () => {
   const ctx = context();
   const balance = ctx.LabelKitDocumentEditor.orderBalanceCases({ items: [

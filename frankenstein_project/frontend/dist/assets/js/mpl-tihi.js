@@ -3,15 +3,21 @@
   function defaultTiHiConstraints() { return window.LabelKitPackingModel.defaultConstraints(); }
   function normalizeTiHiConstraints(raw = {}) { return window.LabelKitPackingModel.normalizeConstraints(raw); }
   function getMplTiHiConstraints(mpl, palletId = '') {
-    return normalizeTiHiConstraints(mpl?._tihi_pallet_constraints?.[normalizePalletId(palletId)] || mpl?._tihi_constraints || {});
+    if (!mpl) return defaultTiHiConstraints();
+    mpl._tihi_constraints = normalizeTiHiConstraints(mpl._tihi_constraints || {});
+    const id = normalizePalletId(palletId);
+    if (!id) return mpl._tihi_constraints;
+    mpl._tihi_pallet_constraints ||= {};
+    mpl._tihi_pallet_constraints[id] = normalizeTiHiConstraints(mpl._tihi_pallet_constraints[id] || mpl._tihi_constraints);
+    return mpl._tihi_pallet_constraints[id];
   }
   function tihiColorToRgb(color) { return window.LabelKitPackingModel.colorToRgb(color); }
-  function palletPlanInput(mpl) {
+  function palletPlanInput(mpl, draft = activeKeheDocumentDraft) {
     return {
       mpl: { items: mpl.items || [], warnings: mpl.warnings || [], _tihi_constraints: mpl._tihi_constraints || {},
         _tihi_pallet_constraints: mpl._tihi_pallet_constraints || {}, _pallet_ids: mpl._pallet_ids || [],
         _pallet_weights: mpl._pallet_weights || {} },
-      product_master: activeKeheDocumentDraft?.reviewed_product_master || getActiveAllProductMasterRows(),
+      product_master: draft?.reviewed_product_master || getActiveAllProductMasterRows(),
     };
   }
   function palletPlanView(value, key = '') {
@@ -25,23 +31,22 @@
       aliases[name] || name.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()), palletPlanView(item, name),
     ]));
   }
-  async function fetchMplPalletPlan(mpl, action = 'plan') {
-    const input = palletPlanInput(mpl), key = JSON.stringify(input);
+  async function fetchMplPalletPlan(mpl, action = 'plan', draft = activeKeheDocumentDraft) {
+    const input = palletPlanInput(mpl, draft), key = JSON.stringify(input);
     const previous = mplPalletPlans.get(mpl);
     if (action === 'plan' && previous?.key === key) {
       if (previous.error) throw previous.error;
       return previous.promise;
     }
     const state = { key, result: null, error: null };
-    const draft = activeKeheDocumentDraft;
+    const detached = draft !== activeKeheDocumentDraft;
     state.promise = window.LabelKitAPI.json('/api/documents/pallet-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...input, action }),
     }, 45000).then(payload => {
-      if (JSON.stringify(palletPlanInput(mpl)) !== key || activeKeheDocumentDraft !== draft) throw new Error('Pallet inputs changed during calculation. Recalculate the current version.');
+      if (JSON.stringify(palletPlanInput(mpl, draft)) !== key || (!detached && activeKeheDocumentDraft !== draft)) throw new Error('Pallet inputs changed during calculation. Recalculate the current version.');
       if (action !== 'plan') {
         Object.assign(mpl, payload.mpl);
-        documentEditorRevision += 1;
-        mplDraftSync?.schedule();
+        if (!detached) { documentEditorRevision += 1; mplDraftSync?.schedule(); }
       } else {
         const weights = mpl._pallet_weights ||= {};
         for (const [pallet, weight] of Object.entries(payload.mpl._pallet_weights || {})) {
@@ -56,9 +61,9 @@
       }
       mpl._pallet_dimensions = payload.mpl._pallet_dimensions;
       mpl._pallet_tihi = payload.mpl._pallet_tihi;
-      state.key = JSON.stringify(palletPlanInput(mpl));
+      state.key = JSON.stringify(palletPlanInput(mpl, draft));
       state.result = { entries: payload.entries.map(entry => palletPlanView(entry)), warnings: payload.warnings, constraints: payload.constraints, signature: payload.signature };
-      if (action === 'plan' && activeKeheDocumentType === 'masterPackingList' && !window.documentPipelineActive) {
+      if (!detached && action === 'plan' && activeKeheDocumentType === 'masterPackingList' && !window.documentPipelineActive) {
         const focused = document.activeElement, path = focused?.dataset?.draftPath;
         const selection = path ? [focused.selectionStart, focused.selectionEnd] : null;
         renderDocumentEditor(activeKeheDocumentType, draft, { refreshOnly: true });
@@ -83,15 +88,16 @@
     return { entries: [], warnings: ['Calculating Ti-Hi on the server…'], constraints: getMplTiHiConstraints(mpl), pending: true };
   }
   async function autoPalletizeMpl(mplIndex, options = {}) {
-    const mpl = getMpl(mplIndex);
+    const draft = options.draft || activeKeheDocumentDraft;
+    const mpl = draft?.packing_lists?.[mplIndex];
     if (!mpl) return;
     ensureMplPalletState(mpl);
     captureXmlPalletSnapshot(mpl);
     try {
-      await fetchMplPalletPlan(mpl, 'auto');
+      await fetchMplPalletPlan(mpl, 'auto', draft);
       const note = getXmlPalletMismatchNote(mpl, mpl._pallet_ids.length);
       markMplPalletizationSource(mpl, 'Auto Palletize', note);
-      keheLastMplDraft = activeKeheDocumentDraft;
+      if (draft === activeKeheDocumentDraft) keheLastMplDraft = draft;
       if (options.render !== false) {
         renderKeheUnifiedReport(activeKeheDocumentDraft);
         renderDocumentEditor(activeKeheDocumentType, activeKeheDocumentDraft);

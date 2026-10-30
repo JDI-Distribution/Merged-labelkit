@@ -8,6 +8,16 @@ from labelkit.routes.generation import _refresh_mpl_render_product_master
 
 
 class DocumentRulesTests(unittest.TestCase):
+    def test_split_uses_original_largest_chunk_across_pallets(self):
+        products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
+                         height_in='5', gross_weight_lbs=weight, in_packing_list=True)
+                    for sku, weight in [('HEAVY', '2'), ('LIGHT', '1')]]
+        items = [dict(sku=sku, qty_on_pallet=str(qty), total_ordered=str(qty), total_shipped=str(qty), location_on_pallet='1')
+                 for sku, qty in [('HEAVY', 3), ('LIGHT', 10)]]
+        result = pallet_plan(dict(items=items, _tihi_constraints=dict(cases_per_layer=4, max_layers=2)), products, 'auto')
+        light = {row['location_on_pallet']: int(row['qty_on_pallet']) for row in result['mpl']['items'] if row['sku'] == 'LIGHT'}
+        self.assertEqual(light, {'1': 2, '2': 8})
+
     def test_order_only_boxes_keep_custom_dimensions_weights_and_partial_demand(self):
         products = [dict(sku='CMB109-1LB', packaging_level='Case', case_qty='1', length_in='3',
                          width_in='3', height_in='3', gross_weight_lbs='1', in_packing_list=True)]

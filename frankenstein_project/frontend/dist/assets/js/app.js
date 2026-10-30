@@ -2704,7 +2704,7 @@
     if (!mpl) return;
     mpl.palletization_source = source;
     mpl.palletization_note = note || `Palletization source: ${source}.`;
-    if (activeKeheDocumentType === 'masterPackingList') {
+    if (activeKeheDocumentType === 'masterPackingList' && activeKeheDocumentDraft?.packing_lists?.includes(mpl)) {
       keheMplPalletizationSource = source;
       keheLastMplDraft = activeKeheDocumentDraft;
     }

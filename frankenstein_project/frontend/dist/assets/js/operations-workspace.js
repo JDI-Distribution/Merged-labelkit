@@ -405,6 +405,10 @@
     document.getElementById('operations-session')?.classList.toggle('hidden', !loaded);
 
     const payload = orderDocumentsState.payload || {};
+    const packingCheckbox = document.getElementById('operations-customize-packing');
+    if (packingCheckbox && !packingCheckbox.disabled && !document.getElementById('operations-packing-modal')?.classList.contains('visible')) {
+      packingCheckbox.checked = !!orderDocumentsState.mplDraft?.packing_lists?.some(list => list.items?.some(item => item.order_packaging));
+    }
     const mpl = orderDocumentsState.mplDraft?.packing_lists?.[0];
     const palletCount = operationsPalletCount();
     const selected = operationsSelectedDocuments();
