@@ -67,6 +67,18 @@ two active jobs and retains up to 25 results; active downloads are protected fro
 cleanup. A server restart requires regenerating a temporary result. Saved Packing
 Lists remain in the configured persistent store and can be reopened.
 
+Damaged cloud drafts are listed as unreadable and preserved without blocking
+healthy drafts from saving. They require recovery from a backup; the application
+does not overwrite them with an empty draft. Saves exceeding the deployed
+10,000-character draft column are rejected before any batch write.
+
+Order customer detection is retained across the label and packing-list screens.
+Automatic Directory selection excludes draft, blocked, inactive, and incomplete
+addresses. Customer PO remains separate from the sales order; PO references in
+order notes are shown for confirmation rather than silently used as the PO.
+Each-only configurations require a shipping Case before claiming packing-list
+or Ti-Hi readiness. Unassigned lines remain visible in partner packing lists.
+
 Product Master and Directory saves include the revision returned by their GET
 endpoint. Missing revisions are rejected with HTTP 428 and stale revisions with
 HTTP 409. Local workers serialize data access through a shared file lock; this

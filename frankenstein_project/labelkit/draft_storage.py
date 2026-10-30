@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 
 STORAGE_VERSION = 2
+MAX_DRAFT_JSON_LENGTH = 10000
 MPL_VERSION_LIMIT = 5
 COMPACT_COLUMNS = {
     "DRAFT_ID", "NAME", "CREATED_AT", "UPDATED_AT", "DRAFT_JSON", "IS_ACTIVE",
@@ -37,6 +38,8 @@ def encode_draft_row(record: Dict[str, Any], now_iso: str) -> Dict[str, Any]:
     }
     packed = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     compressed = base64.urlsafe_b64encode(zlib.compress(packed, level=9)).decode("ascii")
+    if len(compressed) + 5 > MAX_DRAFT_JSON_LENGTH:
+        raise ValueError("This packing list exceeds the cloud draft size limit. No saved data was changed; reduce embedded data before saving.")
     return {
         "DRAFT_ID": str(record.get("id") or uuid.uuid4().hex),
         "NAME": str(record.get("name") or ""),

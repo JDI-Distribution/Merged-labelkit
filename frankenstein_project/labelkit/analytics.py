@@ -39,7 +39,7 @@ class AnalyticsSettings:
     sku_column: str
     quantity_column: str
     customer_email_column: str
-    item_description_columns: tuple = ("Product Name", "Item Description", "Description")
+    item_description_columns: tuple = ("ProductName", "Product Name", "Item Description", "Description")
     item_number_columns: tuple = ("Item Number", "Customer Item Number")
     item_gtin_columns: tuple = ("GTIN", "UPC", "UPC Code", "Barcode")
     item_unit_weight_columns: tuple = (
@@ -311,15 +311,9 @@ class AnalyticsClient:
         export_config = {
             "responseFormat": "csv",
             "criteria": f'"{safe_order_column}"=\'{safe_order}\'',
-            "selectedColumns": list(dict.fromkeys([
-                settings.order_column,
-                settings.sku_column,
-                settings.quantity_column,
-                settings.order_instance_id_column,
-                settings.order_instance_date_column,
-                settings.order_instance_storefront_column,
-                *settings.order_detail_columns.values(),
-            ])),
+            # Keep the order filter, but retain available product columns too.
+            # A projection of only order fields discarded description/GTIN/
+            # weight fallbacks; projecting every alias fails on absent columns.
             "includeHeader": True,
         }
         parameters = dict(connection_parameters)

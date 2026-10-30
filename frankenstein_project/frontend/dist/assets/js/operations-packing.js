@@ -11,9 +11,10 @@
     persistB2BActiveRunFields();
     const select = document.getElementById('operations-packing-line');
     select.innerHTML = orderDocumentsState.payload.items.map((item, index) =>
-      `<option value="${index}">${escapeHtml(item.sku || item.description || `Line ${index + 1}`)}</option>`).join('');
+      `<option value="${index}">${escapeHtml(item.sku || item.description || `Line ${index + 1}`)}${orderDocumentsState.mplDraft?.packing_lists?.some(mpl => mpl.items?.some(row => row.review_line_index === index && row.order_packaging)) ? ' · Customized' : ''}</option>`).join('');
     document.getElementById('operations-packing-modal').classList.add('visible');
-    selectOperationsPackingLine('0');
+    selectOperationsPackingLine(String(Math.min(operationsPackingLine, orderDocumentsState.payload.items.length - 1)));
+    select.value = String(operationsPackingLine);
   }
   function selectOperationsPackingLine(value) {
     operationsPackingLine = Number(value);

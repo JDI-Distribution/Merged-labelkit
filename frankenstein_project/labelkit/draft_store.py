@@ -48,7 +48,12 @@ def _normalize_document_type(value: Any, default: str = "MPL") -> str:
 
 
 def _datastore_row_to_mpl_draft(row: Dict[str, Any]) -> Dict[str, Any]:
-    return decode_draft_row(row)
+    try:
+        return decode_draft_row(row)
+    except ValueError as exc:
+        # Preserve an unreadable record and expose it without blocking other drafts.
+        record = decode_draft_row({**row, "DRAFT_JSON": ""})
+        return {**record, "status": "UNREADABLE", "storage_error": str(exc)}
 
 
 def _mpl_draft_to_datastore_row(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -109,12 +114,20 @@ def _datastore_save_mpl_drafts(request: Optional[Request], drafts: List[Dict[str
     try:
         wanted = _normalize_document_type(document_type, "") if document_type else ""
         def selected(row):
+            record = _datastore_row_to_mpl_draft(row)
             return (str(row.get("IS_ACTIVE", True)).lower() not in {"false", "0", "no"}
-                    and (not wanted or _datastore_row_to_mpl_draft(row)["document_type"] == wanted))
-        prepared = [{**record, "document_type": wanted} if wanted else record for record in drafts]
+                    and not record.get("storage_error")
+                    and (not wanted or record["document_type"] == wanted))
+        prepared = [{**record, "document_type": wanted} if wanted else record for record in drafts if not record.get("storage_error")]
+        # Validate every payload before starting a batch, so oversize data cannot
+        # be truncated by the deployed 10,000-character column.
+        for record in prepared:
+            _mpl_draft_to_datastore_row(record)
         replace_rows(table_service, prepared, key=lambda row: str(row["id"]),
                      decode=_datastore_row_to_mpl_draft, encode=_mpl_draft_to_datastore_row, select=selected)
         return True
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except Exception as exc:
         _raise_datastore_unavailable(MPL_DRAFTS_TABLE, "write to it", exc)
 
@@ -195,6 +208,7 @@ def _mpl_draft_summary(record: Dict[str, Any]) -> Dict[str, Any]:
         "id": record.get("id", ""),
         "name": record.get("name", ""),
         "status": record.get("status", "DRAFT"),
+        "storage_error": record.get("storage_error", ""),
         "customer_code": record.get("customer_code", "") or draft.get("storefront", ""),
         "created_at": record.get("created_at", ""),
         "updated_at": record.get("updated_at", ""),

@@ -14,6 +14,26 @@ function load(files) {
   return ctx;
 }
 
+test('automatic Directory selection excludes drafts and cannot replace a resolved buyer', () => {
+  const ctx = load(['modules/master-data-model.js', 'order-context.js']);
+  Object.assign(ctx, {
+    normalizeStorefront: ctx.LabelKitMasterData.normalizeStorefront,
+    normalizeDcDirectoryRow: ctx.LabelKitMasterData.normalizeDirectory,
+    directoryHasRole: ctx.LabelKitMasterData.directoryHasRole,
+    PARTNER_WORKFLOW_CONFIG: {},
+    mplDirectoryRows: [
+      { storefront: 'KeHE', record_type: 'SHIP_FROM', address: 'dfhdfgdf', verification_status: 'DRAFT' },
+      { storefront: 'Generic B2B', dc: 'DEFAULT-SHIP-FROM', record_type: 'SHIP_FROM', address: 'BAKELL LLC\nWarehouse Street', verification_status: 'NEEDS_REVIEW' },
+      { storefront: 'Generic B2B', name: 'Warehouse', record_type: 'SHIP_TO', address: 'Warehouse\nStreet', verification_status: 'VERIFIED' },
+    ],
+  });
+  const origin = ctx.resolveOrderDirectoryRole({}, 'KeHE', 'SHIP_FROM');
+  assert.equal(origin.row.dc, 'DEFAULT-SHIP-FROM');
+  const result = ctx.resolveOrderContext({ items: [], order_details: { shipping_street1: 'Warehouse' } }, { customer: 'Fancy Sprinkles' });
+  assert.equal(result.customer, 'Fancy Sprinkles');
+  assert.equal(ctx.directoryEligibleForAutomaticSelection({ address: 'junk', verification_status: 'VERIFIED' }), false);
+});
+
 test('shared table saves queue newer edits and use the returned revision without overwriting edits', async () => {
   const ctx = load(['reference-data.js']);
   let rows = [{ value: 'loaded' }], finish, queued;

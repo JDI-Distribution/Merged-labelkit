@@ -503,9 +503,9 @@
     const badge = document.getElementById('mpl-save-state');
     if (!badge) return;
     badge.dataset.state = state;
-    badge.textContent = state === 'saving' ? 'Saving…'
-      : state === 'saved' ? `Saved${detail ? ` · ${detail}` : ''}`
-      : state === 'error' ? 'Save failed'
+    badge.textContent = state === 'saving' ? 'Saving packing list…'
+      : state === 'saved' ? `Packing list saved${detail ? ` · ${detail}` : ''}`
+      : state === 'error' ? 'Packing list save failed'
       : 'Unsaved changes';
   }
 
@@ -1683,7 +1683,7 @@
       : 'Order data';
 
     mpl.id = orderNumber ? `SO-${orderNumber}` : mpl.id;
-    mpl.customer_po_number = orderNumber;
+    mpl.customer_po_number = String(orderDetails.purchase_order_number || orderDetails.po_number || '').trim();
     mpl.order_no = orderNumber;
     mpl.customer_no = orderNumber;
     if (analyticsBillTo) mpl.bill_to = analyticsBillTo;
@@ -1691,6 +1691,8 @@
     mpl.ship_to_company = String(orderDetails.ship_to_company || orderDetails.shipping_company || '').trim();
     applyResolvedOrderContextToMpl(mpl, orderContext);
     mpl.shipping_instructions = String(orderDetails.order_notes || '').trim();
+    const poCandidates = [...mpl.shipping_instructions.matchAll(/\bPO\s*(?:#|number\s*:?|no\.?\s*:?|:\s*)?\s*((?:PO)?[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*)/gi)].map(match => match[1]);
+    if (!mpl.customer_po_number && poCandidates.length) warnings.push(`Confirm customer PO from order notes: ${[...new Set(poCandidates)].join(', ')}. Enter it in Customer PO before printing.`);
     mpl.source_files = [`${orderSourceLabel} · ${payload?.source?.view_name || 'Order Data'}`];
     mpl.palletization_source = `${orderSourceLabel} + Product Master`;
     const convertedItemCount = Number(payload?.summary?.converted_to_cases || 0);
@@ -2022,7 +2024,7 @@
         <td class="saved-mpl-ship-to">${escapeHtml(draft.ship_to || '—')}</td>
         <td><strong class="saved-mpl-primary">${escapeHtml(draft.total_pallets || '—')} pallets</strong><span class="saved-mpl-secondary">${escapeHtml(draft.item_count || '0')} items</span></td>
         <td><span class="status-tag ${String(draft.status || 'DRAFT').toUpperCase() === 'APPROVED' ? 'success' : 'needs-review'}">${escapeHtml(String(draft.status || 'DRAFT'))}</span><span class="saved-mpl-secondary">${escapeHtml(formatDateTime(draft.updated_at || draft.created_at))}</span><span class="saved-mpl-secondary">${escapeHtml(savedMplCreatedByLabel(draft))}</span></td>
-        <td class="saved-mpl-action-cell"><button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open MPL</button><button class="btn-secondary table-action-btn" type="button" onclick="duplicateSavedMplDraft('${jsString(draft.id)}')">Copy</button>${canDelete ? `<button class="btn-mini-danger table-action-btn" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : ''}</td>
+        <td class="saved-mpl-action-cell">${draft.storage_error ? `<span class="status-tag needs-review" title="${escapeHtml(draft.storage_error)}">Damaged record preserved · restore from backup</span>` : `<button class="btn-table-preview" type="button" onclick="loadSavedMplDraft('${jsString(draft.id)}')">Open MPL</button><button class="btn-secondary table-action-btn" type="button" onclick="duplicateSavedMplDraft('${jsString(draft.id)}')">Copy</button>${canDelete ? `<button class="btn-mini-danger table-action-btn" type="button" onclick="deleteSavedMplDraft('${jsString(draft.id)}', '${jsString(draft.name || 'Untitled MPL')}')">Delete</button>` : ''}`}</td>
       </tr>
     `).join('');
   }

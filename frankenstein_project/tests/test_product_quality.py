@@ -4,6 +4,17 @@ from labelkit.product_quality import analyze_product_master_rows, gtin_check_dig
 
 
 class ProductQualityTests(unittest.TestCase):
+    def test_each_measurements_do_not_imply_shipping_case_readiness(self):
+        quality = analyze_product_master_rows([{
+            'storefront': 'Generic B2B', 'config_id': 'each-only', 'sku': 'EACH',
+            'description': 'Each only', 'packaging_level': 'Each', 'case_qty': '1',
+            'length_in': '1', 'width_in': '1', 'height_in': '1', 'gross_weight_lbs': '1',
+        }])
+        capabilities = quality['groups'][0]['capabilities']
+        for name in ('packing_list', 'tihi'):
+            self.assertEqual(capabilities[name]['state'], 'review')
+            self.assertEqual(capabilities[name]['label'], 'Shipping Case needed')
+
     def test_gtin_check_digit_validation(self):
         self.assertTrue(gtin_check_digit_valid("10850068684998"))
         self.assertTrue(gtin_check_digit_valid("1-08500-68684-998"))

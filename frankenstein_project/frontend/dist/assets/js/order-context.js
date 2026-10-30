@@ -133,12 +133,19 @@
     const aliases = orderContextCustomerAliases(customer);
     return (mplDirectoryRows || [])
       .map((raw, index) => ({ row: normalizeDcDirectoryRow(raw), index }))
-      .filter(({ row }) => row.is_active !== false)
+      .filter(({ row }) => directoryEligibleForAutomaticSelection(row))
       .filter(({ row }) => {
         if (!aliases.length) return true;
         const storefront = orderContextCanonical(row.storefront);
         return storefront && aliases.some(alias => storefront === alias || storefront.includes(alias) || alias.includes(storefront));
       });
+  }
+
+  function directoryEligibleForAutomaticSelection(row = {}) {
+    const status = String(row.verification_status || '').toUpperCase();
+    const address = orderContextClean(row.address || row.ship_from || row.delivery_address || row.billing_address);
+    return row.is_active !== false && !['DRAFT', 'BLOCKED'].includes(status)
+      && address.split('\n').filter(line => line.trim()).length >= 2;
   }
 
   function orderContextRoleAddress(row, role) {
@@ -155,7 +162,7 @@
       .sort((left, right) => right.score - left.score || left.index - right.index);
     const allRoleRows = (mplDirectoryRows || [])
       .map((raw, index) => ({ row: normalizeDcDirectoryRow(raw), index }))
-      .filter(({ row }) => row.is_active !== false && directoryHasRole(row, role));
+      .filter(({ row }) => directoryEligibleForAutomaticSelection(row) && directoryHasRole(row, role));
     let selected = customerRows.find(entry => entry.score > 0) || null;
     if (!selected && customerRows.length === 1) selected = customerRows[0];
     if (!selected && role === 'SHIP_FROM') {
@@ -201,10 +208,10 @@
       || payload?.order_details?.ship_to_name
       || ''
     );
-    if (!matchedItems.length) {
+    if (!matchedItems.length && !options.customer && !payload?.detected_customer?.name) {
       const directoryMatch = (mplDirectoryRows || [])
         .map((raw, index) => ({ row: normalizeDcDirectoryRow(raw), index }))
-        .filter(({ row }) => row.is_active !== false)
+        .filter(({ row }) => directoryEligibleForAutomaticSelection(row))
         .map(entry => ({ ...entry, score: orderContextDirectoryScore(entry.row, payload) }))
         .sort((left, right) => right.score - left.score || left.index - right.index)[0];
       if (directoryMatch?.score > 0 && directoryMatch.row.storefront) {
@@ -244,7 +251,7 @@
     orderDocumentsState.reviewedOrder = {
       id: `${payload.sales_order_number || 'manual'}:${payload.source?.ecomdash_id || ''}`,
       revision: 0, context,
-      fields: { po_number: mpl.customer_po_number || b2bRunFields.po_number || '',
+      fields: { po_number: b2bRunFields.po_number || mpl.customer_po_number || '',
         ship_date: mpl.est_ship_date || b2bRunFields.ship_date || '',
         ship_to: mpl.ship_to || context.shipTo?.address || '', bill_to: mpl.bill_to || context.billTo?.address || '',
         ship_from: mpl.supplier_info || context.shipFrom?.address || '' },

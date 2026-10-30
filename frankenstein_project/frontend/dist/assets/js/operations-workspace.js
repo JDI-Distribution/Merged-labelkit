@@ -34,6 +34,7 @@
     Object.assign(orderDocumentsState, initialOperationsState(), { initialized: orderDocumentsState.initialized });
     resetOperationsReviewState();
     resetB2BManualWorkspaceState();
+    operationsPackingLine = 0;
     const orderInput = document.getElementById('operations-sales-order-number');
     if (orderInput) orderInput.value = '';
     clearB2BPreview();
@@ -479,7 +480,7 @@
     setText('operations-label-count', customLabels
       ? (b2bTemplateIdsForJob().length ? `${b2bTemplateIdsForJob().length} template(s) selected` : 'Complete Label Setup below')
       : labelJobs.length
-        ? `${labelJobs.length} product job(s) · ${selectedLabelCount} selected output(s)${unresolvedLabelCount ? ` · ${unresolvedLabelCount} need templates` : ''}`
+        ? `${labelJobs.length} label job(s) · ${selectedLabelCount} selected output(s)${unresolvedLabelCount ? ` · ${unresolvedLabelCount} need templates` : ''}`
         : 'No automatic label jobs');
     setText('operations-mpl-status', mpl
       ? `${mpl.items?.length || 0} line(s) · ${palletCount} pallet(s)`
@@ -753,6 +754,7 @@
     orderDocumentsState.manualPalletCopies = 1;
 
     resetB2BManualWorkspaceState();
+    operationsPackingLine = 0;
     payload = JSON.parse(JSON.stringify(payload));
     orderDocumentsState.payload = payload;
     const context = resolveOrderContext(payload, { customer: orderDocumentsState.customerName });
@@ -787,7 +789,7 @@
     scrollOperationsTo('operations-session');
     const reviewCount = Number(payload?.summary?.unmatched_products || 0) + Number(payload?.summary?.ambiguous_products || 0) + Number(payload?.summary?.defaulted_level_skus || 0);
     const selectedLabelCount = b2bOrderLabelJobs.reduce((total, job) => total + b2bTemplateIdsForJob(job).length, 0);
-    setStatus(`Sales Order ${orderNumber} is ready${replacedCurrentSession ? ' · previous document session replaced' : ''} · ${payload?.items?.length || 0} line(s) · ${selectedLabelCount} selected label output(s) · ${Number(palletization.palletCount || operationsPalletCount())} assigned pallet(s)${reviewCount ? ` · ${reviewCount} item(s) need review` : ''}.`, reviewCount ? 'info' : 'success');
+    setStatus(`Sales Order ${orderNumber} loaded${replacedCurrentSession ? ' · previous document session replaced' : ''} · ${payload?.items?.length || 0} line(s) · ${selectedLabelCount} selected label output(s) · ${Number(palletization.palletCount || operationsPalletCount())} assigned pallet(s)${reviewCount ? ` · ${reviewCount} item(s) need review` : ''}.${operationsPalletCount() ? ' Review documents before printing.' : ' Packing data is required before pallets can be assigned.'}`, reviewCount || !operationsPalletCount() ? 'info' : 'success');
   }
 
   async function loadOperationsOrder(event, selectedEcomdashId = '', selectedOrderNumber = '') {

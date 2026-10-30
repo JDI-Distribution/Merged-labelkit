@@ -1516,7 +1516,7 @@
   }
 
   function getSharedMplDirectoryShipFrom() {
-    const rows = mplDirectoryRows.map(normalizeDcDirectoryRow).filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+    const rows = mplDirectoryRows.map(normalizeDcDirectoryRow).filter(row => directoryEligibleForAutomaticSelection(row) && directoryHasRole(row, 'SHIP_FROM'));
     const defaultOrigin = rows.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM');
     const address = String(defaultOrigin?.address || rows[0]?.address || mplDirectorySharedShipFrom || DEFAULT_KEHE_SHIP_FROM).trim();
     if (address) mplDirectorySharedShipFrom = address;

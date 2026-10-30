@@ -8,8 +8,7 @@
     const id = normalizePalletId(palletId);
     if (!id) return mpl._tihi_constraints;
     mpl._tihi_pallet_constraints ||= {};
-    mpl._tihi_pallet_constraints[id] = normalizeTiHiConstraints(mpl._tihi_pallet_constraints[id] || mpl._tihi_constraints);
-    return mpl._tihi_pallet_constraints[id];
+    return mpl._tihi_pallet_constraints[id] || mpl._tihi_constraints;
   }
   function tihiColorToRgb(color) { return window.LabelKitPackingModel.colorToRgb(color); }
   function palletPlanInput(mpl, draft = activeKeheDocumentDraft) {
@@ -706,7 +705,10 @@
   function updateMplTiHiConstraint(mplIndex, palletId, key, value) {
     const mpl = getMpl(mplIndex);
     if (!mpl) return;
-    const constraints = getMplTiHiConstraints(mpl, palletId);
+    const id = normalizePalletId(palletId);
+    const constraints = id
+      ? ((mpl._tihi_pallet_constraints ||= {})[id] ||= { ...getMplTiHiConstraints(mpl) })
+      : getMplTiHiConstraints(mpl);
     constraints[key] = value;
     mpl._pallet_tihi = {};
     mpl._pallet_dimensions = {};
@@ -831,7 +833,7 @@
                   <input aria-label="Pallet base height (in)" type="number" min="0.1" step="0.1" value="${escapeHtml(String(sheetConstraints.pallet_base_height_in))}" onchange="${showPreview ? 'updateMplTiHiConstraintAndPreview' : 'updateMplTiHiConstraint'}(${mplIndex}, '${jsString(focusPallet)}', 'pallet_base_height_in', this.value)">
                 </div>
                 <div class="tihi-constraint-actions">
-                  <button class="btn-secondary" type="button" onclick="resetMplTiHiConstraints(${mplIndex}, '${jsString(focusPallet)}')">Defaults</button>
+                  <button class="btn-secondary" type="button" onclick="resetMplTiHiConstraints(${mplIndex}, '${jsString(focusPallet)}')">Restore default limits</button>
                   ${showRecalculate ? `<button class="btn-generate" type="button" onclick="recalcMplTiHiPopup(${mplIndex}, '${jsString(focusPallet)}')">Recalculate</button>` : ''}
                 </div>
               </div>

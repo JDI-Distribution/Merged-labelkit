@@ -64,6 +64,19 @@ test('Ti-Hi control handlers save global and pallet-specific edits into the requ
   assert.equal(ctx.palletPlanInput(mpl).mpl._tihi_constraints.cases_per_layer, '');
 });
 
+test('viewing a pallet inherits global limits without freezing them into overrides', () => {
+  const ctx = context();
+  ctx.LabelKitPackingModel.configurePalletDefaults({ max_length_in: 48, max_width_in: 40, max_height_in: 70, max_gross_lbs: 2000, pallet_base_height_in: 6 });
+  const mpl = { items: [], _tihi_constraints: { cases_per_layer: 4, max_layers: 2 } };
+  ctx.getMpl = () => mpl;
+  assert.equal(ctx.getMplTiHiConstraints(mpl, '1').cases_per_layer, 4);
+  assert.equal(Object.keys(mpl._tihi_pallet_constraints).length, 0);
+  ctx.updateMplTiHiConstraint(0, '', 'cases_per_layer', '');
+  ctx.updateMplTiHiConstraint(0, '', 'max_layers', '');
+  assert.equal(ctx.getMplTiHiConstraints(mpl, '1').cases_per_layer, 0);
+  assert.equal(ctx.getMplTiHiConstraints(mpl, '1').max_layers, 0);
+});
+
 test('browser order balance sums split cases and preserves zero shipped', () => {
   const ctx = context();
   const balance = ctx.LabelKitDocumentEditor.orderBalanceCases({ items: [

@@ -1304,7 +1304,7 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertIn("match_reason: source?.match_reason", javascript)
         self.assertIn("Assign templates in Batch Setup", javascript)
         self.assertIn("Selected label", javascript)
-        self.assertIn("Sales Order ${orderNumber} is ready", javascript)
+        self.assertIn("Sales Order ${orderNumber} loaded", javascript)
         self.assertIn("Matching order lines to Product Master", javascript)
 
     def test_feature_scripts_are_delivered_as_separate_modules(self):

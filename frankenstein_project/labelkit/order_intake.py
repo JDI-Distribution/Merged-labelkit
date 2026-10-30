@@ -22,7 +22,7 @@ from labelkit.reference_data import (
 ANALYTICS_SKU_COLUMN = "SKUNumber"
 ANALYTICS_QUANTITY_COLUMN = "Quantity Ordered"
 ANALYTICS_CUSTOMER_EMAIL_COLUMN = "Email"
-ANALYTICS_ITEM_DESCRIPTION_COLUMNS = ("Product Name", "Item Description", "Description")
+ANALYTICS_ITEM_DESCRIPTION_COLUMNS = ("ProductName", "Product Name", "Item Description", "Description")
 ANALYTICS_ITEM_NUMBER_COLUMNS = ("Item Number", "Customer Item Number")
 ANALYTICS_ITEM_GTIN_COLUMNS = ("GTIN", "UPC", "UPC Code", "Barcode")
 ANALYTICS_ITEM_UNIT_WEIGHT_COLUMNS = (

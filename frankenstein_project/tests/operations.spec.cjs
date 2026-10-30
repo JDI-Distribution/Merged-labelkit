@@ -43,6 +43,27 @@ async function setUpManualLabel(page) {
   await expect(page.locator('#b2b-sku-template-list .b2b-sku-row')).toHaveCount(1);
 }
 
+test('an unmatched Fancy order retains its buyer, exposes unassigned demand and does not invent a PO', async ({ page }) => {
+  await page.route('**/api/order-documents/orders/lookup', route => route.fulfill({ json: {
+    sales_order_number: '72638', source: { ecomdash_id: '103853499' },
+    detected_customer: { name: 'Fancy Sprinkles', source: 'email', confidence: 'exact' },
+    detected_partner_customer: 'fancy',
+    order_details: { email_id: 'orders@fancysprinkles.com', order_notes: 'Reference FS PO # PO1917' },
+    items: [{ sku: 'CMB109-1LB', description: 'Candy Mini Bits', quantity_ordered: 650, match_status: 'unmatched' }],
+    summary: { unmatched_products: 1, matched_products: 0 },
+  } }));
+  await openOperations(page);
+  await loadOrder(page, '72638');
+  await expect(page.locator('#operations-customer')).toHaveText('Fancy Sprinkles');
+  await expect(page.locator('#b2b-order-customer-select')).toHaveValue('Fancy Sprinkles');
+  await page.getByRole('button', { name: /^Packing List & Ti-Hi .*Approval required/ }).click();
+  await page.getByRole('button', { name: 'Review & Edit Packing List', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Unassigned order lines' })).toBeVisible();
+  await expect(page.locator('#document-editor-panel')).toContainText('CMB109-1LB');
+  await expect(page.locator('#document-editor-panel')).toContainText('Confirm customer PO from order notes: PO1917');
+  await expect(page.locator('[data-draft-path="packing_lists.0.customer_po_number"]')).toHaveValue('');
+});
+
 test('order loading identifies the pallet planning stage and completes after its response', async ({ page }) => {
   let releasePlan, planStarted;
   const gate = new Promise(resolve => { releasePlan = resolve; });
@@ -273,7 +294,7 @@ test('Ti-Hi settings expose optional overrides and a six-inch pallet base', asyn
   await ti.fill('36');
   await ti.press('Tab');
   await expect(ti).toHaveValue('36');
-  await page.getByRole('button', { name: 'Defaults', exact: true }).click();
+  await page.getByRole('button', { name: 'Restore default limits', exact: true }).click();
   await expect(ti).toHaveValue('');
   await expect(base).toHaveValue('6');
 });

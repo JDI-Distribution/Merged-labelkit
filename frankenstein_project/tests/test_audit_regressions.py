@@ -142,6 +142,31 @@ class AuditRegressions(unittest.TestCase):
                          key=lambda row: row['id'], decode=lambda row: {k: v for k, v in row.items() if k != 'ROWID'}, encode=dict)
         self.assertEqual(table.rows, original)
 
+    def test_damaged_cloud_draft_is_visible_and_preserved_while_other_drafts_save(self):
+        damaged = {'ROWID': 'broken-row', 'DRAFT_ID': 'broken', 'NAME': 'Damaged',
+                   'DRAFT_JSON': 'zlib:broken', 'IS_ACTIVE': True}
+        class Table:
+            def __init__(self): self.rows = [copy.deepcopy(damaged)]
+            def get_paged_rows(self, *args, **kwargs): return {'content': copy.deepcopy(self.rows)}
+            def insert_rows(self, rows): self.rows.extend({**row, 'ROWID': 'new'} for row in rows)
+            def update_rows(self, rows): raise AssertionError('Damaged record must not be updated')
+            def delete_rows(self, rows): raise AssertionError('Damaged record must not be deleted')
+        table = Table()
+        with patch.object(draft_store, '_mpl_drafts_datastore_table', return_value=table):
+            loaded = draft_store._datastore_load_mpl_drafts(None, 'MPL')
+            self.assertEqual(loaded[0]['status'], 'UNREADABLE')
+            self.assertIn('storage_error', draft_store._mpl_draft_summary(loaded[0]))
+            draft_store._datastore_save_mpl_drafts(None, loaded + [{'id': 'healthy', 'draft': {}}], 'MPL')
+        self.assertEqual(table.rows[0], damaged)
+        self.assertEqual(decode_draft_row(table.rows[1])['id'], 'healthy')
+
+    def test_oversized_cloud_draft_is_rejected_before_any_write(self):
+        import random
+        from labelkit.draft_storage import encode_draft_row
+        payload = random.Random(42).randbytes(20000).hex()
+        with self.assertRaisesRegex(ValueError, 'size limit'):
+            encode_draft_row({'id': 'large', 'draft': {'payload': payload}}, 'now')
+
     def test_active_job_limit_and_download_protection(self):
         with patch.dict(jobs.RESULT_JOBS, {}, clear=True), patch.dict(jobs.RESULT_REPORTS, {}, clear=True), \
              tempfile.TemporaryDirectory() as directory:

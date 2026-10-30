@@ -134,7 +134,7 @@
   function getDefaultB2BShipFrom() {
     const origins = mplDirectoryRows
       .map(normalizeDcDirectoryRow)
-      .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+      .filter(row => directoryEligibleForAutomaticSelection(row) && directoryHasRole(row, 'SHIP_FROM'));
     return origins.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM')
       || origins.find(row => normalizeStorefront(row.storefront).toLowerCase() === 'bakell')
       || origins[0]
@@ -152,7 +152,7 @@
     const wantedCustomer = normalizeStorefront(selected.storefront || b2bSelectedCustomer).toLowerCase();
     const origins = mplDirectoryRows
       .map(normalizeDcDirectoryRow)
-      .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+      .filter(row => directoryEligibleForAutomaticSelection(row) && directoryHasRole(row, 'SHIP_FROM'));
     return origins.find(row => normalizeStorefront(row.storefront).toLowerCase() === wantedCustomer)
       || getDefaultB2BShipFrom();
   }
@@ -1074,7 +1074,7 @@
     b2bSelectedCustomer = orderCustomer;
     b2bOrderCustomerOverride = '';
     const resolvedShipToRow = b2bResolvedOrderContext.directoryShipTo?.row || {};
-    const resolvedShipFromRow = getDefaultB2BShipFrom();
+    const resolvedShipFromRow = b2bResolvedOrderContext.shipFrom?.row || getDefaultB2BShipFrom();
     b2bOrderDestinationOverride = analyticsMplAddress(orderDetails, 'shipping')
       || b2bResolvedOrderContext.shipTo?.address
       || resolvedShipToRow.address
@@ -1530,6 +1530,7 @@
     }
     renderB2BTemplateGallery();
     const customers = uniqueTextValues([
+      ...(loadedOrder ? [b2bSelectedCustomer, b2bResolvedOrderContext?.customer] : []),
       ...b2bLabelTemplates.map(template => template?.customer),
       ...getB2BProductEntries('').map(entry => entry.row.storefront),
       ...mplDirectoryRows.map(row => normalizeDcDirectoryRow(row).storefront).filter(storefront => !isKeheStorefront(storefront)),
@@ -1877,14 +1878,11 @@
     }
     refreshReviewedProductSnapshot(field, value, getSelectedB2BProduct());
     const state = document.getElementById('b2b-product-save-state');
-    if (state) state.textContent = fallbackIndex >= 0 ? 'Updated for this order only' : 'Saving to Product Master…';
+    if (state) state.textContent = fallbackIndex >= 0 ? 'Updated for this order only' : 'Product Master changes queued for automatic save';
     clearB2BPreview();
     renderB2BProductSettings(getSelectedB2BProduct(), getSelectedB2BTemplate());
     if (rerenderEditor) renderB2BLabelEditor();
     renderB2BValidation();
-    window.setTimeout(() => {
-      if (state) state.textContent = fallbackIndex >= 0 ? 'Order-only values · Product Master unchanged' : 'Saved automatically';
-    }, 750);
   }
 
   function updateB2BRunField(field, value, rerenderEditor = true) {

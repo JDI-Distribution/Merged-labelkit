@@ -44,6 +44,8 @@ async def get_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse:
     _require_permission(request, "view")
     for record in _mpl_drafts_read(request, "MPL"):
         if str(record.get("id")) == draft_id:
+            if record.get("storage_error"):
+                raise HTTPException(status_code=422, detail=record["storage_error"])
             product_rows = _datastore_load_product_master(request)
             if product_rows is None:
                 product_rows = _shared_product_master_file_read()
@@ -72,6 +74,8 @@ async def save_kehe_mpl_draft(request: Request, payload: Dict[str, Any]) -> JSON
         name = str(first.get("customer_po_number") or first.get("id") or "Untitled MPL").strip()
 
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    if old_record and old_record.get("storage_error"):
+        raise HTTPException(status_code=409, detail=old_record["storage_error"])
     current_revision = int((old_record or {}).get("revision") or 0)
     expected_revision_raw = payload.get("expected_revision")
     if old_record is not None and expected_revision_raw in (None, ""):
@@ -181,6 +185,8 @@ async def restore_kehe_mpl_draft_version(
     _require_permission(request, "save_mpl")
     drafts = _mpl_drafts_read(request, "MPL")
     current = next((record for record in drafts if str(record.get("id")) == draft_id), None)
+    if current and current.get("storage_error"):
+        raise HTTPException(status_code=409, detail=current["storage_error"])
     version = next((record for record in _mpl_drafts_read(request, "MPL_VERSION") if str(record.get("id")) == version_id), None)
     if current is None or version is None or str((version.get("draft") or {}).get("_version_parent_id") or "") != draft_id:
         raise HTTPException(status_code=404, detail="Saved MPL version not found.")
@@ -218,6 +224,8 @@ async def delete_kehe_mpl_draft(request: Request, draft_id: str) -> JSONResponse
     old_record = next((record for record in drafts if str(record.get("id")) == draft_id), None)
     if old_record is None:
         raise HTTPException(status_code=404, detail="Saved MPL draft not found.")
+    if old_record.get("storage_error"):
+        raise HTTPException(status_code=409, detail=old_record["storage_error"])
 
     next_drafts = [record for record in drafts if str(record.get("id")) != draft_id]
     _mpl_drafts_write(next_drafts, request, "MPL")

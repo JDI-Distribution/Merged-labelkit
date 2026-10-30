@@ -622,6 +622,7 @@
       <div class="decopac-breakdown-title">${editorPdfInput(`${base}.title`, mpl.title || 'Pallet Breakdown', 'mpl-title-input')}</div>
       ${renderStandaloneMplToolbar(mpl, mplIndex, `${customerHeading} pallet breakdown`)}
       <div class="decopac-pallet-flow-stack">
+        ${(mpl.items || []).some(item => !normalizePalletId(item.location_on_pallet)) ? `<section class="mpl-unassigned-section"><h3>Unassigned order lines</h3><p>Choose Customize packing on the loaded order to supply box quantities and measurements.</p>${renderBreakdownTable(mpl, mplIndex, '')}</section>` : ''}
         ${palletIds.map(palletId => renderBreakdownPalletFlow(mpl, mplIndex, palletId)).join('')}
       </div>
       <div class="decopac-summary-title">Pallet Summary</div>

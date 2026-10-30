@@ -80,7 +80,7 @@
   function partnerShipFromRecord(customerId = '') {
     const customerRows = partnerDirectoryRows(customerId).filter(row => directoryHasRole(row, 'SHIP_FROM'));
     const allOrigins = mplDirectoryRows.map(normalizeDcDirectoryRow)
-      .filter(row => row.is_active !== false && directoryHasRole(row, 'SHIP_FROM'));
+      .filter(row => directoryEligibleForAutomaticSelection(row) && directoryHasRole(row, 'SHIP_FROM'));
     return customerRows[0]
       || allOrigins.find(row => String(row.dc || '').trim().toUpperCase() === 'DEFAULT-SHIP-FROM')
       || allOrigins[0]
@@ -95,7 +95,7 @@
     if (!customerNames.length) return [];
     return mplDirectoryRows
       .map(normalizeDcDirectoryRow)
-      .filter(row => row.is_active !== false)
+      .filter(row => directoryEligibleForAutomaticSelection(row))
       .filter(row => {
         const storefront = normalizeStorefront(row.storefront).toLowerCase();
         if (!storefront) return false;

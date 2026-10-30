@@ -183,13 +183,15 @@ def analyze_product_master_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
         enabled = [row for row in group_rows if row.get("label_enabled")]
         match_ready = bool((each_row or {}).get("sku") or (each_row or {}).get("display_sku") or primary.get("sku") or primary.get("display_sku"))
         label_ready = all(row.get("label_template_id") and gtin_check_digit_valid(row.get("gtin")) for row in enabled)
+        shipping_case = bool(case_row and case_row.get("is_active") is not False
+                             and case_row.get("verification_status") != "BLOCKED")
         def capability(ready, yes, no):
             return {"state": "ready" if ready else "review", "label": yes if ready else no}
         capabilities = {
             "order_match": capability(match_ready, "Order match ready", "Order SKU needed"),
-            "packing_list": capability(criteria["identity"] and criteria["description"] and criteria["package_quantity"], "Packing list ready", "Packing list review"),
+            "packing_list": capability(shipping_case and criteria["identity"] and criteria["description"] and criteria["package_quantity"], "Packing list ready", "Shipping Case needed" if not shipping_case else "Packing list review"),
             "labels": capability(label_ready, "Labels ready", "Label setup needed") if enabled else {"state": "not-configured", "label": "Labels off"},
-            "tihi": capability(criteria["dimensions"] and criteria["weight"], "Ti-Hi ready", "Ti-Hi data needed"),
+            "tihi": capability(shipping_case and criteria["dimensions"] and criteria["weight"], "Ti-Hi ready", "Shipping Case needed" if not shipping_case else "Ti-Hi data needed"),
             "verification": capability(criteria["verified"], "Verified", "Needs review"),
         }
         group_results.append({
