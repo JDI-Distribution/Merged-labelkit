@@ -17,18 +17,23 @@ test('Excel Orders matches before generation, resolves sources and downloads per
   }
   await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_WORKBOOK);
   await modal.getByRole('button', { name: 'Upload and match orders', exact: true }).click();
-  await expect(modal.getByRole('heading', { name: 'Match orders before processing' })).toBeVisible({ timeout: 30000 });
+  await expect(modal.getByRole('heading', { name: 'Review Excel and app defaults' })).toBeVisible({ timeout: 30000 });
   await expect(modal.locator('#order-excel-results')).toContainText('650');
   await expect(modal.locator('#order-excel-results')).toContainText('600');
-  await expect(modal.locator('#order-excel-results')).toContainText('No Analytics order matches');
-  await modal.getByRole('button', { name: 'Validate selected sources', exact: true }).click();
-  await expect(modal.locator('#order-excel-status')).toContainText('choose Analytics');
+  await expect(modal.locator('#order-excel-results')).toContainText('Order not found in Analytics');
+  await modal.getByRole('button', { name: 'Recalculate and review documents', exact: true }).click();
+  await expect(modal.locator('#order-excel-status')).toContainText('review the match notices');
   await expect(modal.getByRole('button', { name: 'Generate order ZIP', exact: true })).toHaveCount(0);
-  await modal.locator('#order-excel-source-0').selectOption('analytics');
-  await modal.locator('#order-excel-source-1').selectOption('workbook');
-  await modal.getByRole('button', { name: 'Validate selected sources', exact: true }).click();
+  await modal.locator('[data-excel-order="0"] [data-field-path="line:0:quantity"] select').selectOption('analytics');
+  await modal.locator('#order-excel-issues-only').uncheck();
+  const po = modal.locator('[data-excel-order="0"] [data-field-path="header:po_number"] input');
+  await po.fill('FIELD-PO');
+  await po.press('Tab');
+  for (const ack of await modal.locator('.order-excel-match-ack').all()) await ack.check();
+  await modal.getByRole('button', { name: 'Recalculate and review documents', exact: true }).click();
   await expect(modal.getByRole('heading', { name: 'Review matched orders and documents' })).toBeVisible({ timeout: 30000 });
   await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
+  await expect(modal.locator('#order-excel-results')).toContainText('FIELD-PO');
   await page.screenshot({ path: testInfo.outputPath('excel-matched-review.png') });
   const acknowledgement = modal.locator('#order-excel-ack');
   if (await acknowledgement.count()) await acknowledgement.check();
@@ -43,6 +48,42 @@ test('Excel Orders matches before generation, resolves sources and downloads per
   await page.screenshot({ path: testInfo.outputPath('excel-orders-finished.png') });
   await modal.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.locator('#operations-order-number')).toHaveText('38800');
+});
+
+test('incomplete Excel fills app defaults and repairs missing fields in the popup without reuploading', async ({ page }, testInfo) => {
+  test.skip(!process.env.LABELKIT_ORDER_EXCEL_INCOMPLETE, 'Requires the isolated incomplete workbook.');
+  await openOperations(page);
+  await page.getByRole('button', {name:'Excel Orders',exact:true}).click();
+  const modal=page.locator('#order-excel-modal');
+  await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_INCOMPLETE);
+  await modal.getByRole('button',{name:'Upload and match orders',exact:true}).click();
+  await expect(modal.getByRole('heading',{name:'Review Excel and app defaults'})).toBeVisible({timeout:30000});
+  await modal.locator('#order-excel-issues-only').uncheck();
+  const order=modal.locator('[data-excel-order="0"]');
+  await expect(order.locator('[data-field-path="line:0:quantity"] input')).toHaveValue('650');
+  await expect(order.locator('[data-field-path="line:0:quantity"] .order-excel-badge')).toContainText('Analytics');
+  await expect(order.locator('[data-field-path="line:0:length_in"] input')).toHaveValue('24');
+  await expect(order.locator('[data-field-path="line:0:length_in"] .order-excel-badge')).toContainText('Product Master');
+  await expect(order.locator('[data-field-path="header:ship_to"] textarea')).toContainText('Receiver');
+  const length=modal.locator('[data-excel-order="1"] [data-field-path="line:0:length_in"] input');
+  await expect(length).toHaveValue('');
+  await length.fill('6');await length.press('Tab');
+  await modal.getByRole('button',{name:'Recheck defaults',exact:true}).click();
+  await expect(modal.locator('#order-excel-status')).toContainText('Defaults refreshed');
+  for(const ack of await modal.locator('.order-excel-match-ack').all())await ack.check();
+  await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+  await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible({timeout:30000});
+  await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
+  const downloaded=page.waitForEvent('download');
+  await modal.getByRole('button',{name:'Download reviewed Excel',exact:true}).click();
+  const file=await downloaded;await file.saveAs(testInfo.outputPath('Reviewed_Order_Inputs.xlsx'));
+  expect(await file.failure()).toBeNull();
+  await modal.getByRole('button',{name:'Edit fields and defaults',exact:true}).click();
+  await expect(modal.locator('[data-excel-order="1"] [data-field-path="line:0:length_in"] input')).toHaveValue('6');
+  await modal.getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'Excel Orders',exact:true}).click();
+  await expect(modal.locator('[data-excel-order="1"] [data-field-path="line:0:length_in"] input')).toHaveValue('6');
+  await page.screenshot({path:testInfo.outputPath('excel-field-defaults.png')});
 });
 
 async function openOperations(page) {

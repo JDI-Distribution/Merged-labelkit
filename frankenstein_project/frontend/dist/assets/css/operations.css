@@ -2280,6 +2280,18 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 .order-excel-ack { display: flex; gap: 10px; align-items: center; margin: 18px 0; }
 .order-excel-addresses { display: flex; flex-wrap: wrap; gap: 24px; }
 .order-excel-addresses p { white-space: pre-wrap; }
+.order-excel-section { margin: 12px 0; }
+.order-excel-section > summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.order-excel-fields { display: flex; flex-direction: column; gap: 8px; }
+.order-excel-field { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(180px, 1fr) minmax(220px, 1.5fr); align-items: start; gap: 12px; padding: 10px; border-radius: 6px; background: #f4f7f8; }
+.order-excel-field label { display: block; font-weight: 600; }
+.order-excel-field input, .order-excel-field select, .order-excel-field textarea { width: 100%; padding: 9px; border: 1px solid #bcc9ce; border-radius: 5px; box-sizing: border-box; font: inherit; }
+.order-excel-badge { display: block; margin-top: 5px; color: #425a64; }
+.order-excel-field.needs-input { background: #fff0ed; border-left: 3px solid #b42318; }
+.order-excel-field.has-conflict { background: #fff7e3; border-left: 3px solid #ac7300; }
+.order-excel-notices { padding-left: 22px; background: #fff7e3; }
+.order-excel-readonly { color: #596d75; }
+@media (max-width: 700px) { .order-excel-field { grid-template-columns: 1fr; gap: 8px; } }
 .operations-packing-body label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .operations-packing-body input, .operations-packing-body select { width: 100%; min-height: 40px; }
 .operations-packing-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

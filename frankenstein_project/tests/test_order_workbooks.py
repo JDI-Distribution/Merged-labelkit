@@ -18,7 +18,8 @@ from labelkit.b2b_orders import _load_b2b_label_templates
 from labelkit.jobs import RESULT_JOBS
 from labelkit.order_workbook_documents import box_groups, build_order_documents
 from labelkit.order_workbook_io import read_order_workbook, workbook_bytes
-from labelkit.order_workbook_match import check_orders, resolve_source
+from labelkit.order_workbook_match import check_orders
+from labelkit.order_workbook_review import field_review, resolve_fields
 from labelkit.reference_data import normalize_product_master_row
 from labelkit.routes import order_workbooks as routes, generation
 
@@ -79,39 +80,92 @@ class OrderWorkbookTests(unittest.TestCase):
         self.assertEqual(orders['0002']['header']['po_number'], 'PO001')
         self.assertEqual(orders['1001']['lines'][0]['quantity'], '600')
 
-    def test_no_implicit_conflict_resolution_and_analytics_vs_workbook_quantities(self):
+    def test_defaults_are_per_field_and_conflicts_need_review(self):
         state = self.state()
-        entry = state['entries']['1001']
-        self.assertTrue(any('quantity' in row['field'] for row in entry['differences']))
-        for source in ('', 'auto'):
-            with self.assertRaises(ValueError):
-                resolve_source(entry, dict(source=source))
+        model = field_review(state, '1001')
+        fields = {f['path']: f for section in model['sections'] for f in section['fields']}
+        self.assertEqual(fields['line:0:quantity']['value'], '600')
+        self.assertEqual(fields['line:0:quantity']['source'], 'workbook')
+        self.assertTrue(fields['line:0:quantity']['conflict'])
+        self.assertEqual(fields['line:0:length_in']['source'], 'product_master')
+        with self.assertRaises(ValueError):
+            resolve_fields(state, '1001', {})
         for source, expected in [('analytics', 26), ('workbook', 24)]:
-            resolved = resolve_source(entry, dict(source=source))
+            resolved = resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={
+                'line:0:quantity': {'source': source}, 'header:po_number': {'source': 'custom', 'value': 'EDITED-PO'}}))
             doc = build_order_documents('1001', resolved, state)
             self.assertEqual(doc['errors'], [])
-            mpl = doc['packing_list']['packing_lists'][0]
-            self.assertEqual(sum(float(row['qty_on_pallet']) for row in mpl['items']), expected)
-            self.assertEqual(doc['jobs'][0]['run']['carton_total'], str(expected))
+            self.assertEqual(doc['header']['po_number'], 'EDITED-PO')
+            self.assertEqual(sum(float(row['qty_on_pallet']) for row in doc['packing_list']['packing_lists'][0]['items']), expected)
 
-    def test_missing_order_requires_workbook_or_skip_and_ambiguous_records_require_id(self):
+    def test_missing_order_and_reused_record_have_explicit_match_review(self):
         state = self.state()
-        missing = state['entries']['0002']
-        with self.assertRaises(ValueError):
-            resolve_source(missing, dict(source='analytics'))
-        self.assertIsNone(resolve_source(missing, dict(source='skip')))
-        duplicate = copy.deepcopy(state['entries']['1001'])
+        self.assertIsNone(resolve_fields(state, '0002', dict(skip=True)))
+        self.assertTrue(field_review(state, '0002')['notices'])
+        duplicate = state['entries']['1001']
         duplicate['records'].append({**copy.deepcopy(duplicate['records'][0]), 'ecomdash_id': 'REC-OTHER'})
         with self.assertRaises(ValueError):
-            resolve_source(duplicate, dict(source='analytics'))
-        self.assertEqual(resolve_source(duplicate, dict(source='analytics', record_id='REC-OTHER'))['record_id'], 'REC-OTHER')
+            resolve_fields(state, '1001', dict(acknowledge_matches=True))
+        self.assertEqual(resolve_fields(state, '1001', dict(record_id='REC-OTHER', acknowledge_matches=True))['record_id'], 'REC-OTHER')
+        self.assertEqual(resolve_fields(state, '1001', dict(record_id='__none__', acknowledge_matches=True))['record_id'], '')
+
+    def test_incomplete_input_fills_blanks_from_app_and_can_be_completed_inline(self):
+        values = copy.deepcopy(self.values)
+        values['Order Lines'][0].pop('quantity')
+        values['Orders'][0].pop('ship_to')
+        values['Order Lines'][1].pop('length_in')
+        state = self.state(values)
+        model = field_review(state, '1001')
+        fields = {f['path']: f for section in model['sections'] for f in section['fields']}
+        self.assertEqual(fields['line:0:quantity']['value'], '650')
+        self.assertEqual(fields['line:0:quantity']['source'], 'analytics')
+        self.assertEqual(fields['header:ship_to']['source'], 'analytics')
+        self.assertEqual(fields['line:0:length_in']['value'], '24')
+        with self.assertRaisesRegex(ValueError, 'Box Length'):
+            resolve_fields(state, '0002', dict(acknowledge_matches=True))
+        resolved = resolve_fields(state, '0002', dict(acknowledge_matches=True, fields={
+            'line:0:length_in': {'source': 'custom', 'value': '6'}}))
+        doc = build_order_documents('0002', resolved, state)
+        self.assertEqual(doc['errors'], [])
+        self.assertFalse(state['entries']['0002']['input']['lines'][0].get('length_in'))
+
+    def test_directory_defaults_and_edited_sku_do_not_reuse_unrelated_product_data(self):
+        state = self.state()
+        state['directory'] = [dict(storefront='Generic B2B', dc='ORIGIN', record_type='SHIP_FROM', address='Origin\n100 Example Road', is_active=True)]
+        state['entries']['1001']['input']['header']['ship_from'] = ''
+        model = field_review(state, '1001')
+        fields = {f['path']: f for section in model['sections'] for f in section['fields']}
+        self.assertEqual(fields['header:ship_from']['source'], 'directory')
+        changed = field_review(state, '1001', {'fields': {'line:0:sku': {'source': 'custom', 'value': 'OTHER-SKU'}}})
+        changed_fields = {f['path']: f for section in changed['sections'] for f in section['fields']}
+        self.assertEqual(changed_fields['line:0:case_gtin']['value'], '')
+        self.assertEqual(changed_fields['line:0:length_in']['value'], '')
+        self.assertTrue(any('not on' in notice for notice in changed['notices']))
+
+    def test_blank_sku_is_repaired_only_by_a_unique_analytics_match_and_bad_edits_block(self):
+        values = copy.deepcopy(self.values)
+        values['Order Lines'][0].update(sku='', description='Known product')
+        state = self.state(values)
+        model = field_review(state, '1001')
+        fields = {f['path']: f for section in model['sections'] for f in section['fields']}
+        self.assertEqual(fields['line:0:sku']['value'], 'KNOWN-1LB')
+        self.assertEqual(fields['line:0:sku']['source'], 'analytics')
+        with self.assertRaisesRegex(ValueError, 'date'):
+            resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={
+                'header:ship_date': {'source':'custom', 'value':'not-a-date'}}))
+        with self.assertRaisesRegex(ValueError, 'no longer available'):
+            resolve_fields(state, '0002', dict(acknowledge_matches=True, fields={
+                'line:0:quantity': {'source':'analytics'}}))
+        with self.assertRaisesRegex(ValueError, 'Ship To Address'):
+            resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={
+                'header:ship_to': {'source':'custom','value':''}}))
 
     def test_custom_partial_box_conserves_demand_and_gross_weight_and_missing_data_blocks(self):
         values = copy.deepcopy(self.values)
         line = values['Order Lines'][1]
         line.update(quantity=650, pack_by='Pounds per box', pack_value=30, unit_lbs=1, gross_weight_lbs=31)
         state = self.state(values)
-        doc = build_order_documents('0002', resolve_source(state['entries']['0002'], dict(source='workbook')), state)
+        doc = build_order_documents('0002', resolve_fields(state, '0002', dict(acknowledge_matches=True)), state)
         self.assertEqual(doc['errors'], [])
         rows = doc['packing_list']['packing_lists'][0]['items']
         self.assertEqual(sum(float(row['qty_on_pallet']) for row in rows), 22)
@@ -119,9 +173,9 @@ class OrderWorkbookTests(unittest.TestCase):
         self.assertEqual(sorted({job['run']['net_weight'] for job in doc['jobs']}), ['20 lb', '30 lb'])
         self.assertEqual(box_groups(650, 'Total boxes', 28, 1)[0]['count'], 6)
         line.pop('length_in')
-        with self.assertRaisesRegex(ValueError, 'length'):
+        with self.assertRaisesRegex(ValueError, 'Length'):
             state = self.state(values)
-            build_order_documents('0002', resolve_source(state['entries']['0002'], dict(source='workbook')), state)
+            build_order_documents('0002', resolve_fields(state, '0002', dict(acknowledge_matches=True)), state)
 
     def test_workbook_duplicate_order_and_missing_order_reference_are_reported(self):
         values = copy.deepcopy(self.values)
@@ -137,12 +191,12 @@ class OrderWorkbookTests(unittest.TestCase):
         values = copy.deepcopy(self.values)
         values['Labels'][1]['print_barcode'] = 'Yes'
         state = self.state(values)
-        doc = build_order_documents('0002', resolve_source(state['entries']['0002'], dict(source='workbook')), state)
+        doc = build_order_documents('0002', resolve_fields(state, '0002', dict(acknowledge_matches=True)), state)
         self.assertTrue(any('no valid GTIN' in error for error in doc['errors']))
         values = copy.deepcopy(self.values)
         values['Labels'].append({**values['Labels'][0], 'level': 'Each'})
         state = self.state(values)
-        doc = build_order_documents('1001', resolve_source(state['entries']['1001'], dict(source='analytics')), state)
+        doc = build_order_documents('1001', resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={'line:0:quantity': {'source': 'analytics'}})), state)
         self.assertEqual(doc['errors'], [])
         self.assertEqual([job['run']['carton_total'] for job in doc['jobs']], ['26', '650'])
 
@@ -161,7 +215,7 @@ class OrderWorkbookTests(unittest.TestCase):
                 routes.generate_order_upload(self.request, {'result_id': check_id})
             self.assertEqual(error.exception.status_code, 409)
             result = routes.resolve_order_upload(self.request, {'result_id': check_id, 'choices': {
-                '1001': {'source': 'analytics'}, '0002': {'source': 'workbook'}}})
+                '1001': {'acknowledge_matches': True, 'fields': {'line:0:quantity': {'source': 'analytics'}}}, '0002': {'acknowledge_matches': True}}})
             review_id = json.loads(result.body)['result_id']
             review = self.poll(review_id)
             self.assertTrue(review['can_generate'], review)
@@ -190,6 +244,8 @@ class OrderWorkbookTests(unittest.TestCase):
                             self.assertIn('APPROVED', pdf[0].get_text())
                         pdf.close()
                 self.assertIn('Processing_Report.csv', archive.namelist())
+                reviewed = read_order_workbook(archive.read('Reviewed_Order_Inputs.xlsx'))
+                self.assertEqual(reviewed['1001']['lines'][0]['quantity'], '650')
 
 
 if __name__ == '__main__':

@@ -29,6 +29,11 @@ def choice(value, options, default=''):
 def directory_address(rows, header, role):
     field = {'SHIP_FROM': 'ship_from', 'SHIP_TO': 'ship_to', 'BILL_TO': 'bill_to'}[role]
     manual = header.get(field, '')
+    if header.get('_field_review'):
+        name = header.get(f'{field}_name', '')
+        if name and manual and key(manual.splitlines()[0]) != key(name):
+            manual = f'{name}\n{manual}'
+        return normalize_address_text(manual)
     code = header.get(f'{field}_code', '')
     eligible = [row for row in rows if row.get('is_active') is not False and row.get('verification_status') not in {'DRAFT', 'BLOCKED'}
                 and role in (row.get('address_roles') or [row.get('record_type')])
@@ -116,14 +121,14 @@ def prepare_line(order, index, line, products, customer):
             rows.append(normalize_product_master_row({**each, 'packaging_level': 'Inner Pack',
                 'case_qty': str(number(line.get('eaches_per_inner'), 'Eaches Per Inner Pack', required=True)), 'gtin': line.get('gtin', '')}))
         incoming = next(row for row in rows if row['packaging_level'] == (unit if unit != 'Auto' else 'Each'))
-    if line.get('gtin'):
+    if line.get('gtin') or line.get('_field_review'):
         incoming['gtin'] = line['gtin']
     for row in rows:
-        if line.get('description'):
+        if line.get('description') or line.get('_field_review'):
             row['description'] = line['description']
-        if line.get('customer_item_number'):
+        if line.get('customer_item_number') or line.get('_field_review'):
             row['customer_item_number'] = line['customer_item_number']
-        if row['packaging_level'] == 'Each' and line.get('each_gtin'):
+        if row['packaging_level'] == 'Each' and (line.get('each_gtin') or line.get('_field_review')):
             row['gtin'] = line['each_gtin']
     case = next((row for row in rows if row['packaging_level'] == 'Case'), None)
     inner = next((row for row in rows if row['packaging_level'] == 'Inner Pack'), None)
@@ -138,7 +143,7 @@ def prepare_line(order, index, line, products, customer):
         for field in ['length_in', 'width_in', 'height_in', 'gross_weight_lbs']:
             if line.get(field):
                 case[field] = str(number(line[field], field.replace('_', ' '), required=True))
-        if line.get('case_gtin'):
+        if line.get('case_gtin') or line.get('_field_review'):
             case['gtin'] = line['case_gtin']
         if inner:
             ratio = float(case.get('case_qty') or 0)/float(inner.get('case_qty') or 1)
@@ -209,7 +214,7 @@ def build_order_documents(order, resolved, state):
                 'packing_list': choice(header.get('packing_list'), ['Yes', 'No'], 'Yes'),
                 'pallet_labels': choice(header.get('pallet_labels'), ['Yes', 'No'], 'Yes')}
     lines = [prepare_line(order, index, line, state['products'], header.get('customer', '')) for index, line in enumerate(resolved['lines'])]
-    if not header.get('customer'):
+    if not header.get('customer') and not header.get('_field_review'):
         buyers = {line['incoming'].get('storefront') for line in lines if line['matched']}
         header['customer'] = next(iter(buyers)) if len(buyers) == 1 else ''
     customer = key(header.get('customer'))

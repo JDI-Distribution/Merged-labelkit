@@ -14,7 +14,8 @@ from labelkit.directory_store import _datastore_load_dc_directory, _shared_dc_di
 from labelkit.jobs import RESULT_JOBS, update_result_job
 from labelkit.order_workbook_documents import build_order_documents
 from labelkit.order_workbook_io import read_order_workbook
-from labelkit.order_workbook_match import check_orders, public_check, resolve_source
+from labelkit.order_workbook_match import check_orders, public_check
+from labelkit.order_workbook_review import field_review, resolve_fields
 from labelkit.product_store import _datastore_load_product_master, _shared_product_master_file_read
 from labelkit.runtime import ANALYTICS_CLIENT, LOGGER
 from pipelines.b2b_labels import MAX_B2B_RENDER_PAGES, b2b_job_page_plan
@@ -50,10 +51,15 @@ def check_worker(result_id, request, path):
 def resolve_worker(result_id, state, choices):
     try:
         documents, report, skipped = [], [], []
+        values = {'Orders': [], 'Order Lines': [], 'Labels': []}
         for order, entry in state['entries'].items():
             update_result_job(result_id, detail=f'Validating order {order} and calculating its pallet plan…')
             try:
-                resolved = resolve_source(entry, choices.get(order) or {})
+                effective = field_review(state, order, choices.get(order) or {})['resolved']
+                values['Orders'].append(copy.deepcopy(effective['header']))
+                values['Order Lines'] += copy.deepcopy(effective['lines'])
+                values['Labels'] += copy.deepcopy(effective['labels'])
+                resolved = resolve_fields(state, order, choices.get(order) or {})
                 if resolved is None:
                     skipped.append(order)
                     report.append(dict(order_number=order, source='skip', errors=[], warnings=[], skipped=True))
@@ -64,7 +70,7 @@ def resolve_worker(result_id, state, choices):
             except ValueError as exc:
                 report.append(dict(order_number=order, errors=[str(exc)], warnings=[], source=(choices.get(order) or {}).get('source', '')))
         templates = {row['template_id']: row for row in state['templates']}
-        pages = sum(b2b_job_page_plan(job, templates[job['template_id']])['pages'] for doc in documents for job in doc['jobs'])
+        pages = sum(b2b_job_page_plan(job, templates[job['template_id']])['pages'] for doc in documents if not doc['errors'] for job in doc['jobs'])
         errors = sum(len(row['errors']) for row in report)
         if pages > 20000:
             report.append(dict(order_number='Batch', errors=['This batch exceeds 20,000 label pages. Split it into smaller workbooks.'], warnings=[]))
@@ -72,7 +78,8 @@ def resolve_worker(result_id, state, choices):
         if not documents:
             errors += 1
             report.append(dict(order_number='Batch', errors=['Select at least one order to process.'], warnings=[]))
-        RESULT_JOBS[result_id]['order_workbook_prepared'] = dict(documents=documents, skipped=skipped, input_path=state['input_path'], report=report)
+        RESULT_JOBS[result_id]['order_workbook_prepared'] = dict(documents=documents, skipped=skipped, input_path=state['input_path'], report=report, values=values,
+            references={name: state[name] for name in ['products','directory','templates']})
         update_result_job(result_id, status='complete', detail='Review complete. Resolve blocking inputs before generating.' if errors else 'Orders matched and calculated. Review the outputs and generate the ZIP.',
                           report=dict(phase='review', orders=report, error_count=errors, warning_count=sum(len(row['warnings']) for row in report),
                                       label_pages=pages, can_generate=errors == 0))
@@ -142,6 +149,8 @@ def generate_worker(result_id, prepared):
             for path in files:
                 archive.write(path, str(path.relative_to(root)).replace('\\', '/'))
             archive.write(prepared['input_path'], 'Source_Order_Workbook.xlsx')
+            from labelkit.order_workbook_io import workbook_bytes
+            archive.writestr('Reviewed_Order_Inputs.xlsx', workbook_bytes(**prepared['references'], values=prepared['values']))
             archive.writestr('Processing_Report.json', json.dumps(summary, indent=2, ensure_ascii=False))
             stream = io.StringIO(newline='')
             writer = csv.writer(stream)

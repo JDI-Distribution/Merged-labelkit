@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 
 from labelkit.jobs import RESULT_JOBS, RESULT_JOBS_LOCK, create_result_job
 from labelkit.order_workbook_io import workbook_bytes
+from labelkit.order_workbook_review import field_review, public_fields
 from labelkit.order_workbook_jobs import check_worker, generate_worker, reference_snapshot, resolve_worker
 from labelkit.runtime import _request_actor, _require_permission
 
@@ -24,13 +25,13 @@ def owner(request):
     return actor.get('user_id') or actor.get('email') or actor.get('name') or 'local'
 
 
-def owned_result(request, result_id, field):
+def owned_result(request, result_id, field, copy_result=True):
     job = RESULT_JOBS.get(str(result_id))
     if not job or job.get('workbook_owner') != owner(request):
         raise HTTPException(404, 'This workbook review expired or is not available to your account. Upload it again.')
     if job.get('status') != 'complete' or field not in job:
         raise HTTPException(409, 'Wait for the workbook check to finish.')
-    return copy.deepcopy(job[field])
+    return copy.deepcopy(job[field]) if copy_result else job[field]
 
 
 def launch(request, kit, worker, *args, input_data=None):
@@ -95,6 +96,27 @@ def resolve_order_upload(request: Request, payload: dict):
         snapshot['input_path'] = str(path)
         resolve_worker(result_id, snapshot, decisions)
     return launch(request, 'order_excel_review', run, state, choices, input_data=data)
+
+
+@router.post('/api/order-documents/excel/fields')
+def review_order_fields(request: Request, payload: dict):
+    _require_permission(request, 'generate')
+    state = owned_result(request, payload.get('result_id'), 'order_workbook_state', copy_result=False)
+    order = str(payload.get('order_number') or '')
+    if order not in state['entries'] or not isinstance(payload.get('choice', {}), dict):
+        raise HTTPException(400, 'Select an order from this workbook.')
+    try:
+        return JSONResponse(public_fields(field_review(state, order, payload.get('choice') or {})))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get('/api/order-documents/excel/reviewed-inputs')
+def export_reviewed_inputs(request: Request, result_id: str):
+    _require_permission(request, 'view')
+    prepared = owned_result(request, result_id, 'order_workbook_prepared')
+    return Response(workbook_bytes(**prepared['references'], values=prepared['values']), media_type=EXCEL_TYPE,
+                    headers={'Content-Disposition': 'attachment; filename="Reviewed_Order_Inputs.xlsx"'})
 
 
 @router.post('/api/order-documents/excel/generate')

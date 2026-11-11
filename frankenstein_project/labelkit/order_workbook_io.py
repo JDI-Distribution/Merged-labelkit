@@ -130,8 +130,8 @@ def read_order_workbook(data: bytes):
         for row in result[sheet]:
             if row['order_number'] not in orders:
                 raise ValueError(f'{sheet} row {row["_row"]}: order {row["order_number"]} is missing from Orders.')
-            if not row.get('sku'):
-                raise ValueError(f'{sheet} row {row["_row"]}: SKU is required.')
+            # Missing SKUs are repairable in the field review. Labels may bind
+            # through Line ID while an incomplete line is being completed.
             if target == 'lines':
                 row['line_id'] = row.get('line_id') or f'ROW-{row["_row"]}'
                 if any(line['line_id'] == row['line_id'] for line in orders[row['order_number']]['lines']):
