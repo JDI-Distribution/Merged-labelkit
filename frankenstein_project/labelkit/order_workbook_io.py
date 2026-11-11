@@ -46,6 +46,7 @@ def number(value, label, required=False, whole=False):
 
 def read_order_workbook(data: bytes):
     from openpyxl import load_workbook
+    from labelkit.order_workbook_entry import ENTRY_COLUMNS, ENTRY_SHEET, HEADER_ROW, MAX_ENTRY_ROWS, expand_entry
     if len(data) > 50 * 1024 * 1024:
         raise ValueError('The order workbook exceeds 50 MB.')
     try:
@@ -59,18 +60,23 @@ def read_order_workbook(data: bytes):
         raise ValueError('Upload a valid .xlsx order workbook.') from exc
     result = {}
     try:
-        for name, columns in SCHEMA['sheets'].items():
+        layouts = {ENTRY_SHEET: ENTRY_COLUMNS} if ENTRY_SHEET in book.sheetnames else SCHEMA['sheets']
+        for name, columns in layouts.items():
             if name not in book.sheetnames:
                 if name == 'Labels':
                     result[name] = []
                     continue
                 raise ValueError(f'The workbook needs the {name} sheet. Download the current template.')
             sheet = book[name]
-            if (sheet.max_row or 0) > 10002 or (sheet.max_column or 0) > 100:
+            row_limit = MAX_ENTRY_ROWS if name == ENTRY_SHEET else 10000
+            if (sheet.max_row or 0) > row_limit + (HEADER_ROW if name == ENTRY_SHEET else 1) or (sheet.max_column or 0) > 100:
                 raise ValueError(f'{name} is too large. Use at most 100 orders and 5,000 lines.')
             aliases = {key(alias): col[0] for col in columns for alias in col[:2]}
             types = {col[0]: col[2] for col in columns}
             iterator = sheet.iter_rows()
+            header_row = HEADER_ROW if name == ENTRY_SHEET else 1
+            for _ in range(header_row-1):
+                next(iterator, None)
             headers = next(iterator, [])
             if len(headers) > 100:
                 raise ValueError(f'{name} has too many columns. Keep the template headers unchanged.')
@@ -82,11 +88,11 @@ def read_order_workbook(data: bytes):
                 fields.append(aliases.get(key(text), ''))
             if len([f for f in fields if f]) != len(set(f for f in fields if f)):
                 raise ValueError(f'{name}: duplicate column headers.')
-            if 'order_number' not in fields or (name == 'Order Lines' and 'sku' not in fields):
+            if 'order_number' not in fields or (name in {'Order Lines', ENTRY_SHEET} and 'sku' not in fields):
                 raise ValueError(f'{name}: Order Number{", SKU" if name == "Order Lines" else ""} header is required.')
             rows = []
-            for index, cells in enumerate(iterator, 2):
-                if index > 10002 or len(cells) > 100:
+            for index, cells in enumerate(iterator, header_row+1):
+                if index > row_limit + header_row or len(cells) > 100:
                     raise ValueError(f'{name} exceeds the workbook row limit.')
                 values = {}
                 for field, cell in zip(fields, cells):
@@ -114,6 +120,8 @@ def read_order_workbook(data: bytes):
                     values['_row'] = index
                     rows.append(values)
             result[name] = rows
+        if ENTRY_SHEET in result:
+            result = expand_entry(result[ENTRY_SHEET])
     finally:
         book.close()
     orders = {}
@@ -126,6 +134,8 @@ def read_order_workbook(data: bytes):
         raise ValueError('Enter between 1 and 100 orders on the Orders sheet.')
     if len(result['Order Lines']) > MAX_LINES:
         raise ValueError('Use at most 5,000 order lines per workbook.')
+    if len(result['Labels']) > 10000:
+        raise ValueError('Use at most 10,000 label instructions per workbook.')
     for sheet, target in [('Order Lines', 'lines'), ('Labels', 'labels')]:
         for row in result[sheet]:
             if row['order_number'] not in orders:
@@ -158,6 +168,7 @@ def workbook_bytes(products, directory, templates, values=None):
     Standard OpenXML edits retain its formatting, tables and data validation;
     the application runtime does not need the authoring tool installed.
     """
+    from labelkit.order_workbook_entry import CORE_FIELDS, ENTRY_COLUMNS, ENTRY_SHEET, HEADER_ROW, flatten_entry
     choices = copy.deepcopy(SCHEMA['choices'])
     choices.update(customers=sorted({clean(r.get('storefront')) for r in products + directory if r.get('storefront')}),
                    skus=sorted({clean(r.get('sku')) for r in products if r.get('sku')}),
@@ -181,13 +192,15 @@ def workbook_bytes(products, directory, templates, values=None):
         path = sheets[name]
         root = ET.fromstring(parts[path])
         body = root.find(f'{{{NS}}}sheetData')
-        styles = {re.sub(r'\d+', '', cell.get('r')): cell.get('s') for row in body if row.get('r') == '2' for cell in row}
-        types = [field[2] for field in SCHEMA['sheets'].get(name, [])]
+        header_row = HEADER_ROW if name == ENTRY_SHEET else 1
+        columns = ENTRY_COLUMNS if name == ENTRY_SHEET else SCHEMA['sheets'].get(name, [])
+        styles = {re.sub(r'\d+', '', cell.get('r')): cell.get('s') for row in body if row.get('r') == str(header_row+1) for cell in row}
+        types = [field[2] for field in columns]
         # Preserve authored header cells; blank input rows only carry formatting.
         for row in list(body):
-            if int(row.get('r')) > 1:
+            if int(row.get('r')) > header_row:
                 body.remove(row)
-        for r, values_row in enumerate(matrix, 2):
+        for r, values_row in enumerate(matrix, header_row+1):
             row = ET.SubElement(body, f'{{{NS}}}row', r=str(r))
             for c, value in enumerate(values_row, 1):
                 if value in ('', None):
@@ -221,8 +234,8 @@ def workbook_bytes(products, directory, templates, values=None):
                     node.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
         dimension = root.find(f'{{{NS}}}dimension')
         if dimension is not None:
-            width = len(SCHEMA['sheets'].get(name, choices))
-            dimension.set('ref', f'A1:{column_name(width)}{max(101, len(matrix)+1)}')
+            width = len(columns or choices)
+            dimension.set('ref', f'A1:{column_name(width)}{max(101, len(matrix)+header_row)}')
         parts[path] = ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
     fill_sheet('Choices', [[choices[name][i] if i < len(choices[name]) else '' for name in choices]
@@ -232,18 +245,45 @@ def workbook_bytes(products, directory, templates, values=None):
             if old.get('name') == f'LK_{name}':
                 names.remove(old)
         ET.SubElement(names, f'{{{NS}}}definedName', name=f'LK_{name}').text = f"'Choices'!${column_name(index)}$2:${column_name(index)}${max(2, len(rows)+1)}"
-    for name, rows in (values or {}).items():
+    output_values = {ENTRY_SHEET: flatten_entry(values)} if values is not None and ENTRY_SHEET in sheets else values or {}
+    for name, rows in output_values.items():
+        if name == ENTRY_SHEET:
+            fill_sheet(name, [[row.get(field[0], '') for field in ENTRY_COLUMNS] for row in rows])
+            continue
         if name not in SCHEMA['sheets']:
             continue
         fill_sheet(name, [[row.get(field[0], '') for field in SCHEMA['sheets'][name]] for row in rows])
-    for name in SCHEMA['sheets']:
+    for sheet in workbook.find(f'{{{NS}}}sheets'):
+        if sheet.get('name') == 'Choices':
+            sheet.set('state', 'hidden')
+    for name in ([ENTRY_SHEET] if ENTRY_SHEET in sheets else SCHEMA['sheets']):
         path = sheets[name]
         root = ET.fromstring(parts[path])
         for validation in root.findall(f'.//{{{NS}}}dataValidation'):
             validation.set('allowBlank', '1')
             formula = validation.find(f'{{{NS}}}formula1')
-            if formula is not None and formula.text in {'LK_skus', 'LK_customers', 'LK_configs'}:
+            if formula is not None and formula.text in {'LK_skus', 'LK_customers', 'LK_configs', 'LK_templates'}:
                 validation.set('showErrorMessage', '0')
+        if name == ENTRY_SHEET:
+            # Native Excel outline keeps optional fields available on this same
+            # sheet. Artifact Tool does not expose column grouping authoring.
+            for column in root.findall(f'.//{{{NS}}}col'):
+                if int(column.get('min')) > len(CORE_FIELDS):
+                    column.set('hidden', '1')
+                    column.set('outlineLevel', '1')
+                elif int(column.get('max')) == len(CORE_FIELDS):
+                    column.set('collapsed', '1')
+            properties = root.find(f'{{{NS}}}sheetPr')
+            if properties is None:
+                properties = ET.Element(f'{{{NS}}}sheetPr')
+                root.insert(0, properties)
+            outline = properties.find(f'{{{NS}}}outlinePr')
+            if outline is None:
+                outline = ET.SubElement(properties, f'{{{NS}}}outlinePr')
+            outline.set('summaryRight', '0')
+            sheet_format = root.find(f'{{{NS}}}sheetFormatPr')
+            if sheet_format is not None:
+                sheet_format.set('outlineLevelCol', '1')
         parts[path] = ET.tostring(root, encoding='utf-8', xml_declaration=True)
     parts['xl/workbook.xml'] = ET.tostring(workbook, encoding='utf-8', xml_declaration=True)
     output = io.BytesIO()

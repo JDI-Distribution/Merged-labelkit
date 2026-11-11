@@ -40,10 +40,15 @@ renamed templates.
 ### Excel Orders
 
 In Order Documents, choose **Excel Orders**, then **Download Template** or
-**Export Loaded Order**. The workbook includes Orders, Order Lines, Labels,
-live dropdown choices, and a Guide. Enter each order once on Orders and one
-row per SKU/configuration on Order Lines. Labels supports multiple templates
-and packaging levels per line; use Line ID to distinguish repeated SKUs.
+**Export Loaded Order**. All data entry uses one **Order Entry** tab, with
+one row per order/SKU and packing/label settings on that same row. Repeat the
+Order Number for each item. Enter shared PO, dates, customer, and addresses
+once per order; blank cells on the other rows inherit those details. Expand
+the optional column group for addresses, barcodes, and advanced settings.
+Dropdown choices are hidden behind the entry sheet; a Guide explains the fields.
+Multiple label templates can be separated by semicolons. For additional label
+ranges/settings, repeat the Line ID on another row and leave item quantities
+blank so demand is counted once. Older three-tab files remain supported.
 Blank optional inputs reuse available Analytics, Product Master, or Directory
 values. New SKUs can be entered directly with order-only packaging details.
 The upload does not update Product Master or Directory.

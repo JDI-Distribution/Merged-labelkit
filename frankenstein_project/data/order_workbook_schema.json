@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "sheets": {
     "Orders": [
       ["order_number", "Order Number", "text", ""],
@@ -91,20 +91,20 @@
     "customers": [], "skus": [], "configs": [], "templates": [], "origins": [], "bill_to": [], "ship_to": []
   },
   "guide": [
-    ["Start", "Enter each order once on Orders. Enter its SKU lines on Order Lines. Keep order numbers, SKUs, GTINs and directory codes as text, including leading zeroes."],
+    ["Start", "Use Order Entry for all input. Enter one row per order/SKU. Repeat the Order Number for every item. Keep order numbers, SKUs and GTINs as text, including leading zeroes."],
     ["Blank fields", "Excel values come first. Blank fields use available Analytics, Product Master, Directory and app defaults. Each field shows its source in the upload review and can be edited there."],
     ["Source decisions", "Review defaults field by field. Keep Excel for one value and choose Analytics or Product Master for another. Missing inputs and conflicting defaults are highlighted. Recalculate after editing."],
     ["Multiple records", "Use Analytics Record ID when a sales order number is reused. Otherwise select the correct record in the discrepancy popup."],
     ["Quantities", "Ordered Quantity is the quantity sold in Ordered Unit. Auto follows the matching level SKU. Eaches Per Case is a unit count, not pounds. Gross box weight includes packaging."],
     ["Custom packing", "Choose Units per box, Pounds per box or Total boxes, enter Packing Value and the actual box dimensions/gross weight. Pounds per ordered unit is needed for weight packing and unequal final boxes. Original demand is preserved."],
-    ["Labels", "Labels is optional. Leave it blank to use enabled Product Master templates. To choose outputs explicitly, add one row per SKU/packaging level/template. Repeat a SKU for multiple templates. Copies, lot, dates and pack wording apply to that label row."],
-    ["Line IDs", "Use unique Line IDs within an order. If the same SKU has multiple configurations or lines, repeat its Line ID on Labels so the correct line is used."],
-    ["Addresses", "Choose a Directory Code or enter a full multiline address. Ship From, Bill To and Ship To are separate. Draft/incomplete Directory records are not automatic defaults."],
+    ["Labels", "Choose Label Template and Packaging Level on the same item row. Leave label settings blank to use Product Master defaults. Multiple templates may be separated with semicolons."],
+    ["Line IDs", "Line ID is in the optional columns on the right. Reuse the same Line ID for additional label rows without duplicating ordered quantity. Leave repeated item details blank on those extra rows."],
+    ["Addresses", "Expand the optional columns using the + outline control above the sheet. Choose Directory codes or enter addresses there. Shared order details only need to be entered once per order."],
     ["Outputs", "Packing List and Ti-Hi and Pallet Labels default to Yes. Customer Labels defaults to Auto. Select No to exclude an output. Add a shipping Case or custom box measurements when pallet calculation is required."],
     ["Review", "Fix missing inputs in the app without uploading again. Use Edit fields and defaults to return after calculation. Review match notices and document warnings before generating. Download reviewed Excel to retain corrections."],
     ["ZIP contents", "One ZIP contains order-number folders with selected PDFs, the source workbook, reviewed inputs with edits, and field-level source decisions. This batch does not change Product Master or Directory."],
     ["Dropdowns", "Dropdown choices are refreshed when downloading from the app. New SKUs/customers can still be typed and will be checked on upload. Yes/No lists are used for broad Excel compatibility."],
-    ["Limits", "Up to 100 orders and 5,000 order lines per upload. Template input rows include dropdowns through row 5,001. Keep sheet names and header labels unchanged."],
-    ["Field help", "All dimensions are inches and all shipping weights are pounds. Ship Date, Expected Delivery Date, PO Date, Expiration Date and Best Before accept Excel dates or YYYY-MM-DD. Label templates and document layouts are separate choices."]
+    ["Limits", "Up to 100 orders and 5,000 distinct order lines per upload. Dropdowns cover 15,000 entry rows, including extra labels. Keep the Order Entry sheet name and row 4 headers unchanged."],
+    ["Field help", "Common fields are visible first. Optional address, barcode, document and pallet settings are grouped on the right. All dimensions are inches and weights are pounds. Existing three-tab workbooks still upload."]
   ]
 }

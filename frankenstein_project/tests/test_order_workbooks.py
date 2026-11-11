@@ -18,6 +18,7 @@ from labelkit.b2b_orders import _load_b2b_label_templates
 from labelkit.jobs import RESULT_JOBS
 from labelkit.order_workbook_documents import box_groups, build_order_documents
 from labelkit.order_workbook_io import read_order_workbook, workbook_bytes
+from labelkit.order_workbook_entry import expand_entry
 from labelkit.order_workbook_match import check_orders
 from labelkit.order_workbook_review import field_review, resolve_fields
 from labelkit.reference_data import normalize_product_master_row
@@ -68,13 +69,16 @@ class OrderWorkbookTests(unittest.TestCase):
     def test_template_dropdowns_and_export_identifiers_dates_quantities_round_trip(self):
         raw = self.make()
         book = load_workbook(io.BytesIO(raw))
-        self.assertEqual(book.sheetnames[:3], ['Orders', 'Order Lines', 'Labels'])
-        self.assertGreaterEqual(len(book['Orders'].data_validations.dataValidation), 8)
+        self.assertEqual(book.sheetnames, ['Order Entry', 'Choices', 'Guide'])
+        self.assertEqual(book['Choices'].sheet_state, 'hidden')
+        self.assertGreaterEqual(len(book['Order Entry'].data_validations.dataValidation), 15)
         self.assertIn('LK_templates', book.defined_names)
         self.assertIn('LK_skus', book.defined_names)
-        self.assertEqual(book['Orders']['A3'].value, '0002')
-        self.assertIsInstance(book['Order Lines']['D2'].value, (int, float))
-        self.assertEqual(book['Orders']['E2'].value.strftime('%Y-%m-%d'), '2026-11-11')
+        self.assertEqual(book['Order Entry']['A6'].value, '0002')
+        self.assertIsInstance(book['Order Entry']['D5'].value, (int, float))
+        self.assertEqual(book['Order Entry']['G5'].value.strftime('%Y-%m-%d'), '2026-11-11')
+        self.assertEqual(book['Order Entry'].freeze_panes, 'C5')
+        self.assertTrue(any(c.hidden and c.outlineLevel == 1 for c in book['Order Entry'].column_dimensions.values()))
         book.close()
         orders = read_order_workbook(raw)
         self.assertEqual(orders['0002']['header']['po_number'], 'PO001')
@@ -182,14 +186,48 @@ class OrderWorkbookTests(unittest.TestCase):
             build_order_documents('0002', resolve_fields(state, '0002', dict(acknowledge_matches=True)), state)
 
     def test_workbook_duplicate_order_and_missing_order_reference_are_reported(self):
+        legacy = Path(__file__).parent / 'fixtures/order-workbook-legacy.xlsx'
+        with patch('labelkit.order_workbook_io.TEMPLATE', legacy):
+            parsed = read_order_workbook(self.make())
+            self.assertEqual(parsed['1001']['lines'][0]['quantity'], '600')
+            values = copy.deepcopy(self.values)
+            values['Orders'].append(self.header)
+            with self.assertRaisesRegex(ValueError, 'repeated'):
+                read_order_workbook(self.make(values))
+            values = copy.deepcopy(self.values)
+            values['Order Lines'][0]['order_number'] = 'not-listed'
+            with self.assertRaisesRegex(ValueError, 'missing from Orders'):
+                read_order_workbook(self.make(values))
+
+    def test_one_sheet_shared_order_details_and_extra_labels_do_not_duplicate_demand(self):
         values = copy.deepcopy(self.values)
-        values['Orders'].append(self.header)
-        with self.assertRaisesRegex(ValueError, 'repeated'):
-            read_order_workbook(self.make(values))
+        values['Orders'][0]['expected_delivery_date'] = '2026-11-12'
+        values['Labels'][0]['expected_delivery_date'] = '2026-11-15'
+        values['Labels'].append({**values['Labels'][0], 'level':'Each'})
+        parsed = read_order_workbook(self.make(values))
+        self.assertEqual(len(parsed['1001']['lines']), 1)
+        self.assertEqual(parsed['1001']['lines'][0]['quantity'], '600')
+        self.assertEqual(len(parsed['1001']['labels']), 2)
+        self.assertEqual(parsed['1001']['header']['expected_delivery_date'], '2026-11-12')
+        self.assertEqual(parsed['1001']['labels'][1]['expected_delivery_date'], '2026-11-15')
+        rows = [dict(order_number='001', sku='A', quantity='10', po_number='PO-A', _row=5),
+                dict(order_number='001', sku='B', quantity='20', _row=6)]
+        expanded = expand_entry(rows)
+        self.assertEqual(len(expanded['Orders']), 1)
+        self.assertEqual(expanded['Orders'][0]['po_number'], 'PO-A')
+        rows[1]['po_number'] = 'PO-B'
+        with self.assertRaisesRegex(ValueError, 'Customer PO differs'):
+            expand_entry(rows)
+
+    def test_one_sheet_multiple_templates_and_same_sku_separate_lines(self):
         values = copy.deepcopy(self.values)
-        values['Order Lines'][0]['order_number'] = 'not-listed'
-        with self.assertRaisesRegex(ValueError, 'missing from Orders'):
-            read_order_workbook(self.make(values))
+        values['Labels'][0]['template_id'] = 'STANDARD_CASE_PACK_4X6; PURPLE_PEARL_CASE_4X6'
+        values['Order Lines'].append({**values['Order Lines'][0], 'line_id':'C', 'quantity':50})
+        parsed = read_order_workbook(self.make(values))
+        self.assertEqual(len(parsed['1001']['lines']), 2)
+        self.assertEqual(sum(float(line['quantity']) for line in parsed['1001']['lines']), 650)
+        self.assertEqual(len(parsed['1001']['labels']), 2)
+        self.assertEqual(parsed['1001']['labels'][1]['template_id'], 'PURPLE_PEARL_CASE_4X6')
 
     def test_explicit_barcode_requires_valid_gtin_and_multiple_templates_preserve_levels(self):
         values = copy.deepcopy(self.values)
