@@ -2,18 +2,38 @@
 let orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false };
 
 function openOrderExcel() {
+  orderExcel.returnFocus=document.activeElement;
   document.getElementById('order-excel-modal').classList.add('visible');
   document.getElementById('order-excel-export').disabled = !orderDocumentsState.payload?.items?.length;
   setOrderExcelStep(orderExcel.step || 1);
+  document.querySelector('#order-excel-modal .editor-toolbar button').focus();
 }
 function setOrderExcelStep(step) {
   orderExcel.step=step;
+  document.getElementById('bulk-order-upload').open=step===1;
   document.querySelectorAll('#order-excel-modal [data-bulk-step]').forEach(item=>{
     if(Number(item.dataset.bulkStep)===step)item.setAttribute('aria-current','step');
     else item.removeAttribute('aria-current');
   });
 }
-function closeOrderExcel() { document.getElementById('order-excel-modal').classList.remove('visible'); }
+function closeOrderExcel() {
+  document.getElementById('order-excel-modal').classList.remove('visible');
+  orderExcel.returnFocus?.focus();
+}
+document.getElementById('order-excel-modal').addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.preventDefault();closeOrderExcel();return;}
+  if(event.key!=='Tab')return;
+  const controls=[...event.currentTarget.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(el=>!el.disabled && el.getClientRects().length);
+  const first=controls[0],last=controls.at(-1);
+  if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus();}
+  else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus();}
+});
+function orderExcelDockActions() {
+  const dock=document.getElementById('order-excel-actions');
+  dock.replaceChildren();
+  const actions=document.querySelector('#order-excel-results [data-bulk-actions]');
+  if(actions)dock.append(actions);
+}
 function orderExcelStatus(message, error = false) {
   const target = document.getElementById('order-excel-status');
   target.textContent = message;
@@ -51,7 +71,8 @@ async function checkOrderExcel() {
   const file = document.getElementById('order-excel-file').files[0];
   if (!file) return orderExcelStatus('Choose the completed .xlsx order workbook first.', true);
   if (!/\.xlsx$/i.test(file.name)) return orderExcelStatus('Choose an .xlsx order workbook.', true);
-  orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false };
+  orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false, returnFocus:orderExcel.returnFocus };
+  document.getElementById('order-excel-actions').replaceChildren();
   setOrderExcelStep(1);
   document.getElementById('order-excel-results').innerHTML = '';
   orderExcelBusy(true);
@@ -118,12 +139,15 @@ function renderOrderExcelField(field, orderIndex, sectionIndex, fieldIndex) {
 function renderOrderExcelMatching() {
   setOrderExcelStep(2);
   const orders = orderExcel.matching?.orders || [];
+  const active=orders.filter(order=>!orderExcel.choices[order.order_number]?.skip);
   document.getElementById('order-excel-results').innerHTML = `<h3>Review Excel and app defaults</h3>
+    <div class="bulk-batch-summary"><strong>${active.length} of ${orders.length} orders selected</strong><span>${active.reduce((total,order)=>total+order.missing_count,0)} missing inputs</span><span>${active.reduce((total,order)=>total+order.conflict_count,0)} source differences</span></div>
+    <nav class="bulk-order-jump" aria-label="Jump to order">${orders.map((order,index)=>`<a href="#bulk-order-${index}" onclick="event.preventDefault();document.getElementById('bulk-order-${index}').scrollIntoView({block:'start'})">Order ${escapeHtml(order.order_number)}</a>`).join('')}</nav>
     <p>Check the values that will be printed. Excel values stay in use unless you change them. Compare saved values below each field, use Restore saved value when needed, or type a correction. Changes apply to this batch only.</p>
     <label class="order-excel-ack"><input id="order-excel-issues-only" type="checkbox" ${orderExcel.issuesOnly ? 'checked' : ''} onchange="orderExcel.issuesOnly=this.checked;renderOrderExcelMatching()"> Show only missing or conflicting fields</label>
     ${orders.map((order,index) => {
       const chosen = orderExcel.choices[order.order_number] || {};
-      return `<section class="order-excel-order" data-excel-order="${index}"><header><strong>Order ${escapeHtml(order.order_number)}</strong><span>${order.filled_count} filled from app/defaults / ${order.missing_count} missing / ${order.conflict_count} conflicts</span></header>
+      return `<section class="order-excel-order" id="bulk-order-${index}" data-excel-order="${index}"><header><strong>Order ${escapeHtml(order.order_number)}</strong><span>${order.filled_count} filled from app/defaults / ${order.missing_count} missing / ${order.conflict_count} conflicts</span></header>
       <div class="order-excel-source"><label><input data-excel-action type="checkbox" ${chosen.skip ? 'checked' : ''} onchange="skipOrderExcel(${index},this.checked)"> Skip this order</label>
       ${order.records.length ? `<label>Analytics order record<select data-excel-action aria-label="Order ${escapeHtml(order.order_number)} Analytics record" onchange="selectOrderExcelRecord(${index},this.value)">
       ${order.records.length > 1 ? '<option value="">Choose a record to fill missing fields</option>' : ''}${order.records.map(record => `<option value="${escapeHtml(record.ecomdash_id)}">${escapeHtml([record.ecomdash_id,record.storefront,record.invoice_date].filter(Boolean).join(' / '))}</option>`).join('')}<option value="__none__">No Analytics fallback</option></select></label>` : ''}</div>
@@ -141,7 +165,8 @@ function renderOrderExcelMatching() {
       ${orderExcel.issuesOnly && !order.missing_count && !order.conflict_count ? '<p>No missing or conflicting fields. Uncheck the filter to inspect or edit all defaults.</p>' : ''}
       ${order.notices.length || order.conflict_count ? `<label class="order-excel-ack"><input data-excel-action type="checkbox" class="order-excel-match-ack" ${chosen.acknowledge_matches ? 'checked' : ''} onchange="acknowledgeOrderExcel(${index},this.checked)"> I reviewed the match notices and conflicting values for this order.</label>` : ''}`}</section>`;
     }).join('')}
-    <div class="order-excel-source"><button data-excel-action class="btn-secondary" type="button" onclick="refreshOrderExcelFields()">Recheck defaults</button><button data-excel-action class="btn-generate" type="button" onclick="resolveOrderExcel()">Recalculate and review documents</button></div>`;
+    <div class="order-excel-source" data-bulk-actions><button data-excel-action class="btn-secondary" type="button" onclick="refreshOrderExcelFields()">Recheck defaults</button><button data-excel-action class="btn-generate" type="button" onclick="resolveOrderExcel()">Recalculate and review documents</button></div>`;
+  orderExcelDockActions();
   orders.forEach((order,index)=>{
     const selected=orderExcel.choices[order.order_number] || {};
     const record=document.querySelector(`[data-excel-order="${index}"] select[aria-label$="Analytics record"]`);
@@ -239,9 +264,10 @@ async function resolveOrderExcel() {
       ${order.errors.length ? `<ul class="order-excel-errors">${order.errors.map(message => `<li>${escapeHtml(message)}</li>`).join('')}</ul>` : ''}
       ${order.warnings.length ? `<details><summary>${order.warnings.length} document warning(s)</summary><ul>${order.warnings.map(message => `<li>${escapeHtml(message)}</li>`).join('')}</ul></details>` : ''}</section>`).join('')}
       ${review.warning_count ? '<label class="order-excel-ack"><input id="order-excel-ack" type="checkbox"> I reviewed the document warnings for these selected inputs.</label>' : ''}
-      <div class="order-excel-source"><button data-excel-action class="btn-secondary" type="button" onclick="renderOrderExcelMatching()">Edit fields and defaults</button>
+      <div class="order-excel-source" data-bulk-actions><button data-excel-action class="btn-secondary" type="button" onclick="renderOrderExcelMatching()">Edit fields and defaults</button>
       <button data-excel-action class="btn-secondary" type="button" onclick="orderExcelDownload('/api/order-documents/excel/reviewed-inputs?result_id='+encodeURIComponent(orderExcel.reviewId), 'Reviewed_Order_Inputs.xlsx')">Download reviewed Excel</button>
       ${review.can_generate ? '<button data-excel-action class="btn-generate" type="button" onclick="generateOrderExcel()">Generate order ZIP</button>' : '<p>Use Edit fields and defaults to fix these issues here, then recalculate. You can also skip an order.</p>'}</div>`;
+    orderExcelDockActions();
     document.querySelector('#order-excel-results h3')?.scrollIntoView({block:'start'});
   } catch (error) { orderExcelStatus(error.message, true); }
   finally { orderExcelBusy(false); }
@@ -261,7 +287,9 @@ async function generateOrderExcel() {
     document.getElementById('order-excel-results').innerHTML = `<h3>${report.generated} order(s) generated · ${report.failed} failed · ${report.skipped} skipped</h3>
       <p>The ZIP includes one folder per generated order, the source workbook and the processing/source-decision report.</p>
       <ul>${report.orders.map(order => `<li>Order ${escapeHtml(order.order_number)}: ${escapeHtml(order.status)}${order.error ? ` — ${escapeHtml(order.error)}` : ''}</li>`).join('')}</ul>
-      <button data-excel-action class="btn-generate" type="button" onclick="orderExcelDownload('/results/${encodeURIComponent(job.result_id)}/file', 'order_documents.zip')">Download ZIP and report</button>`;
+      <div data-bulk-actions><button data-excel-action class="btn-generate" type="button" onclick="orderExcelDownload('/results/${encodeURIComponent(job.result_id)}/file', 'order_documents.zip')">Download ZIP and report</button></div>`;
+    orderExcelDockActions();
+    document.querySelector('#order-excel-results h3')?.scrollIntoView({block:'start'});
   } catch (error) { orderExcelStatus(error.message, true); }
   finally { orderExcelBusy(false); }
 }

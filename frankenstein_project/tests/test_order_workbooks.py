@@ -16,6 +16,8 @@ from openpyxl import load_workbook
 
 from labelkit.b2b_orders import _load_b2b_label_templates
 from labelkit.jobs import RESULT_JOBS
+from labelkit.jobs import create_result_job
+from labelkit.order_workbook_jobs import resolve_worker, generate_worker
 from labelkit.order_workbook_documents import box_groups, build_order_documents
 from labelkit.order_workbook_io import read_order_workbook, workbook_bytes
 from labelkit.order_workbook_entry import expand_entry
@@ -101,6 +103,21 @@ class OrderWorkbookTests(unittest.TestCase):
             self.assertEqual(doc['errors'], [])
             self.assertEqual(doc['header']['po_number'], 'EDITED-PO')
             self.assertEqual(sum(float(row['qty_on_pallet']) for row in doc['packing_list']['packing_lists'][0]['items']), expected)
+
+    def test_repacked_box_does_not_inherit_a_saved_gtin_for_a_different_pack_quantity(self):
+        values = copy.deepcopy(self.values)
+        values['Order Lines'][0].update(quantity=600, pack_by='Pounds per box', pack_value=30, unit_lbs=1,
+                                        length_in=24, width_in=16, height_in=10, gross_weight_lbs=31)
+        state = self.state(values)
+        resolved = resolve_fields(state, '1001', dict(acknowledge_matches=True))
+        self.assertEqual(resolved['lines'][0]['case_gtin'], '10850068684998')
+        doc = build_order_documents('1001', resolved, state)
+        self.assertTrue(all(not job['product']['gtin'] for job in doc['jobs']))
+        # An explicit user choice can restore a GTIN for an order-only carton.
+        resolved = resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={
+            'line:0:case_gtin': {'source':'product_master'}}))
+        doc = build_order_documents('1001', resolved, state)
+        self.assertEqual(doc['jobs'][0]['product']['gtin'], '10850068684998')
 
     def test_missing_order_and_reused_record_have_explicit_match_review(self):
         state = self.state()
@@ -284,10 +301,39 @@ class OrderWorkbookTests(unittest.TestCase):
                             self.assertEqual(pdf.page_count, labels)
                         if name == 'Packing_List_and_TiHi.pdf':
                             self.assertIn('APPROVED', pdf[0].get_text())
+                        if name == 'Pallet_Labels.pdf':
+                            self.assertIn('CUSTOMER PO#S ON THIS PALLET:', pdf[0].get_text())
                         pdf.close()
                 self.assertIn('Processing_Report.csv', archive.namelist())
                 reviewed = read_order_workbook(archive.read('Reviewed_Order_Inputs.xlsx'))
                 self.assertEqual(reviewed['1001']['lines'][0]['quantity'], '650')
+
+    def test_skip_and_per_order_render_failure_never_publish_incomplete_order_files(self):
+        state = self.state()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root/'source.xlsx'
+            source.write_bytes(self.make())
+            state['input_path'] = str(source)
+            review_id = create_result_job(root, 'order_excel_review')
+            resolve_worker(review_id, state, {'1001': {'skip':True}, '0002': {'acknowledge_matches':True}})
+            self.assertEqual(RESULT_JOBS[review_id]['order_workbook_prepared']['skipped'], ['1001'])
+            self.assertTrue(RESULT_JOBS[review_id]['report']['can_generate'])
+            resolve_worker(review_id, state, {order: {'acknowledge_matches':True} for order in state['entries']})
+            prepared = RESULT_JOBS[review_id]['order_workbook_prepared']
+            from labelkit.order_workbook_jobs import render_kehe_master_packing_list_pdf as render
+            def fail_first(draft, path):
+                if draft['packing_lists'][0]['order_no'] == '1001':
+                    raise ValueError('Injected packing-list render failure')
+                return render(draft, path)
+            with patch('labelkit.order_workbook_jobs.render_kehe_master_packing_list_pdf', side_effect=fail_first):
+                generate_worker(review_id, prepared)
+            report = RESULT_JOBS[review_id]['report']
+            self.assertEqual((report['generated'],report['failed']), (1,1))
+            with zipfile.ZipFile(RESULT_JOBS[review_id]['output_path']) as archive:
+                self.assertFalse(any(name.startswith('SO_1001/') for name in archive.namelist()))
+                self.assertIn('SO_0002/Labels.pdf', archive.namelist())
+                self.assertIn('Injected packing-list render failure', archive.read('Processing_Report.json').decode())
 
 
 if __name__ == '__main__':

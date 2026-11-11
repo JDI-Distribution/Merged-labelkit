@@ -420,7 +420,7 @@ def _render_pallet_label_page(c: canvas.Canvas, pallet: Dict[str, Any]) -> None:
     c.drawCentredString(
         x0 + inner_w / 2,
         po_hdr_bot + po_hdr_h / 2 - 3.6,
-        "KEHE PO#S ON THIS PALLET:"
+        pallet.get("po_heading") or "KEHE PO#S ON THIS PALLET:"
     )
 
     # 7) PO value box

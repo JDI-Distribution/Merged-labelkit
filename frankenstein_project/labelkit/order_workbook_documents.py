@@ -132,6 +132,7 @@ def prepare_line(order, index, line, products, customer):
             row['gtin'] = line['each_gtin']
     case = next((row for row in rows if row['packaging_level'] == 'Case'), None)
     inner = next((row for row in rows if row['packaging_level'] == 'Inner Pack'), None)
+    explicit_case_gtin = bool(line.get('case_gtin')) and (not line.get('_field_review') or 'case_gtin' in line.get('_explicit_fields', []))
     if inner and line.get('eaches_per_inner'):
         inner['case_qty'] = str(number(line['eaches_per_inner'], 'Eaches Per Inner Pack', required=True, whole=True))
     if case:
@@ -143,7 +144,7 @@ def prepare_line(order, index, line, products, customer):
         for field in ['length_in', 'width_in', 'height_in', 'gross_weight_lbs']:
             if line.get(field):
                 case[field] = str(number(line[field], field.replace('_', ' '), required=True))
-        if line.get('case_gtin') or line.get('_field_review'):
+        if explicit_case_gtin or (line.get('_field_review') and not line.get('case_gtin')):
             case['gtin'] = line['case_gtin']
         if inner:
             ratio = float(case.get('case_qty') or 0)/float(inner.get('case_qty') or 1)
@@ -174,11 +175,13 @@ def prepare_line(order, index, line, products, customer):
                 'gtin': '', 'barcode_type': 'NONE', 'in_packing_list': True, 'is_active': True})
             if case and abs(group['units']*factor-float(case.get('case_qty') or 0)) < 1e-7:
                 product['gtin'] = case.get('gtin', '')
-            if line.get('case_gtin') and group['units'] == max(pack['units'] for pack in packs):
+            if explicit_case_gtin and group['units'] == max(pack['units'] for pack in packs):
                 product['gtin'] = line['case_gtin']
             group['product'] = product
             case_products.append(product)
         shipping = packs
+        if case and case.get('gtin') and any(abs(group['units']*factor-float(case.get('case_qty') or 0)) > 1e-7 for group in packs):
+            warnings.append(f'{line["sku"]}: repacked boxes differ from the saved Case quantity. The saved Case GTIN is not applied automatically to those boxes; confirm any explicitly selected barcode.')
     else:
         converted = _analytics_case_conversion(line['quantity'], incoming, rows, quantity_is_matched_uom=matched_units)
         if converted and not converted['case_conversion_exact']:
@@ -346,6 +349,7 @@ def build_order_documents(order, resolved, state):
         warnings += [issue['message'] for issue in document_readiness('masterPackingList', draft)['issues']]
     copies = number(header.get('pallet_copies'), 'Pallet Label Copies', whole=True) or 2
     pallets = dict(pallets=[dict(id=f'PALLET-{pallet}', pallet_number=pallet, total_pallets=str(pallet_count), copies=copies,
+                    po_heading='KEHE PO#S ON THIS PALLET:' if layout == 'kehe' else 'CUSTOMER PO#S ON THIS PALLET:',
                     date=mpl['est_ship_date'], ship_from=mpl['supplier_info'], ship_to=mpl['ship_to'], customer_po_numbers=mpl['customer_po_number'],
                     bol_number=mpl['bol_number'], pro_number=mpl['pro_number'], status='Ready', warnings=[])
                   for pallet in mpl.get('_pallet_ids', [])])

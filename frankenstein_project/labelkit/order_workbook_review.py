@@ -293,8 +293,10 @@ def resolve_fields(state, order, edits):
                     datetime.strptime(field['value'], '%Y-%m-%d')
                 except ValueError:
                     raise ValueError(f'{field["label"]}: enter a date as YYYY-MM-DD.') from None
-    for line in resolved['lines']:
+    for index, line in enumerate(resolved['lines']):
         line['_field_review'] = True
+        line['_explicit_fields'] = [field['name'] for section in review['sections'] if section['id'] == f'line:{index}'
+                                    for field in section['fields'] if field['selection'] != 'auto' or field['source'] == 'workbook']
         if not line['sku']:
             raise ValueError(f'{line["line_id"]}: SKU is required. Select an Analytics SKU or enter it here.')
         line['quantity'] = number(line.get('quantity'), f'{line["sku"]} Ordered Quantity', required=True)

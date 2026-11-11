@@ -69,6 +69,18 @@ fix remaining inputs through **Edit fields and defaults** without re-uploading.
 Missing required data blocks generation. The open order remains available
 while the batch runs.
 
+The bulk review keeps the current action and status in a persistent footer.
+A batch summary and order links help navigate large uploads. Matched values
+remain visible; blank optional fields and the original upload controls use
+progressive disclosure. Escape closes the review and returns keyboard focus
+to its launcher, and reopening retains the current review. The layout adapts
+to narrow screens without hiding the primary action.
+
+Repacking preserves original demand and partial final boxes. A saved Case GTIN
+is not automatically reused for a different repacked Case quantity. Explicit
+barcode choices remain reviewable and required barcode templates block output
+until a valid GTIN is supplied.
+
 The ZIP contains a folder per order, separate print-ready PDFs, the original
 uploaded workbook, reviewed inputs with edits, and JSON/CSV processing reports
 with field-level source decisions. **Download reviewed Excel** also retains

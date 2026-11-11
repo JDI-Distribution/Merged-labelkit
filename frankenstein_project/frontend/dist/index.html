@@ -1305,13 +1305,15 @@
       <div class="editor-toolbar"><div><div class="editor-title" id="order-excel-title">Bulk order processing</div><p>Prepare multiple orders together and download documents grouped by order number.</p></div><button class="btn-secondary" type="button" onclick="closeOrderExcel()">Close</button></div>
       <ol class="bulk-order-steps" aria-label="Bulk processing progress"><li data-bulk-step="1" aria-current="step">1. Upload orders</li><li data-bulk-step="2">2. Review defaults</li><li data-bulk-step="3">3. Review documents</li><li data-bulk-step="4">4. Download ZIP</li></ol>
       <div class="editor-body">
+        <details id="bulk-order-upload" open><summary>Order file and template</summary>
         <div class="order-excel-source"><button class="btn-secondary" type="button" onclick="downloadOrderExcelTemplate()">Download Excel Template</button><button class="btn-secondary" id="order-excel-export" type="button" onclick="exportLoadedOrderExcel()">Export loaded order</button></div>
         <p>Enter orders and SKUs on one Order Entry tab. Fill what you know; missing values can come from the app or be edited during review. Expand optional columns for addresses and advanced settings. Existing three-tab files still work.</p>
         <label>Upload order file (.xlsx)<input id="order-excel-file" type="file" accept=".xlsx"></label>
         <button data-excel-action class="btn-generate" type="button" onclick="checkOrderExcel()">Upload and match orders</button>
+        </details>
         <div id="order-excel-results"></div>
       </div>
-      <div class="order-excel-feedback"><p id="order-excel-status" role="status" aria-live="polite">No workbook uploaded.</p></div>
+      <div class="order-excel-feedback"><p id="order-excel-status" role="status" aria-live="polite">Choose an order file to begin.</p><div id="order-excel-actions"></div></div>
     </div>
   </div>
   <div class="editor-panel workflow-popup-panel" id="operations-packing-modal" role="dialog" aria-modal="true" aria-labelledby="operations-packing-title">

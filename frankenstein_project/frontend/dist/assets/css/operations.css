@@ -2307,6 +2307,38 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 .order-excel-match-status { padding: 10px; background: #edf4f4; border-radius: 6px; line-height: 1.6; }
 .order-excel-optional > summary { cursor: pointer; padding: 12px 0; color: #425a64; }
 .order-excel-optional .order-excel-field { margin-bottom: 8px; }
+#order-excel-modal { background: rgba(22, 32, 46, .28); padding: 16px; align-items: center; justify-content: center; }
+#order-excel-modal .order-excel-dialog { width: min(1280px, 100%); height: calc(100dvh - 32px); max-height: none; border-radius: 16px; box-shadow: 0 20px 70px rgba(15, 23, 42, .2); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+#order-excel-modal .editor-body { background: #f6f7f9; gap: 16px; }
+#order-excel-modal .editor-body > *, #order-excel-modal .order-excel-order, #order-excel-modal .order-excel-field > * { min-width: 0; }
+#order-excel-modal .order-excel-order p, #order-excel-modal .order-excel-order header { overflow-wrap: anywhere; }
+#order-excel-modal .order-excel-table { max-width: 100%; min-width: 0; }
+#order-excel-modal .editor-toolbar { box-shadow: none; }
+#order-excel-modal .editor-toolbar p { margin: 5px 0 0; color: #536171; font-size: 13px; }
+#order-excel-modal .btn-generate { background: #1769d2; border-color: #1769d2; box-shadow: none; min-height: 44px; width: auto; }
+#order-excel-modal .btn-generate:hover { background: #1258b3; }
+#order-excel-modal .btn-secondary { box-shadow: none; min-height: 40px; }
+#order-excel-modal :is(button,input,select,textarea,summary,a):focus-visible { outline: 3px solid #1769d2; outline-offset: 2px; }
+#order-excel-modal .order-excel-feedback { display: flex; flex-direction: column; gap: 10px; }
+#order-excel-actions .order-excel-source { margin: 0; justify-content: flex-end; gap: 10px; }
+#order-excel-actions .btn-generate { margin-left: auto; }
+#order-excel-actions > div:not(.order-excel-source) { display: flex; justify-content: flex-end; }
+#bulk-order-upload { background: white; border: 1px solid #dce1e7; border-radius: 10px; padding: 14px; }
+#bulk-order-upload > summary { font-weight: 600; cursor: pointer; min-height: 28px; }
+#bulk-order-upload input[type=file] { display: block; padding: 12px 0; }
+.bulk-batch-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; background: white; border: 1px solid #dce1e7; border-radius: 10px; }
+.bulk-order-jump { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.bulk-order-jump a { display: inline-block; padding: 10px 14px; background: white; border: 1px solid #dce1e7; border-radius: 8px; color: #155bb2; text-decoration: none; }
+#order-excel-modal .order-excel-order { background: white; }
+@media (max-width: 700px) {
+  #order-excel-modal { padding: 0; }
+  #order-excel-modal .order-excel-dialog { height: 100dvh; border-radius: 0; }
+  #order-excel-modal .editor-body { padding: 12px; }
+  #order-excel-modal .order-excel-order header { flex-direction: column; gap: 6px; }
+  #order-excel-actions .order-excel-source { display: grid; grid-template-columns: 1fr; }
+  #order-excel-actions .btn-generate { margin-left: 0; width: 100%; }
+  #order-excel-modal .order-excel-feedback { padding: 10px 12px; font-size: 13px; }
+}
 @media (max-width: 700px) { .order-excel-field { grid-template-columns: 1fr; gap: 8px; } }
 .operations-packing-body label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .operations-packing-body input, .operations-packing-body select { width: 100%; min-height: 40px; }

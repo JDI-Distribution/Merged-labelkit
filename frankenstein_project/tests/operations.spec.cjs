@@ -131,6 +131,92 @@ test('Recalculate shows its blocking reason in view and editing does not swallow
   await expect(modal.getByRole('button',{name:'Recalculate and review documents',exact:true})).toBeEnabled();
 });
 
+test.describe('Warehouse shipment audit', () => {
+  test.use({baseURL:process.env.LABELKIT_SHIPMENT_QA_URL || process.env.OPERATIONS_BASE_URL || 'http://127.0.0.1:9008'});
+  test.skip(!process.env.LABELKIT_SHIPMENT_QA_COMPLETE || !process.env.LABELKIT_SHIPMENT_QA_RECOVERY,'Requires isolated shipment fixtures.');
+  async function uploadShipment(page,file) {
+    await page.goto('/#operations');
+    await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
+    const modal=page.locator('#order-excel-modal');
+    await modal.locator('#order-excel-file').setInputFiles(file);
+    await modal.getByRole('button',{name:'Upload and match orders',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review Excel and app defaults'})).toBeVisible({timeout:30000});
+    return modal;
+  }
+  async function acknowledgeAll(modal) {
+    for(const ack of await modal.locator('.order-excel-match-ack').all())await ack.check();
+  }
+  test('complete shipment workbook generates four order folders and retains reference data',async({page,request},testInfo)=>{
+    test.setTimeout(120000);
+    const master=await (await request.get('/api/mpl/product-master')).json();
+    const directory=await (await request.get('/api/mpl/directory')).json();
+    const modal=await uploadShipment(page,process.env.LABELKIT_SHIPMENT_QA_COMPLETE);
+    await expect(modal.locator('.bulk-batch-summary')).toContainText('4 of 4 orders selected');
+    await expect(modal.getByRole('button',{name:'Recalculate and review documents',exact:true})).toBeInViewport();
+    await expect(modal.locator('#order-excel-issues-only')).not.toBeChecked();
+    await acknowledgeAll(modal);
+    await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible({timeout:30000});
+    await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
+    await expect(modal.locator('#order-excel-results')).toContainText('211 label page');
+    await expect(modal.getByRole('button',{name:'Generate order ZIP',exact:true})).toBeInViewport();
+    await page.screenshot({path:testInfo.outputPath('complete-review.png')});
+    if(await modal.locator('#order-excel-ack').count())await modal.locator('#order-excel-ack').check();
+    await modal.getByRole('button',{name:'Generate order ZIP',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'4 order(s) generated · 0 failed · 0 skipped',exact:true})).toBeVisible({timeout:60000});
+    const download=page.waitForEvent('download');await modal.getByRole('button',{name:'Download ZIP and report',exact:true}).click();
+    const zip=await download;await zip.saveAs(testInfo.outputPath('shipment-complete.zip'));expect(await zip.failure()).toBeNull();
+    expect(await(await request.get('/api/mpl/product-master')).json()).toEqual(master);
+    expect(await(await request.get('/api/mpl/directory')).json()).toEqual(directory);
+  });
+  test('recovery workbook fills defaults, restores weight, fixes SKU, blocks bad labels and supports keyboard/mobile review',async({page,request},testInfo)=>{
+    test.setTimeout(120000);
+    const master=await(await request.get('/api/mpl/product-master')).json();
+    const modal=await uploadShipment(page,process.env.LABELKIT_SHIPMENT_QA_RECOVERY);
+    const order=index=>modal.locator(`[data-excel-order="${index}"]`);
+    await expect(order(0).locator('[data-field-path="line:0:length_in"] input')).toHaveValue('16');
+    await expect(order(1).locator('[data-field-path="line:0:quantity"] input')).toHaveValue('650');
+    await expect(order(2)).toContainText('SKU not found in Product Master');
+    await acknowledgeAll(modal);
+    await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible({timeout:30000});
+    await expect(modal.getByRole('button',{name:'Generate order ZIP',exact:true})).toHaveCount(0);
+    await modal.getByRole('button',{name:'Edit fields and defaults',exact:true}).click();
+    const weight=order(0).locator('[data-field-path="line:0:gross_weight_lbs"]');
+    await expect(weight.locator('input')).toHaveValue('99');
+    await weight.getByRole('button',{name:'Restore saved value',exact:true}).click();
+    await expect(weight.locator('input')).toHaveValue('31');
+    const sku=order(2).locator('[data-field-path="line:0:sku"] input');await sku.fill('TEST-P04-1LB');await sku.press('Tab');
+    const pack=order(3).locator('[data-field-path="line:0:pack_value"] input');await pack.fill('30');await pack.press('Tab');
+    for(const field of await order(3).locator('[data-field-path$=":template_id"] [aria-label$=" value"]').all()) {
+      if(await field.inputValue()==='CROWN_SPRINKS_CASE_4X6')await field.selectOption('PURPLE_PEARL_CASE_4X6');
+    }
+    for(const field of await order(3).locator('[data-field-path$=":print_barcode"] [aria-label$=" value"]').all()) {
+      if(await field.inputValue()==='Yes')await field.selectOption('No');
+    }
+    await modal.getByRole('button',{name:'Recheck defaults',exact:true}).click();
+    await expect(modal.locator('#order-excel-status')).toContainText('Defaults refreshed');
+    await expect(order(2).locator('[data-field-path="line:0:length_in"] input')).toHaveValue('16');
+    await acknowledgeAll(modal);
+    await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible({timeout:30000});
+    await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
+    await expect(modal.locator('#order-excel-results')).toContainText('211 label page');
+    const downloaded=page.waitForEvent('download');await modal.getByRole('button',{name:'Download reviewed Excel',exact:true}).click();
+    const file=await downloaded;await file.saveAs(testInfo.outputPath('recovered-inputs.xlsx'));
+    await page.setViewportSize({width:390,height:844});
+    await expect(modal.getByRole('button',{name:'Generate order ZIP',exact:true})).toBeInViewport();
+    expect(await modal.evaluate(el=>el.scrollWidth<=window.innerWidth)).toBeTruthy();
+    expect(await modal.locator('.editor-body').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
+    await page.screenshot({path:testInfo.outputPath('mobile-review.png')});
+    await page.keyboard.press('Escape');await expect(modal).not.toBeVisible();
+    await expect(page.getByRole('button',{name:'Bulk order processing',exact:true})).toBeFocused();
+    await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible();
+    expect(await(await request.get('/api/mpl/product-master')).json()).toEqual(master);
+  });
+});
+
 async function openOperations(page) {
   await page.goto('/#operations');
   await expect(page.getByRole('heading', { name: 'Order Documents' })).toBeVisible();
