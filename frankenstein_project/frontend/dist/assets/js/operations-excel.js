@@ -13,6 +13,7 @@ function orderExcelStatus(message, error = false) {
 }
 function orderExcelBusy(busy) {
   orderExcel.busy = busy;
+  document.querySelector('#order-excel-modal .editor-dialog').setAttribute('aria-busy', String(busy));
   document.querySelectorAll('#order-excel-modal [data-excel-action], #order-excel-file').forEach(element => { element.disabled = busy; });
 }
 async function orderExcelDownload(url, filename, body) {
@@ -114,7 +115,10 @@ function orderExcelChoice(index) {
   const order=orderExcel.matching.orders[index];
   return orderExcel.choices[order.order_number] ||= {fields:{}};
 }
-function acknowledgeOrderExcel(index,value) {orderExcelChoice(index).acknowledge_matches=value;orderExcel.reviewId='';}
+function acknowledgeOrderExcel(index,value) {
+  orderExcelChoice(index).acknowledge_matches=value;orderExcel.reviewId='';
+  document.querySelector(`[data-excel-order="${index}"] .order-excel-match-ack`)?.closest('label').classList.remove('needs-review');
+}
 function skipOrderExcel(index,value) {orderExcelChoice(index).skip=value;orderExcel.reviewId='';renderOrderExcelMatching();}
 async function selectOrderExcelRecord(index,value) {const choice=orderExcelChoice(index);choice.record_id=value;choice.acknowledge_matches=false;orderExcel.reviewId='';await refreshOrderExcelFields(index);}
 
@@ -127,34 +131,57 @@ async function editOrderExcelField(index,path,source,value) {
   field.source_label=orderExcelSourceNames[field.source] || 'Not available';
   field.value=source==='custom'?choice.fields[path].value:field.candidates[field.source] || '';
   field.missing=field.required && !field.value;
-  // Re-match dependencies when identity, output or packaging controls change.
-  if(/:(sku|line_id|config_id|customer|ship_from_code|ship_to_code|bill_to_code|quantity_uom|pack_by|template_id|level|labels|packing_list|pallet_labels)$/.test(path)) await refreshOrderExcelFields(index);
-  else renderOrderExcelMatching();
+  // Preserve the clicked DOM controls during blur/change. Rebuilding this form
+  // here discards the next click (including Recalculate or its acknowledgment).
+  const card=document.querySelector(`[data-excel-order="${index}"]`);
+  const row=card.querySelector(`[data-field-path="${path}"]`);
+  row.querySelector('select[aria-label$=" source"]').value=source;
+  row.querySelector('[aria-label$=" value"]').value=field.value;
+  row.querySelector('.order-excel-badge').textContent=field.missing?'Needs input':`${field.source_label}${source==='auto'?' / default':''}`;
+  row.classList.toggle('needs-input',field.missing);
+  row.classList.toggle('has-conflict',!field.missing && field.conflict);
+  const acknowledgment=card.querySelector('.order-excel-match-ack');
+  if(acknowledgment)acknowledgment.checked=false;
+  orderExcelStatus('Edits saved for this batch. Recalculate to refresh defaults and review documents.');
 }
 
 async function refreshOrderExcelFields(index=null) {
-  if(orderExcel.busy)return;
+  if(orderExcel.busy)return false;
   orderExcelBusy(true);
+  orderExcelStatus('Checking field defaults…');
   try {
     const indexes=index===null?orderExcel.matching.orders.map((_,i)=>i):[index];
     for(const i of indexes){
       const order=orderExcel.matching.orders[i];
       const model=await window.LabelKitAPI.json('/api/order-documents/excel/fields',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result_id:orderExcel.checkId,order_number:order.order_number,choice:orderExcelChoice(i)})});
+      const before=order.sections.flatMap(section=>section.fields).map(field=>[field.path,field.value]);
+      const after=model.sections.flatMap(section=>section.fields).map(field=>[field.path,field.value]);
+      if(JSON.stringify(before)!==JSON.stringify(after) || JSON.stringify(order.notices)!==JSON.stringify(model.notices))
+        orderExcelChoice(i).acknowledge_matches=false;
       orderExcel.matching.orders[i]=model;
     }
     renderOrderExcelMatching();orderExcelStatus('Defaults refreshed. Excel values and your edits are retained.');
-  } catch(error){orderExcelStatus(error.message,true);}
+    return true;
+  } catch(error){orderExcelStatus(error.message,true);return false;}
   finally{orderExcelBusy(false);}
 }
 
 async function resolveOrderExcel() {
-  if (orderExcel.busy) return;
+  if (orderExcel.busy) return orderExcelStatus('A workbook check is running. Please wait for it to finish.');
+  if (!orderExcel.matching) return orderExcelStatus('Upload an order workbook first.',true);
+  if (!await refreshOrderExcelFields()) return;
   for (const [index, order] of orderExcel.matching.orders.entries()) {
     const choice=orderExcelChoice(index);
-    if(!choice.skip && (order.notices.length || order.conflict_count) && !choice.acknowledge_matches)
-      return orderExcelStatus(`Order ${order.order_number}: review the match notices and check its acknowledgment.`,true);
+    if(!choice.skip && (order.notices.length || order.conflict_count) && !choice.acknowledge_matches) {
+      orderExcelStatus(`Order ${order.order_number}: review the match notices and check its acknowledgment.`,true);
+      const ack=document.querySelector(`[data-excel-order="${index}"] .order-excel-match-ack`);
+      ack?.closest('label').classList.add('needs-review');
+      ack?.scrollIntoView({block:'center'});ack?.focus({preventScroll:true});
+      return;
+    }
   }
   orderExcelBusy(true);
+  orderExcelStatus('Recalculating cartons, pallets and document inputs…');
   try {
     const job = await window.LabelKitAPI.json('/api/order-documents/excel/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result_id: orderExcel.checkId, choices: orderExcel.choices }) });
@@ -170,6 +197,7 @@ async function resolveOrderExcel() {
       <div class="order-excel-source"><button data-excel-action class="btn-secondary" type="button" onclick="renderOrderExcelMatching()">Edit fields and defaults</button>
       <button data-excel-action class="btn-secondary" type="button" onclick="orderExcelDownload('/api/order-documents/excel/reviewed-inputs?result_id='+encodeURIComponent(orderExcel.reviewId), 'Reviewed_Order_Inputs.xlsx')">Download reviewed Excel</button>
       ${review.can_generate ? '<button data-excel-action class="btn-generate" type="button" onclick="generateOrderExcel()">Generate order ZIP</button>' : '<p>Use Edit fields and defaults to fix these issues here, then recalculate. You can also skip an order.</p>'}</div>`;
+    document.querySelector('#order-excel-results h3')?.scrollIntoView({block:'start'});
   } catch (error) { orderExcelStatus(error.message, true); }
   finally { orderExcelBusy(false); }
 }

@@ -86,6 +86,35 @@ test('incomplete Excel fills app defaults and repairs missing fields in the popu
   await page.screenshot({path:testInfo.outputPath('excel-field-defaults.png')});
 });
 
+test('Recalculate shows its blocking reason in view and editing does not swallow the next click', async ({page}) => {
+  test.skip(!process.env.LABELKIT_ORDER_EXCEL_WORKBOOK, 'Requires the isolated Excel-order workbook.');
+  await openOperations(page);
+  await page.getByRole('button',{name:'Excel Orders',exact:true}).click();
+  const modal=page.locator('#order-excel-modal');
+  await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_WORKBOOK);
+  await modal.getByRole('button',{name:'Upload and match orders',exact:true}).click();
+  await expect(modal.getByRole('heading',{name:'Review Excel and app defaults'})).toBeVisible({timeout:30000});
+  await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+  await expect(modal.locator('#order-excel-status')).toBeInViewport();
+  await expect(modal.locator('#order-excel-status')).toContainText('review the match notices');
+  await modal.locator('#order-excel-issues-only').uncheck();
+  const po=modal.locator('[data-excel-order="0"] [data-field-path="header:po_number"] input');
+  await po.fill('DIRECT-CLICK-PO');
+  // Click directly out of the edited input. No Tab or second click should be needed.
+  const ack=modal.locator('.order-excel-match-ack').first();
+  await ack.click();await expect(ack).toBeChecked();
+  for(const item of await modal.locator('.order-excel-match-ack').all())await item.check();
+  await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+  await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible({timeout:30000});
+  await expect(modal.locator('#order-excel-results')).toContainText('DIRECT-CLICK-PO');
+  await modal.getByRole('button',{name:'Edit fields and defaults',exact:true}).click();
+  await page.route('**/api/order-documents/excel/resolve', route=>route.fulfill({status:503,json:{detail:'Recalculation temporarily unavailable'}}));
+  await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+  await expect(modal.locator('#order-excel-status')).toContainText('Recalculation temporarily unavailable');
+  await expect(modal.locator('#order-excel-status')).toBeInViewport();
+  await expect(modal.getByRole('button',{name:'Recalculate and review documents',exact:true})).toBeEnabled();
+});
+
 async function openOperations(page) {
   await page.goto('/#operations');
   await expect(page.getByRole('heading', { name: 'Order Documents' })).toBeVisible();
