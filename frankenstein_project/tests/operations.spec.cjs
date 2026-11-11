@@ -1,5 +1,50 @@
 const { test, expect } = require('@playwright/test');
 
+test('Excel Orders matches before generation, resolves sources and downloads per-order files without replacing the open order', async ({ page }, testInfo) => {
+  test.skip(!process.env.LABELKIT_ORDER_EXCEL_WORKBOOK, 'Requires the isolated Excel-order source fixture.');
+  await openOperations(page);
+  await loadOrder(page, '38800');
+  const before = await page.evaluate(() => ({ order: orderDocumentsState.orderNumber, fields: orderDocumentsState.reviewedOrder.fields }));
+  await page.getByRole('button', { name: 'Excel Orders', exact: true }).click();
+  const modal = page.locator('#order-excel-modal');
+  await expect(modal).toBeVisible();
+  for (const name of ['Download Excel Template', 'Export loaded order']) {
+    const downloaded = page.waitForEvent('download');
+    await modal.getByRole('button', { name, exact: true }).click();
+    const file = await downloaded;
+    await file.saveAs(testInfo.outputPath(name.replaceAll(' ', '_')+'.xlsx'));
+    expect(await file.failure()).toBeNull();
+  }
+  await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_WORKBOOK);
+  await modal.getByRole('button', { name: 'Upload and match orders', exact: true }).click();
+  await expect(modal.getByRole('heading', { name: 'Match orders before processing' })).toBeVisible({ timeout: 30000 });
+  await expect(modal.locator('#order-excel-results')).toContainText('650');
+  await expect(modal.locator('#order-excel-results')).toContainText('600');
+  await expect(modal.locator('#order-excel-results')).toContainText('No Analytics order matches');
+  await modal.getByRole('button', { name: 'Validate selected sources', exact: true }).click();
+  await expect(modal.locator('#order-excel-status')).toContainText('choose Analytics');
+  await expect(modal.getByRole('button', { name: 'Generate order ZIP', exact: true })).toHaveCount(0);
+  await modal.locator('#order-excel-source-0').selectOption('analytics');
+  await modal.locator('#order-excel-source-1').selectOption('workbook');
+  await modal.getByRole('button', { name: 'Validate selected sources', exact: true }).click();
+  await expect(modal.getByRole('heading', { name: 'Review matched orders and documents' })).toBeVisible({ timeout: 30000 });
+  await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
+  await page.screenshot({ path: testInfo.outputPath('excel-matched-review.png') });
+  const acknowledgement = modal.locator('#order-excel-ack');
+  if (await acknowledgement.count()) await acknowledgement.check();
+  await modal.getByRole('button', { name: 'Generate order ZIP', exact: true }).click();
+  await expect(modal.getByRole('heading', { name: '2 order(s) generated · 0 failed · 0 skipped', exact: true })).toBeVisible({ timeout: 30000 });
+  const downloaded = page.waitForEvent('download');
+  await modal.getByRole('button', { name: 'Download ZIP and report', exact: true }).click();
+  const zip = await downloaded;
+  await zip.saveAs(testInfo.outputPath('order_documents.zip'));
+  expect(await zip.failure()).toBeNull();
+  await expect.poll(() => page.evaluate(() => ({ order: orderDocumentsState.orderNumber, fields: orderDocumentsState.reviewedOrder.fields }))).toEqual(before);
+  await page.screenshot({ path: testInfo.outputPath('excel-orders-finished.png') });
+  await modal.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.locator('#operations-order-number')).toHaveText('38800');
+});
+
 async function openOperations(page) {
   await page.goto('/#operations');
   await expect(page.getByRole('heading', { name: 'Order Documents' })).toBeVisible();

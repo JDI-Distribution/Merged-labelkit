@@ -37,6 +37,33 @@ renamed templates.
 
 ## How order documents work
 
+### Excel Orders
+
+In Order Documents, choose **Excel Orders**, then **Download Template** or
+**Export Loaded Order**. The workbook includes Orders, Order Lines, Labels,
+live dropdown choices, and a Guide. Enter each order once on Orders and one
+row per SKU/configuration on Order Lines. Labels supports multiple templates
+and packaging levels per line; use Line ID to distinguish repeated SKUs.
+Blank optional inputs reuse available Analytics, Product Master, or Directory
+values. New SKUs can be entered directly with order-only packaging details.
+The upload does not update Product Master or Directory.
+
+Upload the completed `.xlsx` and choose **Check Orders**. Matching runs before
+rendering. Discrepancies require an explicit choice of Analytics, the workbook,
+or skipping that order. Reused order numbers also require the Analytics record.
+The chosen source supplies factual order data; explicit workbook packing,
+document, and label settings still apply. Review resolved quantities, carton
+counts, addresses, and warnings before **Generate ZIP**. Missing required data
+blocks generation. The open order remains available while the batch runs.
+
+The ZIP contains a folder per order, separate print-ready PDFs, the original
+uploaded workbook, and JSON/CSV processing reports. Failed orders are reported
+without including incomplete files. Uploads support up to 100 orders and 5,000
+lines, with a 20,000-label-page limit per batch. Keep the workbook locally;
+server review jobs are temporary and may expire.
+
+### Single-order workflow
+
 1. Enter the Sales Order Number.
 2. When the number is reused, select the correct Ecomdash order instance.
 3. LabelKit matches incoming SKUs to Product Master level SKUs and resolves the customer and addresses.

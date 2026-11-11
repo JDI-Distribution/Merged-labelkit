@@ -38,7 +38,7 @@ from labelkit.reference_data import (
     _kehe_product_master_rows,
     parse_product_master_json,
 )
-from labelkit.runtime import KIT_CONFIG, LOGGER, _require_permission
+from labelkit.runtime import KIT_CONFIG, LOGGER, _require_permission, _request_actor
 from pipelines.kehe_pipeline import (
     apply_product_master_to_mpl_draft,
     build_kehe_master_packing_list_draft,
@@ -48,6 +48,14 @@ from pipelines.kehe_pipeline import (
 
 
 router = APIRouter()
+
+
+def _require_result_owner(request, job):
+    if job and job.get('workbook_owner'):
+        actor = _request_actor(request)
+        identity = actor.get('user_id') or actor.get('email') or actor.get('name') or 'local'
+        if job['workbook_owner'] != identity:
+            raise HTTPException(404, 'Generation result not found.')
 
 
 def _result_pdf_response(result_id, path, **kwargs):
@@ -63,6 +71,7 @@ def _result_pdf_response(result_id, path, **kwargs):
 def get_result_status(request: Request, result_id: str) -> JSONResponse:
     _require_permission(request, "view")
     job = RESULT_JOBS.get(result_id)
+    _require_result_owner(request, job)
     if job is None:
         raise HTTPException(status_code=404, detail="Generation result not found.")
 
@@ -85,6 +94,7 @@ def get_result_status(request: Request, result_id: str) -> JSONResponse:
 @router.get("/results/{result_id}/report")
 def get_result_report(request: Request, result_id: str) -> JSONResponse:
     _require_permission(request, "view")
+    _require_result_owner(request, RESULT_JOBS.get(result_id))
     report = RESULT_REPORTS.get(result_id)
     if report is None:
         job = RESULT_JOBS.get(result_id)
@@ -99,6 +109,7 @@ def get_result_report(request: Request, result_id: str) -> JSONResponse:
 def get_result_file(request: Request, result_id: str) -> FileResponse:
     _require_permission(request, "view")
     job = RESULT_JOBS.get(result_id)
+    _require_result_owner(request, job)
     if job is None:
         raise HTTPException(status_code=404, detail="Generated file not found.")
     if job.get("status") != "complete" or not job.get("output_path"):
@@ -121,6 +132,7 @@ def get_result_file(request: Request, result_id: str) -> FileResponse:
 def get_result_preview(request: Request, result_id: str) -> FileResponse:
     _require_permission(request, "view")
     job = RESULT_JOBS.get(result_id)
+    _require_result_owner(request, job)
     if job is None:
         raise HTTPException(status_code=404, detail="Generated preview not found.")
     preview_path = job.get("preview_path") or job.get("output_path")
