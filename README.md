@@ -76,6 +76,12 @@ progressive disclosure. Escape closes the review and returns keyboard focus
 to its launcher, and reopening retains the current review. The layout adapts
 to narrow screens without hiding the primary action.
 
+All automatic palletization uses the same backend planner. It finishes each
+SKU in source order and never mixes different SKUs on an automatic pallet.
+Full and partial boxes of the same SKU may share a pallet when the weight,
+dimensions and Ti-Hi constraints permit. Reviewing or rendering existing
+manual pallet assignments does not automatically reassign them.
+
 Repacking preserves original demand and partial final boxes. A saved Case GTIN
 is not automatically reused for a different repacked Case quantity. Explicit
 barcode choices remain reviewable and required barcode templates block output

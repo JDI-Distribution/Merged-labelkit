@@ -8,7 +8,7 @@ from labelkit.routes.generation import _refresh_mpl_render_product_master
 
 
 class DocumentRulesTests(unittest.TestCase):
-    def test_split_uses_original_largest_chunk_across_pallets(self):
+    def test_auto_keeps_different_skus_separate_even_when_a_previous_pallet_has_room(self):
         products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
                          height_in='5', gross_weight_lbs=weight, in_packing_list=True)
                     for sku, weight in [('HEAVY', '2'), ('LIGHT', '1')]]
@@ -16,7 +16,21 @@ class DocumentRulesTests(unittest.TestCase):
                  for sku, qty in [('HEAVY', 3), ('LIGHT', 10)]]
         result = pallet_plan(dict(items=items, _tihi_constraints=dict(cases_per_layer=4, max_layers=2)), products, 'auto')
         light = {row['location_on_pallet']: int(row['qty_on_pallet']) for row in result['mpl']['items'] if row['sku'] == 'LIGHT'}
-        self.assertEqual(light, {'1': 2, '2': 8})
+        self.assertEqual(light, {'2': 8, '3': 2})
+        for pallet in result['mpl']['_pallet_ids']:
+            self.assertEqual(len({row['sku'] for row in result['mpl']['items'] if row['location_on_pallet'] == pallet}), 1)
+
+    def test_auto_finishes_first_sku_before_later_sku_even_if_later_boxes_are_heavier(self):
+        products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
+                         height_in='5', gross_weight_lbs=weight, in_packing_list=True)
+                    for sku, weight in [('FIRST', '1'), ('SECOND', '2')]]
+        items = [dict(sku=sku, qty_on_pallet=str(qty), total_ordered=str(qty), total_shipped=str(qty))
+                 for sku, qty in [('FIRST', 3), ('SECOND', 2), ('FIRST', 4)]]
+        result = pallet_plan(dict(items=items, _tihi_constraints=dict(cases_per_layer=4, max_layers=2)), products, 'auto')
+        rows = result['mpl']['items']
+        self.assertEqual({row['location_on_pallet'] for row in rows if row['sku'] == 'FIRST'}, {'1'})
+        self.assertEqual({row['location_on_pallet'] for row in rows if row['sku'] == 'SECOND'}, {'2'})
+        self.assertEqual(sum(int(row['qty_on_pallet']) for row in rows), 9)
 
     def test_order_only_boxes_keep_custom_dimensions_weights_and_partial_demand(self):
         products = [dict(sku='CMB109-1LB', packaging_level='Case', case_qty='1', length_in='3',

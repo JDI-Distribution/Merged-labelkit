@@ -25,6 +25,7 @@ from labelkit.order_workbook_match import check_orders
 from labelkit.order_workbook_review import field_review, resolve_fields
 from labelkit.reference_data import normalize_product_master_row
 from labelkit.routes import order_workbooks as routes, generation
+from labelkit.routes.documents import calculate_pallet_plan
 
 
 class OrderWorkbookTests(unittest.TestCase):
@@ -149,6 +150,22 @@ class OrderWorkbookTests(unittest.TestCase):
         doc = build_order_documents('0002', resolved, state)
         self.assertEqual(doc['errors'], [])
         self.assertFalse(state['entries']['0002']['input']['lines'][0].get('length_in'))
+
+    def test_bulk_and_standard_pallet_route_keep_skus_separate_with_the_same_plan(self):
+        values = copy.deepcopy(self.values)
+        values['Orders'] = [values['Orders'][0]]
+        values['Order Lines'][1].update(order_number='1001', quantity=20)
+        values['Labels'][1]['order_number'] = '1001'
+        state = self.state(values)
+        document = build_order_documents('1001', resolve_fields(state, '1001', dict(acknowledge_matches=True)), state)
+        self.assertEqual(document['errors'], [])
+        mpl = document['packing_list']['packing_lists'][0]
+        for pallet in mpl['_pallet_ids']:
+            self.assertEqual(len({row['sku'] for row in mpl['items'] if row['location_on_pallet'] == pallet}), 1)
+        standard = calculate_pallet_plan(self.request, dict(mpl=mpl, product_master=document['packing_list']['product_master'], action='auto'))
+        self.assertEqual(standard['mpl']['items'], mpl['items'])
+        self.assertEqual(standard['mpl']['_pallet_weights'], mpl['_pallet_weights'])
+        self.assertEqual(standard['mpl']['_pallet_ids'], mpl['_pallet_ids'])
 
     def test_directory_defaults_and_edited_sku_do_not_reuse_unrelated_product_data(self):
         state = self.state()

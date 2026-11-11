@@ -108,7 +108,7 @@ def document_readiness(kind, draft, templates=()):
 
 
 def auto_palletize(mpl, products):
-    """Keep whole lines together when possible; split only when required by limits."""
+    """Finish each SKU in source order, keeping automatic pallets SKU-specific."""
     original = copy.deepcopy(mpl.get('items') or [])
     pallets, unassigned, warnings = [], [], []
 
@@ -117,6 +117,14 @@ def auto_palletize(mpl, products):
 
     def product_for(item):
         return _match_product_master_row(item, products, packing_list_only=True)
+
+    def sku_key(item):
+        for field in ('sku', 'gtin', 'item_number', 'config_id', 'description', 'review_line_index', 'line'):
+            value = str(item.get(field) if item.get(field) is not None else '').strip().casefold()
+            if value:
+                return field, value
+        # Never combine unidentified rows merely because both have blank SKUs.
+        return 'unidentified', id(item)
 
     def copy_item(item, pallet, amount, product):
         weight = _parse_float(product.get('gross_weight_lbs')) or 0
@@ -136,6 +144,8 @@ def auto_palletize(mpl, products):
         return max(0, min(int(per_layer * layers), by_weight))
 
     def fits(pallet, item, amount, product):
+        if pallet['items'] and any(sku_key(row) != sku_key(item) for row in pallet['items']):
+            return False
         constraints = _mpl_tihi_constraints(mpl, pallet['id'])
         if amount > capacity(pallet, product):
             return False
@@ -149,7 +159,11 @@ def auto_palletize(mpl, products):
         pallets.append(pallet)
         return pallet
 
-    queue = sorted(enumerate(original), key=lambda pair: (-(_parse_float((product_for(pair[1]) or {}).get('gross_weight_lbs')) or 0), pair[0]))
+    sku_order = {}
+    for item in original:
+        sku_order.setdefault(sku_key(item), len(sku_order))
+    queue = sorted(enumerate(original), key=lambda pair: (sku_order[sku_key(pair[1])],
+        -(_parse_float((product_for(pair[1]) or {}).get('gross_weight_lbs')) or 0), pair[0]))
     for index, item in queue:
         product = product_for(item)
         label = item.get('item_number') or item.get('sku') or f'Line {index + 1}'
@@ -172,6 +186,8 @@ def auto_palletize(mpl, products):
         while remaining:
             target, largest = None, 0
             for pallet in pallets:
+                if pallet['items'] and sku_key(pallet['items'][0]) != sku_key(item):
+                    continue
                 # Preserve the original largest-fitting-chunk choice across
                 # pallets, rather than filling the first pallet with any fit.
                 low, high = 0, min(remaining, capacity(pallet, product))
