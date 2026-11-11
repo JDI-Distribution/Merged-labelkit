@@ -298,12 +298,14 @@ test('an unmatched Fancy order retains its buyer, exposes unassigned demand and 
     rows: orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items),
     source: orderDocumentsState.payload.items[0],
     jobs: b2bOrderLabelJobs.filter(job => job.order_packaging),
+    warnings: orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.warnings || []),
   }));
   expect(result.rows.reduce((sum, row) => sum + Number(row.qty_on_pallet), 0)).toBe(26);
   expect(result.rows.every(row => !!row.location_on_pallet)).toBe(true);
   expect(result.jobs.length).toBeGreaterThan(0);
   expect(result.source.match_status).toBe('unmatched');
   expect(result.source.quantity_ordered).toBe(650);
+  expect(result.warnings.some(warning => warning.includes('missing checked Case'))).toBe(false);
   expect(writes).toEqual([]);
   await page.locator('#operations-generate-labels').uncheck();
   await page.locator('#operations-generate-pallets').uncheck();

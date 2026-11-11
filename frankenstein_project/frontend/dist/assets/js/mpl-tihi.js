@@ -14,6 +14,7 @@
   function palletPlanInput(mpl, draft = activeKeheDocumentDraft) {
     return {
       mpl: { items: mpl.items || [], warnings: mpl.warnings || [], _tihi_constraints: mpl._tihi_constraints || {},
+        _auto_palletize_warnings: mpl._auto_palletize_warnings || [],
         _tihi_pallet_constraints: mpl._tihi_pallet_constraints || {}, _pallet_ids: mpl._pallet_ids || [],
         _pallet_weights: mpl._pallet_weights || {} },
       product_master: draft?.reviewed_product_master || getActiveAllProductMasterRows(),
