@@ -179,7 +179,9 @@ def field_review(state, order, edits=None):
         if len(groups) != 1:
             notices.append(f'{effective["sku"] or line["line_id"]}: {"multiple configurations match; select one" if groups else "no Product Master match; enter order-only packaging details"}.')
         fields.sort(key=lambda f: next(i for i,c in enumerate(SCHEMA['sheets']['Order Lines']) if c[0] == f['name']))
-        sections.append(dict(id=prefix, title=f'{effective["sku"] or "Missing SKU"} · {line["line_id"]}', kind='line', fields=fields))
+        sections.append(dict(id=prefix, title=f'{effective["sku"] or "Missing SKU"} · {line["line_id"]}', kind='line', fields=fields,
+            product_match='matched' if len(groups) == 1 else 'ambiguous' if groups else 'missing',
+            analytics_match='matched' if raw else 'missing' if record else 'unavailable'))
         lines.append(effective)
         level_groups.append(levels)
     included = {line['sku'].casefold() for line in lines}

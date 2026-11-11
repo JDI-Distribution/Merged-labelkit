@@ -2299,6 +2299,14 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 .order-excel-field.has-conflict { background: #fff7e3; border-left: 3px solid #ac7300; }
 .order-excel-notices { padding-left: 22px; background: #fff7e3; }
 .order-excel-readonly { color: #596d75; }
+.order-excel-comparison { margin-top: 8px; font-size: 12px; }
+.order-excel-comparison > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid #d9e3e5; }
+.order-excel-comparison span { flex: 1; min-width: 160px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.order-excel-comparison .btn-secondary { min-height: 30px; padding: 5px 8px; font-size: 12px; }
+.order-excel-comparison small { color: #425a64; }
+.order-excel-match-status { padding: 10px; background: #edf4f4; border-radius: 6px; line-height: 1.6; }
+.order-excel-optional > summary { cursor: pointer; padding: 12px 0; color: #425a64; }
+.order-excel-optional .order-excel-field { margin-bottom: 8px; }
 @media (max-width: 700px) { .order-excel-field { grid-template-columns: 1fr; gap: 8px; } }
 .operations-packing-body label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .operations-packing-body input, .operations-packing-body select { width: 100%; min-height: 40px; }

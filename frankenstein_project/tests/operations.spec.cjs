@@ -21,6 +21,17 @@ test('Bulk order processing matches before generation, resolves sources and down
   await modal.getByRole('button', { name: 'Upload and match orders', exact: true }).click();
   await expect(modal.getByRole('heading', { name: 'Review Excel and app defaults' })).toBeVisible({ timeout: 30000 });
   await expect(modal.locator('[aria-current="step"]')).toHaveText('2. Review defaults');
+  await expect(modal.locator('#order-excel-issues-only')).not.toBeChecked();
+  await expect(modal.locator('[data-excel-order="0"]')).toContainText('SKU found in Product Master');
+  await expect(modal.locator('[data-excel-order="1"]')).toContainText('SKU not found in Product Master');
+  const weight=modal.locator('[data-excel-order="0"] [data-field-path="line:0:gross_weight_lbs"]');
+  await expect(weight.locator('input')).toHaveValue('26');
+  await weight.locator('input').fill('30');await weight.locator('input').press('Tab');
+  await expect(weight.locator('.order-excel-badge')).toContainText('differs from saved value');
+  await expect(weight).toContainText('Saved in Product Master:');
+  await weight.getByRole('button',{name:'Restore saved value',exact:true}).click();
+  await expect(weight.locator('input')).toHaveValue('26');
+  await expect(weight.locator('.order-excel-badge')).toContainText('Matches saved value');
   await expect(modal.locator('#order-excel-results')).toContainText('650');
   await expect(modal.locator('#order-excel-results')).toContainText('600');
   await expect(modal.locator('#order-excel-results')).toContainText('Order not found in Analytics');

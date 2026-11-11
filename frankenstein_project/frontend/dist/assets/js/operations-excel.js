@@ -1,5 +1,5 @@
 /* Excel batch import stays detached from the current editable order session. */
-let orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: true };
+let orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false };
 
 function openOrderExcel() {
   document.getElementById('order-excel-modal').classList.add('visible');
@@ -51,7 +51,7 @@ async function checkOrderExcel() {
   const file = document.getElementById('order-excel-file').files[0];
   if (!file) return orderExcelStatus('Choose the completed .xlsx order workbook first.', true);
   if (!/\.xlsx$/i.test(file.name)) return orderExcelStatus('Choose an .xlsx order workbook.', true);
-  orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: true };
+  orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false };
   setOrderExcelStep(1);
   document.getElementById('order-excel-results').innerHTML = '';
   orderExcelBusy(true);
@@ -68,12 +68,38 @@ async function checkOrderExcel() {
 
 const orderExcelSourceNames = { workbook: 'Excel', analytics: 'Analytics', product_master: 'Product Master', directory: 'Directory', default: 'App default', custom: 'Edited' };
 
+function orderExcelSameValue(field,a,b) {
+  if(field.type==='number' && a!=='' && b!=='') return Number(String(a).replaceAll(',',''))===Number(String(b).replaceAll(',',''));
+  return String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
+}
+function orderExcelFieldStatus(field) {
+  if(field.stale)return 'Selected source unavailable — choose another value';
+  if(field.missing)return 'Missing — required before printing';
+  const stored=Object.entries(field.candidates).filter(([name])=>['analytics','product_master','directory'].includes(name));
+  const differs=stored.some(([,value])=>!orderExcelSameValue(field,field.value,value));
+  if(differs)return `${field.label} differs from saved value — using ${field.source_label}`;
+  if(field.source==='custom')return 'Edited for this batch';
+  if(stored.length && field.value)return `Matches saved value — using ${field.source_label}`;
+  if(!field.value)return 'Not provided / optional';
+  return `Using ${field.source_label}`;
+}
+function orderExcelFieldComparison(field,index) {
+  if(field.readonly)return '';
+  const entries=Object.entries(field.candidates).filter(([name])=>name!=='default');
+  if(!entries.length)return '';
+  return `<div class="order-excel-comparison">${entries.map(([source,value])=>{
+    const same=orderExcelSameValue(field,field.value,value);
+    const saved=['analytics','product_master','directory'].includes(source);
+    return `<div><span><strong>${saved?'Saved in '+orderExcelSourceNames[source]:'Original Excel'}:</strong> ${escapeHtml(value)}</span>${!same?`<button data-excel-action type="button" class="btn-secondary" onclick="editOrderExcelField(${index}, '${field.path}', '${source}', null)">${saved?'Restore saved value':'Use Excel value'}</button>`:'<small>Matches current value</small>'}</div>`;
+  }).join('')}</div>`;
+}
+
 function renderOrderExcelField(field, orderIndex, sectionIndex, fieldIndex) {
   const issue = field.missing || field.conflict || field.stale;
   if (orderExcel.issuesOnly && !issue) return '';
   const id = `excel-value-${orderIndex}-${sectionIndex}-${fieldIndex}`;
   const options = field.options.length ? field.options : orderExcel.matching.orders[orderIndex].choices[field.choice_list] || [];
-  const badge = field.stale ? 'Source unavailable' : field.missing ? 'Needs input' : field.conflict ? 'Values differ' : field.source_label;
+  const badge = orderExcelFieldStatus(field);
   const source = `<select data-excel-action aria-label="${escapeHtml(field.label)} source" onchange="editOrderExcelField(${orderIndex}, '${field.path}', this.value, null)">
     <option value="auto">Default${field.default_source ? ' ('+escapeHtml(orderExcelSourceNames[field.default_source])+')' : ' (blank)'}</option>
     ${Object.entries(field.candidates).map(([name, value]) => `<option value="${name}">${escapeHtml(orderExcelSourceNames[name]+': '+value.replaceAll('\n', ', ').slice(0,80))}</option>`).join('')}
@@ -85,15 +111,15 @@ function renderOrderExcelField(field, orderIndex, sectionIndex, fieldIndex) {
   const value = field.readonly ? `<span>${escapeHtml(field.value || 'Blank')}</span>` : multiline ? `<textarea ${attrs} rows="3">${escapeHtml(field.value)}</textarea>` : dropdown ? `<select ${attrs}><option value="">Not specified</option>${[...new Set([...(field.value ? [field.value] : []),...options])].map(option=>`<option value="${escapeHtml(option)}" ${option===field.value ? 'selected' : ''}>${escapeHtml(labels[option] || option)}</option>`).join('')}</select>` : `<input ${attrs} type="${field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}" ${field.type === 'number' ? 'step="any" min="0"' : ''} value="${escapeHtml(field.value)}" ${options.length ? `list="${id}-choices"` : ''}>
     ${options.length ? `<datalist id="${id}-choices">${options.map(option => `<option value="${escapeHtml(option)}"></option>`).join('')}</datalist>` : ''}`;
   return `<div class="order-excel-field ${field.missing || field.stale ? 'needs-input' : field.conflict ? 'has-conflict' : ''}" data-field-path="${field.path}">
-    <div><label for="${id}">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label><small class="order-excel-badge">${escapeHtml(badge)}${field.selection === 'auto' && field.value ? ' / default' : ''}</small></div>
-    ${field.readonly ? '<span class="order-excel-readonly">Linked identifier</span>' : source}<div>${value}</div></div>`;
+    <div><label for="${id}">${escapeHtml(field.label)}${field.required ? ' *' : ''}</label><small class="order-excel-badge">${escapeHtml(badge)}</small></div>
+    ${field.readonly ? '<span class="order-excel-readonly">Linked identifier</span>' : source}<div>${value}${orderExcelFieldComparison(field,orderIndex)}</div></div>`;
 }
 
 function renderOrderExcelMatching() {
   setOrderExcelStep(2);
   const orders = orderExcel.matching?.orders || [];
   document.getElementById('order-excel-results').innerHTML = `<h3>Review Excel and app defaults</h3>
-    <p>Excel values come first. Blank fields use matching Analytics, Product Master, or Directory data. Each field shows its source. Edit here or choose a different source, then recalculate.</p>
+    <p>Check the values that will be printed. Excel values stay in use unless you change them. Compare saved values below each field, use Restore saved value when needed, or type a correction. Changes apply to this batch only.</p>
     <label class="order-excel-ack"><input id="order-excel-issues-only" type="checkbox" ${orderExcel.issuesOnly ? 'checked' : ''} onchange="orderExcel.issuesOnly=this.checked;renderOrderExcelMatching()"> Show only missing or conflicting fields</label>
     ${orders.map((order,index) => {
       const chosen = orderExcel.choices[order.order_number] || {};
@@ -103,8 +129,14 @@ function renderOrderExcelMatching() {
       ${order.records.length > 1 ? '<option value="">Choose a record to fill missing fields</option>' : ''}${order.records.map(record => `<option value="${escapeHtml(record.ecomdash_id)}">${escapeHtml([record.ecomdash_id,record.storefront,record.invoice_date].filter(Boolean).join(' / '))}</option>`).join('')}<option value="__none__">No Analytics fallback</option></select></label>` : ''}</div>
       ${chosen.skip ? '<p>This order will be skipped. Its inputs are retained.</p>' : `${order.notices.length ? `<ul class="order-excel-notices">${order.notices.map(message=>`<li>${escapeHtml(message)}</li>`).join('')}</ul>` : ''}
       ${order.sections.map((section,sectionIndex)=>{
-        const fields=section.fields.map((field,fieldIndex)=>renderOrderExcelField(field,index,sectionIndex,fieldIndex)).join('');
-        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || section.kind==='header' ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary><div class="order-excel-fields">${fields}</div></details>` : '';
+        const primary=[], optional=[];
+        section.fields.forEach((field,fieldIndex)=>{
+          const html=renderOrderExcelField(field,index,sectionIndex,fieldIndex);
+          if(!field.value && !field.required && !field.conflict && !field.stale && !field.readonly)optional.push(html);
+          else primary.push(html);
+        });
+        const fields=primary.join('')+(!orderExcel.issuesOnly && optional.length ? `<details class="order-excel-optional"><summary>Additional optional fields (${optional.length})</summary>${optional.join('')}</details>`:'');
+        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || !orderExcel.issuesOnly ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary>${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — check the SKU or complete packing details'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
       }).join('')}
       ${orderExcel.issuesOnly && !order.missing_count && !order.conflict_count ? '<p>No missing or conflicting fields. Uncheck the filter to inspect or edit all defaults.</p>' : ''}
       ${order.notices.length || order.conflict_count ? `<label class="order-excel-ack"><input data-excel-action type="checkbox" class="order-excel-match-ack" ${chosen.acknowledge_matches ? 'checked' : ''} onchange="acknowledgeOrderExcel(${index},this.checked)"> I reviewed the match notices and conflicting values for this order.</label>` : ''}`}</section>`;
@@ -147,7 +179,9 @@ async function editOrderExcelField(index,path,source,value) {
   const row=card.querySelector(`[data-field-path="${path}"]`);
   row.querySelector('select[aria-label$=" source"]').value=source;
   row.querySelector('[aria-label$=" value"]').value=field.value;
-  row.querySelector('.order-excel-badge').textContent=field.missing?'Needs input':`${field.source_label}${source==='auto'?' / default':''}`;
+  row.querySelector('.order-excel-badge').textContent=orderExcelFieldStatus(field);
+  row.querySelector('.order-excel-comparison')?.remove();
+  row.querySelector('[aria-label$=" value"]').parentElement.insertAdjacentHTML('beforeend',orderExcelFieldComparison(field,index));
   row.classList.toggle('needs-input',field.missing);
   row.classList.toggle('has-conflict',!field.missing && field.conflict);
   const acknowledgment=card.querySelector('.order-excel-match-ack');

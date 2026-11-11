@@ -57,8 +57,11 @@ Upload the completed `.xlsx` and choose **Check Orders**. Matching runs before
 rendering. Review each field in the popup: Excel values take precedence, then
 missing values use Analytics, Product Master, Directory, and app defaults.
 Every value shows its source. Choose a different source or edit an individual
-value directly. Missing inputs and conflicting values are highlighted, with
-an option to show all fields. SKU, customer, configuration, and directory edits
+value directly. Populated values and matches are shown by default. Each field
+shows its original Excel value and available saved app values, with a
+**Restore saved value** button when they differ. Blank optional fields are
+collapsed; missing inputs and conflicts can be filtered. SKU matching identifies
+Product Master and Analytics order matches separately. Customer, configuration, and directory edits
 recheck dependent defaults. Ambiguous matches require a selection; missing
 order/SKU matches remain visible for acknowledgment. Orders can be skipped.
 Use **Recalculate and review documents**, inspect carton/pallet counts, and
