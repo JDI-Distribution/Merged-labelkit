@@ -77,8 +77,8 @@ to its launcher, and reopening retains the current review. The layout adapts
 to narrow screens without hiding the primary action.
 
 All automatic palletization uses the same backend planner. It finishes each
-SKU in source order and never mixes different SKUs on an automatic pallet.
-Full and partial boxes of the same SKU may share a pallet when the weight,
+SKU in source order before moving to the next SKU. The next SKU can fill
+remaining space on the same layer and pallet when the weight, support,
 dimensions and Ti-Hi constraints permit. Reviewing or rendering existing
 manual pallet assignments does not automatically reassign them.
 
@@ -142,8 +142,10 @@ order notes are shown for confirmation rather than silently used as the PO.
 Each-only configurations require a shipping Case before claiming packing-list
 or Ti-Hi readiness. Unassigned lines remain visible in partner packing lists.
 
-Unmatched order lines offer **Add SKU to Product Master** from the loaded order
-and the packing-list product selector. The existing product editor opens with
+Unmatched order lines offer **Set up for this order** for packing details without
+registering the SKU in Product Master. Bulk inputs can use a description when
+the SKU is unavailable. Adding a reusable Product Master record is optional.
+For authorized table editors, the existing product editor opens with
 the customer, incoming SKU, description and available GTIN. **Save & update order**
 saves the reusable configuration, rematches that line, and recalculates pallets.
 Closing before saving discards the new configuration. Failed saves keep the form

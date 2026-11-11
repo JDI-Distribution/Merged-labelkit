@@ -39,6 +39,7 @@ outputs/
 output/
 
 # Local utility and temp files
+tmp/
 check_frontend.js
 _sop_work/
 *.tmp
