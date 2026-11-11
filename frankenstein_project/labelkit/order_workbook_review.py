@@ -220,13 +220,13 @@ def field_review(state, order, edits=None):
             effective[name] = cell(f'label:{index}', column, candidates, fields,
                 required=name == 'template_id' and header['labels'] != 'No' and (not definition.get('_optional') or header['labels'] == 'Yes'),
                 readonly=name in {'order_number','sku'}, options=[line['line_id'] for line in lines] if name == 'line_id' else None)
-        effective.update(order_number=order, line_id=linked.get('line_id') or definition.get('line_id'))
+        effective.update(order_number=order, line_id=linked.get('line_id') or binding or '')
         if effective['template_id'] or not definition.get('_optional'):
             labels.append(effective)
         template = next((r for r in state['templates'] if r['template_id'] == effective['template_id']), {})
         required_run = set(template.get('required_run_fields') or [])
         for field in fields:
-            if field['name'] in required_run - {'carton_total', 'carton_start', 'carton_end', 'order_number', 'po_number', 'ship_date', 'quantity_label'}:
+            if header['labels'] != 'No' and field['name'] in required_run - {'carton_total', 'carton_start', 'carton_end', 'order_number', 'po_number', 'ship_date', 'quantity_label'}:
                 field['required'] = True
                 field['missing'] = not field['value']
         if linked and header['labels'] != 'No':

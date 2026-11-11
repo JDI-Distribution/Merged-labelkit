@@ -159,6 +159,10 @@ class OrderWorkbookTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Ship To Address'):
             resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={
                 'header:ship_to': {'source':'custom','value':''}}))
+        resolved = resolve_fields(state, '1001', dict(acknowledge_matches=True, fields={
+            'label:0:line_id': {'source':'custom','value':'NOT-A-LINE'}}))
+        self.assertEqual(resolved['labels'][0]['line_id'], 'NOT-A-LINE')
+        self.assertTrue(build_order_documents('1001', resolved, state)['errors'])
 
     def test_custom_partial_box_conserves_demand_and_gross_weight_and_missing_data_blocks(self):
         values = copy.deepcopy(self.values)
