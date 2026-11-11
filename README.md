@@ -37,9 +37,9 @@ renamed templates.
 
 ## How order documents work
 
-### Excel Orders
+### Bulk order processing
 
-In Order Documents, choose **Excel Orders**, then **Download Template** or
+In Order Documents, choose **Bulk order processing**, then **Download Template** or
 **Export Loaded Order**. All data entry uses one **Order Entry** tab, with
 one row per order/SKU and packing/label settings on that same row. Repeat the
 Order Number for each item. Enter shared PO, dates, customer, and addresses

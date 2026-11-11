@@ -2267,6 +2267,11 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 .operations-box-actions label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .order-excel-dialog { width: min(1200px, 96vw); max-height: 94vh; }
 .order-excel-dialog .editor-body { overflow-y: auto; }
+.operations-hero-actions .operations-bulk-action { white-space: normal; }
+.bulk-order-steps { display: grid; grid-template-columns: repeat(4, 1fr); list-style: none; gap: 8px; margin: 0; padding: 12px 18px; border-bottom: 1px solid #d9e3e5; flex: 0 0 auto; }
+.bulk-order-steps li { color: #596d75; font-size: 12px; padding: 6px; border-bottom: 2px solid #d9e3e5; }
+.bulk-order-steps li[aria-current="step"] { color: #214f4b; font-weight: 700; border-color: #2d746b; background: #e7f2f0; }
+@media (max-width: 600px) { .bulk-order-steps { grid-template-columns: repeat(2, 1fr); } }
 .order-excel-feedback { flex: 0 0 auto; padding: 10px 18px; background: #fff; border-top: 1px solid #cbd5e1; }
 .order-excel-feedback p { margin: 0; }
 .order-excel-source { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 16px 0; }

@@ -55,7 +55,7 @@ def launch(request, kit, worker, *args, input_data=None):
 def download_order_template(request: Request):
     _require_permission(request, 'view')
     return Response(workbook_bytes(**reference_snapshot(request)), media_type=EXCEL_TYPE,
-                    headers={'Content-Disposition': 'attachment; filename="Order_Documents_Template.xlsx"'})
+                    headers={'Content-Disposition': 'attachment; filename="Bulk_Order_Processing_Template.xlsx"'})
 
 
 @router.post('/api/order-documents/excel/export')

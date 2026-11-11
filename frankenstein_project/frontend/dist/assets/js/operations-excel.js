@@ -4,6 +4,14 @@ let orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matchin
 function openOrderExcel() {
   document.getElementById('order-excel-modal').classList.add('visible');
   document.getElementById('order-excel-export').disabled = !orderDocumentsState.payload?.items?.length;
+  setOrderExcelStep(orderExcel.step || 1);
+}
+function setOrderExcelStep(step) {
+  orderExcel.step=step;
+  document.querySelectorAll('#order-excel-modal [data-bulk-step]').forEach(item=>{
+    if(Number(item.dataset.bulkStep)===step)item.setAttribute('aria-current','step');
+    else item.removeAttribute('aria-current');
+  });
 }
 function closeOrderExcel() { document.getElementById('order-excel-modal').classList.remove('visible'); }
 function orderExcelStatus(message, error = false) {
@@ -24,7 +32,7 @@ async function orderExcelDownload(url, filename, body) {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   } catch (error) { orderExcelStatus(error.message, true); }
 }
-function downloadOrderExcelTemplate() { return orderExcelDownload('/api/order-documents/excel/template', 'Order_Documents_Template.xlsx'); }
+function downloadOrderExcelTemplate() { return orderExcelDownload('/api/order-documents/excel/template', 'Bulk_Order_Processing_Template.xlsx'); }
 
 async function pollOrderExcel(resultId) {
   const deadline = Date.now() + 30*60*1000;
@@ -44,6 +52,7 @@ async function checkOrderExcel() {
   if (!file) return orderExcelStatus('Choose the completed .xlsx order workbook first.', true);
   if (!/\.xlsx$/i.test(file.name)) return orderExcelStatus('Choose an .xlsx order workbook.', true);
   orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: true };
+  setOrderExcelStep(1);
   document.getElementById('order-excel-results').innerHTML = '';
   orderExcelBusy(true);
   try {
@@ -81,6 +90,7 @@ function renderOrderExcelField(field, orderIndex, sectionIndex, fieldIndex) {
 }
 
 function renderOrderExcelMatching() {
+  setOrderExcelStep(2);
   const orders = orderExcel.matching?.orders || [];
   document.getElementById('order-excel-results').innerHTML = `<h3>Review Excel and app defaults</h3>
     <p>Excel values come first. Blank fields use matching Analytics, Product Master, or Directory data. Each field shows its source. Edit here or choose a different source, then recalculate.</p>
@@ -187,6 +197,7 @@ async function resolveOrderExcel() {
       body: JSON.stringify({ result_id: orderExcel.checkId, choices: orderExcel.choices }) });
     orderExcel.reviewId = job.result_id;
     const review = await pollOrderExcel(job.result_id);
+    setOrderExcelStep(3);
     document.getElementById('order-excel-results').innerHTML = `<h3>Review matched orders and documents</h3>
       <p>${review.error_count} blocking issue(s) · ${review.warning_count} warning(s) · ${review.label_pages} label page(s)</p>
       ${review.orders.map(order => `<section class="order-excel-order"><header><strong>Order ${escapeHtml(order.order_number)}</strong><span>${escapeHtml(order.skipped ? 'Skipped' : `${order.source || 'Needs source'} · ${order.line_count || 0} line(s) · ${order.pallet_count || 0} pallet(s)`)}</span></header>
@@ -212,6 +223,7 @@ async function generateOrderExcel() {
       body: JSON.stringify({ result_id: orderExcel.reviewId, approve_warnings: !!acknowledgement?.checked }) });
     orderExcel.resultId = job.result_id;
     const report = await pollOrderExcel(job.result_id);
+    setOrderExcelStep(4);
     document.getElementById('order-excel-results').innerHTML = `<h3>${report.generated} order(s) generated · ${report.failed} failed · ${report.skipped} skipped</h3>
       <p>The ZIP includes one folder per generated order, the source workbook and the processing/source-decision report.</p>
       <ul>${report.orders.map(order => `<li>Order ${escapeHtml(order.order_number)}: ${escapeHtml(order.status)}${order.error ? ` — ${escapeHtml(order.error)}` : ''}</li>`).join('')}</ul>

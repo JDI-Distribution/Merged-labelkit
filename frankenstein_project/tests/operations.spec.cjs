@@ -1,13 +1,15 @@
 const { test, expect } = require('@playwright/test');
 
-test('Excel Orders matches before generation, resolves sources and downloads per-order files without replacing the open order', async ({ page }, testInfo) => {
+test('Bulk order processing matches before generation, resolves sources and downloads per-order files without replacing the open order', async ({ page }, testInfo) => {
   test.skip(!process.env.LABELKIT_ORDER_EXCEL_WORKBOOK, 'Requires the isolated Excel-order source fixture.');
   await openOperations(page);
   await loadOrder(page, '38800');
   const before = await page.evaluate(() => ({ order: orderDocumentsState.orderNumber, fields: orderDocumentsState.reviewedOrder.fields }));
-  await page.getByRole('button', { name: 'Excel Orders', exact: true }).click();
+  await page.getByRole('button', { name: 'Bulk order processing', exact: true }).click();
   const modal = page.locator('#order-excel-modal');
   await expect(modal).toBeVisible();
+  await expect(modal.locator('#order-excel-title')).toHaveText('Bulk order processing');
+  await expect(modal.locator('[aria-current="step"]')).toHaveText('1. Upload orders');
   for (const name of ['Download Excel Template', 'Export loaded order']) {
     const downloaded = page.waitForEvent('download');
     await modal.getByRole('button', { name, exact: true }).click();
@@ -18,6 +20,7 @@ test('Excel Orders matches before generation, resolves sources and downloads per
   await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_WORKBOOK);
   await modal.getByRole('button', { name: 'Upload and match orders', exact: true }).click();
   await expect(modal.getByRole('heading', { name: 'Review Excel and app defaults' })).toBeVisible({ timeout: 30000 });
+  await expect(modal.locator('[aria-current="step"]')).toHaveText('2. Review defaults');
   await expect(modal.locator('#order-excel-results')).toContainText('650');
   await expect(modal.locator('#order-excel-results')).toContainText('600');
   await expect(modal.locator('#order-excel-results')).toContainText('Order not found in Analytics');
@@ -32,6 +35,7 @@ test('Excel Orders matches before generation, resolves sources and downloads per
   for (const ack of await modal.locator('.order-excel-match-ack').all()) await ack.check();
   await modal.getByRole('button', { name: 'Recalculate and review documents', exact: true }).click();
   await expect(modal.getByRole('heading', { name: 'Review matched orders and documents' })).toBeVisible({ timeout: 30000 });
+  await expect(modal.locator('[aria-current="step"]')).toHaveText('3. Review documents');
   await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
   await expect(modal.locator('#order-excel-results')).toContainText('FIELD-PO');
   await page.screenshot({ path: testInfo.outputPath('excel-matched-review.png') });
@@ -39,6 +43,7 @@ test('Excel Orders matches before generation, resolves sources and downloads per
   if (await acknowledgement.count()) await acknowledgement.check();
   await modal.getByRole('button', { name: 'Generate order ZIP', exact: true }).click();
   await expect(modal.getByRole('heading', { name: '2 order(s) generated · 0 failed · 0 skipped', exact: true })).toBeVisible({ timeout: 30000 });
+  await expect(modal.locator('[aria-current="step"]')).toHaveText('4. Download ZIP');
   const downloaded = page.waitForEvent('download');
   await modal.getByRole('button', { name: 'Download ZIP and report', exact: true }).click();
   const zip = await downloaded;
@@ -53,7 +58,7 @@ test('Excel Orders matches before generation, resolves sources and downloads per
 test('incomplete Excel fills app defaults and repairs missing fields in the popup without reuploading', async ({ page }, testInfo) => {
   test.skip(!process.env.LABELKIT_ORDER_EXCEL_INCOMPLETE, 'Requires the isolated incomplete workbook.');
   await openOperations(page);
-  await page.getByRole('button', {name:'Excel Orders',exact:true}).click();
+  await page.getByRole('button', {name:'Bulk order processing',exact:true}).click();
   const modal=page.locator('#order-excel-modal');
   await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_INCOMPLETE);
   await modal.getByRole('button',{name:'Upload and match orders',exact:true}).click();
@@ -81,7 +86,7 @@ test('incomplete Excel fills app defaults and repairs missing fields in the popu
   await modal.getByRole('button',{name:'Edit fields and defaults',exact:true}).click();
   await expect(modal.locator('[data-excel-order="1"] [data-field-path="line:0:length_in"] input')).toHaveValue('6');
   await modal.getByRole('button',{name:'Close',exact:true}).click();
-  await page.getByRole('button',{name:'Excel Orders',exact:true}).click();
+  await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
   await expect(modal.locator('[data-excel-order="1"] [data-field-path="line:0:length_in"] input')).toHaveValue('6');
   await page.screenshot({path:testInfo.outputPath('excel-field-defaults.png')});
 });
@@ -89,7 +94,7 @@ test('incomplete Excel fills app defaults and repairs missing fields in the popu
 test('Recalculate shows its blocking reason in view and editing does not swallow the next click', async ({page}) => {
   test.skip(!process.env.LABELKIT_ORDER_EXCEL_WORKBOOK, 'Requires the isolated Excel-order workbook.');
   await openOperations(page);
-  await page.getByRole('button',{name:'Excel Orders',exact:true}).click();
+  await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
   const modal=page.locator('#order-excel-modal');
   await modal.locator('#order-excel-file').setInputFiles(process.env.LABELKIT_ORDER_EXCEL_WORKBOOK);
   await modal.getByRole('button',{name:'Upload and match orders',exact:true}).click();
