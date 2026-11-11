@@ -8,8 +8,9 @@ function operationsProductError(message = '') {
 
 function operationsAddProductButton(lineIndex) {
   const item = orderDocumentsState.payload?.items?.[lineIndex];
-  return item?.match_status === 'unmatched' && hasPermission('table_crud')
-    ? `<button class="btn-secondary" type="button" onclick="addOperationsMissingProduct(${lineIndex})">Add ${escapeHtml(item.sku)} to Product Master</button>` : '';
+  if (item?.match_status !== 'unmatched') return '';
+  const name = escapeHtml(item.sku || item.description || `Line ${lineIndex + 1}`);
+  return `<span>${name}: not found in Product Master. <button class="btn-secondary" type="button" onclick="openOperationsPacking(${lineIndex})">Set up for this order</button>${hasPermission('table_crud') ? ` <button class="btn-secondary" type="button" onclick="addOperationsMissingProduct(${lineIndex})">Add to Product Master (optional)</button>` : ''}</span>`;
 }
 
 async function addOperationsMissingProduct(lineIndex) {

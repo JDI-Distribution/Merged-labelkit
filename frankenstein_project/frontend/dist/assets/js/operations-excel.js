@@ -160,7 +160,7 @@ function renderOrderExcelMatching() {
           else primary.push(html);
         });
         const fields=primary.join('')+(!orderExcel.issuesOnly && optional.length ? `<details class="order-excel-optional"><summary>Additional optional fields (${optional.length})</summary>${optional.join('')}</details>`:'');
-        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || !orderExcel.issuesOnly ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary>${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — check the SKU or complete packing details'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
+        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || !orderExcel.issuesOnly ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary>${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — enter packing details for this order. Adding to Product Master is optional. A description can identify an item without a SKU.'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
       }).join('')}
       ${orderExcel.issuesOnly && !order.missing_count && !order.conflict_count ? '<p>No missing or conflicting fields. Uncheck the filter to inspect or edit all defaults.</p>' : ''}
       ${order.notices.length || order.conflict_count ? `<label class="order-excel-ack"><input data-excel-action type="checkbox" class="order-excel-match-ack" ${chosen.acknowledge_matches ? 'checked' : ''} onchange="acknowledgeOrderExcel(${index},this.checked)"> I reviewed the match notices and conflicting values for this order.</label>` : ''}`}</section>`;
@@ -304,7 +304,9 @@ async function exportLoadedOrderExcel() {
     po_number: fields.po_number, ship_date: fields.ship_date, ship_from: fields.ship_from, ship_to: fields.ship_to, bill_to: fields.bill_to,
     po_date: mpl.po_date, bol_number: mpl.bol_number, pro_number: mpl.pro_number, ship_via: mpl.ship_via, shipping_instructions: mpl.shipping_instructions,
     mpl_layout: mpl.template_id || draft.template_id, brand: mpl.brand_id || draft.brand_id,
-    labels: selected.labels ? 'Yes' : 'No', packing_list: selected.mpl ? 'Yes' : 'No', pallet_labels: selected.pallets ? 'Yes' : 'No', ...mpl._tihi_constraints };
+    labels: selected.labels ? 'Yes' : 'No', packing_list: selected.mpl ? 'Yes' : 'No', pallet_labels: selected.pallets ? 'Yes' : 'No',
+    ...Object.fromEntries(Object.entries(mpl._tihi_constraints || {}).map(([name,value]) =>
+      [name, ['cases_per_layer','max_layers'].includes(name) && Number(value) === 0 ? '' : value])) };
   const rows = draft.packing_lists.flatMap(list => list.items || []);
   const lines = payload.items.map((item, index) => {
     const row = rows.find(row => row.review_line_index === index) || {}, packing = row.order_packaging, product = packing?.product || item.product || {};

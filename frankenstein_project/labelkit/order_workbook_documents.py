@@ -227,7 +227,7 @@ def build_order_documents(order, resolved, state):
     brand = choice(header.get('brand'), SCHEMA['choices']['brands'], 'Auto')
     if brand == 'Auto':
         brand = 'bakell' if layout in {'fancy', 'decopac', 'dutch_bros'} else 'jdi_distribution'
-    mpl = dict(id=f'SO-{order}', order_no=order, customer_po_number=header.get('po_number', ''), customer_name=header.get('customer', ''),
+    mpl = dict(id=f'SO-{order}', order_no=order, customer_no=order, customer_po_number=header.get('po_number', ''), customer_name=header.get('customer', ''),
                est_ship_date=header.get('ship_date', ''), po_date=header.get('po_date', ''), bol_number=header.get('bol_number', ''),
                pro_number=header.get('pro_number', ''), ship_via=header.get('ship_via', ''), shipping_instructions=header.get('shipping_instructions', ''),
                supplier_info=directory_address(state['directory'], header, 'SHIP_FROM'), ship_to=directory_address(state['directory'], header, 'SHIP_TO'),

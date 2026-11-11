@@ -656,7 +656,11 @@ def _mpl_finalize_height_zone_patterns(
 
 
 def _mpl_build_pallet_tihi_layout(groups: List[Dict[str, Any]], constraints: Dict[str, float]) -> Dict[str, Any]:
-    ordered = sorted(groups, key=lambda group: (-float(group.get('unit_weight') or 0), int(group.get('sort_index') or 0)))
+    ordered = sorted(groups, key=lambda group: int(group.get('sort_index') or 0))
+    sku_order = {}
+    for group in ordered:
+        sku_order.setdefault(_mpl_tihi_color_key(group), len(sku_order))
+    ordered.sort(key=lambda group: (sku_order[_mpl_tihi_color_key(group)], int(group.get('sort_index') or 0)))
     inputs = [{**{key: group.get(key) for key in ('dimensions', 'unit_weight', 'assigned_cases', 'label', 'color', 'base_orientation')},
                'sort_index': index} for index, group in enumerate(ordered)]
     return copy.deepcopy(_cached_pallet_layout(json.dumps(inputs, sort_keys=True), json.dumps(constraints, sort_keys=True)))
@@ -679,7 +683,7 @@ def _calculate_pallet_layout(groups: List[Dict[str, Any]], constraints: Dict[str
         {**group, "remaining_cases": int(group.get("assigned_cases") or 0)}
         for group in sorted(
             groups,
-            key=lambda group: (-float(group.get("unit_weight") or 0.0), int(group.get("sort_index") or 0)),
+            key=lambda group: int(group.get("sort_index") or 0),
         )
     ]
 
@@ -738,6 +742,9 @@ def _calculate_pallet_layout(groups: List[Dict[str, Any]], constraints: Dict[str
                     }
                 # Higher levels cannot improve the leading -base_z score.
                 break
+            # Place all boxes from this group before considering the next SKU.
+            # A later SKU may use holes on this same layer once this one is done.
+            break
 
         if candidate is None:
             for group in active_groups:
@@ -880,7 +887,7 @@ def _mpl_build_tihi_entries(
                 f"Pallet {_mpl_pallet_label(pallet)}: gross pallet weight {int(round(gross_weight))} lbs exceeds the {pallet_constraints['max_gross_lbs']:.0f} lb limit."
             )
 
-        groups = sorted(groups, key=lambda group: (-float(group.get("unit_weight") or 0.0), int(group.get("sort_index") or 0)))
+        groups = sorted(groups, key=lambda group: int(group.get("sort_index") or 0))
         layout = _mpl_build_pallet_tihi_layout(groups, pallet_constraints)
         placements = layout["placements"]
         if not placements:

@@ -279,6 +279,54 @@ test('an unmatched Fancy order retains its buyer, exposes unassigned demand and 
   await expect(page.locator('#document-editor-panel')).toContainText('CMB109-1LB');
   await expect(page.locator('#document-editor-panel')).toContainText('Confirm customer PO from order notes: PO1917');
   await expect(page.locator('[data-draft-path="packing_lists.0.customer_po_number"]')).toHaveValue('');
+  await page.evaluate(() => closeDocumentEditor());
+  const writes = [];
+  page.on('request', request => {
+    if (request.method() !== 'GET' && /\/api\/mpl\/(product-master|directory)/.test(request.url())) writes.push(request.url());
+  });
+  await page.getByRole('button', { name: 'Set up for this order', exact: true }).first().click();
+  const packing = page.locator('#operations-packing-modal');
+  await expect(packing).toBeVisible();
+  await expect(packing).toContainText('Product Master registration is optional');
+  await page.locator('#operations-packing-value').fill('25');
+  await packing.getByRole('button', { name: 'Next: box size' }).click();
+  for (const [field, value] of Object.entries({ length: '16', width: '12', height: '10', gross: '26' })) await page.locator(`#operations-packing-${field}`).fill(value);
+  await packing.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(packing).toBeHidden();
+  await expect(page.locator('#workflow-progress-modal')).toBeHidden();
+  const result = await page.evaluate(() => ({
+    rows: orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items),
+    source: orderDocumentsState.payload.items[0],
+    jobs: b2bOrderLabelJobs.filter(job => job.order_packaging),
+  }));
+  expect(result.rows.reduce((sum, row) => sum + Number(row.qty_on_pallet), 0)).toBe(26);
+  expect(result.rows.every(row => !!row.location_on_pallet)).toBe(true);
+  expect(result.jobs.length).toBeGreaterThan(0);
+  expect(result.source.match_status).toBe('unmatched');
+  expect(result.source.quantity_ordered).toBe(650);
+  expect(writes).toEqual([]);
+  await page.locator('#operations-generate-labels').uncheck();
+  await page.locator('#operations-generate-pallets').uncheck();
+  await page.evaluate(() => {
+    Object.assign(orderDocumentsState.reviewedOrder.fields, { po_number: 'TEST-ROUNDTRIP', ship_from: 'TEST Origin\n100 Test Way', ship_to: 'TEST Receiver\n200 Test Way' });
+    applyReviewedOrder();
+  });
+  await page.getByRole('button', { name: 'Bulk order processing', exact: true }).click();
+  const exported = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export loaded order', exact: true }).click();
+  const workbook = await exported;
+  const workbookPath = test.info().outputPath('unmatched-order-roundtrip.xlsx');
+  await workbook.saveAs(workbookPath);
+  const bulk = page.locator('#order-excel-modal');
+  await bulk.locator('#order-excel-file').setInputFiles(workbookPath);
+  await bulk.getByRole('button', { name: 'Upload and match orders', exact: true }).click();
+  await expect(bulk.getByRole('heading', { name: 'Review Excel and app defaults' })).toBeVisible({ timeout: 30000 });
+  for (const ack of await bulk.locator('.order-excel-match-ack').all()) await ack.check();
+  await bulk.getByRole('button', { name: 'Recalculate and review documents', exact: true }).click();
+  await expect(bulk.getByRole('heading', { name: 'Review matched orders and documents' })).toBeVisible({ timeout: 30000 });
+  await expect(bulk.locator('#order-excel-results')).toContainText('0 blocking issue');
+  await expect(bulk.getByRole('row').filter({ hasText: 'CMB109-1LB' }).getByRole('cell').nth(2)).toHaveText('26');
+  expect(writes).toEqual([]);
 });
 
 test('order loading identifies the pallet planning stage and completes after its response', async ({ page }) => {

@@ -2639,9 +2639,9 @@
       ));
       (mpl.items || []).forEach(item => {
         const orderMatchStatus = String(item.order_match_status || '').toLowerCase();
-        const product = ['unmatched', 'ambiguous'].includes(orderMatchStatus)
+        const product = item.order_packaging?.product || (['unmatched', 'ambiguous'].includes(orderMatchStatus)
           ? null
-          : matchProductMaster(item, { caseOnly: true, rows: draft.reviewed_product_master });
+          : matchProductMaster(item, { caseOnly: true, rows: draft.reviewed_product_master }));
         const hasIdentity = [item.item_number, item.sku, item.gtin, item.case_upc, item.upc, item.description]
           .some(value => !!String(value || '').trim());
         if (!product) {

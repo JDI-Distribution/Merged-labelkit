@@ -5,8 +5,9 @@
     const checkbox = document.getElementById('operations-customize-packing');
     if (checkbox) checkbox.checked = !!orderDocumentsState.mplDraft?.packing_lists?.some(mpl => mpl.items?.some(item => item.order_packaging));
   }
-  function openOperationsPacking() {
+  function openOperationsPacking(lineIndex = operationsPackingLine) {
     if (!orderDocumentsState.payload?.items?.length) return;
+    operationsPackingLine = Number.isInteger(lineIndex) ? lineIndex : operationsPackingLine;
     document.getElementById('operations-customize-packing').checked = true;
     persistB2BActiveRunFields();
     const select = document.getElementById('operations-packing-line');
@@ -131,6 +132,8 @@
       }
       for (const list of draft.packing_lists) list.items = list.items.filter(item => item.review_line_index !== operationsPackingLine);
       mpl.items.push(...replacements);
+      for (const list of draft.packing_lists) list.warnings = (list.warnings || []).filter(warning =>
+        !(String(warning).startsWith(`SKU ${source.sku}:`) && /using order data;/i.test(String(warning))));
       for (const list of draft.packing_lists) { list._pallet_weights = {}; list._pallet_ids = []; }
       draft.reviewed_product_master = [...(draft.reviewed_product_master || []).filter(row => !products.some(product => product.config_id === row.config_id)), ...products];
       draft.product_master = draft.reviewed_product_master;

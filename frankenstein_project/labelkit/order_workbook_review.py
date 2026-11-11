@@ -132,7 +132,7 @@ def field_review(state, order, edits=None):
                        or (line.get('gtin') and row.get('gtin') == line['gtin'])]
             raw = matches[0] if len(matches) == 1 else {}
         sku_column = next(c for c in SCHEMA['sheets']['Order Lines'] if c[0] == 'sku')
-        effective['sku'] = cell(prefix, sku_column, dict(workbook=line.get('sku'), analytics=raw.get('sku')), fields, required=True)
+        effective['sku'] = cell(prefix, sku_column, dict(workbook=line.get('sku'), analytics=raw.get('sku')), fields)
         # Re-match after an inline SKU edit; never reuse the previous SKU's app data.
         raw = next((row for row in actual if effective['sku'].casefold() == row['sku'].casefold()), {})
         config_column = next(c for c in SCHEMA['sheets']['Order Lines'] if c[0] == 'config_id')
@@ -167,6 +167,8 @@ def field_review(state, order, edits=None):
         effective['order_number'] = order
         effective['line_id'] = line['line_id']
         for field in fields:
+            if field['name'] == 'description':
+                field['required'] = not effective['sku']
             if field['name'] in {'length_in', 'width_in', 'height_in', 'gross_weight_lbs'}:
                 field['required'] = effective['pack_by'] != 'Default' or header['packing_list'] != 'No' or header['pallet_labels'] != 'No'
             if field['name'] == 'pack_value':
@@ -179,7 +181,7 @@ def field_review(state, order, edits=None):
         if len(groups) != 1:
             notices.append(f'{effective["sku"] or line["line_id"]}: {"multiple configurations match; select one" if groups else "no Product Master match; enter order-only packaging details"}.')
         fields.sort(key=lambda f: next(i for i,c in enumerate(SCHEMA['sheets']['Order Lines']) if c[0] == f['name']))
-        sections.append(dict(id=prefix, title=f'{effective["sku"] or "Missing SKU"} · {line["line_id"]}', kind='line', fields=fields,
+        sections.append(dict(id=prefix, title=f'{effective["sku"] or effective["description"] or "Order-only item"} · {line["line_id"]}', kind='line', fields=fields,
             product_match='matched' if len(groups) == 1 else 'ambiguous' if groups else 'missing',
             analytics_match='matched' if raw else 'missing' if record else 'unavailable'))
         lines.append(effective)
@@ -297,7 +299,7 @@ def resolve_fields(state, order, edits):
         line['_field_review'] = True
         line['_explicit_fields'] = [field['name'] for section in review['sections'] if section['id'] == f'line:{index}'
                                     for field in section['fields'] if field['selection'] != 'auto' or field['source'] == 'workbook']
-        if not line['sku']:
-            raise ValueError(f'{line["line_id"]}: SKU is required. Select an Analytics SKU or enter it here.')
+        if not line['sku'] and not line['description']:
+            raise ValueError(f'{line["line_id"]}: enter a description or SKU to identify this order-only item.')
         line['quantity'] = number(line.get('quantity'), f'{line["sku"]} Ordered Quantity', required=True)
     return resolved

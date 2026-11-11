@@ -108,7 +108,7 @@ def document_readiness(kind, draft, templates=()):
 
 
 def auto_palletize(mpl, products):
-    """Finish each SKU in source order, keeping automatic pallets SKU-specific."""
+    """Finish each SKU in source order, filling available pallet space before opening another."""
     original = copy.deepcopy(mpl.get('items') or [])
     pallets, unassigned, warnings = [], [], []
 
@@ -119,7 +119,7 @@ def auto_palletize(mpl, products):
         return _match_product_master_row(item, products, packing_list_only=True)
 
     def sku_key(item):
-        for field in ('sku', 'gtin', 'item_number', 'config_id', 'description', 'review_line_index', 'line'):
+        for field in ('sku', 'gtin', 'item_number', 'review_line_index', 'config_id', 'description', 'line'):
             value = str(item.get(field) if item.get(field) is not None else '').strip().casefold()
             if value:
                 return field, value
@@ -144,8 +144,6 @@ def auto_palletize(mpl, products):
         return max(0, min(int(per_layer * layers), by_weight))
 
     def fits(pallet, item, amount, product):
-        if pallet['items'] and any(sku_key(row) != sku_key(item) for row in pallet['items']):
-            return False
         constraints = _mpl_tihi_constraints(mpl, pallet['id'])
         if amount > capacity(pallet, product):
             return False
@@ -176,20 +174,13 @@ def auto_palletize(mpl, products):
         if not amount:
             unassigned.append({**item, 'location_on_pallet': '', 'pallet_weight': ''})
             continue
-        target = next((p for p in pallets if fits(p, item, amount, product)), None)
-        if target is None:
+        if not pallets:
             target = new_pallet()
-        if fits(target, item, amount, product):
-            target['items'].append(copy_item(item, target, amount, product))
-            continue
         remaining = amount
         while remaining:
             target, largest = None, 0
             for pallet in pallets:
-                if pallet['items'] and sku_key(pallet['items'][0]) != sku_key(item):
-                    continue
-                # Preserve the original largest-fitting-chunk choice across
-                # pallets, rather than filling the first pallet with any fit.
+                # Fill existing pallets before allocating space on a new one.
                 low, high = 0, min(remaining, capacity(pallet, product))
                 if high and fits(pallet, item, high, product):
                     low = high
@@ -201,6 +192,7 @@ def auto_palletize(mpl, products):
                         high = middle - 1
                 if low > largest:
                     target, largest = pallet, low
+                    break
             if target:
                 target['items'].append(copy_item(item, target, largest, product))
                 remaining -= largest
@@ -246,7 +238,9 @@ def auto_palletize(mpl, products):
         demand[key] = demand.get(key, 0) - ordered
         row['line'] = index + 1
     mpl.update(items=items, _pallet_ids=list(weights), _pallet_weights=weights, total_pallets=str(len(weights) or 1))
-    mpl['warnings'] = list(dict.fromkeys([*(mpl.get('warnings') or []), *warnings]))
+    previous_warnings = mpl.get('_auto_palletize_warnings') or []
+    mpl['warnings'] = list(dict.fromkeys([*(warning for warning in mpl.get('warnings', []) if warning not in previous_warnings), *warnings]))
+    mpl['_auto_palletize_warnings'] = warnings
     sync_mpl_pallet_total_weight(mpl)
     return warnings
 

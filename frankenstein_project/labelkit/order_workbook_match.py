@@ -41,6 +41,8 @@ def analytics_header(rows):
 
 
 def configuration_groups(line, products, customer=''):
+    if not clean(line.get('sku')):
+        return []
     candidates = [row for row in products if row.get('is_active') is not False and row.get('verification_status') != 'BLOCKED'
                   and clean(line['sku']).casefold() in {clean(row.get('sku')).casefold(), clean(row.get('display_sku')).casefold()}]
     if line.get('config_id'):

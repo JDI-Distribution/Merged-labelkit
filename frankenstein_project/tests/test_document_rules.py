@@ -8,7 +8,7 @@ from labelkit.routes.generation import _refresh_mpl_render_product_master
 
 
 class DocumentRulesTests(unittest.TestCase):
-    def test_auto_keeps_different_skus_separate_even_when_a_previous_pallet_has_room(self):
+    def test_auto_fills_remaining_layer_with_next_sku_before_opening_another_pallet(self):
         products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
                          height_in='5', gross_weight_lbs=weight, in_packing_list=True)
                     for sku, weight in [('HEAVY', '2'), ('LIGHT', '1')]]
@@ -16,9 +16,31 @@ class DocumentRulesTests(unittest.TestCase):
                  for sku, qty in [('HEAVY', 3), ('LIGHT', 10)]]
         result = pallet_plan(dict(items=items, _tihi_constraints=dict(cases_per_layer=4, max_layers=2)), products, 'auto')
         light = {row['location_on_pallet']: int(row['qty_on_pallet']) for row in result['mpl']['items'] if row['sku'] == 'LIGHT'}
-        self.assertEqual(light, {'2': 8, '3': 2})
-        for pallet in result['mpl']['_pallet_ids']:
-            self.assertEqual(len({row['sku'] for row in result['mpl']['items'] if row['location_on_pallet'] == pallet}), 1)
+        self.assertEqual(light, {'1': 5, '2': 5})
+        first = result['entries'][0]['placements']
+        self.assertEqual([row['label'] for row in first], ['HEAVY']*3+['LIGHT']*5)
+        self.assertEqual({row['label'] for row in first if row['layer_index'] == 0}, {'HEAVY', 'LIGHT'})
+        self.assertTrue(all(entry['overflow_cases'] == 0 for entry in result['entries']))
+
+    def test_next_sku_does_not_preempt_first_sku_even_when_heavier(self):
+        products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
+                         height_in='5', gross_weight_lbs=weight, in_packing_list=True)
+                    for sku, weight in [('FIRST', '1'), ('SECOND', '2')]]
+        items = [dict(sku=sku, qty_on_pallet=str(qty), total_ordered=str(qty), total_shipped=str(qty))
+                 for sku, qty in [('FIRST', 3), ('SECOND', 1)]]
+        result = pallet_plan(dict(items=items, _tihi_constraints=dict(cases_per_layer=4, max_layers=1)), products, 'auto')
+        self.assertEqual(result['mpl']['total_pallets'], '1')
+        self.assertEqual([p['label'] for p in result['entries'][0]['placements']], ['FIRST']*3+['SECOND'])
+
+    def test_first_sku_continues_on_next_pallet_before_second_sku_fills_its_space(self):
+        products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
+                         height_in='5', gross_weight_lbs='1', in_packing_list=True) for sku in ['FIRST','SECOND']]
+        items = [dict(sku=sku, qty_on_pallet=str(qty), total_ordered=str(qty), total_shipped=str(qty))
+                 for sku, qty in [('FIRST', 10), ('SECOND', 2)]]
+        result = pallet_plan(dict(items=items, _tihi_constraints=dict(cases_per_layer=4, max_layers=2)), products, 'auto')
+        self.assertEqual(result['mpl']['total_pallets'], '2')
+        self.assertEqual([p['label'] for p in result['entries'][0]['placements']], ['FIRST']*8)
+        self.assertEqual([p['label'] for p in result['entries'][1]['placements']], ['FIRST']*2+['SECOND']*2)
 
     def test_auto_finishes_first_sku_before_later_sku_even_if_later_boxes_are_heavier(self):
         products = [dict(sku=sku, packaging_level='Case', case_qty='1', length_in='12', width_in='10',
@@ -81,6 +103,10 @@ class DocumentRulesTests(unittest.TestCase):
         self.assertEqual(plan['mpl']['_pallet_ids'], [])
         self.assertEqual(plan['mpl']['items'][0]['location_on_pallet'], '')
         self.assertTrue(plan['mpl']['warnings'])
+        fixed = copy.deepcopy(plan['mpl'])
+        fixed['items'][0].update(length_in='8', width_in='5', height_in='5', unit_weight_lbs='10')
+        recalculated = pallet_plan(fixed, self.products, 'auto')
+        self.assertFalse(any('missing checked Case' in warning for warning in recalculated['mpl']['warnings']))
         mpl = dict(self.mpl, _pallet_weights={'1': '2200 lbs'})
         self.assertEqual(pallet_plan(mpl, self.products)['mpl']['_pallet_weights']['1'], '2200 lbs')
 

@@ -151,7 +151,7 @@ class OrderWorkbookTests(unittest.TestCase):
         self.assertEqual(doc['errors'], [])
         self.assertFalse(state['entries']['0002']['input']['lines'][0].get('length_in'))
 
-    def test_bulk_and_standard_pallet_route_keep_skus_separate_with_the_same_plan(self):
+    def test_bulk_and_standard_pallet_route_fill_skus_sequentially_with_the_same_plan(self):
         values = copy.deepcopy(self.values)
         values['Orders'] = [values['Orders'][0]]
         values['Order Lines'][1].update(order_number='1001', quantity=20)
@@ -160,8 +160,8 @@ class OrderWorkbookTests(unittest.TestCase):
         document = build_order_documents('1001', resolve_fields(state, '1001', dict(acknowledge_matches=True)), state)
         self.assertEqual(document['errors'], [])
         mpl = document['packing_list']['packing_lists'][0]
-        for pallet in mpl['_pallet_ids']:
-            self.assertEqual(len({row['sku'] for row in mpl['items'] if row['location_on_pallet'] == pallet}), 1)
+        self.assertEqual(mpl['customer_no'], '1001')
+        self.assertEqual(sum(int(row['qty_on_pallet']) for row in mpl['items']), 26)
         standard = calculate_pallet_plan(self.request, dict(mpl=mpl, product_master=document['packing_list']['product_master'], action='auto'))
         self.assertEqual(standard['mpl']['items'], mpl['items'])
         self.assertEqual(standard['mpl']['_pallet_weights'], mpl['_pallet_weights'])
@@ -201,6 +201,34 @@ class OrderWorkbookTests(unittest.TestCase):
             'label:0:line_id': {'source':'custom','value':'NOT-A-LINE'}}))
         self.assertEqual(resolved['labels'][0]['line_id'], 'NOT-A-LINE')
         self.assertTrue(build_order_documents('1001', resolved, state)['errors'])
+
+    def test_description_only_item_uses_order_packaging_without_matching_or_changing_master(self):
+        values = copy.deepcopy(self.values)
+        values['Order Lines'][1]['sku'] = ''
+        values['Order Lines'][1].update(quantity=25, pack_by='Units per box', pack_value=10, unit_lbs=1)
+        values['Labels'][1]['sku'] = ''
+        before = copy.deepcopy(self.products)
+        state = self.state(values)
+        review = field_review(state, '0002')
+        section = next(section for section in review['sections'] if section['kind'] == 'line')
+        self.assertEqual(section['product_match'], 'missing')
+        self.assertEqual(next(field for field in section['fields'] if field['name'] == 'config_id')['value'], '')
+        resolved = resolve_fields(state, '0002', dict(acknowledge_matches=True))
+        doc = build_order_documents('0002', resolved, state)
+        self.assertEqual(doc['errors'], [])
+        self.assertEqual(doc['review']['lines'][0]['boxes'], 3)
+        self.assertEqual(doc['pallet_count'], 1)
+        self.assertEqual(doc['packing_list']['packing_lists'][0]['items'][0]['description'], 'Uploaded product')
+        from pipelines.kehe_pipeline import render_kehe_master_packing_list_pdf
+        with tempfile.TemporaryDirectory() as dest:
+            pdf = Path(dest)/'order-only.pdf'
+            render_kehe_master_packing_list_pdf(doc['packing_list'], str(pdf))
+            with pymupdf.open(pdf) as rendered:
+                self.assertIn('UPLOADED PRODUCT', rendered[0].get_text().upper())
+        self.assertEqual(self.products, before)
+        values['Order Lines'][1]['description'] = ''
+        with self.assertRaisesRegex(ValueError, 'Description'):
+            resolve_fields(self.state(values), '0002', dict(acknowledge_matches=True))
 
     def test_custom_partial_box_conserves_demand_and_gross_weight_and_missing_data_blocks(self):
         values = copy.deepcopy(self.values)
