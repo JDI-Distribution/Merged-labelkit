@@ -336,6 +336,17 @@
           </div>
           <small id="operations-order-count">Separate order numbers with commas, spaces or new lines. Up to 100 orders.</small>
         </form>
+        <section id="operations-load-choice" class="operations-load-choice hidden" tabindex="-1" aria-labelledby="operations-load-choice-title" onkeydown="if(event.key==='Escape'){cancelWorkspaceLoadChoice();event.stopPropagation();}">
+          <h3 id="operations-load-choice-title">How would you like to load these orders?</h3>
+          <p id="operations-load-choice-summary"></p>
+          <p id="operations-load-choice-help">Adding keeps your current work. Replacing removes the replaced orders' work from this page; saved drafts and downloaded files stay available.</p>
+          <div>
+            <button id="btn-load-replace-current" class="btn-generate" type="button" onclick="applyWorkspaceLoadChoice('current')">Replace this order</button>
+            <button id="btn-load-add-orders" class="btn-secondary" type="button" onclick="applyWorkspaceLoadChoice('add')">Add to current orders</button>
+            <button id="btn-load-replace-list" class="btn-secondary" type="button" onclick="applyWorkspaceLoadChoice('all')">Replace entire list</button>
+            <button class="btn-secondary" type="button" onclick="cancelWorkspaceLoadChoice()">Keep current work</button>
+          </div>
+        </section>
         <div class="operations-instance-backdrop hidden" id="operations-order-instance-backdrop" aria-hidden="true"></div>
         <div class="operations-instance-picker hidden" id="operations-order-instance-picker" role="dialog" aria-modal="true" aria-labelledby="operations-order-instance-title">
           <div class="mpl-order-instance-heading">

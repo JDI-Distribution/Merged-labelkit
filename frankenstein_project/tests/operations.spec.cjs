@@ -119,9 +119,17 @@ async function continueLabelReadiness(page) {
 
 async function loadOrder(page, orderNumber) {
   await page.locator('#operations-sales-order-number').fill(orderNumber);
-  const replacing=await page.evaluate(number=>!!(orderDocumentsState.payload || orderDocumentsState.customMode || orderDocumentsState.mplDraft) && workspaceOrders.entries.map(entry=>entry.number).join(',')!==number,orderNumber);
-  if(replacing)page.once('dialog',dialog=>dialog.accept());
+  const replacing=await page.evaluate(()=>!!(orderDocumentsState.payload || orderDocumentsState.customMode || orderDocumentsState.mplDraft || workspaceOrders.entries.some(entry=>entry.snapshot)));
   await page.locator('#btn-load-operations-order').click();
+  if(replacing){
+    await expect(page.locator('#operations-load-choice')).toBeVisible();
+    const wholeList=page.locator('#btn-load-replace-list');
+    await (await wholeList.isVisible()?wholeList:page.locator('#btn-load-replace-current')).click();
+  }
+  await waitForLoadedOrder(page,orderNumber);
+}
+
+async function waitForLoadedOrder(page,orderNumber){
   const picker = page.locator('#operations-order-instance-picker');
   await page.waitForFunction(value => {
     const dialog = document.getElementById('operations-order-instance-picker');
@@ -135,7 +143,62 @@ async function loadOrder(page, orderNumber) {
     await expect(picker).toBeHidden({ timeout: 25000 });
   }
   await expect(page.locator('#operations-order-number')).toHaveText(orderNumber, { timeout: 15000 });
+  await expect(page.getByRole('combobox',{name:'Current sales order',exact:true})).toBeEnabled();
 }
+
+test('load choices add, cancel, replace one order and replace the list without browser confirmations',async({page},info)=>{
+  const dialogs=[];page.on('dialog',async dialog=>{dialogs.push(dialog.message());await dialog.dismiss();});
+  await openOperations(page);await loadOrder(page,'38800');
+  const original=await page.evaluate(()=>JSON.parse(JSON.stringify(orderDocumentsState.payload)));
+  await page.route('**/api/order-documents/orders/lookup',async route=>{
+    if(route.request().postDataJSON().sales_order_number==='77777')return route.fulfill({json:{...original,sales_order_number:'77777'}});
+    await route.continue();
+  });
+  await page.evaluate(()=>updateReviewedOrder('po_number','KEEP-FIRST'));
+  await page.locator('#operations-sales-order-number').fill('63494');await page.locator('#btn-load-operations-order').click();
+  await expect(page.locator('#operations-load-choice')).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#operations-load-choice').scrollIntoViewIfNeeded();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+  await page.screenshot({path:info.outputPath('load-order-choices-mobile.png')});
+  await page.setViewportSize({width:1366,height:900});
+  await page.locator('#operations-load-choice').getByRole('button',{name:'Keep current work',exact:true}).click();
+  await expect(page.locator('#operations-sales-order-number')).toHaveValue('38800');
+  expect(await page.evaluate(()=>orderDocumentsState.reviewedOrder.fields.po_number)).toBe('KEEP-FIRST');
+  await page.locator('#operations-sales-order-number').fill('63494,38800,63494');await page.locator('#btn-load-operations-order').click();
+  await page.locator('#btn-load-add-orders').click();await waitForLoadedOrder(page,'63494');
+  expect(await page.evaluate(()=>workspaceOrders.entries.map(entry=>entry.number))).toEqual(['38800','63494']);
+  await page.getByRole('button',{name:'Previous order',exact:true}).click();
+  expect(await page.evaluate(()=>orderDocumentsState.reviewedOrder.fields.po_number)).toBe('KEEP-FIRST');
+  await page.getByRole('button',{name:'Next order',exact:true}).click();
+  await page.locator('#operations-sales-order-number').fill('77777');await page.locator('#btn-load-operations-order').click();
+  await page.locator('#btn-load-replace-current').click();await waitForLoadedOrder(page,'77777');
+  expect(await page.evaluate(()=>workspaceOrders.entries.map(entry=>entry.number))).toEqual(['38800','77777']);
+  await page.getByRole('button',{name:'Previous order',exact:true}).click();
+  expect(await page.evaluate(()=>orderDocumentsState.reviewedOrder.fields.po_number)).toBe('KEEP-FIRST');
+  await page.locator('#operations-sales-order-number').fill('63494');await page.locator('#btn-load-operations-order').click();
+  await page.locator('#btn-load-replace-list').click();await waitForLoadedOrder(page,'63494');
+  expect(await page.evaluate(()=>workspaceOrders.entries.map(entry=>entry.number))).toEqual(['63494']);
+  expect(dialogs).toEqual([]);
+});
+
+test('wrong-number correction loads directly without work and failed replacements restore edits',async({page})=>{
+  await page.route('**/api/order-documents/orders/lookup',async route=>{
+    if(route.request().postDataJSON().sales_order_number==='99999')return route.fulfill({status:404,json:{detail:'Order not found'}});
+    await route.continue();
+  });
+  await openOperations(page);await page.locator('#operations-sales-order-number').fill('99999');await page.locator('#btn-load-operations-order').click();
+  await expect(page.locator('.operations-order-load-error')).toContainText('Order not found');
+  await loadOrder(page,'38800');await expect(page.locator('#operations-load-choice')).toBeHidden();
+  await page.evaluate(()=>updateReviewedOrder('po_number','RETAIN-ME'));
+  await page.locator('#operations-sales-order-number').fill('99999');await page.locator('#btn-load-operations-order').click();
+  await page.locator('#btn-load-replace-current').click();
+  await expect(page.locator('#operations-status-bar')).toContainText('Previous work retained');
+  await expect(page.locator('#operations-order-number')).toHaveText('38800');
+  expect(await page.evaluate(()=>orderDocumentsState.reviewedOrder.fields.po_number)).toBe('RETAIN-ME');
+  await loadOrder(page,'38800');
+  expect(await page.evaluate(()=>orderDocumentsState.reviewedOrder.fields.po_number)).not.toBe('RETAIN-ME');
+});
 
 async function setUpManualLabel(page) {
   await page.getByRole('button', { name: 'Create Label Without an Order' }).click();

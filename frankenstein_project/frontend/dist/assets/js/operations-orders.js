@@ -1,8 +1,10 @@
 /* Multiple orders wrap the original workspace; each order uses its existing pipeline. */
 let workspaceOrders={entries:[],active:0,busy:false,suspended:false,rollback:null};
+let workspaceLoadNumbers=null;
 const workspaceCopy=value=>JSON.parse(JSON.stringify(value));
 
 function updateWorkspaceOrderCount() {
+  cancelWorkspaceLoadChoice(false);
   const values=document.getElementById('operations-sales-order-number').value.trim().split(/[,;\s]+/).filter(Boolean);
   document.getElementById('operations-order-count').textContent=values.length
     ? `${new Set(values).size} order(s) · ${values.length-new Set(values).size} duplicate(s) ignored`
@@ -80,21 +82,65 @@ async function loadOrderDocuments(event) {
   const numbers=[...new Set(document.getElementById('operations-sales-order-number').value.trim().split(/[,;\s]+/).filter(Boolean))];
   if(!numbers.length || numbers.length>100 || numbers.some(number=>!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(number)))return setStatus('Enter up to 100 valid sales order numbers separated by commas, spaces or new lines.','error');
   const hasWork=orderDocumentsState.payload || orderDocumentsState.mplDraft || orderDocumentsState.customMode || workspaceOrders.entries.some(entry=>entry.snapshot);
-  if(hasWork && !window.confirm('Replace the current order list? Save or download any documents you need first.'))return;
+  if(hasWork){
+    workspaceLoadNumbers=numbers;
+    const current=workspaceOrders.entries[workspaceOrders.active];
+    const canKeepOrders=!!current && !workspaceOrders.suspended && !orderDocumentsState.customMode;
+    const panel=document.getElementById('operations-load-choice');
+    document.getElementById('operations-load-choice-summary').textContent=`Entered: ${numbers.join(', ')}. ${canKeepOrders?`Current order: ${current.number}. ${workspaceOrders.entries.length} order(s) in your list.`:'A custom document is currently open.'}`;
+    document.getElementById('btn-load-replace-current').classList.toggle('hidden',!canKeepOrders);
+    document.getElementById('btn-load-replace-current').textContent=canKeepOrders?`Replace order ${current.number}`:'Replace this order';
+    document.getElementById('btn-load-add-orders').classList.toggle('hidden',!canKeepOrders);
+    document.getElementById('btn-load-replace-list').classList.toggle('hidden',canKeepOrders && workspaceOrders.entries.length===1);
+    panel.classList.remove('hidden');panel.focus({preventScroll:true});panel.scrollIntoView({block:'center',behavior:'smooth'});
+    return;
+  }
+  await applyWorkspaceLoadChoice('all',numbers);
+}
+function cancelWorkspaceLoadChoice(focus=true) {
+  workspaceLoadNumbers=null;
+  document.getElementById('operations-load-choice')?.classList.add('hidden');
+  if(focus){
+    document.getElementById('operations-sales-order-number').value=workspaceOrders.entries.map(entry=>entry.number).join(', ');
+    updateWorkspaceOrderCount();
+    document.getElementById('operations-sales-order-number').focus({preventScroll:true});
+  }
+}
+async function applyWorkspaceLoadChoice(mode,numbers=workspaceLoadNumbers) {
+  if(!numbers || !['current','add','all'].includes(mode) || !canSwitchWorkspaceOrder() || orderDocumentsState.selectingOrderInstance)return;
+  const previous=workspaceOrders;
+  if(mode!=='all' && (!previous.entries.length || previous.suspended || orderDocumentsState.customMode))return;
+  const newEntry=number=>({number,key:crypto.randomUUID(),status:'pending',skip:false});
+  let entries,index=0;
+  if(mode==='add'){
+    const extra=numbers.filter(number=>!previous.entries.some(entry=>entry.number===number));
+    entries=[...previous.entries,...extra.map(newEntry)];
+    index=extra.length?previous.entries.length:entries.findIndex(entry=>entry.number===numbers[0]);
+  }else if(mode==='current'){
+    const remaining=previous.entries.filter((_entry,i)=>i!==previous.active);
+    const before=previous.entries.slice(0,previous.active).filter(entry=>!numbers.includes(entry.number));
+    const after=previous.entries.slice(previous.active+1).filter(entry=>!numbers.includes(entry.number));
+    entries=[...before,...numbers.map(number=>remaining.find(entry=>entry.number===number) || newEntry(number)),...after];
+    index=before.length;
+  }else entries=numbers.map(newEntry);
+  if(entries.length>100)return setStatus('This would exceed 100 orders. Add fewer orders or replace the list.','error');
   saveWorkspaceOrder();
-  const rollback=hasWork?{batch:workspaceOrders,snapshot:captureWorkspaceOrder()}:null;
-  workspaceOrders={entries:numbers.map(number=>({number,key:crypto.randomUUID(),status:'pending',skip:false})),active:0,busy:false,suspended:false,rollback};
-  await switchWorkspaceOrder(0);
+  const hasWork=orderDocumentsState.payload || orderDocumentsState.mplDraft || orderDocumentsState.customMode || previous.entries.some(entry=>entry.snapshot);
+  const rollback=mode!=='add' && hasWork?{batch:previous,snapshot:captureWorkspaceOrder()}:null;
+  cancelWorkspaceLoadChoice(false);
+  workspaceOrders={entries,active:-1,previousActive:previous.active,busy:false,suspended:false,rollback};
+  await switchWorkspaceOrder(index);
 }
 async function switchWorkspaceOrder(index,retry=false) {
   index=Number(index);
   if(!Number.isInteger(index) || !workspaceOrders.entries[index] || !canSwitchWorkspaceOrder() || orderDocumentsState.selectingOrderInstance)return;
+  cancelWorkspaceLoadChoice(false);
   if(workspaceOrders.suspended && (orderDocumentsState.customMode || orderDocumentsState.mplDraft) && !window.confirm('Return to the order list? Save or download this custom document first.'))return;
   saveWorkspaceOrder();
-  const previous=workspaceOrders.active;
+  const previous=workspaceOrders.active<0?workspaceOrders.previousActive:workspaceOrders.active;
   workspaceOrders.active=index;workspaceOrders.suspended=false;
   const entry=workspaceOrders.entries[index];
-  if(entry.snapshot && !retry){restoreWorkspaceOrder(entry.snapshot);return;}
+  if(entry.snapshot && !retry){workspaceOrders.rollback=null;restoreWorkspaceOrder(entry.snapshot);return;}
   workspaceOrders.previousActive=previous;workspaceOrders.busy=true;
   mplDraftSync?.discard();resetOperationsWorkspaceState();
   document.getElementById('operations-sales-order-number').value=workspaceOrders.entries.map(item=>item.number).join(', ');
@@ -122,6 +168,7 @@ function cancelWorkspaceOrderSelection() {
 function skipWorkspaceOrder(value) {workspaceOrders.entries[workspaceOrders.active].skip=value;renderWorkspaceOrderNavigation();}
 function suspendWorkspaceOrders() {
   if(!canSwitchWorkspaceOrder()){setStatus('Finish the current calculation or document review first.','info');return false;}
+  cancelWorkspaceLoadChoice(false);
   if(!workspaceOrders.creatingManual){saveWorkspaceOrder();workspaceOrders.suspended=!!workspaceOrders.entries.length;}
   return true;
 }

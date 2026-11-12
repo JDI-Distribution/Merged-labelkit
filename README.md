@@ -69,8 +69,11 @@ the order list prompts you to save or download the custom document first.
 When an order number has multiple Analytics records, use the original record
 selector. Cancelling restores the previous order. A failed lookup affects that
 order only: retry it, skip it, or start a manual packing list using the existing
-editor. Replacing the order list requires confirmation; a failed replacement
-retains the previous work.
+editor. Loading different numbers offers inline choices to replace the current
+order, add to the list, replace the entire list, or keep current work. Adding
+ignores duplicates and preserves existing edits and approvals. A failed replacement
+retains the previous work. A wrong number with no loaded work can be corrected
+directly without a replacement prompt.
 
 Preview and approve the selected documents through the existing workflow. Edited
 inputs revoke the affected approvals. **Finished Files** shows the active order's
