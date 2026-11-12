@@ -19,6 +19,7 @@ def field_review(state, order, edits=None):
     if not isinstance(overrides, dict) or any(not isinstance(value, dict) for value in overrides.values()):
         raise ValueError('Field edits must contain a source and optional edited value.')
     entry = state['entries'][order]
+    references = entry.get('references') or state
     uploaded = copy.deepcopy(entry['input'])
     record = None if edits.get('record_id') == '__none__' else selected_record(entry, clean(edits.get('record_id')))
     baseline = analytics_header(record['rows']) if record else {}
@@ -30,9 +31,9 @@ def field_review(state, order, edits=None):
         uploaded, item_choices = order_number_input(order, record, edits)
     excluded = set(edits.get('excluded_lines') or []) if state.get('intake') == 'numbers' else set()
     sections, decisions, allowed = [], [], set()
-    defaults = dict(labels='Auto', packing_list='Yes', pallet_labels='Yes', pallet_copies=2,
+    defaults = dict(labels='Auto', packing_list='Yes', pallet_labels='Yes', pallet_copies=2, manual_pallet_count=1,
                     mpl_layout='Auto', brand='Auto', **{k: v for k, v in _mpl_tihi_constraints().items() if v})
-    products = [row for row in state['products'] if row.get('is_active') is not False and row.get('verification_status') != 'BLOCKED']
+    products = [row for row in references['products'] if row.get('is_active') is not False and row.get('verification_status') != 'BLOCKED']
     buyers = set()
     for index, line in enumerate(uploaded['lines']):
         if line['line_id'] in excluded:
@@ -52,7 +53,7 @@ def field_review(state, order, edits=None):
         if len(groups) == 1 and groups[0][0].get('storefront'):
             buyers.add(groups[0][0]['storefront'])
     choices = {**SCHEMA['choices'], 'skus': sorted({clean(row.get('sku')) for row in products if row.get('sku')} | {row['sku'] for row in actual}),
-               'customers': sorted({clean(row.get('storefront')) for row in products+state['directory'] if row.get('storefront')}),
+               'customers': sorted({clean(row.get('storefront')) for row in products+references['directory'] if row.get('storefront')}),
                'templates': [row['template_id'] for row in state['templates'] if row.get('status', 'ACTIVE') == 'ACTIVE']}
 
     def cell(prefix, column, candidates, fields, required=False, options=None, readonly=False):
@@ -98,9 +99,11 @@ def field_review(state, order, edits=None):
 
     header, header_fields = {}, []
     # Customer and Directory codes resolve first so dependent defaults use edits.
-    columns = SCHEMA['sheets']['Orders']
+    columns = list(SCHEMA['sheets']['Orders'])
+    if state.get('intake') == 'numbers':
+        columns.append(['manual_pallet_count', 'Manual Pallet Count (when packing list is excluded)', 'number', ''])
     first = {'order_number', 'record_id', 'customer', 'ship_from_code', 'bill_to_code', 'ship_to_code', 'labels', 'packing_list', 'pallet_labels'}
-    directory_rows = [row for row in state['directory'] if row.get('is_active') is not False
+    directory_rows = [row for row in references['directory'] if row.get('is_active') is not False
                       and row.get('verification_status') not in {'DRAFT', 'BLOCKED'} and len(clean(row.get('address')).splitlines()) >= 2]
     for column in sorted(columns, key=lambda c: c[0] not in first):
         name = column[0]
@@ -183,7 +186,7 @@ def field_review(state, order, edits=None):
             if field['name'] == 'description':
                 field['required'] = not effective['sku']
             if field['name'] in {'length_in', 'width_in', 'height_in', 'gross_weight_lbs'}:
-                field['required'] = effective['pack_by'] != 'Default' or header['packing_list'] != 'No' or header['pallet_labels'] != 'No'
+                field['required'] = effective['pack_by'] != 'Default' or header['packing_list'] != 'No'
             if field['name'] == 'pack_value':
                 field['required'] = effective['pack_by'] != 'Default'
             if field['name'] == 'unit_lbs':
@@ -210,8 +213,19 @@ def field_review(state, order, edits=None):
             enabled = [r for r in levels if r.get('label_enabled')]
             for row in enabled or [dict(packaging_level='Case')]:
                 definitions.append(dict(order_number=order, line_id=line['line_id'], sku=line['sku'],
-                    _app_template=row.get('label_template_id', ''), _app_level=row['packaging_level'], _optional=True))
+                    _app_template=row.get('label_template_id', ''), _app_level=row['packaging_level'], _optional=True,
+                    _app_copies=row.get('default_copies',''),
+                    _binding_id=f'{line["line_id"]}:{row["packaging_level"]}:{row.get("label_template_id", "")}'))
+        if state.get('intake') == 'numbers' and 'fancy' in key(header.get('customer')) and lines and header['labels'] != 'No':
+            definitions.append(dict(order_number=order,line_id=lines[0]['line_id'],sku=lines[0]['sku'],_app_template='FANCY_PALLET_3X3',_app_level='Pallet',_optional=True,_binding_id='partner:fancy:pallet'))
     labels = []
+    if state.get('intake') == 'numbers':
+        extra = edits.get('added_labels') or []
+        if not isinstance(extra,list) or len(extra)>1000 or any(not isinstance(row,dict) or set(row)!={'line_id','id'} or not isinstance(row['id'],str) or not row['id'].startswith('EXTRA-') or row['line_id'] not in {item['line_id'] for item in item_choices} for row in extra):
+            raise ValueError('Choose an included item for each additional label template.')
+        if len({row['id'] for row in extra})!=len(extra):
+            raise ValueError('Additional label IDs must be unique.')
+        definitions = list(definitions) + [dict(order_number=order,line_id=row['line_id'],sku=next(line['sku'] for line in lines if line['line_id']==row['line_id']),_optional=False,_binding_id=row['id']) for row in extra if row['line_id'] in {line['line_id'] for line in lines}]
     for index, definition in enumerate(definitions):
         fields, effective = [], {}
         line_id_edit = overrides.get(f'label:{index}:line_id') or {}
@@ -223,13 +237,16 @@ def field_review(state, order, edits=None):
         for column in SCHEMA['sheets']['Labels']:
             name = column[0]
             app_value = definition.get('_app_template') if name == 'template_id' else definition.get('_app_level') if name == 'level' else ''
+            if name == 'copies':
+                app_value = definition.get('_app_copies','')
             if name == 'sku' and linked:
                 app_value = linked['sku']
             if name == 'template_id' and not definition.get('_optional') and not definition.get('template_id') and linked:
                 levels = level_groups[lines.index(linked)]
                 matches = [r['label_template_id'] for r in levels if r.get('label_enabled') and r.get('packaging_level') == (definition.get('level') or 'Case') and r.get('label_template_id')]
                 app_value = matches[0] if len(set(matches)) == 1 else ''
-            defaults_label = dict(level='Case', copies=1, print_barcode='Auto', expected_delivery_date=header.get('expected_delivery_date'))
+            selected_template = next((row for row in state['templates'] if row['template_id'] == effective.get('template_id')), {})
+            defaults_label = dict(level='Case', copies=selected_template.get('default_copies') or 1, print_barcode='Auto', expected_delivery_date=header.get('expected_delivery_date'))
             candidates = dict(workbook=definition.get(name), product_master=app_value, default=defaults_label.get(name))
             # Keep line bindings in sync after SKU edits, including explicit Labels rows.
             if name == 'sku' and linked:
@@ -259,7 +276,7 @@ def field_review(state, order, edits=None):
             if 'po_number' in required_run:
                 po = next(f for f in header_fields if f['name'] == 'po_number')
                 po['required'], po['missing'] = True, not po['value']
-        sections.append(dict(id=f'label:{index}', title=f'Label {index+1} · {effective["sku"] or "Select line"}', kind='label', fields=fields))
+        sections.append(dict(id=f'label:{index}', binding_id=definition.get('_binding_id',str(index)), title=f'Label {index+1} · {effective["sku"] or "Select line"}', kind='label', fields=fields))
     # All resolved addresses, including explicit blanks, are authoritative after review.
     header['_field_review'] = True
     invalid = set(overrides) - allowed

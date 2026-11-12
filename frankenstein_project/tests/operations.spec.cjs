@@ -1,55 +1,5 @@
 const { test, expect } = require('@playwright/test');
 
-test('bulk review shows one section and preserves edits through Previous and Next',async({page},info)=>{
-  await openOperations(page);
-  await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
-  await page.evaluate(()=>{
-    const field=(path,label,value)=>({path,name:path.split(':').at(-1),label,value,type:'text',selection:'auto',source:'analytics',source_label:'Analytics',default_source:'analytics',candidates:{analytics:value},options:[],choice_list:'',required:false,readonly:false,missing:false,conflict:false,stale:false});
-    const order=number=>({order_number:number,records:[],record_id:'',notices:[],item_choices:[{line_id:'LINE-1',sku:'CMB106-1LB',excluded:false}],choices:{},choice_labels:{},filled_count:3,missing_count:0,conflict_count:0,sections:[
-      {id:'header',title:'Order details and document options',kind:'header',fields:[field('header:po_number','Customer PO','PO1925')]},
-      {id:'line:0',title:'CMB106-1LB · LINE-1',kind:'line',product_match:'matched',analytics_match:'matched',fields:[field('line:0:quantity','Ordered Quantity','750')]},
-      {id:'label:0',title:'Label 1 · CMB106-1LB',kind:'label',fields:[field('label:0:lot_number','Lot Number','LOT-01')]}
-    ]});
-    orderExcel.matching={orders:[order('72767'),order('72638')]};orderExcel.choices={};
-    renderOrderExcelMatching();
-  });
-  const modal=page.locator('#order-excel-modal');
-  const open=()=>modal.locator('[data-bulk-section][open]');
-  await expect(open()).toHaveCount(1);
-  await expect(open()).toHaveAttribute('data-bulk-section','header');
-  await open().getByRole('textbox',{name:'Customer PO value',exact:true}).fill('EDITED-PO');
-  await open().getByRole('button',{name:'Next section',exact:true}).click();
-  await expect(open()).toHaveCount(1);
-  await expect(open()).toHaveAttribute('data-bulk-section','line:0');
-  await expect(open().locator('[data-section-position]')).toHaveText('Section 3 of 4');
-  await open().getByRole('button',{name:'Next section',exact:true}).click();
-  await expect(open()).toHaveAttribute('data-bulk-section','label:0');
-  await expect(open().getByRole('button',{name:'Next section',exact:true})).toBeDisabled();
-  await page.evaluate(()=>{orderExcelBusy(true);orderExcelBusy(false);renderOrderExcelMatching();});
-  await expect(open()).toHaveAttribute('data-bulk-section','label:0');
-  await expect(open().getByRole('button',{name:'Next section',exact:true})).toBeDisabled();
-  await open().getByRole('button',{name:'Previous section',exact:true}).click();
-  await open().getByRole('button',{name:'Previous section',exact:true}).click();
-  await expect(open().getByRole('textbox',{name:'Customer PO value',exact:true})).toHaveValue('EDITED-PO');
-  await open().getByRole('button',{name:'Previous section',exact:true}).click();
-  await expect(open()).toHaveAttribute('data-bulk-section','items');
-  await expect(open().getByRole('button',{name:'Previous section',exact:true})).toBeDisabled();
-  await modal.locator('[data-excel-order="1"] [data-bulk-section="line:0"] > summary').click();
-  await expect(open()).toHaveCount(1);
-  await expect(open().locator('..')).toHaveAttribute('data-excel-order','1');
-  await page.keyboard.press('Enter');
-  await expect(open()).toHaveCount(1);
-  await page.setViewportSize({width:390,height:844});
-  await open().locator('summary').first().scrollIntoViewIfNeeded();
-  await expect(open().locator('summary').first()).toBeInViewport();
-  await expect(open().getByRole('button',{name:'Next section',exact:true})).toBeVisible();
-  expect(await modal.locator('.editor-body').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
-  await page.screenshot({path:info.outputPath('bulk-single-section-mobile.png')});
-  await page.keyboard.press('Escape');
-  await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
-  await expect(open()).toHaveAttribute('data-bulk-section','line:0');
-});
-
 async function openOperations(page) {
   await page.goto('/#operations');
   await expect(page.getByRole('heading', { name: 'Order Documents' })).toBeVisible();
@@ -63,7 +13,7 @@ async function continueLabelReadiness(page) {
 
 async function loadOrder(page, orderNumber) {
   await page.locator('#operations-sales-order-number').fill(orderNumber);
-  await page.locator('#btn-load-operations-order').click();
+  await page.evaluate(number=>loadOperationsOrder(null,'',number),orderNumber);
   const picker = page.locator('#operations-order-instance-picker');
   await page.waitForFunction(value => {
     const dialog = document.getElementById('operations-order-instance-picker');
@@ -390,25 +340,6 @@ test('Partner packing list keeps Balance Owed column and a Total Weight footer',
   await expect(summary.locator('tbody tr')).toHaveCount(2);
   await expect(summary.locator('tfoot tr')).toHaveCount(1);
   await expect(summary.locator('tfoot')).toContainText('Total Weight');
-});
-
-test('Unique and duplicate order lookup preserve or replace work intentionally', async ({ page }) => {
-  await openOperations(page);
-  await loadOrder(page, '38800');
-  await expect(page.locator('.operations-order-summary')).toContainText('38800');
-  await page.locator('#operations-sales-order-number').fill('63494');
-  await page.locator('#btn-load-operations-order').click();
-  const picker = page.locator('#operations-order-instance-picker');
-  await expect(picker).toHaveAttribute('aria-modal', 'true');
-  await expect(page.locator('#operations-session')).toHaveJSProperty('inert', true);
-  await expect(page.locator('body > header')).toHaveJSProperty('inert', true);
-  await picker.getByRole('button', { name: 'Keep Current Work' }).click();
-  await expect(page.locator('.operations-order-summary')).toContainText('38800');
-  await page.locator('#operations-sales-order-number').fill('63494');
-  await page.locator('#btn-load-operations-order').click();
-  await page.locator('#operations-order-instance-picker').getByRole('button', { name: 'Load Selected Order' }).click();
-  await expect(page.locator('#operations-order-number')).toHaveText('63494');
-  await expect(page.locator('#operations-status-bar')).toContainText('previous document session replaced');
 });
 
 test('Order label rows support multiple templates and Previous/Next navigation', async ({ page }) => {
@@ -743,96 +674,163 @@ test('Ti-Hi controls persist edited limits and Recalculate uses them for real al
   expect(combined.mpl.items.reduce((sum, item) => sum + Number(item.qty_on_pallet), 0)).toBe(9);
 });
 
-test.describe('Order-number bulk processing',()=>{
-  test.skip(!process.env.LABELKIT_BATCH_QA,'Requires isolated Analytics and reference fixtures.');
-  async function loadBatch(page,numbers){
-    await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
+test.describe('Unified order-number workflow',()=>{
+  test.skip(!process.env.LABELKIT_BATCH_QA,'Requires isolated Analytics and reference data.');
+  async function load(page,numbers){
+    await openOperations(page);
+    await expect(page.getByRole('button',{name:'Bulk order processing',exact:true})).toHaveCount(0);
+    await page.locator('#operations-sales-order-number').fill(numbers);
+    await page.locator('#btn-load-operations-order').click();
     const modal=page.locator('#order-excel-modal');
-    await expect(modal.locator('input[type=file]')).toHaveCount(0);
-    await modal.locator('#bulk-order-numbers').fill(numbers);
-    await modal.getByRole('button',{name:'Load orders',exact:true}).click();
-    await expect(modal.getByRole('heading',{name:'Verify order details',exact:true})).toBeVisible({timeout:30000});
-    return modal;
+    await expect(modal.locator('#review-order-select')).toBeVisible({timeout:30000});return modal;
   }
-  async function showFields(card){
-    await card.locator('details').evaluateAll(nodes=>nodes.forEach(node=>node.open=true));
-  }
-  async function edit(card,path,value){
-    await showFields(card);
-    const field=card.locator(`[data-field-path="${path}"] [aria-label$=" value"]`);
+  async function section(modal,id){await modal.locator('#review-section-select').selectOption(id);}
+  async function edit(modal,path,value){
+    const field=modal.locator(`[data-field-path="${path}"] [aria-label$=" value"]`);
+    await field.evaluate(el=>{let parent=el.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}});
     if(await field.evaluate(el=>el.tagName==='SELECT'))await field.selectOption(value);
     else {await field.fill(value);await field.press('Tab');}
   }
-  test('load, restore saved values, repair missing SKU, skip absent order and generate real ZIP',async({page,request},info)=>{
-    test.setTimeout(120000);
-    const master=await(await request.get('/api/mpl/product-master')).json();
-    const directory=await(await request.get('/api/mpl/directory')).json();
-    await openOperations(page);await loadOrder(page,'38800');
-    const before=await page.evaluate(()=>JSON.stringify(orderDocumentsState));
-    const modal=await loadBatch(page,'70801,70802\n99999 70801');
-    const card=index=>modal.locator(`[data-excel-order="${index}"]`);
-    await expect(modal.locator('.bulk-batch-summary')).toContainText('3 of 3 orders selected');
-    await expect(card(0)).toContainText('SKU found in Product Master');
-    await expect(card(1)).toContainText('SKU not found in Product Master');
-    await expect(card(2)).toContainText('Order not found in Analytics');
-    await showFields(card(0));
-    const weight=card(0).locator('[data-field-path="line:0:gross_weight_lbs"]');
-    await edit(card(0),'line:0:gross_weight_lbs','99');
-    await expect(weight.locator('.order-excel-badge')).toContainText('differs');
-    await weight.getByRole('button',{name:'Restore saved value',exact:true}).click();
-    await expect(weight.locator('input')).toHaveValue('26');
-    for(const i of [0,1])await edit(card(i),'header:po_number','TEST-PO');
-    for(const [path,value] of Object.entries({pack_by:'Pounds per box',pack_value:'25',unit_lbs:'1',length_in:'16',width_in:'12',height_in:'10',gross_weight_lbs:'26'}))await edit(card(1),'line:0:'+path,value);
-    await edit(card(1),'header:labels','No');
-    await card(2).getByRole('checkbox',{name:'Skip this order',exact:true}).check();
-    await modal.getByRole('button',{name:'Recheck defaults',exact:true}).click();
+  async function recheck(modal){
+    await modal.getByRole('button',{name:'Recheck this order',exact:true}).click();
     await expect(modal.locator('#order-excel-status')).toContainText('Defaults refreshed');
-    for(const ack of await modal.locator('.order-excel-match-ack').all())await ack.check();
-    await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
-    await expect(modal.getByRole('heading',{name:'Review matched orders and documents'})).toBeVisible({timeout:30000});
+    const ack=modal.locator('.order-excel-match-ack');if(await ack.count())await ack.check();
+  }
+  async function previewApprove(page,modal,name){
+    await modal.getByRole('button',{name:`Preview ${name}`,exact:true}).click();
+    await expect.poll(async()=>await page.locator('#preview-panel').isVisible() || await page.locator('#workflow-readiness-modal').isVisible(),{timeout:30000}).toBeTruthy();
+    if(await page.locator('#workflow-readiness-modal').isVisible())await page.locator('#workflow-readiness-modal').getByRole('button',{name:'Generate with warnings',exact:true}).click();
+    await expect(page.locator('#preview-panel')).toBeVisible({timeout:30000});
+    await page.locator('#btn-approve-order-preview').click();
+    await expect(modal).toBeVisible();
+  }
+  test('one input loads ordered isolated sessions, edits and real approved PDFs into per-order ZIP',async({page,request},info)=>{
+    test.setTimeout(180000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    const master=await(await request.get('/api/mpl/product-master')).json(),directory=await(await request.get('/api/mpl/directory')).json();
+    const modal=await load(page,'70801,70802\n99999 70801');
+    await expect(modal.locator('#review-order-select option')).toHaveCount(3);
+    await expect(modal.locator('[data-excel-order]')).toHaveCount(1);
+    await expect(modal.locator('#review-order-select option').first()).toContainText('70801');
+    await edit(modal,'header:po_number','TEST-PO');
+    await section(modal,'line:0');await edit(modal,'line:0:gross_weight_lbs','99');
+    await modal.getByRole('button',{name:'Restore saved value',exact:true}).click();
+    await expect(modal.locator('[data-field-path="line:0:gross_weight_lbs"] input')).toHaveValue('26');
+    await modal.getByRole('button',{name:'Next order',exact:true}).click();
+    await edit(modal,'header:po_number','OTHER-PO');await edit(modal,'header:labels','No');
+    await section(modal,'line:0');
+    for(const [name,value] of Object.entries({pack_by:'Pounds per box',pack_value:'25',unit_lbs:'1',length_in:'16',width_in:'12',height_in:'10',gross_weight_lbs:'26'}))await edit(modal,'line:0:'+name,value);
+    await recheck(modal);
+    await modal.getByRole('button',{name:'Next order',exact:true}).click();
+    await modal.getByRole('checkbox',{name:'Skip this order',exact:true}).check();
+    await modal.locator('#review-order-select').selectOption('0');
+    await expect(modal.locator('#review-section-select')).toHaveValue('line:0');
+    await section(modal,'header');await expect(modal.locator('[data-field-path="header:po_number"] input')).toHaveValue('TEST-PO');
+    await recheck(modal);await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review orders and documents',exact:true})).toBeVisible({timeout:30000});
     await expect(modal.locator('#order-excel-results')).toContainText('0 blocking issue');
-    for(const sku of ['KNOWN-1LB','BATCH-MISSING-1LB'])await expect(modal.getByRole('row').filter({hasText:sku}).getByRole('cell').nth(2)).toHaveText('26');
-    const saved=page.waitForEvent('download');await modal.getByRole('button',{name:'Download reviewed inputs',exact:true}).click();
-    await (await saved).saveAs(info.outputPath('reviewed.json'));
-    if(await modal.locator('#order-excel-ack').count())await modal.locator('#order-excel-ack').check();
-    await modal.getByRole('button',{name:'Generate order ZIP',exact:true}).click();
-    await expect(modal.getByRole('heading',{name:'2 order(s) generated · 0 failed · 1 skipped',exact:true})).toBeVisible({timeout:60000});
+    for(const number of ['70801','70802'])await expect(modal.getByRole('row').filter({hasText:number}).getByRole('cell').nth(1)).toHaveText('26');
+    await modal.getByRole('row').filter({hasText:'70801'}).getByRole('button',{name:'Review documents',exact:true}).click();
+    await modal.getByRole('button',{name:'Edit Packing list and Ti-Hi',exact:true}).click();
+    await expect(page.locator('#document-editor-panel')).toBeVisible();
+    const weight=page.locator('.mpl-pallet-weight-edit input').first();await weight.fill('777 lbs');await weight.press('Tab');
+    await page.locator('#btn-operations-review-back').click();
+    await expect(modal).toBeVisible();
+    await modal.getByRole('button',{name:'Next order',exact:true}).click();
+    await modal.getByRole('button',{name:'Previous order',exact:true}).click();
+    await modal.getByRole('button',{name:'Edit Packing list and Ti-Hi',exact:true}).click();
+    await expect(page.locator('.mpl-pallet-weight-edit input').first()).toHaveValue('777 lbs');
+    await page.locator('#btn-operations-review-continue').click();
+    await expect(modal).toBeVisible({timeout:45000});
+    await previewApprove(page,modal,'Customer labels');await previewApprove(page,modal,'Pallet labels');
+    await modal.getByRole('button',{name:'Next order',exact:true}).click();await section(modal,'documents');
+    await previewApprove(page,modal,'Packing list and Ti-Hi');await previewApprove(page,modal,'Pallet labels');
+    await modal.getByRole('button',{name:'Recalculate and review documents',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'Review orders and documents',exact:true})).toBeVisible({timeout:30000});
+    await expect(modal.getByRole('row').filter({hasText:'70801'})).toContainText('Ready');
+    await expect(modal.getByRole('row').filter({hasText:'70802'})).toContainText('Ready');
+    await modal.locator('#order-excel-ack').check();await modal.getByRole('button',{name:'Generate order ZIP',exact:true}).click();
+    await expect(modal.getByRole('heading',{name:'2 order(s) generated · 0 failed · 1 skipped',exact:true})).toBeVisible({timeout:45000});
     const downloaded=page.waitForEvent('download');await modal.getByRole('button',{name:'Download ZIP and report',exact:true}).click();
-    const zip=await downloaded;await zip.saveAs(info.outputPath('bulk.zip'));expect(await zip.failure()).toBeNull();
-    expect(await page.evaluate(()=>JSON.stringify(orderDocumentsState))).toBe(before);
-    expect(await(await request.get('/api/mpl/product-master')).json()).toEqual(master);
-    expect(await(await request.get('/api/mpl/directory')).json()).toEqual(directory);
-    await page.setViewportSize({width:390,height:844});
-    await expect(modal.getByRole('button',{name:'Download ZIP and report',exact:true})).toBeInViewport();
-    expect(await modal.evaluate(el=>el.scrollWidth<=window.innerWidth)).toBeTruthy();
-    await page.screenshot({path:info.outputPath('bulk-mobile.png')});
+    await(await downloaded).saveAs(info.outputPath('unified-orders.zip'));
+    const pdf=page.waitForEvent('download');await modal.getByRole('button',{name:'Packing_List_and_TiHi.pdf',exact:true}).first().click();expect(await(await pdf).failure()).toBeNull();
+    expect(await(await request.get('/api/mpl/product-master')).json()).toEqual(master);expect(await(await request.get('/api/mpl/directory')).json()).toEqual(directory);expect(errors).toEqual([]);
   });
-  test('record selection rebuilds items; manual additions, exclusion, retry and reopen preserve usable review',async({page})=>{
-    await openOperations(page);const modal=await loadBatch(page,'70803,99999');
-    const card=index=>modal.locator(`[data-excel-order="${index}"]`);
-    await card(0).getByRole('combobox',{name:'Order 70803 Analytics record',exact:true}).selectOption('70803REC');
-    await expect(card(0).locator('[data-field-path="line:0:quantity"] input')).toHaveValue('50');
-    await edit(card(0),'line:0:quantity','100');
-    await card(0).getByRole('combobox',{name:'Order 70803 Analytics record',exact:true}).selectOption('70803OTHER');
-    await expect(card(0).locator('[data-field-path="line:0:quantity"] input')).toHaveValue('7');
-    await card(0).getByRole('button',{name:'Add order-only item',exact:true}).click();
-    await expect(card(0).locator('.order-excel-section').filter({has:page.locator('[data-field-path="line:1:quantity"]')})).toHaveCount(1);
-    await card(0).locator('.bulk-order-items summary').click();
-    await card(0).locator('.bulk-order-items input').first().uncheck();
-    await expect(card(0).locator('[data-field-path="line:0:quantity"]')).toHaveCount(0);
-    await card(0).locator('.bulk-order-items summary').click();
-    await card(0).locator('.bulk-order-items input').first().check();
-    await expect(card(0).locator('[data-field-path="line:0:quantity"] input')).toHaveValue('7');
-    await edit(card(0),'header:po_number','KEEP-PO');
-    await card(1).getByRole('button',{name:/Retry Analytics lookup/}).click();
-    await expect(modal.locator('#order-excel-status')).toContainText('Lookup retried',{timeout:30000});
-    await expect(card(0).locator('[data-field-path="header:po_number"] input')).toHaveValue('KEEP-PO');
+  test('single order uses the same panel, records rebuild items, additions and mobile navigation retain edits',async({page},info)=>{
+    const modal=await load(page,'70803');
+    await expect(modal.getByRole('button',{name:'Next order',exact:true})).toBeDisabled();
+    await modal.getByRole('combobox',{name:'Order 70803 Analytics record',exact:true}).selectOption('70803REC');
+    await section(modal,'line:0');await expect(modal.locator('[data-field-path="line:0:quantity"] input')).toHaveValue('50');
+    await edit(modal,'line:0:quantity','100');await section(modal,'header');
+    await modal.getByRole('combobox',{name:'Order 70803 Analytics record',exact:true}).selectOption('70803OTHER');
+    await section(modal,'line:0');await expect(modal.locator('[data-field-path="line:0:quantity"] input')).toHaveValue('7');
+    await section(modal,'label:0');await edit(modal,'label:0:lot_number','KEEP-LOT');
+    await modal.getByRole('button',{name:'Add another label template for this item',exact:true}).click();
+    await edit(modal,'label:1:template_id','STANDARD_CASE_PACK_4X6');await edit(modal,'label:1:lot_number','EXTRA-LOT');
+    await section(modal,'items');await modal.getByRole('button',{name:'Add order-only item',exact:true}).click();
+    await expect(modal.locator('#review-section-select option').filter({hasText:'Order-only item'})).toHaveCount(1);
+    await section(modal,'label:2');await expect(modal.locator('[data-field-path="label:2:lot_number"] input')).toHaveValue('EXTRA-LOT');await section(modal,'items');
+    await modal.locator('.review-item-choice input').first().uncheck();
+    await expect(modal.locator('#review-section-select option').filter({hasText:'OTHER-SKU · LINE-1'})).toHaveCount(0);
+    await modal.locator('.review-item-choice input').first().check();
+    await section(modal,'label:0');await expect(modal.locator('[data-field-path="label:0:lot_number"] input')).toHaveValue('KEEP-LOT');
+    await section(modal,'label:2');await expect(modal.locator('[data-field-path="label:2:lot_number"] input')).toHaveValue('EXTRA-LOT');
+    await section(modal,'header');await edit(modal,'header:po_number','KEEP-PO');
+    await page.setViewportSize({width:390,height:844});
+    expect(await modal.locator('.editor-body').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
+    await expect(modal.getByRole('button',{name:'Next section',exact:true})).toBeInViewport();
+    await modal.getByRole('button',{name:'Next section',exact:true}).click();await expect(modal.locator('[data-excel-order]')).toHaveCount(1);
+    await modal.getByRole('button',{name:'Previous section',exact:true}).click();
+    await expect(modal.locator('[data-field-path="header:po_number"] input')).toHaveValue('KEEP-PO');
+    await page.screenshot({path:info.outputPath('unified-mobile.png')});
     await modal.getByRole('button',{name:'Close',exact:true}).click();
-    await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
-    await expect(card(0).locator('[data-field-path="header:po_number"] input')).toHaveValue('KEEP-PO');
-    await modal.locator('#bulk-order-upload summary').click();
-    await modal.locator('#bulk-order-numbers').fill('bad/order');await modal.getByRole('button',{name:'Load orders',exact:true}).click();
-    await expect(modal.locator('#order-excel-status')).toContainText('valid order numbers');
-    await expect(card(0).locator('[data-field-path="header:po_number"] input')).toHaveValue('KEEP-PO');
+    await page.locator('#btn-load-operations-order').click();await expect(modal.locator('[data-field-path="header:po_number"] input')).toHaveValue('KEEP-PO');
+  });
+  test('optional Product Master registration cancels, retries and refreshes only its order',async({page,request})=>{
+    test.setTimeout(90000);
+    const original=await(await request.get('/api/mpl/product-master')).json();
+    let rejectSave=true,rejectRefresh=true;
+    await page.route('**/api/mpl/product-master',async route=>{
+      if(route.request().method()==='PUT' && rejectSave && route.request().postDataJSON().rows.some(row=>row.sku==='BATCH-MISSING-1LB')){rejectSave=false;return route.fulfill({status:503,json:{detail:'Injected save failure'}});}
+      await route.continue();
+    });
+    await page.route('**/api/order-documents/batch/references',async route=>{
+      if(rejectRefresh){rejectRefresh=false;return route.fulfill({status:503,json:{detail:'Injected refresh failure'}});}
+      await route.continue();
+    });
+    try{
+      const modal=await load(page,'70801,70802');await edit(modal,'header:po_number','OTHER-KEPT');
+      await modal.getByRole('button',{name:'Next order',exact:true}).click();await section(modal,'line:0');
+      const add=modal.getByRole('button',{name:'Add to Product Master (optional)',exact:true});await add.click();
+      const editor=page.locator('#mpl-product-editor-modal');await expect(editor).toBeVisible();
+      await editor.getByRole('button',{name:'Close',exact:true}).click();await expect(modal).toBeVisible();
+      expect((await(await request.get('/api/mpl/product-master')).json()).rows.some(row=>row.sku==='BATCH-MISSING-1LB')).toBe(false);
+      await add.click();await editor.locator('.mpl-product-level-add').selectOption('Case');
+      const box=editor.locator('.mpl-packaging-level-card').filter({has:page.locator('header strong',{hasText:/^Case$/})});
+      for(const [label,value] of [['Case SKU','BATCH-MISSING-CASE'],['Eaches per Case','25'],['Length (in)','16'],['Width (in)','12'],['Height (in)','10']]){
+        const field=box.getByLabel(label,{exact:false});await field.fill(value);await field.press('Tab');
+      }
+      await editor.getByLabel('Packaged Weight (lb)',{exact:false}).fill('26');await editor.getByLabel('Packaged Weight (lb)',{exact:false}).press('Tab');
+      await editor.getByRole('button',{name:'Save & update order',exact:true}).click();await expect(editor.getByRole('alert')).toContainText('not saved');
+      await editor.getByRole('button',{name:'Save & update order',exact:true}).click();await expect(editor.getByRole('alert')).toContainText('Product saved; order update failed');
+      await editor.getByRole('button',{name:'Retry order update',exact:true}).click();await expect(editor).toBeHidden({timeout:30000});
+      await expect(modal).toBeVisible();await expect(modal.locator('.order-excel-match-status')).toContainText('SKU found in Product Master');
+      await modal.getByRole('button',{name:'Previous order',exact:true}).click();
+      await expect(modal.locator('[data-field-path="header:po_number"] input')).toHaveValue('OTHER-KEPT');
+    }finally{
+      const current=await(await request.get('/api/mpl/product-master')).json();
+      expect((await request.put('/api/mpl/product-master',{data:{rows:original.rows,expected_revision:current.revision}})).ok()).toBeTruthy();
+    }
+  });
+  test('replacing work requires confirmation and a failed new load keeps the existing edits',async({page})=>{
+    const modal=await load(page,'70801');await edit(modal,'header:po_number','KEEP-WORK');
+    await modal.getByRole('button',{name:'Close',exact:true}).click();
+    await page.locator('#operations-sales-order-number').fill('70802');
+    page.once('dialog',dialog=>dialog.dismiss());await page.locator('#btn-load-operations-order').click();
+    expect(await page.evaluate(()=>orderExcel.matching.orders[0].order_number)).toBe('70801');
+    await page.route('**/api/order-documents/batch/check',route=>route.fulfill({status:503,json:{detail:'Temporary lookup failure'}}));
+    page.once('dialog',dialog=>dialog.accept());await page.locator('#btn-load-operations-order').click();
+    await expect(modal.locator('#order-excel-status')).toContainText('Temporary lookup failure');
+    await expect(modal.locator('#review-order-select option').first()).toContainText('70801');
+    await expect(modal.locator('[data-field-path="header:po_number"] input')).toHaveValue('KEEP-WORK');
   });
 });

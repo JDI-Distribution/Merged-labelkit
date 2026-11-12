@@ -516,6 +516,7 @@
       mplDraftSync = window.LabelKitDraftSync.create({
         delayMs: 30000,
         canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft
+          && !(typeof orderReviewEditor!=='undefined' && orderReviewEditor)
           && hasPermission('save_mpl') && !(selectedKit === 'operations' && orderDocumentsState.approvingDocument),
         save: () => saveActiveMplDraft({ showStatus: false, autoSave: true, createVersion: false }),
         onState: updateMplSaveState
@@ -1471,8 +1472,9 @@
         issues.push(`${mpl.id || 'MPL'} has selected SKUs from multiple storefronts: ${skuStorefronts.join(', ')}.`);
         return;
       }
-      const directoryStorefront = normalizeStorefront(mpl.storefront || draft.storefront || '');
-      if (skuStorefronts.length === 1 && directoryStorefront && skuStorefronts[0] !== directoryStorefront) {
+      const directoryStorefront = String(mpl.storefront || draft.storefront || '').trim();
+      const genericProduct=skuStorefronts.length===1 && ['genericb2b','genericwholesale'].includes(skuStorefronts[0].toLowerCase().replace(/[^a-z0-9]/g,''));
+      if (skuStorefronts.length === 1 && !genericProduct && directoryStorefront && skuStorefronts[0] !== directoryStorefront) {
         issues.push(`${mpl.id || 'MPL'} uses ${skuStorefronts[0]} SKU(s), but the selected directory storefront is ${directoryStorefront}.`);
       }
     });
@@ -3459,6 +3461,7 @@
       return;
     }
     document.getElementById('preview-panel').classList.remove('visible');
+    if(typeof returnFromUnifiedPreview==='function')returnFromUnifiedPreview();
   }
 
   function sleep(ms) {

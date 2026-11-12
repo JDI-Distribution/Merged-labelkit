@@ -43,6 +43,7 @@
 
   function markOperationsMplChanged() {
     if (selectedKit !== 'operations' || activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) return;
+    if(typeof unifiedDocumentChanged==='function')unifiedDocumentChanged();
     orderDocumentsState.mplDraft = activeKeheDocumentDraft;
     activeKeheDocumentDraft.review_status = 'DRAFT';
     (activeKeheDocumentDraft.packing_lists || []).forEach(mpl => { mpl.review_status = 'DRAFT'; });
@@ -54,6 +55,7 @@
 
   function markOperationsPalletsChanged() {
     if (selectedKit !== 'operations') return;
+    if(typeof unifiedDocumentChanged==='function')unifiedDocumentChanged();
     orderDocumentsState.palletDraft = activeKeheDocumentDraft;
     activeKeheDocumentDraft.review_status = 'DRAFT';
     orderDocumentsState.reviewedDocuments.pallets = false;
@@ -69,6 +71,7 @@
   }
 
   async function completeOperationsDocumentReview(documentType) {
+    if(typeof orderReviewEditor!=='undefined' && orderReviewEditor)return finishUnifiedOrderEditor(true);
     orderDocumentsState.reviewedDocuments[documentType] = true;
     if (orderDocumentsState.pendingReviewDocument === documentType) clearOperationsDocumentReview();
     if (documentType === 'labels') closePreview(false);
@@ -213,7 +216,7 @@
       }
       const ok = await renderEditedKeheDocument({
         isCurrent,
-        saveMplDraft: documentType === 'mpl', skipReadiness: true,
+        saveMplDraft: documentType === 'mpl' && !(typeof orderReviewEditor!=='undefined' && orderReviewEditor), skipReadiness: true,
         keepEditorOpen: true,
         openPreview: false, showSummary: false, scope: 'operations',
         outputKey: documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets',
@@ -242,6 +245,7 @@
 
   async function goBackFromOperationsReview() {
     if (orderDocumentsState.approvingDocument) return;
+    if(typeof orderReviewEditor!=='undefined' && orderReviewEditor)return finishUnifiedOrderEditor(false);
     const tab = orderDocumentsState.pendingReviewDocument === 'pallets' ? 'pallets' : 'packing';
     clearOperationsDocumentReview();
     closeDocumentEditor(false);
@@ -524,8 +528,8 @@
         : 'What are you preparing today?');
     setText('operations-order-description', customMode
       ? 'You can continue manually below. Enter a sales order only when you want to replace this custom document with automatically matched customer, product, quantity, and address data.'
-      : 'Enter the sales order once. LabelKit detects the customer, matches Product Master records, converts quantities, and builds one shared document session.');
-    setText('operations-order-label', customMode ? 'Optional Sales Order Number' : 'Sales Order Number');
+      : 'Enter one or more order numbers separated by commas. Verify each order’s matched products, packing, addresses and documents.');
+    setText('operations-order-label', customMode ? 'Optional Sales Order Numbers' : 'Sales Order Numbers');
     setText('operations-output-kicker', customMode ? 'Production' : 'Documents');
     setText('operations-output-title', nextReviewStage === 'labels'
       ? 'Preview customer labels'
@@ -543,9 +547,9 @@
           : 'All selected sections have been approved and saved as separate PDFs in Finished Files.');
     if (orderInput) {
       orderInput.required = !customMode;
-      orderInput.placeholder = customMode ? 'Optional — enter an order to auto-fill' : 'Enter order number';
+      orderInput.placeholder = customMode ? 'Optional — enter orders to auto-fill' : '72767, 72638, 73179';
     }
-    if (loadOrderButton && !orderDocumentsState.loading) loadOrderButton.textContent = customMode ? 'Load & Auto-fill' : 'Load Order';
+    if (loadOrderButton && !orderDocumentsState.loading) loadOrderButton.textContent = customMode ? 'Load & Auto-fill' : 'Load Orders';
     const optionalOrderStep = document.querySelector('#operations-order-card .operations-step');
     const outputStep = document.querySelector('.operations-output-heading .operations-step');
     optionalOrderStep?.classList.toggle('hidden', customMode);
@@ -897,6 +901,7 @@
   }
 
   function openOperationsOrderLookup() {
+    if(typeof orderExcel!=='undefined' && orderExcel.matching){openOrderExcel();return;}
     resetOperationsWorkspaceState();
     setHistoryPage('operations');
     renderOperationsWorkspace();

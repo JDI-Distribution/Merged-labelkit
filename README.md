@@ -37,77 +37,66 @@ renamed templates.
 
 ## How order documents work
 
-### Bulk order processing
+### One Order Documents workflow
 
-In Order Documents, choose **Bulk order processing**, enter sales order numbers
-separated by commas, spaces or new lines, and choose **Load orders**. Duplicate
-numbers are ignored. No spreadsheet template or upload is needed.
+Enter one or more sales order numbers in **Load Orders**, separated by commas,
+spaces or new lines. Numbers keep their entry order; duplicate numbers are ignored.
+The same screen handles one order and multiple orders. No Excel upload, template,
+or separate bulk-processing launcher is required.
 
-Analytics supplies each selected order's items, quantities and available header
-details. Product Master supplies matching packaging and label settings; Directory
-supplies matching addresses. Review populated values as well as missing fields.
-Each field shows its source and available saved values. Edit a value for this
-batch, choose another source, or **Restore saved value**. Recheck defaults after
-changing a customer, SKU or packaging configuration.
+Use the order dropdown or **Previous order / Next order** to select an order.
+Use the section dropdown or **Previous / Next** to move between included items,
+order details, each SKU, each label and document reviews. Only one order and one
+section appear in the content panel. Navigation and actions stay visible while
+long sections scroll. Each order retains its edits, selected section, scroll
+position, manual document drafts, previews and approvals independently.
 
-Choose the correct record when an order number has multiple Analytics records.
-Missing orders can be completed manually or skipped. A failed lookup can be
-retried independently; retrying resets that order's item edits. Missing SKUs do
-not require Product Master registration: enter order-only packing details, or
-identify the item by description when the chosen label allows it. Add order-only
-items and choose which Analytics items to include. Excluded items remain available
-to restore. Match notices require acknowledgment before calculation.
+Analytics supplies order records and demand. Product Master supplies packaging,
+label templates and level-specific copies; Directory supplies eligible addresses.
+Every field shows its source and available saved values. Inspect populated values,
+complete missing fields, edit for this order, or **Restore saved value**. Recheck
+this order after changing customer, SKU, configuration or document selections.
 
-Choose **Recalculate and review documents** to check shipping box and pallet
-counts, label templates, addresses and document warnings. Blocking inputs must
-be corrected through **Edit fields and defaults**, or the order skipped, before
-generation. The same matching, carton calculation, pallet planner and PDF
-renderers serve both intake methods. Batch edits do not change Product Master,
-Directory or the current single-order session.
+Select the correct Analytics record when a number has multiple records. Missing
+orders can be completed manually or skipped. Retry a failed lookup individually;
+the action resets that order's item edits. Missing SKUs do not require registration:
+enter order-only packing details or identify the item by description when the
+label allows it. Optional **Add to Product Master** uses the existing shared
+editor and explicitly saves the product. Its refresh updates only that order's
+reference snapshot. Other orders keep their previously reviewed defaults.
 
-A persistent footer keeps the current action visible. Order links navigate the
-batch. One review section is expanded at a time; use Previous/Next arrows or
-select a section heading to move between included items, order details, products
-and labels. The selected section is retained when defaults refresh. Blank optional
-fields are collapsed. Escape closes the modal and returns
-focus to its launcher. Reopening retains the review until the session expires.
+Choose included items and add order-only items. Additional label templates can
+be added from an item's label section. Match notices require acknowledgment before
+calculation. For pallet-only runs, exclude Packing List and Ti-Hi and enter the
+manual pallet count and copies in order details.
 
-All automatic palletization uses the same backend planner. It finishes each
-SKU in source order before moving to the next SKU. The next SKU can fill
-remaining space on the same layer and pallet when the weight, support,
-dimensions and Ti-Hi constraints permit. Reviewing or rendering existing
-manual pallet assignments does not automatically reassign them.
+Choose **Recalculate and review documents** to inspect carton/pallet totals and
+blocking issues. Open an order's document review, preview each selected PDF and
+explicitly approve it. MPL and pallet-label editing use the existing editors,
+including manual pallet assignments, weights, Ti-Hi, undo and redo. Returning
+without approval retains edits. Switching orders or previewing does not repalletize
+manual work. Changed packing inputs require confirmation before replacing edited
+drafts during recalculation. Changed document inputs invalidate their approvals;
+failed or outdated rendering cannot approve or publish an output.
 
-Repacking preserves original demand and partial final boxes. A saved Case GTIN
-is not automatically reused for a different repacked Case quantity. Explicit
-barcode choices remain reviewable and required barcode templates block output
-until a valid GTIN is supplied.
+When every included order's selected documents are approved, acknowledge the
+warnings and generate. Download individual PDFs or the ZIP with a folder per order,
+source order numbers, reviewed inputs, final document snapshots and JSON/CSV
+processing reports. Failed orders are identified and incomplete files excluded.
+Limits are 100 orders, 5,000 included items and 20,000 label pages per run.
+Review sessions and generated results are temporary; download files before closing
+the browser. Re-entering the same order list resumes the current session. Replacing
+a session requires confirmation. Legacy workbook APIs remain compatible.
 
-The ZIP contains a folder per order, print-ready PDFs, source order numbers,
-reviewed inputs and JSON/CSV processing reports with field-level source decisions.
-**Download reviewed inputs** saves a JSON copy before generation. Failed orders
-are reported without incomplete files. Limits are 100 orders, 5,000 items and
-20,000 label pages per batch. Server review jobs are temporary; expired reviews
-must be loaded again. Legacy workbook API endpoints remain compatible, but are
-not used by the Bulk order processing screen.
+Automatic palletization uses the shared backend planner: finish each SKU before
+moving to the next; the next SKU may fill available space on the same layer and
+pallet when weight, support, dimensions and Ti-Hi constraints permit. Repacking
+preserves original demand and partial final boxes. Saved Case GTINs are not reused
+automatically for a different repacked Case quantity.
 
-### Single-order workflow
-
-1. Enter the Sales Order Number.
-2. When the number is reused, select the correct Ecomdash order instance.
-3. LabelKit matches incoming SKUs to Product Master level SKUs and resolves the customer and addresses.
-4. Select the documents required for the run.
-5. Preview labels and explicitly approve them. Use **Go Back** to return without approval.
-6. Review the packing list and Ti-Hi, then choose **Approve Packing List & Ti-Hi**.
-7. Review pallet labels and choose **Approve Pallet Labels** when selected.
-8. Each approval adds its PDF to **Finished Files**. Use **View Finished Files**
-   after all selected sections are approved. PDFs remain separate for printing.
-
-Editing a section revokes its approval and removes its previous finished file.
-Changes to the packing list also revoke pallet-label approval. Failed rendering
-does not approve or publish a file.
-Edits made during generation discard the older result and require a fresh review.
-Undo and redo preserve the saved packing list's identity and current revision.
+**Create Packing List Without an Order**, **Create Label Without an Order** and
+**Saved Packing Lists** remain available through their existing editors and
+Finished Files workflow. Order-only edits do not update Product Master or Directory.
 
 Document readiness and Product Master quality checks come from the backend.
 Pallet assignments, weights, and Ti-Hi geometry are calculated in Python; the

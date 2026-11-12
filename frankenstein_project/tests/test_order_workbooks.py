@@ -482,6 +482,123 @@ class OrderWorkbookTests(unittest.TestCase):
                         self.assertGreater(pdf.page_count,0)
         self.assertEqual(self.refs,original)
 
+    def test_number_manual_pallet_run_uses_explicit_count_without_auto_planning(self):
+        state=self.numbers_state()
+        for product in state['products']:
+            for field in ['length_in','width_in','height_in','gross_weight_lbs']:
+                product[field]=''
+        fields={f'header:{name}':dict(source='custom',value=value) for name,value in self.header.items() if name!='order_number'}
+        fields.update({'header:labels':dict(source='custom',value='No'),'header:packing_list':dict(source='custom',value='No'),'header:manual_pallet_count':dict(source='custom',value='3')})
+        resolved=resolve_fields(state,'1001',dict(fields=fields,acknowledge_matches=True))
+        with patch('labelkit.order_workbook_documents.pallet_plan',side_effect=AssertionError('Manual count must not auto-plan')):
+            doc=build_order_documents('1001',resolved,state)
+        self.assertEqual(doc['errors'],[])
+        self.assertIsNone(doc['packing_list'])
+        self.assertEqual(len(doc['pallet_labels']['pallets']),3)
+        self.assertTrue(any('entered manually' in warning for warning in doc['warnings']))
+
+    def test_number_order_can_add_another_template_without_duplicating_demand(self):
+        state=self.numbers_state()
+        fields={f'header:{name}':dict(source='custom',value=value) for name,value in self.header.items() if name!='order_number'}
+        fields['label:1:template_id']=dict(source='custom',value='STANDARD_CASE_PACK_4X6')
+        edits=dict(fields=fields,added_labels=[dict(id='EXTRA-1',line_id='LINE-1')],acknowledge_matches=True)
+        resolved=resolve_fields(state,'1001',edits)
+        doc=build_order_documents('1001',resolved,state)
+        self.assertEqual(doc['errors'],[])
+        self.assertEqual(len(doc['jobs']),2)
+        self.assertEqual(doc['review']['lines'][0]['boxes'],26)
+        with self.assertRaises(ValueError):
+            field_review(state,'1001',dict(added_labels=[dict(id='EXTRA-1',line_id='WRONG')]))
+
+    def test_approved_document_snapshots_preserve_manual_weights_and_have_owned_file_downloads(self):
+        from labelkit.order_workbook_documents import apply_reviewed_documents
+        state=self.numbers_state()
+        fields={f'header:{name}':dict(source='custom',value=value) for name,value in self.header.items() if name!='order_number'}
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'orders.json';source.write_text('{}');state['input_path']=str(source)
+            result_id=create_result_job(root,'order_review');RESULT_JOBS[result_id]['workbook_owner']=routes.owner(self.request)
+            resolve_worker(result_id,state,{'1001':dict(fields=fields,acknowledge_matches=True),'0002':dict(skip=True)})
+            prepared=RESULT_JOBS[result_id]['order_workbook_prepared'];original=copy.deepcopy(prepared)
+            doc=prepared['documents'][0]
+            edited={field:copy.deepcopy(doc[field]) for field in ['jobs','packing_list','pallet_labels']}
+            edited['approvals']={field:True for field in ['jobs','packing_list','pallet_labels']}
+            edited['packing_list']['packing_lists'][0]['_pallet_weights']['1']='777 lbs'
+            edited['packing_list']['packing_lists'][0]['total_weight']='777 lbs'
+            rejected=copy.deepcopy(edited);rejected['approvals']['jobs']=False
+            with self.assertRaises(ValueError):
+                apply_reviewed_documents(copy.deepcopy(original),{'1001':rejected})
+            rejected=copy.deepcopy(edited);rejected['packing_list']['packing_lists'][0]['order_no']='OTHER'
+            with self.assertRaises(ValueError):
+                apply_reviewed_documents(copy.deepcopy(original),{'1001':rejected})
+            with patch('labelkit.order_workbook_documents.pallet_plan',side_effect=AssertionError('Never repalletize reviewed edits')):
+                apply_reviewed_documents(prepared,{'1001':edited})
+            self.assertNotEqual(original['documents'][0]['packing_list']['packing_lists'][0]['_pallet_weights']['1'],'777 lbs')
+            self.assertEqual(prepared['documents'][0]['packing_list']['packing_lists'][0]['_pallet_weights']['1'],'777 lbs')
+            self.assertEqual(routes.prepared_order_documents(self.request,result_id)['documents'][0]['order_number'],'1001')
+            generate_worker(result_id,prepared)
+            download=routes.generated_order_file(self.request,result_id,'1001','Packing_List_and_TiHi.pdf')
+            with pymupdf.open(download.path) as pdf:
+                self.assertIn('777',''.join(page.get_text() for page in pdf))
+            with self.assertRaises(HTTPException):
+                routes.generated_order_file(self.request,result_id,'1001','../Source_Order_Numbers.json')
+            with patch('labelkit.routes.order_workbooks.owner',return_value='someone-else'):
+                with self.assertRaises(HTTPException):
+                    routes.prepared_order_documents(self.request,result_id)
+
+    def test_refresh_saved_products_is_order_scoped_and_does_not_refetch_analytics(self):
+        state=self.numbers_state()
+        state['entries']['0002']['records']=copy.deepcopy(state['entries']['1001']['records'])
+        state['entries']['0002']['records'][0]['ecomdash_id']='SECOND'
+        refreshed=copy.deepcopy(self.refs)
+        for row in refreshed['products']:
+            row['length_in']='19'
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'source-orders.json';source.write_text('{}');state['input_path']=str(source)
+            result_id=create_result_job(root,'reference_check')
+            RESULT_JOBS[result_id].update(workbook_owner=routes.owner(self.request),order_workbook_state=state,status='complete')
+            with patch('labelkit.routes.order_workbooks.reference_snapshot',return_value=refreshed):
+                response=routes.refresh_order_references(self.request,dict(result_id=result_id,order_number='1001'))
+                refreshed_id=json.loads(response.body)['result_id'];report=self.poll(refreshed_id)
+            updated=RESULT_JOBS[refreshed_id]['order_workbook_state']
+            def length(order):
+                return next(field['value'] for section in field_review(updated,order)['sections'] for field in section['fields'] if field['path']=='line:0:length_in')
+            self.assertEqual(length('1001'),'19')
+            self.assertEqual(length('0002'),'24')
+            self.assertNotIn('references',state['entries']['1001'])
+
+    def test_number_intake_keeps_level_copy_defaults_and_partner_pallet_label(self):
+        state=self.numbers_state()
+        next(row for row in state['products'] if row['packaging_level']=='Case')['default_copies']='3'
+        model=field_review(state,'1001',dict(fields={'header:customer':dict(source='custom',value='Fancy Sprinkles')}))
+        labels=[section for section in model['sections'] if section['kind']=='label']
+        self.assertEqual(len(labels),2)
+        self.assertEqual(next(field['value'] for field in labels[0]['fields'] if field['name']=='copies'),'3')
+        self.assertEqual(next(field['value'] for field in labels[1]['fields'] if field['name']=='template_id'),'FANCY_PALLET_3X3')
+        original_key=labels[0]['binding_id']
+        self.assertEqual(original_key,next(section for section in field_review(state,'1001')['sections'] if section['kind']=='label')['binding_id'])
+
+    def test_active_review_snapshots_survive_many_previews_and_can_be_released(self):
+        from labelkit import jobs
+        with tempfile.TemporaryDirectory() as folder, patch.dict(jobs.RESULT_JOBS,{},clear=True), patch.dict(jobs.RESULT_REPORTS,{},clear=True), patch.object(jobs,'MAX_CACHED_REPORTS',3):
+            root=Path(folder);held=[]
+            for index,field in enumerate(['order_workbook_state','order_workbook_prepared']*2):
+                directory=root/str(index);directory.mkdir();result_id=create_result_job(directory,'review')
+                jobs.RESULT_JOBS[result_id].update(workbook_owner=routes.owner(self.request),**{field:{}})
+                jobs.update_result_job(result_id,status='complete');held.append(result_id)
+            for index in range(8):
+                directory=root/f'preview-{index}';directory.mkdir();result_id=create_result_job(directory,'preview')
+                jobs.update_result_job(result_id,status='complete')
+            self.assertTrue(all(result_id in jobs.RESULT_JOBS for result_id in held))
+            self.assertIn(result_id,jobs.RESULT_JOBS)
+            self.assertEqual(routes.keep_order_review(self.request,dict(result_ids=held)),{'retained':4})
+            with patch('labelkit.routes.order_workbooks.owner',return_value='different-account'):
+                with self.assertRaises(HTTPException):
+                    routes.keep_order_review(self.request,dict(result_ids=held))
+            routes.keep_order_review(self.request,dict(result_ids=[held[1]],release_ids=[held[0]]))
+            directory=root/'last';directory.mkdir();create_result_job(directory,'preview')
+            self.assertNotIn(held[0],jobs.RESULT_JOBS)
+            self.assertIn(held[1],jobs.RESULT_JOBS)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -2288,8 +2288,6 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 .order-excel-ack.needs-review { outline: 2px solid #b42318; outline-offset: 5px; background: #fff0ed; }
 .order-excel-addresses { display: flex; flex-wrap: wrap; gap: 24px; }
 .order-excel-addresses p { white-space: pre-wrap; }
-.order-excel-section { margin: 12px 0; }
-.order-excel-section > summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
 .order-excel-fields { display: flex; flex-direction: column; gap: 8px; }
 .order-excel-field { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(180px, 1fr) minmax(220px, 1.5fr); align-items: start; gap: 12px; padding: 10px; border-radius: 6px; background: #f4f7f8; }
 .order-excel-field label { display: block; font-weight: 600; }
@@ -2323,27 +2321,10 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 #order-excel-actions .order-excel-source { margin: 0; justify-content: flex-end; gap: 10px; }
 #order-excel-actions .btn-generate { margin-left: auto; }
 #order-excel-actions > div:not(.order-excel-source) { display: flex; justify-content: flex-end; }
-#bulk-order-upload { background: white; border: 1px solid #dce1e7; border-radius: 10px; padding: 14px; }
-#bulk-order-upload > summary { font-weight: 600; cursor: pointer; min-height: 28px; }
-#bulk-order-numbers { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 12px; font: inherit; border: 1px solid #bcc9ce; border-radius: 8px; resize: vertical; }
-.bulk-order-items { margin: 16px 0; }
-.bulk-order-items label { display: block; padding: 8px 0; }
-#order-excel-modal [data-bulk-section] { margin: 10px 0; border: 1px solid #dce3eb; border-radius: 12px; overflow: clip; background: #fff; scroll-margin-top: 12px; }
-#order-excel-modal [data-bulk-section] > summary { display: flex; align-items: center; gap: 12px; padding: 15px 18px; min-height: 48px; box-sizing: border-box; cursor: pointer; font-weight: 600; color: #334155; list-style: none; }
-#order-excel-modal [data-bulk-section] > summary::-webkit-details-marker { display: none; }
-#order-excel-modal [data-bulk-section] > summary::after { content: '›'; margin-left: auto; font-size: 24px; line-height: 1; color: #64748b; }
-#order-excel-modal [data-bulk-section][open] { border-color: #a6c6ed; box-shadow: 0 2px 8px rgba(23, 66, 112, .06); }
-#order-excel-modal [data-bulk-section][open] > summary { color: #155bb5; background: #f0f6fe; border-bottom: 1px solid #dbe8f8; }
-#order-excel-modal [data-bulk-section][open] > summary::after { transform: rotate(90deg); }
-#order-excel-modal [data-bulk-section] > :not(summary) { margin-left: 14px; margin-right: 14px; }
-#order-excel-modal [data-bulk-section] > :last-child { margin-bottom: 14px; }
 .bulk-section-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 0; }
 .bulk-section-navigation > span { color: #64748b; font-size: 12px; text-align: center; }
 #order-excel-modal .bulk-section-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; padding: 8px 12px; }
 #order-excel-modal .bulk-section-navigation button:disabled { opacity: .4; cursor: default; }
-.bulk-batch-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; background: white; border: 1px solid #dce1e7; border-radius: 10px; }
-.bulk-order-jump { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
-.bulk-order-jump a { display: inline-block; padding: 10px 14px; background: white; border: 1px solid #dce1e7; border-radius: 8px; color: #155bb2; text-decoration: none; }
 #order-excel-modal .order-excel-order { background: white; }
 @media (max-width: 700px) {
   #order-excel-modal { padding: 0; }
@@ -2359,3 +2340,34 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 .operations-packing-body input, .operations-packing-body select { width: 100%; min-height: 40px; }
 .operations-packing-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 #operations-packing-error { color: var(--danger, #b42318); }
+
+/* Unified order review: fixed navigation and one scrolling content panel. */
+#order-excel-modal .editor-body { padding: 0; overflow: hidden; min-height: 0; }
+#order-excel-results { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: auto; }
+.order-review-navigation { flex: none; padding: 14px 20px 0; border-bottom: 1px solid #dce3eb; background: #fff; }
+.order-review-order-nav, .order-review-navigation .bulk-section-navigation { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 14px; }
+.order-review-navigation label { display: block; font-size: 12px; color: #536171; min-width: 0; }
+.order-review-navigation select, .review-record select { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin-top: 4px; padding: 10px; font: inherit; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 8px; color: #19344f; background: #f9fbfe; }
+.order-review-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin-top: 10px; font-size: 12px; color: #536171; }
+.order-review-status label { display: flex; align-items: center; gap: 6px; }
+#order-review-content { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; overscroll-behavior: contain; }
+#order-review-content .order-excel-order { margin: 0; padding: 16px; }
+#order-review-content h3 { margin: 0 0 16px; font-size: 17px; }
+.review-record { display: block; margin-bottom: 14px; font-size: 13px; color: #536171; }
+.review-item-choice { display: flex; align-items: center; gap: 10px; padding: 14px; margin: 8px 0; background: #f4f7fb; border-radius: 8px; }
+.review-document-card { border: 1px solid #dce3eb; border-radius: 12px; padding: 16px; margin: 12px 0; }
+.review-document-card > div:first-child { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.review-document-card span { color: #536171; font-size: 13px; }
+.review-document-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#order-excel-results > :is(h3,p,.order-excel-table,.order-excel-ack) { margin: 16px 20px; }
+#order-excel-actions .order-excel-ack { margin: 0; font-size: 12px; flex: 1; }
+.review-warnings summary { padding: 12px 0; cursor: pointer; }
+@media(max-width:700px) {
+ .order-review-navigation { padding: 10px 12px 0; }
+ .order-review-order-nav, .order-review-navigation .bulk-section-navigation { gap: 6px; }
+ #order-excel-modal .order-review-navigation button { min-height: 40px; padding: 8px; font-size: 12px; }
+ #order-review-content { padding: 12px; }
+ #order-review-content .order-excel-order { padding: 12px; }
+ .order-review-navigation select { padding: 8px 4px; font-size: 12px; }
+ #order-excel-actions .order-excel-ack { grid-row: 1; }
+}

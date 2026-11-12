@@ -10,6 +10,7 @@
   }
 
   function closeDocumentEditor(useHistory = false) {
+    if(typeof orderReviewEditor!=='undefined' && orderReviewEditor && !orderDocumentsState.approvingDocument){finishUnifiedOrderEditor(false);return;}
     if (useHistory && activeKeheDocumentType === 'masterPackingList' && mplDraftSync?.hasUnsavedChanges()) {
       if (!window.confirm('This MPL has unsaved changes. Close the editor without saving them?')) return;
       mplDraftSync.discard();

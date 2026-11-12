@@ -10,7 +10,7 @@ from labelkit.order_intake import _analytics_case_conversion, _preferred_shared_
 from labelkit.order_workbook_io import SCHEMA, clean, key, number
 from labelkit.order_workbook_match import configuration_groups
 from labelkit.reference_data import normalize_packaging_level, normalize_product_master_row
-from pipelines.b2b_labels import b2b_job_page_plan
+from pipelines.b2b_labels import b2b_job_page_plan, validate_b2b_job
 from pipelines.address_text import normalize_address_text
 from labelkit.product_quality import gtin_check_digit_valid
 
@@ -227,22 +227,28 @@ def build_order_documents(order, resolved, state):
     brand = choice(header.get('brand'), SCHEMA['choices']['brands'], 'Auto')
     if brand == 'Auto':
         brand = 'bakell' if layout in {'fancy', 'decopac', 'dutch_bros'} else 'jdi_distribution'
-    mpl = dict(id=f'SO-{order}', order_no=order, customer_no=order, customer_po_number=header.get('po_number', ''), customer_name=header.get('customer', ''),
+    mpl = dict(id=f'SO-{order}', order_no=order, customer_no=order, customer_po_number=header.get('po_number', ''), customer_name=header.get('customer', ''), storefront=header.get('customer',''),
                est_ship_date=header.get('ship_date', ''), po_date=header.get('po_date', ''), bol_number=header.get('bol_number', ''),
                pro_number=header.get('pro_number', ''), ship_via=header.get('ship_via', ''), shipping_instructions=header.get('shipping_instructions', ''),
                supplier_info=directory_address(state['directory'], header, 'SHIP_FROM'), ship_to=directory_address(state['directory'], header, 'SHIP_TO'),
                bill_to=directory_address(state['directory'], header, 'BILL_TO'), phone_number=header.get('phone', ''),
                template_id=layout, brand_id=brand, title='Packing List', subtitle='Shipment and Pallet Detail',
-               source_files=['Uploaded order workbook'], items=[item for line in lines for item in line['items']], warnings=[],
+               source_files=['Order Documents' if state.get('intake') == 'numbers' else 'Uploaded order workbook'], items=[item for line in lines for item in line['items']], warnings=[],
                palletization_source='Auto Palletize', _tihi_constraints={field: number(header[field], field.replace('_', ' '), whole=field in {'cases_per_layer', 'max_layers'})
                     for field in ['max_length_in', 'max_width_in', 'max_height_in', 'max_gross_lbs', 'pallet_base_height_in', 'cases_per_layer', 'max_layers'] if header.get(field)})
     products = [product for line in lines for product in line['products']]
-    plan = pallet_plan(mpl, products, 'auto')
+    manual_pallets = selected['packing_list'] == 'No' and selected['pallet_labels'] == 'Yes'
+    plan = dict(mpl=mpl, warnings=[]) if manual_pallets else pallet_plan(mpl, products, 'auto')
     mpl = plan['mpl']
     mpl['warnings'] = list(dict.fromkeys(mpl.get('warnings', [])+plan['warnings']))
-    draft = dict(standalone_mpl=True, template_id=layout, brand_id=brand, packing_lists=[mpl], product_master=products, reviewed_product_master=products)
+    draft = dict(standalone_mpl=True, storefront=header.get('customer',''), template_id=layout, brand_id=brand, packing_lists=[mpl], product_master=products, reviewed_product_master=products)
     errors, warnings = [], [warning for line in lines for warning in line['warnings']]
-    pallet_count = len(mpl.get('_pallet_ids', []))
+    pallet_count = (number(header.get('manual_pallet_count'), 'Manual Pallet Count', whole=True) or 1) if manual_pallets else len(mpl.get('_pallet_ids', []))
+    if manual_pallets:
+        if pallet_count > 5000:
+            raise ValueError('Use at most 5,000 manual pallets per order.')
+        mpl['_pallet_ids'] = [str(index) for index in range(1, pallet_count+1)]
+        warnings.append('Pallet count was entered manually because Packing List and Ti-Hi is excluded. Verify count, addresses and PO before printing.')
     if selected['packing_list'] == 'Yes' or selected['pallet_labels'] == 'Yes':
         if not mpl['customer_po_number']:
             warnings.append('Customer PO is blank. The sales order number is not substituted for it.')
@@ -250,7 +256,7 @@ def build_order_documents(order, resolved, state):
             warnings.append('Ship Date is blank.')
         if len(mpl['supplier_info'].splitlines()) < 2 or len(mpl['ship_to'].splitlines()) < 2:
             errors.append('Ship From and Ship To need a name and address on separate lines for packing lists and pallet labels.')
-        if any(not item.get('location_on_pallet') for item in mpl['items']):
+        if not manual_pallets and any(not item.get('location_on_pallet') for item in mpl['items']):
             errors.append('Some lines cannot be assigned to pallets. Supply shipping Case quantities, dimensions and gross weights or custom packing.')
     definitions = resolved['labels']
     label_bindings = []
@@ -370,3 +376,72 @@ def build_order_documents(order, resolved, state):
                                 unit=line['interpreted_unit'], boxes=sum(group['count'] for group in line['shipping']),
                                 config_id=line['incoming'].get('config_id', ''),
                                 templates=list(dict.fromkeys(job['template_id'] for job in jobs if job['line_id'] == line['input'].get('line_id')))) for line in lines]))
+
+
+def apply_reviewed_documents(prepared, edits):
+    """Validate detached editor snapshots without recalculating manual pallet work."""
+    if edits is None:
+        return
+    if not isinstance(edits, dict) or len(edits) > 100:
+        raise ValueError('Reviewed documents must identify orders in this review.')
+    known = {doc['order_number']: doc for doc in prepared['documents']}
+    if set(edits) != set(known):
+        raise ValueError('Review the selected documents for every included order.')
+    pages = 0
+    templates = {row['template_id']: row for row in prepared['references']['templates']}
+    for order, doc in known.items():
+        edited = edits[order]
+        if not isinstance(edited, dict) or set(edited) - {'jobs','packing_list','pallet_labels','approvals'}:
+            raise ValueError(f'{order}: invalid document review.')
+        approvals = edited.get('approvals') or {}
+        for field, kind in [('jobs','labels'),('packing_list','masterPackingList'),('pallet_labels','palletLabel')]:
+            original = doc[field]
+            value = edited.get(field)
+            if not original:
+                if value:
+                    raise ValueError(f'{order}: recalculate to select an additional output.')
+                continue
+            if approvals.get(field) is not True:
+                raise ValueError(f'{order}: preview and approve every selected document.')
+            if field == 'jobs':
+                if not isinstance(value, list) or not value or len(value) > 10000 or any(not isinstance(job, dict) for job in value):
+                    raise ValueError(f'{order}: invalid label jobs.')
+                for job in value:
+                    if str((job.get('run') or {}).get('order_number')) != order or job.get('template_id') not in templates:
+                        raise ValueError(f'{order}: label source or template no longer matches this order.')
+                    template = templates[job['template_id']]
+                    for source, required in [(job.get('product') or {},'required_product_fields'),(job.get('run') or {},'required_run_fields')]:
+                        if any(not clean(source.get(name)) for name in template.get(required) or []):
+                            raise ValueError(f'{order}: complete required label fields before approving.')
+                    pages += b2b_job_page_plan(job, template)['pages']
+                    doc['warnings'] += validate_b2b_job(job, template)
+                draft = dict(jobs=value)
+            else:
+                if not isinstance(value, dict):
+                    raise ValueError(f'{order}: invalid document draft.')
+                rows = value.get('packing_lists' if field == 'packing_list' else 'pallets')
+                if not isinstance(rows, list) or not rows or len(rows) > 5000 or any(not isinstance(row,dict) for row in rows):
+                    raise ValueError(f'{order}: the document has no valid rows.')
+                if field == 'packing_list':
+                    if len(rows) != 1 or str(rows[0].get('order_no')) != order:
+                        raise ValueError(f'{order}: packing list belongs to another order.')
+                    items = rows[0].get('items') or []
+                    if not isinstance(items,list) or not items or len(items)>5000 or any(not isinstance(item,dict) for item in items):
+                        raise ValueError(f'{order}: invalid packing-list items.')
+                    if any(float(item.get('qty_on_pallet') or 0)>0 and not item.get('location_on_pallet') for item in items):
+                        raise ValueError(f'{order}: assign shipping items to pallets before approval.')
+                else:
+                    pages += sum(number(label.get('copies'),'Pallet Label Copies',whole=True) or 1 for label in rows)
+                draft = value
+            doc[field] = copy.deepcopy(value)
+            doc['warnings'] = list(dict.fromkeys(doc['warnings'] + [issue['message'] for issue in document_readiness(kind,draft,templates.values())['issues']]))
+        doc['decisions'].append(dict(field='reviewed_documents',source='document_editor',value='Approved edited snapshots used without automatic repalletization'))
+        report = next((row for row in prepared['report'] if row['order_number'] == order), None)
+        if report is not None:
+            report['warnings'] = doc['warnings']
+        header = next((row for row in prepared['values']['Orders'] if row['order_number'] == order), None)
+        if header is not None and doc.get('packing_list'):
+            mpl = doc['packing_list']['packing_lists'][0]
+            header.update(po_number=mpl.get('customer_po_number',''),ship_date=mpl.get('est_ship_date',''),ship_from=mpl.get('supplier_info',''),ship_to=mpl.get('ship_to',''),bill_to=mpl.get('bill_to',''))
+    if pages > 20000:
+        raise ValueError('This batch exceeds 20,000 label pages. Select fewer orders.')

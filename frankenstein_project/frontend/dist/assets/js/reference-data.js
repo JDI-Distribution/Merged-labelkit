@@ -878,6 +878,7 @@
     document.getElementById('mpl-product-editor-modal')?.classList.remove('visible');
     mplProductEditorGroupKey = '';
     renderMplProductMasterTable();
+    if(typeof returnFromUnifiedProduct==='function')returnFromUnifiedProduct();
   }
 
   function deleteMplProductConfiguration() {

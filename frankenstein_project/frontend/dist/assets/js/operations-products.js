@@ -1,5 +1,6 @@
 /* Create a missing order SKU with the shared Product Master editor. */
 let operationsNewProduct = null;
+function operationsSkuKey(value) {return String(value ?? '').trim().toLowerCase();}
 
 function operationsProductError(message = '') {
   document.getElementById('mpl-product-order-error').textContent = message;
@@ -22,7 +23,7 @@ async function addOperationsMissingProduct(lineIndex) {
     if (pending.orderId !== orderDocumentsState.reviewedOrder?.id) throw new Error('The loaded order changed. Select the missing SKU again.');
     pending.originalRows = JSON.parse(JSON.stringify(mplProductMasterRows));
     const customer = b2bSelectedCustomer || orderDocumentsState.customerName;
-    if (mplProductMasterRows.some(row => row.is_active !== false && row.storefront === customer && canonicalId(row.sku) === canonicalId(source.sku))) {
+    if (mplProductMasterRows.some(row => row.is_active !== false && row.storefront === customer && operationsSkuKey(row.sku) === operationsSkuKey(source.sku))) {
       throw new Error('This SKU is already in Product Master. Reload the order to use the existing configuration.');
     }
     addMplProductRow({ storefront: customer, sku: source.sku, description: source.description || source.sku,
@@ -34,7 +35,7 @@ async function addOperationsMissingProduct(lineIndex) {
     setStatus('Complete the product setup, then Save & update order. Close discards this unsaved configuration.', 'info');
   } catch (error) {
     operationsNewProduct = null;
-    setStatus(error.message, 'error');
+    operationsProductError(error.message);
   }
 }
 
@@ -45,12 +46,12 @@ async function saveOperationsNewProduct() {
   const entries = mplProductEntriesForGroup(mplProductEditorGroupKey);
   operationsProductError();
   if (!source || pending.orderId !== orderDocumentsState.reviewedOrder?.id) return operationsProductError('The loaded order changed. Close this setup and select the missing SKU again.');
-  if (!entries.some(({ row }) => canonicalId(row.sku) === canonicalId(source.sku) && row.is_active !== false) || !entries[0]?.row.description) {
+  if (!entries.some(({ row }) => operationsSkuKey(row.sku) === operationsSkuKey(source.sku) && row.is_active !== false) || !entries[0]?.row.description) {
     return operationsProductError('Enter a product name and keep the incoming order SKU on its correct active packaging level.');
   }
   const own = new Set(entries.map(entry => entry.index));
   if (entries.some(({ row }) => mplProductMasterRows.some((other, index) => !own.has(index)
-      && other.storefront === row.storefront && other.is_active !== false && row.sku && canonicalId(other.sku) === canonicalId(row.sku)))) {
+      && other.storefront === row.storefront && other.is_active !== false && row.sku && operationsSkuKey(other.sku) === operationsSkuKey(row.sku)))) {
     return operationsProductError('A SKU on this configuration already exists for this customer. Use the existing configuration instead.');
   }
   pending.busy = true;
@@ -63,7 +64,8 @@ async function saveOperationsNewProduct() {
     pending.saved = true;
     saveMplProductMasterToStorage();
     showWorkflowProgress(1, 'Matching the saved SKU and recalculating this order…');
-    await rematchOperationsProduct(pending.lineIndex, pending.orderId);
+    if(pending.unified)await rematchUnifiedProduct(pending);
+    else await rematchOperationsProduct(pending.lineIndex, pending.orderId);
     pending.busy = false;
     closeMplProductEditor();
     setStatus(`${source.sku} saved to Product Master. Order matching and pallets updated; review documents before printing.`, 'success');
@@ -83,7 +85,7 @@ async function rematchOperationsProduct(lineIndex, orderId) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sales_order_number: orderDocumentsState.orderNumber, ecomdash_id: orderDocumentsState.ecomdashId }),
   });
-  const matched = lookup.items?.find(item => canonicalId(item.sku) === canonicalId(original.items[lineIndex].sku));
+  const matched = lookup.items?.find(item => operationsSkuKey(item.sku) === operationsSkuKey(original.items[lineIndex].sku));
   if (matched?.match_status !== 'matched') throw new Error(matched?.match_reason || 'The saved SKU did not resolve to one active configuration. Review its level SKUs and retry.');
   const payload = JSON.parse(JSON.stringify(original));
   payload.items[lineIndex] = matched;

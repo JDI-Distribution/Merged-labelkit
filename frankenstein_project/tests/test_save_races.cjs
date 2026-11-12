@@ -316,3 +316,12 @@ test('changing a reviewed line replaces label SKUs and blocks a level missing fr
   assert.equal(ctx.b2bOrderLabelJobs[1].template_ids.length, 0);
   assert.equal(ctx.b2bOrderFallbackProducts[1].sku, '');
 });
+
+test('document pipeline rejects another order at the same revision and supports an explicit order snapshot',async()=>{
+  const ctx=load(['modules/document-pipeline.js']);let order={id:'ORDER-A',revision:1,fields:{po_number:'PO-A',ship_date:'',ship_from:'Origin',ship_to:'Receiver',bill_to:''}},publications=0;
+  Object.assign(ctx,{LabelKitAPI:{json:async()=>({ready:true})},recordGeneratedOutput:async()=>{publications++;}});
+  await assert.rejects(ctx.runDocumentPipeline({kind:'labels',draft:{jobs:[{run:{},directory:{}}]},getOrderSnapshot:()=>order,output:{key:'order-A'},render:async snapshot=>{
+    assert.equal(snapshot.jobs[0].run.po_number,'PO-A');order={...order,id:'ORDER-B'};return {blob:'obsolete'};
+  }}),/Document changed/);
+  assert.equal(publications,0);
+});
