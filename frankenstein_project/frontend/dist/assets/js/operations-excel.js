@@ -1,10 +1,9 @@
-/* Excel batch import stays detached from the current editable order session. */
+/* Bulk intake stays detached from the current editable single-order session. */
 let orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false };
 
 function openOrderExcel() {
   orderExcel.returnFocus=document.activeElement;
   document.getElementById('order-excel-modal').classList.add('visible');
-  document.getElementById('order-excel-export').disabled = !orderDocumentsState.payload?.items?.length;
   setOrderExcelStep(orderExcel.step || 1);
   document.querySelector('#order-excel-modal .editor-toolbar button').focus();
 }
@@ -42,7 +41,7 @@ function orderExcelStatus(message, error = false) {
 function orderExcelBusy(busy) {
   orderExcel.busy = busy;
   document.querySelector('#order-excel-modal .editor-dialog').setAttribute('aria-busy', String(busy));
-  document.querySelectorAll('#order-excel-modal [data-excel-action], #order-excel-file').forEach(element => { element.disabled = busy; });
+  document.querySelectorAll('#order-excel-modal [data-excel-action]').forEach(element => { element.disabled = busy; });
 }
 async function orderExcelDownload(url, filename, body) {
   try {
@@ -52,42 +51,54 @@ async function orderExcelDownload(url, filename, body) {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   } catch (error) { orderExcelStatus(error.message, true); }
 }
-function downloadOrderExcelTemplate() { return orderExcelDownload('/api/order-documents/excel/template', 'Bulk_Order_Processing_Template.xlsx'); }
+function updateBulkOrderCount() {
+  const values=document.getElementById('bulk-order-numbers').value.trim().split(/[,;\s]+/).filter(Boolean);
+  const unique=new Set(values);
+  document.getElementById('bulk-order-count').textContent=values.length
+    ? `${unique.size} order(s) · ${values.length-unique.size} duplicate(s) ignored. Maximum 100 orders.`
+    : 'Use commas, spaces or new lines. Up to 100 orders.';
+}
 
 async function pollOrderExcel(resultId) {
   const deadline = Date.now() + 30*60*1000;
   while (Date.now() < deadline) {
     const state = await window.LabelKitAPI.json(`/results/${encodeURIComponent(resultId)}/status`, {}, 30000);
-    orderExcelStatus(state.detail || 'Processing workbook…');
-    if (state.status === 'error') throw new Error(state.detail || 'Workbook processing failed.');
+    orderExcelStatus(state.detail || 'Processing orders…');
+    if (state.status === 'error') throw new Error(state.detail || 'Order processing failed.');
     if (state.status === 'complete') return state.report;
     await new Promise(resolve => setTimeout(resolve, 600));
   }
-  throw new Error('This batch is taking longer than expected. Reopen the batch review or use a smaller workbook.');
+  throw new Error('This batch is taking longer than expected. Reopen the batch review or try fewer orders.');
 }
 
 async function checkOrderExcel() {
   if (orderExcel.busy) return;
-  const file = document.getElementById('order-excel-file').files[0];
-  if (!file) return orderExcelStatus('Choose the completed .xlsx order workbook first.', true);
-  if (!/\.xlsx$/i.test(file.name)) return orderExcelStatus('Choose an .xlsx order workbook.', true);
+  const numbers=document.getElementById('bulk-order-numbers').value.trim();
+  if (!numbers) return orderExcelStatus('Enter at least one sales order number.', true);
+  const unique=[...new Set(numbers.split(/[,;\s]+/).filter(Boolean))];
+  if(numbers.length>10000 || unique.length>100 || unique.some(value=>!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value)))
+    return orderExcelStatus('Enter up to 100 valid order numbers using letters, numbers, dots, hyphens or underscores.',true);
+  const previous=orderExcel;
   orderExcel = { busy: false, checkId: '', reviewId: '', resultId: '', matching: null, choices: {}, issuesOnly: false, returnFocus:orderExcel.returnFocus };
   document.getElementById('order-excel-actions').replaceChildren();
   setOrderExcelStep(1);
   document.getElementById('order-excel-results').innerHTML = '';
   orderExcelBusy(true);
   try {
-    const form = new FormData(); form.append('file', file);
-    orderExcelStatus('Uploading workbook and matching order numbers, SKUs and supplied data…');
-    const job = await window.LabelKitAPI.json('/api/order-documents/excel/check', { method: 'POST', body: form }, 120000);
+    orderExcelStatus('Loading orders and matching products and addresses…');
+    const job = await window.LabelKitAPI.json('/api/order-documents/batch/check', { method: 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_numbers:numbers}) }, 120000);
     orderExcel.checkId = job.result_id;
     orderExcel.matching = await pollOrderExcel(job.result_id);
     renderOrderExcelMatching();
-  } catch (error) { orderExcelStatus(error.message, true); }
+  } catch (error) {
+    orderExcel=previous;
+    if(orderExcel.matching)renderOrderExcelMatching();
+    orderExcelStatus(error.message, true);
+  }
   finally { orderExcelBusy(false); }
 }
 
-const orderExcelSourceNames = { workbook: 'Excel', analytics: 'Analytics', product_master: 'Product Master', directory: 'Directory', default: 'App default', custom: 'Edited' };
+const orderExcelSourceNames = { workbook: 'Order input', analytics: 'Analytics', product_master: 'Product Master', directory: 'Directory', default: 'App default', custom: 'Edited' };
 
 function orderExcelSameValue(field,a,b) {
   if(field.type==='number' && a!=='' && b!=='') return Number(String(a).replaceAll(',',''))===Number(String(b).replaceAll(',',''));
@@ -111,7 +122,7 @@ function orderExcelFieldComparison(field,index) {
   return `<div class="order-excel-comparison">${entries.map(([source,value])=>{
     const same=orderExcelSameValue(field,field.value,value);
     const saved=['analytics','product_master','directory'].includes(source);
-    return `<div><span><strong>${saved?'Saved in '+orderExcelSourceNames[source]:'Original Excel'}:</strong> ${escapeHtml(value)}</span>${!same?`<button data-excel-action type="button" class="btn-secondary" onclick="editOrderExcelField(${index}, '${field.path}', '${source}', null)">${saved?'Restore saved value':'Use Excel value'}</button>`:'<small>Matches current value</small>'}</div>`;
+    return `<div><span><strong>${saved?'Saved in '+orderExcelSourceNames[source]:'Original entry'}:</strong> ${escapeHtml(value)}</span>${!same?`<button data-excel-action type="button" class="btn-secondary" onclick="editOrderExcelField(${index}, '${field.path}', '${source}', null)">${saved?'Restore saved value':'Use original value'}</button>`:'<small>Matches current value</small>'}</div>`;
   }).join('')}</div>`;
 }
 
@@ -140,10 +151,10 @@ function renderOrderExcelMatching() {
   setOrderExcelStep(2);
   const orders = orderExcel.matching?.orders || [];
   const active=orders.filter(order=>!orderExcel.choices[order.order_number]?.skip);
-  document.getElementById('order-excel-results').innerHTML = `<h3>Review Excel and app defaults</h3>
+  document.getElementById('order-excel-results').innerHTML = `<h3>Verify order details</h3>
     <div class="bulk-batch-summary"><strong>${active.length} of ${orders.length} orders selected</strong><span>${active.reduce((total,order)=>total+order.missing_count,0)} missing inputs</span><span>${active.reduce((total,order)=>total+order.conflict_count,0)} source differences</span></div>
     <nav class="bulk-order-jump" aria-label="Jump to order">${orders.map((order,index)=>`<a href="#bulk-order-${index}" onclick="event.preventDefault();document.getElementById('bulk-order-${index}').scrollIntoView({block:'start'})">Order ${escapeHtml(order.order_number)}</a>`).join('')}</nav>
-    <p>Check the values that will be printed. Excel values stay in use unless you change them. Compare saved values below each field, use Restore saved value when needed, or type a correction. Changes apply to this batch only.</p>
+    <p>Check every order before printing. Compare Analytics, saved products and addresses, restore a saved value, or enter a correction. Edits apply to this batch only.</p>
     <label class="order-excel-ack"><input id="order-excel-issues-only" type="checkbox" ${orderExcel.issuesOnly ? 'checked' : ''} onchange="orderExcel.issuesOnly=this.checked;renderOrderExcelMatching()"> Show only missing or conflicting fields</label>
     ${orders.map((order,index) => {
       const chosen = orderExcel.choices[order.order_number] || {};
@@ -152,6 +163,9 @@ function renderOrderExcelMatching() {
       ${order.records.length ? `<label>Analytics order record<select data-excel-action aria-label="Order ${escapeHtml(order.order_number)} Analytics record" onchange="selectOrderExcelRecord(${index},this.value)">
       ${order.records.length > 1 ? '<option value="">Choose a record to fill missing fields</option>' : ''}${order.records.map(record => `<option value="${escapeHtml(record.ecomdash_id)}">${escapeHtml([record.ecomdash_id,record.storefront,record.invoice_date].filter(Boolean).join(' / '))}</option>`).join('')}<option value="__none__">No Analytics fallback</option></select></label>` : ''}</div>
       ${chosen.skip ? '<p>This order will be skipped. Its inputs are retained.</p>' : `${order.notices.length ? `<ul class="order-excel-notices">${order.notices.map(message=>`<li>${escapeHtml(message)}</li>`).join('')}</ul>` : ''}
+      <details class="bulk-order-items"><summary>Included items (${order.item_choices.filter(item=>!item.excluded).length})</summary>${order.item_choices.map(item=>`<label><input data-excel-action type="checkbox" ${item.excluded?'':'checked'} onchange="toggleBulkOrderItem(${index}, '${jsString(item.line_id)}', this.checked)"> ${escapeHtml(item.sku || 'Order-only item')} · ${escapeHtml(item.line_id)}</label>`).join('')}</details>
+      <button data-excel-action class="btn-secondary" type="button" onclick="addBulkOrderItem(${index})">Add order-only item</button>
+      ${!order.records.length ? `<button data-excel-action class="btn-secondary" type="button" onclick="retryBulkOrder(${index})">Retry Analytics lookup (resets this order’s item edits)</button>` : ''}
       ${order.sections.map((section,sectionIndex)=>{
         const primary=[], optional=[];
         section.fields.forEach((field,fieldIndex)=>{
@@ -160,7 +174,7 @@ function renderOrderExcelMatching() {
           else primary.push(html);
         });
         const fields=primary.join('')+(!orderExcel.issuesOnly && optional.length ? `<details class="order-excel-optional"><summary>Additional optional fields (${optional.length})</summary>${optional.join('')}</details>`:'');
-        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || !orderExcel.issuesOnly ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary>${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — enter packing details for this order. Adding to Product Master is optional. A description can identify an item without a SKU.'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
+        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || (index===0 && section.kind==='header') ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary>${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — enter packing details for this order. Adding to Product Master is optional. A description can identify an item without a SKU.'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
       }).join('')}
       ${orderExcel.issuesOnly && !order.missing_count && !order.conflict_count ? '<p>No missing or conflicting fields. Uncheck the filter to inspect or edit all defaults.</p>' : ''}
       ${order.notices.length || order.conflict_count ? `<label class="order-excel-ack"><input data-excel-action type="checkbox" class="order-excel-match-ack" ${chosen.acknowledge_matches ? 'checked' : ''} onchange="acknowledgeOrderExcel(${index},this.checked)"> I reviewed the match notices and conflicting values for this order.</label>` : ''}`}</section>`;
@@ -187,7 +201,43 @@ function acknowledgeOrderExcel(index,value) {
   document.querySelector(`[data-excel-order="${index}"] .order-excel-match-ack`)?.closest('label').classList.remove('needs-review');
 }
 function skipOrderExcel(index,value) {orderExcelChoice(index).skip=value;orderExcel.reviewId='';renderOrderExcelMatching();}
-async function selectOrderExcelRecord(index,value) {const choice=orderExcelChoice(index);choice.record_id=value;choice.acknowledge_matches=false;orderExcel.reviewId='';await refreshOrderExcelFields(index);}
+async function selectOrderExcelRecord(index,value) {
+  const choice=orderExcelChoice(index);
+  choice.fields=Object.fromEntries(Object.entries(choice.fields || {}).filter(([path])=>path.startsWith('header:')));
+  choice.record_id=value;choice.added_lines=[];choice.excluded_lines=[];choice.acknowledge_matches=false;
+  orderExcel.reviewId='';await refreshOrderExcelFields(index);
+}
+async function addBulkOrderItem(index) {
+  const choice=orderExcelChoice(index);
+  choice.added_lines ||= orderExcel.matching.orders[index].item_choices.filter(item=>item.line_id.startsWith('MANUAL-')).map(item=>item.line_id);
+  choice.added_lines.push('MANUAL-'+Date.now());choice.acknowledge_matches=false;orderExcel.reviewId='';
+  await refreshOrderExcelFields(index);
+}
+async function retryBulkOrder(index) {
+  if(orderExcel.busy)return;
+  const order=orderExcel.matching.orders[index];
+  orderExcelBusy(true);
+  try {
+    const job=await window.LabelKitAPI.json('/api/order-documents/batch/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result_id:orderExcel.checkId,order_number:order.order_number})});
+    const matching=await pollOrderExcel(job.result_id);
+    const choice=orderExcelChoice(index);
+    choice.fields=Object.fromEntries(Object.entries(choice.fields || {}).filter(([path])=>path.startsWith('header:')));
+    delete choice.record_id;choice.added_lines=[];choice.excluded_lines=[];choice.acknowledge_matches=false;
+    orderExcel.checkId=job.result_id;orderExcel.reviewId='';orderExcel.matching=matching;
+    orderExcelBusy(false);
+    await refreshOrderExcelFields();
+    renderOrderExcelMatching();
+    orderExcelStatus('Lookup retried. This order’s item edits were reset; other orders retain their edits. Verify the current items.');
+  } catch(error){orderExcelStatus(error.message,true);}
+  finally{orderExcelBusy(false);}
+}
+async function toggleBulkOrderItem(index,id,included) {
+  const choice=orderExcelChoice(index);
+  choice.excluded_lines=[...new Set([...(choice.excluded_lines || []).filter(value=>value!==id),...(included?[]:[id])])];
+  choice.fields=Object.fromEntries(Object.entries(choice.fields || {}).filter(([path])=>!path.startsWith('label:')));
+  choice.acknowledge_matches=false;orderExcel.reviewId='';await refreshOrderExcelFields(index);
+}
+
 
 async function editOrderExcelField(index,path,source,value) {
   const choice=orderExcelChoice(index);choice.fields ||= {};
@@ -222,22 +272,22 @@ async function refreshOrderExcelFields(index=null) {
     const indexes=index===null?orderExcel.matching.orders.map((_,i)=>i):[index];
     for(const i of indexes){
       const order=orderExcel.matching.orders[i];
-      const model=await window.LabelKitAPI.json('/api/order-documents/excel/fields',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result_id:orderExcel.checkId,order_number:order.order_number,choice:orderExcelChoice(i)})});
+      const model=await window.LabelKitAPI.json('/api/order-documents/batch/fields',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result_id:orderExcel.checkId,order_number:order.order_number,choice:orderExcelChoice(i)})});
       const before=order.sections.flatMap(section=>section.fields).map(field=>[field.path,field.value]);
       const after=model.sections.flatMap(section=>section.fields).map(field=>[field.path,field.value]);
       if(JSON.stringify(before)!==JSON.stringify(after) || JSON.stringify(order.notices)!==JSON.stringify(model.notices))
         orderExcelChoice(i).acknowledge_matches=false;
       orderExcel.matching.orders[i]=model;
     }
-    renderOrderExcelMatching();orderExcelStatus('Defaults refreshed. Excel values and your edits are retained.');
+    renderOrderExcelMatching();orderExcelStatus('Defaults refreshed. Loaded values and your edits are retained.');
     return true;
   } catch(error){orderExcelStatus(error.message,true);return false;}
   finally{orderExcelBusy(false);}
 }
 
 async function resolveOrderExcel() {
-  if (orderExcel.busy) return orderExcelStatus('A workbook check is running. Please wait for it to finish.');
-  if (!orderExcel.matching) return orderExcelStatus('Upload an order workbook first.',true);
+  if (orderExcel.busy) return orderExcelStatus('An order check is running. Please wait for it to finish.');
+  if (!orderExcel.matching) return orderExcelStatus('Load order numbers first.',true);
   if (!await refreshOrderExcelFields()) return;
   for (const [index, order] of orderExcel.matching.orders.entries()) {
     const choice=orderExcelChoice(index);
@@ -252,7 +302,7 @@ async function resolveOrderExcel() {
   orderExcelBusy(true);
   orderExcelStatus('Recalculating cartons, pallets and document inputs…');
   try {
-    const job = await window.LabelKitAPI.json('/api/order-documents/excel/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const job = await window.LabelKitAPI.json('/api/order-documents/batch/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result_id: orderExcel.checkId, choices: orderExcel.choices }) });
     orderExcel.reviewId = job.result_id;
     const review = await pollOrderExcel(job.result_id);
@@ -265,7 +315,7 @@ async function resolveOrderExcel() {
       ${order.warnings.length ? `<details><summary>${order.warnings.length} document warning(s)</summary><ul>${order.warnings.map(message => `<li>${escapeHtml(message)}</li>`).join('')}</ul></details>` : ''}</section>`).join('')}
       ${review.warning_count ? '<label class="order-excel-ack"><input id="order-excel-ack" type="checkbox"> I reviewed the document warnings for these selected inputs.</label>' : ''}
       <div class="order-excel-source" data-bulk-actions><button data-excel-action class="btn-secondary" type="button" onclick="renderOrderExcelMatching()">Edit fields and defaults</button>
-      <button data-excel-action class="btn-secondary" type="button" onclick="orderExcelDownload('/api/order-documents/excel/reviewed-inputs?result_id='+encodeURIComponent(orderExcel.reviewId), 'Reviewed_Order_Inputs.xlsx')">Download reviewed Excel</button>
+      <button data-excel-action class="btn-secondary" type="button" onclick="orderExcelDownload('/api/order-documents/batch/reviewed-inputs?result_id='+encodeURIComponent(orderExcel.reviewId), 'Reviewed_Order_Inputs.json')">Download reviewed inputs</button>
       ${review.can_generate ? '<button data-excel-action class="btn-generate" type="button" onclick="generateOrderExcel()">Generate order ZIP</button>' : '<p>Use Edit fields and defaults to fix these issues here, then recalculate. You can also skip an order.</p>'}</div>`;
     orderExcelDockActions();
     document.querySelector('#order-excel-results h3')?.scrollIntoView({block:'start'});
@@ -279,69 +329,17 @@ async function generateOrderExcel() {
   if (acknowledgement && !acknowledgement.checked) return orderExcelStatus('Review and acknowledge the document warnings before generating.', true);
   orderExcelBusy(true);
   try {
-    const job = await window.LabelKitAPI.json('/api/order-documents/excel/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const job = await window.LabelKitAPI.json('/api/order-documents/batch/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result_id: orderExcel.reviewId, approve_warnings: !!acknowledgement?.checked }) });
     orderExcel.resultId = job.result_id;
     const report = await pollOrderExcel(job.result_id);
     setOrderExcelStep(4);
     document.getElementById('order-excel-results').innerHTML = `<h3>${report.generated} order(s) generated · ${report.failed} failed · ${report.skipped} skipped</h3>
-      <p>The ZIP includes one folder per generated order, the source workbook and the processing/source-decision report.</p>
+      <p>The ZIP includes order folders, source order numbers, reviewed inputs and the processing/source-decision report.</p>
       <ul>${report.orders.map(order => `<li>Order ${escapeHtml(order.order_number)}: ${escapeHtml(order.status)}${order.error ? ` — ${escapeHtml(order.error)}` : ''}</li>`).join('')}</ul>
       <div data-bulk-actions><button data-excel-action class="btn-generate" type="button" onclick="orderExcelDownload('/results/${encodeURIComponent(job.result_id)}/file', 'order_documents.zip')">Download ZIP and report</button></div>`;
     orderExcelDockActions();
     document.querySelector('#order-excel-results h3')?.scrollIntoView({block:'start'});
   } catch (error) { orderExcelStatus(error.message, true); }
   finally { orderExcelBusy(false); }
-}
-
-async function exportLoadedOrderExcel() {
-  const payload = orderDocumentsState.payload;
-  if (!payload?.items?.length) return orderExcelStatus('Load an order before exporting its inputs.', true);
-  const draft = orderDocumentsState.mplDraft, mpl = draft.packing_lists[0], fields = orderDocumentsState.reviewedOrder?.fields || {};
-  const order = orderDocumentsState.orderNumber;
-  const selected = operationsSelectedDocuments();
-  const header = { order_number: order, record_id: orderDocumentsState.ecomdashId, customer: b2bSelectedCustomer || orderDocumentsState.customerName,
-    po_number: fields.po_number, ship_date: fields.ship_date, ship_from: fields.ship_from, ship_to: fields.ship_to, bill_to: fields.bill_to,
-    po_date: mpl.po_date, bol_number: mpl.bol_number, pro_number: mpl.pro_number, ship_via: mpl.ship_via, shipping_instructions: mpl.shipping_instructions,
-    mpl_layout: mpl.template_id || draft.template_id, brand: mpl.brand_id || draft.brand_id,
-    labels: selected.labels ? 'Yes' : 'No', packing_list: selected.mpl ? 'Yes' : 'No', pallet_labels: selected.pallets ? 'Yes' : 'No',
-    ...Object.fromEntries(Object.entries(mpl._tihi_constraints || {}).map(([name,value]) =>
-      [name, ['cases_per_layer','max_layers'].includes(name) && Number(value) === 0 ? '' : value])) };
-  const rows = draft.packing_lists.flatMap(list => list.items || []);
-  const lines = payload.items.map((item, index) => {
-    const row = rows.find(row => row.review_line_index === index) || {}, packing = row.order_packaging, product = packing?.product || item.product || {};
-    const each = (draft.reviewed_product_master || []).find(candidate => candidate.config_id === item.product?.config_id && candidate.storefront === item.product?.storefront && candidate.packaging_level === 'Each');
-    return { order_number: order, line_id: `LINE-${index+1}`, sku: item.sku, quantity: Number(item.quantity_ordered_eaches ?? item.quantity_ordered),
-      quantity_uom: item.quantity_ordered_eaches != null ? 'Each' : 'Auto', config_id: item.product?.config_id || '', description: row.description || item.description,
-      customer_item_number: row.customer_item_number, each_gtin: each?.gtin || row.each_gtin, case_gtin: product.packaging_level === 'Case' ? product.gtin : '',
-      eaches_per_case: row.quantity_per_case || product.case_qty, length_in: product.length_in, width_in: product.width_in, height_in: product.height_in,
-      gross_weight_lbs: product.gross_weight_lbs, pack_by: ({ units: 'Units per box', lbs: 'Pounds per box', boxes: 'Total boxes' })[packing?.settings?.mode] || 'Default',
-      pack_value: packing?.settings?.value, unit_lbs: packing?.settings?.unitLbs || '', expiration_date: row.expiration_date, notes: row.notes };
-  });
-  // Preserve added packing-list lines which did not originate in Analytics.
-  const manual = new Map();
-  for (const row of rows.filter(row => row.review_line_index == null)) {
-    const identity = `${row.sku}|${row.config_id || ''}`;
-    if (!manual.has(identity)) manual.set(identity, { ...row, quantity: 0 });
-    manual.get(identity).quantity += Number(row.qty_on_pallet || 0);
-  }
-  for (const row of manual.values()) lines.push({ order_number: order, line_id: `MANUAL-${lines.length+1}`, sku: row.sku || row.item_number,
-    quantity: row.quantity, quantity_uom: row.uom === 'EACHES' ? 'Each' : 'Case', description: row.description, eaches_per_case: row.quantity_per_case,
-    case_gtin: row.case_upc || row.gtin, each_gtin: row.each_gtin, length_in: row.length_in, width_in: row.width_in, height_in: row.height_in,
-    gross_weight_lbs: row.unit_weight_lbs, notes: row.notes, expiration_date: row.expiration_date });
-  const labels = [], seen = new Set();
-  for (const job of b2bOrderLabelJobs.filter(job => job.print_selected !== false)) {
-    for (const template of b2bTemplateIdsForJob(job)) {
-      const identity = JSON.stringify([job.line_index, job.product.packaging_level, template]);
-      if (job.order_packaging && seen.has(identity)) continue;
-      seen.add(identity);
-      const run = job.template_runs?.[template] || job.run || {};
-      labels.push({ order_number: order, line_id: `LINE-${Number(job.line_index)+1}`, sku: payload.items[job.line_index]?.sku || job.product.sku,
-        level: job.product.packaging_level, template_id: template, copies: Number(run.copies || 1), lot_number: run.lot_number,
-        best_before: run.best_before, expected_delivery_date: run.expected_delivery_date, print_barcode: run.print_barcode ? 'Yes' : 'No',
-        carton_start: job.order_packaging ? '' : run.carton_start, carton_end: job.order_packaging ? '' : run.carton_end,
-        quantity_label: run.quantity_label, net_weight: job.order_packaging ? '' : run.net_weight, case_pack_text: run.pack_text });
-    }
-  }
-  await orderExcelDownload('/api/order-documents/excel/export', `Order_${order}_Inputs.xlsx`, { sheets: { Orders: [header], 'Order Lines': lines, Labels: labels } });
 }

@@ -48,6 +48,31 @@ def check_worker(result_id, request, path):
         fail(result_id, exc)
 
 
+def check_numbers_worker(result_id, request, orders, path):
+    try:
+        refs = reference_snapshot(request)
+        inputs = {order: dict(header=dict(order_number=order), lines=[], labels=[]) for order in orders}
+        state = check_orders(request, inputs, **refs, analytics_client=ANALYTICS_CLIENT,
+                             progress=lambda message: update_result_job(result_id, detail=message))
+        state.update(intake='numbers', input_path=str(path))
+        RESULT_JOBS[result_id]['order_workbook_state'] = state
+        update_result_job(result_id, status='complete', detail='Orders loaded. Verify the matched values and complete missing details.', report=public_check(state))
+    except Exception as exc:
+        fail(result_id, exc)
+
+
+def retry_numbers_worker(result_id, request, state, order, path):
+    try:
+        refs = {name: state[name] for name in ['products', 'directory', 'templates']}
+        checked = check_orders(request, {order: state['entries'][order]['input']}, **refs, analytics_client=ANALYTICS_CLIENT)
+        state['entries'][order] = checked['entries'][order]
+        state['input_path'] = str(path)
+        RESULT_JOBS[result_id]['order_workbook_state'] = state
+        update_result_job(result_id, status='complete', detail=f'Order {order} checked again. Verify its current items.', report=public_check(state))
+    except Exception as exc:
+        fail(result_id, exc)
+
+
 def resolve_worker(result_id, state, choices):
     try:
         documents, report, skipped = [], [], []
@@ -73,12 +98,14 @@ def resolve_worker(result_id, state, choices):
         pages = sum(b2b_job_page_plan(job, templates[job['template_id']])['pages'] for doc in documents if not doc['errors'] for job in doc['jobs'])
         errors = sum(len(row['errors']) for row in report)
         if pages > 20000:
-            report.append(dict(order_number='Batch', errors=['This batch exceeds 20,000 label pages. Split it into smaller workbooks.'], warnings=[]))
+            report.append(dict(order_number='Batch', errors=['This batch exceeds 20,000 label pages. Split it into smaller batches.'], warnings=[]))
             errors += 1
         if not documents:
             errors += 1
             report.append(dict(order_number='Batch', errors=['Select at least one order to process.'], warnings=[]))
-        RESULT_JOBS[result_id]['order_workbook_prepared'] = dict(documents=documents, skipped=skipped, input_path=state['input_path'], report=report, values=values,
+        if len(values['Order Lines']) > 5000:
+            raise ValueError('Use at most 5,000 included items per batch.')
+        RESULT_JOBS[result_id]['order_workbook_prepared'] = dict(documents=documents, skipped=skipped, intake=state.get('intake'), input_path=state['input_path'], report=report, values=values,
             references={name: state[name] for name in ['products','directory','templates']})
         update_result_job(result_id, status='complete', detail='Review complete. Resolve blocking inputs before generating.' if errors else 'Orders matched and calculated. Review the outputs and generate the ZIP.',
                           report=dict(phase='review', orders=report, error_count=errors, warning_count=sum(len(row['warnings']) for row in report),
@@ -148,9 +175,13 @@ def generate_worker(result_id, prepared):
         with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
             for path in files:
                 archive.write(path, str(path.relative_to(root)).replace('\\', '/'))
-            archive.write(prepared['input_path'], 'Source_Order_Workbook.xlsx')
-            from labelkit.order_workbook_io import workbook_bytes
-            archive.writestr('Reviewed_Order_Inputs.xlsx', workbook_bytes(**prepared['references'], values=prepared['values']))
+            if prepared.get('intake') == 'numbers':
+                archive.write(prepared['input_path'], 'Source_Order_Numbers.json')
+                archive.writestr('Reviewed_Order_Inputs.json', json.dumps(prepared['values'], indent=2, ensure_ascii=False))
+            else:
+                archive.write(prepared['input_path'], 'Source_Order_Workbook.xlsx')
+                from labelkit.order_workbook_io import workbook_bytes
+                archive.writestr('Reviewed_Order_Inputs.xlsx', workbook_bytes(**prepared['references'], values=prepared['values']))
             archive.writestr('Processing_Report.json', json.dumps(summary, indent=2, ensure_ascii=False))
             stream = io.StringIO(newline='')
             writer = csv.writer(stream)

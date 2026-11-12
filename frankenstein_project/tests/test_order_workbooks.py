@@ -380,6 +380,108 @@ class OrderWorkbookTests(unittest.TestCase):
                 self.assertIn('SO_0002/Labels.pdf', archive.namelist())
                 self.assertIn('Injected packing-list render failure', archive.read('Processing_Report.json').decode())
 
+    def numbers_state(self):
+        state = self.state()
+        state['intake'] = 'numbers'
+        for order, entry in state['entries'].items():
+            entry['input'] = dict(header=dict(order_number=order), lines=[], labels=[])
+        return state
+
+    def test_number_intake_deduplicates_preserves_identifiers_and_validates_limits(self):
+        from labelkit.order_batch_intake import parse_order_numbers
+        self.assertEqual(parse_order_numbers('001, AB-2;001\n003 AB-2'), ['001','AB-2','003'])
+        for value in ['', None, 'bad/order', 'x'*101, ','.join(str(i) for i in range(101))]:
+            with self.assertRaises(ValueError):
+                parse_order_numbers(value)
+
+    def test_number_intake_record_changes_rebuild_items_from_snapshot(self):
+        state = self.numbers_state()
+        entry = state['entries']['1001']
+        second = copy.deepcopy(entry['records'][0])
+        second['ecomdash_id'] = 'OTHER'
+        second['rows'][0].update(SKUNumber='OTHER-SKU', **{'Quantity Ordered':'7'})
+        entry['records'].append(second)
+        self.assertEqual(field_review(state,'1001')['item_choices'][0]['line_id'], 'MANUAL-1')
+        for record, sku, quantity in [('REC-1001','KNOWN-1LB','650'),('OTHER','OTHER-SKU','7')]:
+            model = field_review(state,'1001',dict(record_id=record))
+            fields = {f['path']:f for section in model['sections'] for f in section['fields']}
+            self.assertEqual(fields['line:0:sku']['value'],sku)
+            self.assertEqual(fields['line:0:quantity']['value'],quantity)
+        self.assertEqual(entry['records'][0]['rows'][0]['SKUNumber'], 'KNOWN-1LB')
+
+    def test_number_intake_manual_items_exclusion_restore_and_missing_order(self):
+        state = self.numbers_state()
+        edits = dict(added_lines=['MANUAL-2'], excluded_lines=['LINE-1'], fields={
+            'line:0:length_in':dict(source='custom',value='17'),
+            'line:1:description':dict(source='custom',value='Order only')})
+        model = field_review(state,'1001',edits)
+        self.assertEqual(model['resolved']['lines'][0]['line_id'],'MANUAL-2')
+        self.assertEqual(model['resolved']['lines'][0]['description'],'Order only')
+        edits['excluded_lines']=[]
+        self.assertEqual(field_review(state,'1001',edits)['resolved']['lines'][0]['length_in'],'17')
+        with self.assertRaises(ValueError):
+            resolve_fields(state,'1001',dict(excluded_lines=['LINE-1'],acknowledge_matches=True))
+        missing = field_review(state,'0002')
+        self.assertEqual(missing['item_choices'][0]['line_id'],'MANUAL-1')
+        self.assertTrue(missing['missing_count'])
+        self.assertIsNone(resolve_fields(state,'0002',dict(skip=True)))
+        with self.assertRaises(ValueError):
+            field_review(state,'1001',dict(excluded_lines=['bogus']))
+
+    def test_number_intake_keeps_separate_analytics_items_without_skus(self):
+        state=self.numbers_state()
+        rows=state['entries']['1001']['records'][0]['rows']
+        rows[0].update(SKUNumber='',ProductName='Loose blue beads')
+        rows.append({**rows[0], 'ProductName':'Loose pink beads','Quantity Ordered':'12'})
+        model=field_review(state,'1001')
+        lines=model['resolved']['lines']
+        self.assertEqual([line['description'] for line in lines],['Loose blue beads','Loose pink beads'])
+        self.assertEqual([line['quantity'] for line in lines],['650','12'])
+        self.assertTrue(all(not line['sku'] for line in lines))
+
+    def test_number_routes_retry_partial_failure_and_real_zip_without_workbook(self):
+        class Analytics:
+            failed = True
+            def export_order_rows(inner, request, order):
+                if order == '0002' and inner.failed:
+                    raise HTTPException(503, 'Temporary Analytics failure')
+                return copy.deepcopy(self.analytics) if order == '1001' else []
+        client=Analytics()
+        original=copy.deepcopy(self.refs)
+        with patch('labelkit.order_workbook_jobs.reference_snapshot',return_value=self.refs), \
+             patch('labelkit.order_workbook_jobs.ANALYTICS_CLIENT',client), \
+             patch('labelkit.order_workbook_jobs.read_order_workbook',side_effect=AssertionError('No Excel parser allowed')):
+            checked=routes.check_order_numbers(self.request,dict(order_numbers='1001,0002,1001'))
+            check_id=json.loads(checked.body)['result_id']
+            report=self.poll(check_id)
+            self.assertEqual(len(report['orders']),2)
+            self.assertIn('Temporary Analytics failure',str(report['orders'][1]['notices']))
+            client.failed=False
+            retry=routes.retry_order_number(self.request,dict(result_id=check_id,order_number='0002'))
+            check_id=json.loads(retry.body)['result_id']
+            report=self.poll(check_id)
+            self.assertNotIn('Temporary Analytics failure',str(report))
+            fields={f'header:{name}':dict(source='custom',value=value) for name,value in self.header.items() if name!='order_number'}
+            response=routes.resolve_order_upload(self.request,dict(result_id=check_id,choices={
+                '1001':dict(fields=fields,acknowledge_matches=True),'0002':dict(skip=True)}))
+            review_id=json.loads(response.body)['result_id']
+            report=self.poll(review_id)
+            self.assertTrue(report['can_generate'],report)
+            exported=routes.export_reviewed_inputs(self.request,review_id)
+            self.assertEqual(json.loads(exported.body)['Order Lines'][0]['quantity'],'650')
+            response=routes.generate_order_upload(self.request,dict(result_id=review_id,approve_warnings=True))
+            final_id=json.loads(response.body)['result_id']
+            final=self.poll(final_id)
+            self.assertEqual((final['generated'],final['failed'],final['skipped']),(1,0,1))
+            with zipfile.ZipFile(generation.get_result_file(self.request,final_id).path) as archive:
+                self.assertIn('Reviewed_Order_Inputs.json',archive.namelist())
+                self.assertEqual(json.loads(archive.read('Source_Order_Numbers.json'))['order_numbers'],['1001','0002'])
+                self.assertFalse(any(name.endswith('.xlsx') for name in archive.namelist()))
+                for name in ['Labels.pdf','Packing_List_and_TiHi.pdf','Pallet_Labels.pdf']:
+                    with pymupdf.open(stream=archive.read('SO_1001/'+name),filetype='pdf') as pdf:
+                        self.assertGreater(pdf.page_count,0)
+        self.assertEqual(self.refs,original)
+
 
 if __name__ == '__main__':
     unittest.main()

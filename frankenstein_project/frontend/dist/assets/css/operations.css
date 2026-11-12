@@ -2325,7 +2325,9 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 #order-excel-actions > div:not(.order-excel-source) { display: flex; justify-content: flex-end; }
 #bulk-order-upload { background: white; border: 1px solid #dce1e7; border-radius: 10px; padding: 14px; }
 #bulk-order-upload > summary { font-weight: 600; cursor: pointer; min-height: 28px; }
-#bulk-order-upload input[type=file] { display: block; padding: 12px 0; }
+#bulk-order-numbers { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 12px; font: inherit; border: 1px solid #bcc9ce; border-radius: 8px; resize: vertical; }
+.bulk-order-items { margin: 16px 0; }
+.bulk-order-items label { display: block; padding: 8px 0; }
 .bulk-batch-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; background: white; border: 1px solid #dce1e7; border-radius: 10px; }
 .bulk-order-jump { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .bulk-order-jump a { display: inline-block; padding: 10px 14px; background: white; border: 1px solid #dce1e7; border-radius: 8px; color: #155bb2; text-decoration: none; }

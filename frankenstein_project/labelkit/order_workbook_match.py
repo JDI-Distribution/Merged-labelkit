@@ -19,12 +19,14 @@ def address(details, kind):
 
 def analytics_lines(rows):
     found = {}
-    for raw in rows:
+    for index, raw in enumerate(rows):
         sku = intake._analytics_row_value(raw, intake.ANALYTICS_SKU_COLUMN)
         quantity = intake._analytics_quantity(intake._analytics_row_value(raw, intake.ANALYTICS_QUANTITY_COLUMN))
-        if not sku or quantity is None:
+        if quantity is None:
             continue
-        canonical = sku.casefold()
+        # Missing SKUs must remain visible for order-only review; never merge
+        # unrelated unidentified items into one quantity.
+        canonical = sku.casefold() if sku else f'\0unidentified-{index}'
         if canonical not in found:
             found[canonical] = {'sku': sku, 'quantity': 0, **intake._analytics_order_item_fallback(raw, sku)}
         found[canonical]['quantity'] += quantity

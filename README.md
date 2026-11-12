@@ -39,42 +39,35 @@ renamed templates.
 
 ### Bulk order processing
 
-In Order Documents, choose **Bulk order processing**, then **Download Template** or
-**Export Loaded Order**. All data entry uses one **Order Entry** tab, with
-one row per order/SKU and packing/label settings on that same row. Repeat the
-Order Number for each item. Enter shared PO, dates, customer, and addresses
-once per order; blank cells on the other rows inherit those details. Expand
-the optional column group for addresses, barcodes, and advanced settings.
-Dropdown choices are hidden behind the entry sheet; a Guide explains the fields.
-Multiple label templates can be separated by semicolons. For additional label
-ranges/settings, repeat the Line ID on another row and leave item quantities
-blank so demand is counted once. Older three-tab files remain supported.
-Blank optional inputs reuse available Analytics, Product Master, or Directory
-values. New SKUs can be entered directly with order-only packaging details.
-The upload does not update Product Master or Directory.
+In Order Documents, choose **Bulk order processing**, enter sales order numbers
+separated by commas, spaces or new lines, and choose **Load orders**. Duplicate
+numbers are ignored. No spreadsheet template or upload is needed.
 
-Upload the completed `.xlsx` and choose **Check Orders**. Matching runs before
-rendering. Review each field in the popup: Excel values take precedence, then
-missing values use Analytics, Product Master, Directory, and app defaults.
-Every value shows its source. Choose a different source or edit an individual
-value directly. Populated values and matches are shown by default. Each field
-shows its original Excel value and available saved app values, with a
-**Restore saved value** button when they differ. Blank optional fields are
-collapsed; missing inputs and conflicts can be filtered. SKU matching identifies
-Product Master and Analytics order matches separately. Customer, configuration, and directory edits
-recheck dependent defaults. Ambiguous matches require a selection; missing
-order/SKU matches remain visible for acknowledgment. Orders can be skipped.
-Use **Recalculate and review documents**, inspect carton/pallet counts, and
-fix remaining inputs through **Edit fields and defaults** without re-uploading.
-Missing required data blocks generation. The open order remains available
-while the batch runs.
+Analytics supplies each selected order's items, quantities and available header
+details. Product Master supplies matching packaging and label settings; Directory
+supplies matching addresses. Review populated values as well as missing fields.
+Each field shows its source and available saved values. Edit a value for this
+batch, choose another source, or **Restore saved value**. Recheck defaults after
+changing a customer, SKU or packaging configuration.
 
-The bulk review keeps the current action and status in a persistent footer.
-A batch summary and order links help navigate large uploads. Matched values
-remain visible; blank optional fields and the original upload controls use
-progressive disclosure. Escape closes the review and returns keyboard focus
-to its launcher, and reopening retains the current review. The layout adapts
-to narrow screens without hiding the primary action.
+Choose the correct record when an order number has multiple Analytics records.
+Missing orders can be completed manually or skipped. A failed lookup can be
+retried independently; retrying resets that order's item edits. Missing SKUs do
+not require Product Master registration: enter order-only packing details, or
+identify the item by description when the chosen label allows it. Add order-only
+items and choose which Analytics items to include. Excluded items remain available
+to restore. Match notices require acknowledgment before calculation.
+
+Choose **Recalculate and review documents** to check shipping box and pallet
+counts, label templates, addresses and document warnings. Blocking inputs must
+be corrected through **Edit fields and defaults**, or the order skipped, before
+generation. The same matching, carton calculation, pallet planner and PDF
+renderers serve both intake methods. Batch edits do not change Product Master,
+Directory or the current single-order session.
+
+A persistent footer keeps the current action visible. Order links navigate the
+batch; blank optional fields are collapsed. Escape closes the modal and returns
+focus to its launcher. Reopening retains the review until the session expires.
 
 All automatic palletization uses the same backend planner. It finishes each
 SKU in source order before moving to the next SKU. The next SKU can fill
@@ -87,13 +80,13 @@ is not automatically reused for a different repacked Case quantity. Explicit
 barcode choices remain reviewable and required barcode templates block output
 until a valid GTIN is supplied.
 
-The ZIP contains a folder per order, separate print-ready PDFs, the original
-uploaded workbook, reviewed inputs with edits, and JSON/CSV processing reports
-with field-level source decisions. **Download reviewed Excel** also retains
-corrections before generation. Failed orders are reported
-without including incomplete files. Uploads support up to 100 orders and 5,000
-lines, with a 20,000-label-page limit per batch. Keep the workbook locally;
-server review jobs are temporary and may expire.
+The ZIP contains a folder per order, print-ready PDFs, source order numbers,
+reviewed inputs and JSON/CSV processing reports with field-level source decisions.
+**Download reviewed inputs** saves a JSON copy before generation. Failed orders
+are reported without incomplete files. Limits are 100 orders, 5,000 items and
+20,000 label pages per batch. Server review jobs are temporary; expired reviews
+must be loaded again. Legacy workbook API endpoints remain compatible, but are
+not used by the Bulk order processing screen.
 
 ### Single-order workflow
 

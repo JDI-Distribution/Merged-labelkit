@@ -24,12 +24,19 @@ def field_review(state, order, edits=None):
     baseline = analytics_header(record['rows']) if record else {}
     baseline['record_id'] = record['ecomdash_id'] if record else ''
     actual = analytics_lines(record['rows']) if record else []
+    item_choices = []
+    if state.get('intake') == 'numbers':
+        from labelkit.order_batch_intake import order_number_input
+        uploaded, item_choices = order_number_input(order, record, edits)
+    excluded = set(edits.get('excluded_lines') or []) if state.get('intake') == 'numbers' else set()
     sections, decisions, allowed = [], [], set()
     defaults = dict(labels='Auto', packing_list='Yes', pallet_labels='Yes', pallet_copies=2,
                     mpl_layout='Auto', brand='Auto', **{k: v for k, v in _mpl_tihi_constraints().items() if v})
     products = [row for row in state['products'] if row.get('is_active') is not False and row.get('verification_status') != 'BLOCKED']
     buyers = set()
     for index, line in enumerate(uploaded['lines']):
+        if line['line_id'] in excluded:
+            continue
         lookup = dict(line)
         for name in ['sku', 'config_id']:
             edit = overrides.get(f'line:{index}:{name}') or {}
@@ -81,7 +88,7 @@ def field_review(state, order, edits=None):
             return v.casefold().replace('\r\n', '\n').strip()
         conflicts = len({comparable(v) for s, v in available.items() if s != 'default'}) > 1
         fields.append(dict(path=path, name=name, label=label, type=kind, value=value, source=source,
-                           source_label=SOURCE_NAMES.get(source, 'Not available'), selection=selected,
+                           source_label='Order input' if source == 'workbook' and state.get('intake') == 'numbers' else SOURCE_NAMES.get(source, 'Not available'), selection=selected,
                            default_source=default_source, candidates=available, required=required,
                            conflict=conflicts, missing=required and not value, readonly=readonly,
                            stale=selected not in {'auto','custom'} and selected not in available,
@@ -123,18 +130,23 @@ def field_review(state, order, edits=None):
     sections.append(dict(id='header', title='Order details and document options', kind='header', fields=header_fields))
     lines, level_groups, notices = [], [], []
     for index, line in enumerate(uploaded['lines']):
+        if line['line_id'] in excluded:
+            allowed.update(f'line:{index}:{column[0]}' for column in SCHEMA['sheets']['Order Lines'])
+            continue
         fields, effective = [], {}
         prefix = f'line:{index}'
         # A missing SKU can be filled only by a unique description or GTIN match.
         raw = next((row for row in actual if clean(line.get('sku')).casefold() == row['sku'].casefold()), {}) if line.get('sku') else {}
+        if state.get('intake') == 'numbers' and not line.get('sku') and line['line_id'].startswith('LINE-'):
+            raw = actual[int(line['line_id'].split('-')[1])-1]
         if not line.get('sku'):
             matches = [row for row in actual if (line.get('description') and key(row.get('description')) == key(line['description']))
                        or (line.get('gtin') and row.get('gtin') == line['gtin'])]
-            raw = matches[0] if len(matches) == 1 else {}
+            raw = matches[0] if len(matches) == 1 else raw
         sku_column = next(c for c in SCHEMA['sheets']['Order Lines'] if c[0] == 'sku')
         effective['sku'] = cell(prefix, sku_column, dict(workbook=line.get('sku'), analytics=raw.get('sku')), fields)
         # Re-match after an inline SKU edit; never reuse the previous SKU's app data.
-        raw = next((row for row in actual if effective['sku'].casefold() == row['sku'].casefold()), {})
+        raw = next((row for row in actual if effective['sku'].casefold() == row['sku'].casefold()), {}) if effective['sku'] else raw
         config_column = next(c for c in SCHEMA['sheets']['Order Lines'] if c[0] == 'config_id')
         groups = configuration_groups(dict(sku=effective['sku']), products, header.get('customer'))
         config_options = sorted({clean(group[0].get('config_id')) for group in groups if group[0].get('config_id')})
@@ -151,7 +163,7 @@ def field_review(state, order, edits=None):
                       **{field: case.get(field) for field in ['length_in', 'width_in', 'height_in', 'gross_weight_lbs']})
         units_column = next(c for c in SCHEMA['sheets']['Order Lines'] if c[0] == 'quantity_uom')
         effective['quantity_uom'] = cell(prefix, units_column, dict(workbook=line.get('quantity_uom'), product_master=incoming.get('packaging_level'), default='Auto'), fields)
-        split = sum(clean(r.get('sku')).casefold() == effective['sku'].casefold() for r in uploaded['lines']) > 1
+        split = bool(effective['sku']) and sum(clean(r.get('sku')).casefold() == effective['sku'].casefold() for r in uploaded['lines']) > 1
         for column in SCHEMA['sheets']['Order Lines']:
             name = column[0]
             if name in effective:
@@ -166,6 +178,7 @@ def field_review(state, order, edits=None):
                 readonly=name in {'order_number', 'line_id'})
         effective['order_number'] = order
         effective['line_id'] = line['line_id']
+        effective['_review_index'] = index
         for field in fields:
             if field['name'] == 'description':
                 field['required'] = not effective['sku']
@@ -189,7 +202,7 @@ def field_review(state, order, edits=None):
     included = {line['sku'].casefold() for line in lines}
     for row in actual:
         if row['sku'].casefold() not in included:
-            notices.append(f'{row["sku"]}: present in Analytics but absent from this workbook. This batch includes the uploaded lines only.')
+            notices.append(f'{row["sku"]}: present in Analytics but not included in this batch. Confirm the selected items.')
     definitions = uploaded['labels']
     if not definitions:
         definitions = []
@@ -234,7 +247,7 @@ def field_review(state, order, edits=None):
                 field['required'] = True
                 field['missing'] = not field['value']
         if linked and header['labels'] != 'No':
-            line_section = next(s for s in sections if s['id'] == f'line:{lines.index(linked)}')
+            line_section = next(s for s in sections if s['id'] == f'line:{linked["_review_index"]}')
             needed = set(template.get('required_product_fields') or [])
             if linked.get('pack_by') != 'Default':
                 needed.discard('case_qty')
@@ -250,18 +263,18 @@ def field_review(state, order, edits=None):
     # All resolved addresses, including explicit blanks, are authoritative after review.
     header['_field_review'] = True
     invalid = set(overrides) - allowed
-    if invalid:
-        raise ValueError('An edited field no longer exists in this workbook. Reopen the field review.')
+    if invalid and not edits.get('skip'):
+        raise ValueError('An edited field no longer exists. Reopen the field review.')
     if not entry['records']:
-        notices.insert(0, 'Order not found in Analytics. Available Excel and app values are shown below.')
+        notices.insert(0, 'Order not found in Analytics. Enter order-only details below or skip this order.' if state.get('intake') == 'numbers' else 'Order not found in Analytics. Available Excel and app values are shown below.')
     elif edits.get('record_id') == '__none__':
-        notices.insert(0, 'No Analytics fallback selected. Using Excel, Product Master and Directory values.')
+        notices.insert(0, 'No Analytics fallback selected. Enter order-only details; Product Master and Directory defaults remain available.' if state.get('intake') == 'numbers' else 'No Analytics fallback selected. Using Excel, Product Master and Directory values.')
     elif not record:
         notices.insert(0, 'Select the correct Analytics record to fill its missing values. No record was chosen automatically.')
     if entry.get('analytics_error'):
         notices.insert(0, f'Analytics could not be checked: {entry["analytics_error"]}')
     flat = [field for section in sections for field in section['fields']]
-    return dict(order_number=order, sections=sections, notices=notices, skipped=bool(edits.get('skip')), choices=choices,
+    return dict(order_number=order, sections=sections, notices=notices, item_choices=item_choices, skipped=bool(edits.get('skip')), choices=choices,
                 choice_labels={row['template_id']:row.get('name') or row['template_id'] for row in state['templates']},
                 missing_count=sum(f['missing'] for f in flat), conflict_count=sum(f['conflict'] for f in flat),
                 filled_count=sum(f['source'] in {'analytics','product_master','directory','default'} and bool(f['value']) for f in flat),
@@ -278,6 +291,8 @@ def resolve_fields(state, order, edits):
         return None
     review = field_review(state, order, edits)
     resolved = review['resolved']
+    if not resolved['lines']:
+        raise ValueError('Include at least one item, add an order-only item, or skip this order.')
     entry = state['entries'][order]
     if entry['records'] and not review['record_id'] and edits.get('record_id') != '__none__':
         raise ValueError('Select the Analytics record, or choose No Analytics fallback for this order.')
@@ -297,7 +312,7 @@ def resolve_fields(state, order, edits):
                     raise ValueError(f'{field["label"]}: enter a date as YYYY-MM-DD.') from None
     for index, line in enumerate(resolved['lines']):
         line['_field_review'] = True
-        line['_explicit_fields'] = [field['name'] for section in review['sections'] if section['id'] == f'line:{index}'
+        line['_explicit_fields'] = [field['name'] for section in review['sections'] if section['id'] == f'line:{line.get("_review_index", index)}'
                                     for field in section['fields'] if field['selection'] != 'auto' or field['source'] == 'workbook']
         if not line['sku'] and not line['description']:
             raise ValueError(f'{line["line_id"]}: enter a description or SKU to identify this order-only item.')

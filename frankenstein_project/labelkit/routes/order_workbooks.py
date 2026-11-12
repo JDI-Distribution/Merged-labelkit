@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import shutil
 import tempfile
 import threading
@@ -13,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from labelkit.jobs import RESULT_JOBS, RESULT_JOBS_LOCK, create_result_job
 from labelkit.order_workbook_io import workbook_bytes
 from labelkit.order_workbook_review import field_review, public_fields
-from labelkit.order_workbook_jobs import check_worker, generate_worker, reference_snapshot, resolve_worker
+from labelkit.order_workbook_jobs import check_worker, check_numbers_worker, retry_numbers_worker, generate_worker, reference_snapshot, resolve_worker
 from labelkit.runtime import _request_actor, _require_permission
 
 router = APIRouter()
@@ -28,17 +29,17 @@ def owner(request):
 def owned_result(request, result_id, field, copy_result=True):
     job = RESULT_JOBS.get(str(result_id))
     if not job or job.get('workbook_owner') != owner(request):
-        raise HTTPException(404, 'This workbook review expired or is not available to your account. Upload it again.')
+        raise HTTPException(404, 'This order review expired or is not available to your account. Load the orders again.')
     if job.get('status') != 'complete' or field not in job:
-        raise HTTPException(409, 'Wait for the workbook check to finish.')
+        raise HTTPException(409, 'Wait for the order check to finish.')
     return copy.deepcopy(job[field]) if copy_result else job[field]
 
 
-def launch(request, kit, worker, *args, input_data=None):
+def launch(request, kit, worker, *args, input_data=None, input_name='uploaded-orders.xlsx'):
     root = Path(tempfile.mkdtemp(prefix='labelkit_order_excel_'))
     if input_data is not None:
-        (root / 'uploaded-orders.xlsx').write_bytes(input_data)
-        args = (*args, root / 'uploaded-orders.xlsx')
+        (root / input_name).write_bytes(input_data)
+        args = (*args, root / input_name)
     result_id = create_result_job(root, kit)
     RESULT_JOBS[result_id]['workbook_owner'] = owner(request)
     try:
@@ -85,6 +86,7 @@ async def check_order_upload(request: Request, file: UploadFile = File(...)):
 
 
 @router.post('/api/order-documents/excel/resolve')
+@router.post('/api/order-documents/batch/resolve')
 def resolve_order_upload(request: Request, payload: dict):
     _require_permission(request, 'generate')
     state = owned_result(request, payload.get('result_id'), 'order_workbook_state')
@@ -95,16 +97,17 @@ def resolve_order_upload(request: Request, payload: dict):
     def run(result_id, snapshot, decisions, path):
         snapshot['input_path'] = str(path)
         resolve_worker(result_id, snapshot, decisions)
-    return launch(request, 'order_excel_review', run, state, choices, input_data=data)
+    return launch(request, 'order_excel_review', run, state, choices, input_data=data, input_name=Path(state['input_path']).name)
 
 
 @router.post('/api/order-documents/excel/fields')
+@router.post('/api/order-documents/batch/fields')
 def review_order_fields(request: Request, payload: dict):
     _require_permission(request, 'generate')
     state = owned_result(request, payload.get('result_id'), 'order_workbook_state', copy_result=False)
     order = str(payload.get('order_number') or '')
     if order not in state['entries'] or not isinstance(payload.get('choice', {}), dict):
-        raise HTTPException(400, 'Select an order from this workbook.')
+        raise HTTPException(400, 'Select an order from this batch.')
     try:
         return JSONResponse(public_fields(field_review(state, order, payload.get('choice') or {})))
     except ValueError as exc:
@@ -112,14 +115,19 @@ def review_order_fields(request: Request, payload: dict):
 
 
 @router.get('/api/order-documents/excel/reviewed-inputs')
+@router.get('/api/order-documents/batch/reviewed-inputs')
 def export_reviewed_inputs(request: Request, result_id: str):
     _require_permission(request, 'view')
     prepared = owned_result(request, result_id, 'order_workbook_prepared')
+    if prepared.get('intake') == 'numbers':
+        return Response(json.dumps(prepared['values'], indent=2, ensure_ascii=False), media_type='application/json',
+                        headers={'Content-Disposition': 'attachment; filename="Reviewed_Order_Inputs.json"'})
     return Response(workbook_bytes(**prepared['references'], values=prepared['values']), media_type=EXCEL_TYPE,
                     headers={'Content-Disposition': 'attachment; filename="Reviewed_Order_Inputs.xlsx"'})
 
 
 @router.post('/api/order-documents/excel/generate')
+@router.post('/api/order-documents/batch/generate')
 def generate_order_upload(request: Request, payload: dict):
     _require_permission(request, 'generate')
     prepared = owned_result(request, payload.get('result_id'), 'order_workbook_prepared')
@@ -132,4 +140,28 @@ def generate_order_upload(request: Request, payload: dict):
     def run(result_id, snapshot, path):
         snapshot['input_path'] = str(path)
         generate_worker(result_id, snapshot)
-    return launch(request, 'order_excel_zip', run, prepared, input_data=data)
+    return launch(request, 'order_excel_zip', run, prepared, input_data=data, input_name=Path(prepared['input_path']).name)
+
+
+@router.post('/api/order-documents/batch/check')
+def check_order_numbers(request: Request, payload: dict):
+    _require_permission(request, 'generate')
+    from labelkit.order_batch_intake import parse_order_numbers
+    try:
+        orders = parse_order_numbers(payload.get('order_numbers'))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return launch(request, 'order_batch_check', check_numbers_worker, request, orders,
+                  input_data=json.dumps(dict(order_numbers=orders)).encode('utf-8'), input_name='source-orders.json')
+
+
+@router.post('/api/order-documents/batch/retry')
+def retry_order_number(request: Request, payload: dict):
+    _require_permission(request, 'generate')
+    state = owned_result(request, payload.get('result_id'), 'order_workbook_state')
+    order = str(payload.get('order_number') or '')
+    if state.get('intake') != 'numbers' or order not in state['entries']:
+        raise HTTPException(400, 'Select an order from this batch.')
+    data = Path(state['input_path']).read_bytes()
+    return launch(request, 'order_batch_retry', retry_numbers_worker, request, state, order,
+                  input_data=data, input_name='source-orders.json')
