@@ -51,10 +51,10 @@ router = APIRouter()
 
 
 def _require_result_owner(request, job):
-    if job and job.get('workbook_owner'):
+    if job and job.get('owner'):
         actor = _request_actor(request)
         identity = actor.get('user_id') or actor.get('email') or actor.get('name') or 'local'
-        if job['workbook_owner'] != identity:
+        if job.get('owner') != identity:
             raise HTTPException(404, 'Generation result not found.')
 
 

@@ -43,7 +43,6 @@
 
   function markOperationsMplChanged() {
     if (selectedKit !== 'operations' || activeKeheDocumentType !== 'masterPackingList' || !activeKeheDocumentDraft) return;
-    if(typeof unifiedDocumentChanged==='function')unifiedDocumentChanged();
     orderDocumentsState.mplDraft = activeKeheDocumentDraft;
     activeKeheDocumentDraft.review_status = 'DRAFT';
     (activeKeheDocumentDraft.packing_lists || []).forEach(mpl => { mpl.review_status = 'DRAFT'; });
@@ -55,7 +54,6 @@
 
   function markOperationsPalletsChanged() {
     if (selectedKit !== 'operations') return;
-    if(typeof unifiedDocumentChanged==='function')unifiedDocumentChanged();
     orderDocumentsState.palletDraft = activeKeheDocumentDraft;
     activeKeheDocumentDraft.review_status = 'DRAFT';
     orderDocumentsState.reviewedDocuments.pallets = false;
@@ -71,7 +69,6 @@
   }
 
   async function completeOperationsDocumentReview(documentType) {
-    if(typeof orderReviewEditor!=='undefined' && orderReviewEditor)return finishUnifiedOrderEditor(true);
     orderDocumentsState.reviewedDocuments[documentType] = true;
     if (orderDocumentsState.pendingReviewDocument === documentType) clearOperationsDocumentReview();
     if (documentType === 'labels') closePreview(false);
@@ -216,7 +213,7 @@
       }
       const ok = await renderEditedKeheDocument({
         isCurrent,
-        saveMplDraft: documentType === 'mpl' && !(typeof orderReviewEditor!=='undefined' && orderReviewEditor), skipReadiness: true,
+        saveMplDraft: documentType === 'mpl', skipReadiness: true,
         keepEditorOpen: true,
         openPreview: false, showSummary: false, scope: 'operations',
         outputKey: documentType === 'mpl' ? 'operations-mpl' : 'operations-pallets',
@@ -239,13 +236,13 @@
       if (orderDocumentsState.approvingDocument === reviewDraft) {
         orderDocumentsState.approvingDocument = '';
         buttons.forEach(button => { button.disabled = false; });
+        window.renderWorkspaceOrderNavigation?.();
       }
     }
   }
 
   async function goBackFromOperationsReview() {
     if (orderDocumentsState.approvingDocument) return;
-    if(typeof orderReviewEditor!=='undefined' && orderReviewEditor)return finishUnifiedOrderEditor(false);
     const tab = orderDocumentsState.pendingReviewDocument === 'pallets' ? 'pallets' : 'packing';
     clearOperationsDocumentReview();
     closeDocumentEditor(false);
@@ -332,6 +329,7 @@
       document.querySelector('#operations-order-card .operations-order-form'),
       document.getElementById('operations-empty-state'),
       document.getElementById('operations-session'),
+      document.getElementById('operations-order-navigation'),
     ].filter(Boolean);
     if (page) {
       if (blocking) page.dataset.selectingOrder = 'true';
@@ -611,6 +609,7 @@
     }
     renderOperationsFiles();
     renderOperationsApprovalActions();
+    window.renderWorkspaceOrderNavigation?.();
   }
 
   async function selectOperationsWorkspace(updateHistory = true) {
@@ -706,6 +705,7 @@
     setOperationsOrderPickerBlocking(false);
     renderOperationsWorkspace();
     document.getElementById('operations-sales-order-number')?.focus({ preventScroll: true });
+    if(window.cancelWorkspaceOrderSelection?.())return;
     setStatus(orderDocumentsState.payload || orderDocumentsState.customMode
       ? 'Order selection cancelled. Your current document session is unchanged.'
       : 'Order selection cancelled.', 'info');
@@ -806,6 +806,7 @@
     setOperationsOrderBusy(true);
     setStatus(`Loading Sales Order ${orderNumber}…`, 'info');
     showWorkflowProgress(0, `Loading Sales Order ${orderNumber}…`);
+    let outcome;
     try {
       const payload = await window.LabelKitAPI.json('/api/order-documents/orders/lookup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -813,19 +814,23 @@
       });
       if (payload.requires_order_selection) {
         closeWorkflowProgress();
+        outcome={selection:true};
         showOperationsOrderInstances(orderNumber, payload.order_instances || []);
         setStatus(`Sales Order ${orderNumber} has multiple records. Select the correct customer order.`, 'info');
         return;
       }
       updateWorkflowProgress('Matching SKUs', 'Matching order lines to Product Master and customer templates…');
       await completeOperationsOrderLoad(payload, orderNumber, selectedEcomdashId);
+      outcome={loaded:true};
       closeWorkflowProgress();
     } catch (error) {
       closeWorkflowProgress();
-      setStatus(`Order load failed: ${error?.message || 'unknown error'}`, 'error');
+      outcome={error:error?.message || 'Unknown error'};
+      setStatus(`Order load failed: ${outcome.error}`, 'error');
     } finally {
       orderDocumentsState.initializingOrder = false;
       setOperationsOrderBusy(false);
+      window.workspaceOrderLoadFinished?.(outcome,orderNumber);
     }
   }
 
@@ -870,6 +875,7 @@
   }
 
   async function openOperationsCustomMpl() {
+    if(typeof suspendWorkspaceOrders==='function' && !suspendWorkspaceOrders())return;
     mplDraftSync?.discard();
     window.clearGeneratedOutputs?.('operations-labels', 'operations-mpl', 'operations-pallets');
     orderDocumentsState.reviewedOrder = null;
@@ -901,7 +907,7 @@
   }
 
   function openOperationsOrderLookup() {
-    if(typeof orderExcel!=='undefined' && orderExcel.matching){openOrderExcel();return;}
+    if(typeof workspaceOrders!=='undefined' && workspaceOrders.entries.length)return switchWorkspaceOrder(workspaceOrders.active);
     resetOperationsWorkspaceState();
     setHistoryPage('operations');
     renderOperationsWorkspace();
@@ -911,6 +917,7 @@
   }
 
   function openOperationsCustomLabels() {
+    if(typeof suspendWorkspaceOrders==='function' && !suspendWorkspaceOrders())return;
     mplDraftSync?.discard();
     window.clearGeneratedOutputs?.('operations-labels', 'operations-mpl', 'operations-pallets');
     orderDocumentsState.reviewedOrder = null;
@@ -948,6 +955,7 @@
   function openOperationsSavedMpl() { navigateToRoute('operations/saved'); }
 
   function adoptSavedMplIntoOperations(draft) {
+    if(typeof suspendWorkspaceOrders==='function' && !suspendWorkspaceOrders())return;
     resetB2BManualWorkspaceState();
     clearB2BPreview();
     orderDocumentsState.mplDraft = draft;

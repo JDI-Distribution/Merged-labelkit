@@ -26,6 +26,7 @@ export async function runDocumentPipeline({ kind, draft, isCurrent = () => true,
     if (!current()) throw new Error('Document changed during generation. Review and approve the current version again.');
   };
   globalThis.documentPipelineActive = (globalThis.documentPipelineActive || 0) + 1;
+  globalThis.renderWorkspaceOrderNavigation?.();
   try {
     ensureCurrent();
     const readiness = await globalThis.LabelKitAPI.json('/api/documents/readiness', {
@@ -46,6 +47,7 @@ export async function runDocumentPipeline({ kind, draft, isCurrent = () => true,
     return generated;
   } finally {
     globalThis.documentPipelineActive -= 1;
+    globalThis.renderWorkspaceOrderNavigation?.();
     if (activeRuns.get(output.key) === token) activeRuns.delete(output.key);
   }
 }

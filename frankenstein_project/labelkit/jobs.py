@@ -49,15 +49,12 @@ MatchFailureErrors = (MichaelsMatchFailureError,)
 
 def _prune_old_results() -> None:
     with RESULT_JOBS_LOCK:
-        # Active review snapshots are leases, not PDF-cache entries. Otherwise
-        # enough reviewers could cause a newly completed PDF to evict itself.
-        while len(RESULT_JOBS) - sum(job.get('review_until',0) >= time.time() for job in RESULT_JOBS.values()) > MAX_CACHED_REPORTS:
+        while len(RESULT_JOBS) > MAX_CACHED_REPORTS:
             evictable_key = next(
                 (
                     result_id
                     for result_id, job in RESULT_JOBS.items()
                     if str(job.get("status") or "").lower() != "processing" and not job.get("downloads")
-                    and job.get('review_until', 0) < time.time()
                 ),
                 None,
             )
@@ -102,8 +99,6 @@ def update_result_job(result_id: str, **changes: Any) -> None:
         job = RESULT_JOBS.get(result_id)
         if job is not None:
             job.update(changes)
-            if changes.get('status') == 'complete' and job.get('workbook_owner') and ('order_workbook_state' in job or 'order_workbook_prepared' in job):
-                job['review_until'] = time.time() + 3600
     _prune_old_results()
 
 

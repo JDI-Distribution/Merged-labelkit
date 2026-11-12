@@ -516,7 +516,6 @@
       mplDraftSync = window.LabelKitDraftSync.create({
         delayMs: 30000,
         canSave: () => activeKeheDocumentType === 'masterPackingList' && !!activeKeheDocumentDraft
-          && !(typeof orderReviewEditor!=='undefined' && orderReviewEditor)
           && hasPermission('save_mpl') && !(selectedKit === 'operations' && orderDocumentsState.approvingDocument),
         save: () => saveActiveMplDraft({ showStatus: false, autoSave: true, createVersion: false }),
         onState: updateMplSaveState
@@ -3461,7 +3460,6 @@
       return;
     }
     document.getElementById('preview-panel').classList.remove('visible');
-    if(typeof returnFromUnifiedPreview==='function')returnFromUnifiedPreview();
   }
 
   function sleep(ms) {

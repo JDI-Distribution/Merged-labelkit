@@ -64,8 +64,7 @@ async function saveOperationsNewProduct() {
     pending.saved = true;
     saveMplProductMasterToStorage();
     showWorkflowProgress(1, 'Matching the saved SKU and recalculating this order…');
-    if(pending.unified)await rematchUnifiedProduct(pending);
-    else await rematchOperationsProduct(pending.lineIndex, pending.orderId);
+    await rematchOperationsProduct(pending.lineIndex, pending.orderId);
     pending.busy = false;
     closeMplProductEditor();
     setStatus(`${source.sku} saved to Product Master. Order matching and pallets updated; review documents before printing.`, 'success');

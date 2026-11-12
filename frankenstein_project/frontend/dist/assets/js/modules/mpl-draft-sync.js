@@ -53,7 +53,7 @@ export function createMplDraftSync(options) {
     function hasUnsavedChanges() { return dirty; }
     function discard() { generation += 1; dirty = false; clearTimeout(timer); timer = null; }
     function dispose() { clearTimeout(timer); timer = null; }
-    return { schedule, flush, markSaved, hasUnsavedChanges, discard, dispose, version: () => generation };
+    return { schedule, flush, markSaved, hasUnsavedChanges, discard, dispose, version: () => generation, isSaving: () => saving };
 }
 
 export const draftSync = Object.freeze({ create: createMplDraftSync });

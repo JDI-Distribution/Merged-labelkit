@@ -2265,109 +2265,24 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 /* Optional order-only shipping box setup. */
 .operations-box-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding: 12px 0; }
 .operations-box-actions label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
-.order-excel-dialog { width: min(1200px, 96vw); max-height: 94vh; }
-.order-excel-dialog .editor-body { overflow-y: auto; }
-.operations-hero-actions .operations-bulk-action { white-space: normal; }
-.bulk-order-steps { display: grid; grid-template-columns: repeat(4, 1fr); list-style: none; gap: 8px; margin: 0; padding: 12px 18px; border-bottom: 1px solid #d9e3e5; flex: 0 0 auto; }
-.bulk-order-steps li { color: #596d75; font-size: 12px; padding: 6px; border-bottom: 2px solid #d9e3e5; }
-.bulk-order-steps li[aria-current="step"] { color: #214f4b; font-weight: 700; border-color: #2d746b; background: #e7f2f0; }
-@media (max-width: 600px) { .bulk-order-steps { grid-template-columns: repeat(2, 1fr); } }
-.order-excel-feedback { flex: 0 0 auto; padding: 10px 18px; background: #fff; border-top: 1px solid #cbd5e1; }
-.order-excel-feedback p { margin: 0; }
-.order-excel-source { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 16px 0; }
-.order-excel-source label { flex: 1; min-width: 220px; }
-.order-excel-source select { display: block; width: 100%; padding: 9px; }
-.order-excel-order { border: 1px solid #d9e3e5; border-radius: 10px; padding: 16px; margin: 16px 0; }
-.order-excel-order header { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
-.order-excel-table { overflow-x: auto; }
-.order-excel-table table { width: 100%; border-collapse: collapse; }
-.order-excel-table th, .order-excel-table td { text-align: left; vertical-align: top; white-space: pre-wrap; padding: 10px; border-bottom: 1px solid #e2e8ea; overflow-wrap: anywhere; min-width: 120px; }
-.order-excel-table th { background: #edf4f4; }
-.order-excel-errors, #order-excel-status.is-error { color: #a02c26; }
-.order-excel-ack { display: flex; gap: 10px; align-items: center; margin: 18px 0; }
-.order-excel-ack.needs-review { outline: 2px solid #b42318; outline-offset: 5px; background: #fff0ed; }
-.order-excel-addresses { display: flex; flex-wrap: wrap; gap: 24px; }
-.order-excel-addresses p { white-space: pre-wrap; }
-.order-excel-fields { display: flex; flex-direction: column; gap: 8px; }
-.order-excel-field { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(180px, 1fr) minmax(220px, 1.5fr); align-items: start; gap: 12px; padding: 10px; border-radius: 6px; background: #f4f7f8; }
-.order-excel-field label { display: block; font-weight: 600; }
-.order-excel-field input, .order-excel-field select, .order-excel-field textarea { width: 100%; padding: 9px; border: 1px solid #bcc9ce; border-radius: 5px; box-sizing: border-box; font: inherit; }
-.order-excel-badge { display: block; margin-top: 5px; color: #425a64; }
-.order-excel-field.needs-input { background: #fff0ed; border-left: 3px solid #b42318; }
-.order-excel-field.has-conflict { background: #fff7e3; border-left: 3px solid #ac7300; }
-.order-excel-notices { padding-left: 22px; background: #fff7e3; }
-.order-excel-readonly { color: #596d75; }
-.order-excel-comparison { margin-top: 8px; font-size: 12px; }
-.order-excel-comparison > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid #d9e3e5; }
-.order-excel-comparison span { flex: 1; min-width: 160px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.order-excel-comparison .btn-secondary { min-height: 30px; padding: 5px 8px; font-size: 12px; }
-.order-excel-comparison small { color: #425a64; }
-.order-excel-match-status { padding: 10px; background: #edf4f4; border-radius: 6px; line-height: 1.6; }
-.order-excel-optional > summary { cursor: pointer; padding: 12px 0; color: #425a64; }
-.order-excel-optional .order-excel-field { margin-bottom: 8px; }
-#order-excel-modal { background: rgba(22, 32, 46, .28); padding: 16px; align-items: center; justify-content: center; }
-#order-excel-modal .order-excel-dialog { width: min(1280px, 100%); height: calc(100dvh - 32px); max-height: none; border-radius: 16px; box-shadow: 0 20px 70px rgba(15, 23, 42, .2); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-#order-excel-modal .editor-body { background: #f6f7f9; gap: 16px; }
-#order-excel-modal .editor-body > *, #order-excel-modal .order-excel-order, #order-excel-modal .order-excel-field > * { min-width: 0; }
-#order-excel-modal .order-excel-order p, #order-excel-modal .order-excel-order header { overflow-wrap: anywhere; }
-#order-excel-modal .order-excel-table { max-width: 100%; min-width: 0; }
-#order-excel-modal .editor-toolbar { box-shadow: none; }
-#order-excel-modal .editor-toolbar p { margin: 5px 0 0; color: #536171; font-size: 13px; }
-#order-excel-modal .btn-generate { background: #1769d2; border-color: #1769d2; box-shadow: none; min-height: 44px; width: auto; }
-#order-excel-modal .btn-generate:hover { background: #1258b3; }
-#order-excel-modal .btn-secondary { box-shadow: none; min-height: 40px; }
-#order-excel-modal :is(button,input,select,textarea,summary,a):focus-visible { outline: 3px solid #1769d2; outline-offset: 2px; }
-#order-excel-modal .order-excel-feedback { display: flex; flex-direction: column; gap: 10px; }
-#order-excel-actions .order-excel-source { margin: 0; justify-content: flex-end; gap: 10px; }
-#order-excel-actions .btn-generate { margin-left: auto; }
-#order-excel-actions > div:not(.order-excel-source) { display: flex; justify-content: flex-end; }
-.bulk-section-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 0; }
-.bulk-section-navigation > span { color: #64748b; font-size: 12px; text-align: center; }
-#order-excel-modal .bulk-section-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; padding: 8px 12px; }
-#order-excel-modal .bulk-section-navigation button:disabled { opacity: .4; cursor: default; }
-#order-excel-modal .order-excel-order { background: white; }
-@media (max-width: 700px) {
-  #order-excel-modal { padding: 0; }
-  #order-excel-modal .order-excel-dialog { height: 100dvh; border-radius: 0; }
-  #order-excel-modal .editor-body { padding: 12px; }
-  #order-excel-modal .order-excel-order header { flex-direction: column; gap: 6px; }
-  #order-excel-actions .order-excel-source { display: grid; grid-template-columns: 1fr; }
-  #order-excel-actions .btn-generate { margin-left: 0; width: 100%; }
-  #order-excel-modal .order-excel-feedback { padding: 10px 12px; font-size: 13px; }
-}
-@media (max-width: 700px) { .order-excel-field { grid-template-columns: 1fr; gap: 8px; } }
 .operations-packing-body label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .operations-packing-body input, .operations-packing-body select { width: 100%; min-height: 40px; }
 .operations-packing-measurements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 #operations-packing-error { color: var(--danger, #b42318); }
 
-/* Unified order review: fixed navigation and one scrolling content panel. */
-#order-excel-modal .editor-body { padding: 0; overflow: hidden; min-height: 0; }
-#order-excel-results { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: auto; }
-.order-review-navigation { flex: none; padding: 14px 20px 0; border-bottom: 1px solid #dce3eb; background: #fff; }
-.order-review-order-nav, .order-review-navigation .bulk-section-navigation { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 14px; }
-.order-review-navigation label { display: block; font-size: 12px; color: #536171; min-width: 0; }
-.order-review-navigation select, .review-record select { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin-top: 4px; padding: 10px; font: inherit; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 8px; color: #19344f; background: #f9fbfe; }
-.order-review-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin-top: 10px; font-size: 12px; color: #536171; }
-.order-review-status label { display: flex; align-items: center; gap: 6px; }
-#order-review-content { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; overscroll-behavior: contain; }
-#order-review-content .order-excel-order { margin: 0; padding: 16px; }
-#order-review-content h3 { margin: 0 0 16px; font-size: 17px; }
-.review-record { display: block; margin-bottom: 14px; font-size: 13px; color: #536171; }
-.review-item-choice { display: flex; align-items: center; gap: 10px; padding: 14px; margin: 8px 0; background: #f4f7fb; border-radius: 8px; }
-.review-document-card { border: 1px solid #dce3eb; border-radius: 12px; padding: 16px; margin: 12px 0; }
-.review-document-card > div:first-child { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-.review-document-card span { color: #536171; font-size: 13px; }
-.review-document-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-#order-excel-results > :is(h3,p,.order-excel-table,.order-excel-ack) { margin: 16px 20px; }
-#order-excel-actions .order-excel-ack { margin: 0; font-size: 12px; flex: 1; }
-.review-warnings summary { padding: 12px 0; cursor: pointer; }
-@media(max-width:700px) {
- .order-review-navigation { padding: 10px 12px 0; }
- .order-review-order-nav, .order-review-navigation .bulk-section-navigation { gap: 6px; }
- #order-excel-modal .order-review-navigation button { min-height: 40px; padding: 8px; font-size: 12px; }
- #order-review-content { padding: 12px; }
- #order-review-content .order-excel-order { padding: 12px; }
- .order-review-navigation select { padding: 8px 4px; font-size: 12px; }
- #order-excel-actions .order-excel-ack { grid-row: 1; }
+
+.operations-order-navigation { padding: 16px 20px; margin-bottom: 18px; }
+.operations-order-switcher { display: grid; grid-template-columns: auto minmax(160px,1fr) auto; gap: 14px; align-items: center; }
+.operations-order-switcher label { display: block; min-width: 0; color: #52667a; font-size: 12px; }
+.operations-order-switcher select { display: block; width: 100%; box-sizing: border-box; margin-top: 5px; padding: 10px 12px; font: inherit; font-size: 14px; color: #16354d; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+.operations-order-batch-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 14px; font-size: 13px; color: #52667a; }
+.operations-order-batch-actions label { display: flex; align-items: center; gap: 8px; }
+.operations-order-batch-actions > button:last-child { margin-left: auto; }
+.operations-order-load-error { padding: 12px; margin-top: 12px; background: #fff1ed; border-radius: 8px; color: #982b23; }
+@media (max-width:700px) {
+ .operations-order-navigation { padding: 12px; }
+ .operations-order-switcher { grid-template-columns: 1fr 1fr; gap: 8px; }
+ .operations-order-switcher label { grid-column: 1/-1; grid-row: 1; }
+ .operations-order-switcher button { padding: 10px 8px; }
+ .operations-order-batch-actions > button:last-child { margin-left: 0; width: 100%; }
 }

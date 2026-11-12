@@ -211,7 +211,7 @@
     document.getElementById('workflow-progress-modal').classList.add('visible');
   };
   window.updateWorkflowProgress = (step, message = '') => showWorkflowProgress(Math.max(0, PROGRESS_STEPS.indexOf(step)), message || step);
-  window.closeWorkflowProgress = () => document.getElementById('workflow-progress-modal')?.classList.remove('visible');
+  window.closeWorkflowProgress = () => {document.getElementById('workflow-progress-modal')?.classList.remove('visible');window.renderWorkspaceOrderNavigation?.();};
 
   async function pdfPages(blob) {
     if (!blob || !window.pdfjsLib) return 0;
@@ -233,6 +233,10 @@
     return pages;
   };
   window.getGeneratedOutputs = (scope = '') => [...generatedOutputs.entries()].filter(([, output]) => !scope || output.scope === scope);
+  window.replaceOperationsOutputs = entries => {
+    for(const [key,output] of generatedOutputs)if(String(output.scope || '').startsWith('operations'))generatedOutputs.delete(key);
+    for(const [key,output] of entries)generatedOutputs.set(key,output);
+  };
   window.clearGeneratedOutputs = (...keys) => {
     keys.flat().forEach(key => generatedOutputs.delete(key));
     if (typeof renderOperationsFiles === 'function') renderOperationsFiles();
@@ -404,6 +408,14 @@
     mplHistoryDraftRef = draft;
     mplHistory = [cloneDraft(draft)];
     mplHistoryIndex = 0;
+    updateHistoryButtons();
+  };
+  window.captureMplHistory = draft => draft && draft!==mplHistoryDraftRef
+    ? {snapshots:[cloneDraft(draft)],index:0} : {snapshots:cloneDraft(mplHistory),index:mplHistoryIndex};
+  window.restoreMplHistory = (draft,history) => {
+    mplHistoryDraftRef=draft;
+    mplHistory=history?.snapshots?.length?cloneDraft(history.snapshots):(draft?[cloneDraft(draft)]:[]);
+    mplHistoryIndex=mplHistory.length?Math.max(0,Math.min(history?.index ?? 0,mplHistory.length-1)):-1;
     updateHistoryButtons();
   };
   window.captureMplHistoryCheckpoint = () => {

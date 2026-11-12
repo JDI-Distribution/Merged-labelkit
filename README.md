@@ -2,7 +2,7 @@
 
 LabelKit is JDI Distribution's internal document-production application for sales orders, packing lists, Ti-Hi plans, pallet labels, customer case-pack labels, Michaels DTS output, and KeHE ASN output.
 
-The primary workflow is **Order Documents**. It loads one sales order and reuses the same reviewed data for labels, the Master Packing List, Ti-Hi, and pallet labels. Manual packing-list and manual-label workflows are available from the same page.
+The primary workflow is **Order Documents**. It loads one or multiple sales orders and reuses each order's reviewed data for labels, the Master Packing List, Ti-Hi, and pallet labels. Manual packing-list and manual-label workflows are available from the same page.
 
 ## Application map
 
@@ -37,56 +37,43 @@ renamed templates.
 
 ## How order documents work
 
-### One Order Documents workflow
+### Order Documents: one page for one or multiple orders
 
-Enter one or more sales order numbers in **Load Orders**, separated by commas,
-spaces or new lines. Numbers keep their entry order; duplicate numbers are ignored.
-The same screen handles one order and multiple orders. No Excel upload, template,
-or separate bulk-processing launcher is required.
+Enter one or more sales order numbers in **Load Orders**, separated by commas or
+spaces. Duplicate numbers are ignored and entry order is retained. The original
+Order Documents page loads the first order with its normal product matching,
+default packing and automatic pallet calculation. Other orders load when selected,
+so a long list does not delay reviewing the first order.
 
-Use the order dropdown or **Previous order / Next order** to select an order.
-Use the section dropdown or **Previous / Next** to move between included items,
-order details, each SKU, each label and document reviews. Only one order and one
-section appear in the content panel. Navigation and actions stay visible while
-long sections scroll. Each order retains its edits, selected section, scroll
-position, manual document drafts, previews and approvals independently.
+Use **Previous order**, **Next order**, or the order dropdown above the existing
+workspace. Every order uses the same Customer Labels, Packing List & Ti-Hi,
+Pallet Labels and Finished Files tabs. There is no bulk-review popup or separate
+field-by-field wizard. Box customization, order-only SKU setup, optional Product
+Master registration, directory selection, PDF preview and explicit approval use
+the original controls.
 
-Analytics supplies order records and demand. Product Master supplies packaging,
-label templates and level-specific copies; Directory supplies eligible addresses.
-Every field shows its source and available saved values. Inspect populated values,
-complete missing fields, edit for this order, or **Restore saved value**. Recheck
-this order after changing customer, SKU, configuration or document selections.
+Each order retains its selected outputs, label templates and run fields, packing
+settings, manual pallet edits, undo history, document approvals and finished PDFs
+when switching. Matching data already loaded for an order is retained with that
+order. Switching is blocked while a calculation, review, product setup or save is
+in progress. Custom MPL and Custom Labels remain separate actions; returning to
+the order list prompts you to save or download the custom document first.
 
-Select the correct Analytics record when a number has multiple records. Missing
-orders can be completed manually or skipped. Retry a failed lookup individually;
-the action resets that order's item edits. Missing SKUs do not require registration:
-enter order-only packing details or identify the item by description when the
-label allows it. Optional **Add to Product Master** uses the existing shared
-editor and explicitly saves the product. Its refresh updates only that order's
-reference snapshot. Other orders keep their previously reviewed defaults.
+When an order number has multiple Analytics records, use the original record
+selector. Cancelling restores the previous order. A failed lookup affects that
+order only: retry it, skip it, or start a manual packing list using the existing
+editor. Replacing the order list requires confirmation; a failed replacement
+retains the previous work.
 
-Choose included items and add order-only items. Additional label templates can
-be added from an item's label section. Match notices require acknowledgment before
-calculation. For pallet-only runs, exclude Packing List and Ti-Hi and enter the
-manual pallet count and copies in order details.
-
-Choose **Recalculate and review documents** to inspect carton/pallet totals and
-blocking issues. Open an order's document review, preview each selected PDF and
-explicitly approve it. MPL and pallet-label editing use the existing editors,
-including manual pallet assignments, weights, Ti-Hi, undo and redo. Returning
-without approval retains edits. Switching orders or previewing does not repalletize
-manual work. Changed packing inputs require confirmation before replacing edited
-drafts during recalculation. Changed document inputs invalidate their approvals;
-failed or outdated rendering cannot approve or publish an output.
-
-When every included order's selected documents are approved, acknowledge the
-warnings and generate. Download individual PDFs or the ZIP with a folder per order,
-source order numbers, reviewed inputs, final document snapshots and JSON/CSV
-processing reports. Failed orders are identified and incomplete files excluded.
-Limits are 100 orders, 5,000 included items and 20,000 label pages per run.
-Review sessions and generated results are temporary; download files before closing
-the browser. Re-entering the same order list resumes the current session. Replacing
-a session requires confirmation. Legacy workbook APIs remain compatible.
+Preview and approve the selected documents through the existing workflow. Edited
+inputs revoke the affected approvals. **Finished Files** shows the active order's
+approved PDFs. **Download approved orders ZIP** requires every included order to
+be ready and packages those exact approved files into a folder per order; it does
+not regenerate documents or repalletize manual work. A JSON report records input
+order, skipped orders, record IDs and file page counts. Limits are 100 orders,
+20,000 approved pages and 150 MB per archive. Large label PDF bundles remain ZIPs
+inside their order folder. Browser order sessions are temporary; save drafts or
+download files before closing the page.
 
 Automatic palletization uses the shared backend planner: finish each SKU before
 moving to the next; the next SKU may fill available space on the same layer and
@@ -94,9 +81,9 @@ pallet when weight, support, dimensions and Ti-Hi constraints permit. Repacking
 preserves original demand and partial final boxes. Saved Case GTINs are not reused
 automatically for a different repacked Case quantity.
 
-**Create Packing List Without an Order**, **Create Label Without an Order** and
-**Saved Packing Lists** remain available through their existing editors and
-Finished Files workflow. Order-only edits do not update Product Master or Directory.
+The retired bulk popup, workbook intake endpoints, workbook template and separate
+batch document-building path have been removed. Product Master and Directory
+file imports remain available. Order-only edits do not update those shared tables.
 
 Document readiness and Product Master quality checks come from the backend.
 Pallet assignments, weights, and Ti-Hi geometry are calculated in Python; the
@@ -128,8 +115,7 @@ Each-only configurations require a shipping Case before claiming packing-list
 or Ti-Hi readiness. Unassigned lines remain visible in partner packing lists.
 
 Unmatched order lines offer **Set up for this order** for packing details without
-registering the SKU in Product Master. Bulk inputs can use a description when
-the SKU is unavailable. Adding a reusable Product Master record is optional.
+registering the SKU in Product Master. Adding a reusable Product Master record is optional.
 For authorized table editors, the existing product editor opens with
 the customer, incoming SKU, description and available GTIN. **Save & update order**
 saves the reusable configuration, rematches that line, and recalculates pallets.
