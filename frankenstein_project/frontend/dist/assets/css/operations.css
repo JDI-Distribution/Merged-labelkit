@@ -2328,6 +2328,19 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
 #bulk-order-numbers { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 12px; font: inherit; border: 1px solid #bcc9ce; border-radius: 8px; resize: vertical; }
 .bulk-order-items { margin: 16px 0; }
 .bulk-order-items label { display: block; padding: 8px 0; }
+#order-excel-modal [data-bulk-section] { margin: 10px 0; border: 1px solid #dce3eb; border-radius: 12px; overflow: clip; background: #fff; scroll-margin-top: 12px; }
+#order-excel-modal [data-bulk-section] > summary { display: flex; align-items: center; gap: 12px; padding: 15px 18px; min-height: 48px; box-sizing: border-box; cursor: pointer; font-weight: 600; color: #334155; list-style: none; }
+#order-excel-modal [data-bulk-section] > summary::-webkit-details-marker { display: none; }
+#order-excel-modal [data-bulk-section] > summary::after { content: '›'; margin-left: auto; font-size: 24px; line-height: 1; color: #64748b; }
+#order-excel-modal [data-bulk-section][open] { border-color: #a6c6ed; box-shadow: 0 2px 8px rgba(23, 66, 112, .06); }
+#order-excel-modal [data-bulk-section][open] > summary { color: #155bb5; background: #f0f6fe; border-bottom: 1px solid #dbe8f8; }
+#order-excel-modal [data-bulk-section][open] > summary::after { transform: rotate(90deg); }
+#order-excel-modal [data-bulk-section] > :not(summary) { margin-left: 14px; margin-right: 14px; }
+#order-excel-modal [data-bulk-section] > :last-child { margin-bottom: 14px; }
+.bulk-section-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 0; }
+.bulk-section-navigation > span { color: #64748b; font-size: 12px; text-align: center; }
+#order-excel-modal .bulk-section-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; padding: 8px 12px; }
+#order-excel-modal .bulk-section-navigation button:disabled { opacity: .4; cursor: default; }
 .bulk-batch-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; background: white; border: 1px solid #dce1e7; border-radius: 10px; }
 .bulk-order-jump { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .bulk-order-jump a { display: inline-block; padding: 10px 14px; background: white; border: 1px solid #dce1e7; border-radius: 8px; color: #155bb2; text-decoration: none; }

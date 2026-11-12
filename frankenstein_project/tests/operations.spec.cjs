@@ -1,5 +1,55 @@
 const { test, expect } = require('@playwright/test');
 
+test('bulk review shows one section and preserves edits through Previous and Next',async({page},info)=>{
+  await openOperations(page);
+  await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
+  await page.evaluate(()=>{
+    const field=(path,label,value)=>({path,name:path.split(':').at(-1),label,value,type:'text',selection:'auto',source:'analytics',source_label:'Analytics',default_source:'analytics',candidates:{analytics:value},options:[],choice_list:'',required:false,readonly:false,missing:false,conflict:false,stale:false});
+    const order=number=>({order_number:number,records:[],record_id:'',notices:[],item_choices:[{line_id:'LINE-1',sku:'CMB106-1LB',excluded:false}],choices:{},choice_labels:{},filled_count:3,missing_count:0,conflict_count:0,sections:[
+      {id:'header',title:'Order details and document options',kind:'header',fields:[field('header:po_number','Customer PO','PO1925')]},
+      {id:'line:0',title:'CMB106-1LB · LINE-1',kind:'line',product_match:'matched',analytics_match:'matched',fields:[field('line:0:quantity','Ordered Quantity','750')]},
+      {id:'label:0',title:'Label 1 · CMB106-1LB',kind:'label',fields:[field('label:0:lot_number','Lot Number','LOT-01')]}
+    ]});
+    orderExcel.matching={orders:[order('72767'),order('72638')]};orderExcel.choices={};
+    renderOrderExcelMatching();
+  });
+  const modal=page.locator('#order-excel-modal');
+  const open=()=>modal.locator('[data-bulk-section][open]');
+  await expect(open()).toHaveCount(1);
+  await expect(open()).toHaveAttribute('data-bulk-section','header');
+  await open().getByRole('textbox',{name:'Customer PO value',exact:true}).fill('EDITED-PO');
+  await open().getByRole('button',{name:'Next section',exact:true}).click();
+  await expect(open()).toHaveCount(1);
+  await expect(open()).toHaveAttribute('data-bulk-section','line:0');
+  await expect(open().locator('[data-section-position]')).toHaveText('Section 3 of 4');
+  await open().getByRole('button',{name:'Next section',exact:true}).click();
+  await expect(open()).toHaveAttribute('data-bulk-section','label:0');
+  await expect(open().getByRole('button',{name:'Next section',exact:true})).toBeDisabled();
+  await page.evaluate(()=>{orderExcelBusy(true);orderExcelBusy(false);renderOrderExcelMatching();});
+  await expect(open()).toHaveAttribute('data-bulk-section','label:0');
+  await expect(open().getByRole('button',{name:'Next section',exact:true})).toBeDisabled();
+  await open().getByRole('button',{name:'Previous section',exact:true}).click();
+  await open().getByRole('button',{name:'Previous section',exact:true}).click();
+  await expect(open().getByRole('textbox',{name:'Customer PO value',exact:true})).toHaveValue('EDITED-PO');
+  await open().getByRole('button',{name:'Previous section',exact:true}).click();
+  await expect(open()).toHaveAttribute('data-bulk-section','items');
+  await expect(open().getByRole('button',{name:'Previous section',exact:true})).toBeDisabled();
+  await modal.locator('[data-excel-order="1"] [data-bulk-section="line:0"] > summary').click();
+  await expect(open()).toHaveCount(1);
+  await expect(open().locator('..')).toHaveAttribute('data-excel-order','1');
+  await page.keyboard.press('Enter');
+  await expect(open()).toHaveCount(1);
+  await page.setViewportSize({width:390,height:844});
+  await open().locator('summary').first().scrollIntoViewIfNeeded();
+  await expect(open().locator('summary').first()).toBeInViewport();
+  await expect(open().getByRole('button',{name:'Next section',exact:true})).toBeVisible();
+  expect(await modal.locator('.editor-body').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
+  await page.screenshot({path:info.outputPath('bulk-single-section-mobile.png')});
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Bulk order processing',exact:true}).click();
+  await expect(open()).toHaveAttribute('data-bulk-section','line:0');
+});
+
 async function openOperations(page) {
   await page.goto('/#operations');
   await expect(page.getByRole('heading', { name: 'Order Documents' })).toBeVisible();

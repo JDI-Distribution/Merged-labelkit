@@ -66,7 +66,10 @@ renderers serve both intake methods. Batch edits do not change Product Master,
 Directory or the current single-order session.
 
 A persistent footer keeps the current action visible. Order links navigate the
-batch; blank optional fields are collapsed. Escape closes the modal and returns
+batch. One review section is expanded at a time; use Previous/Next arrows or
+select a section heading to move between included items, order details, products
+and labels. The selected section is retained when defaults refresh. Blank optional
+fields are collapsed. Escape closes the modal and returns
 focus to its launcher. Reopening retains the review until the session expires.
 
 All automatic palletization uses the same backend planner. It finishes each

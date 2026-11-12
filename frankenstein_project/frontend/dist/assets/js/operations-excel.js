@@ -42,6 +42,7 @@ function orderExcelBusy(busy) {
   orderExcel.busy = busy;
   document.querySelector('#order-excel-modal .editor-dialog').setAttribute('aria-busy', String(busy));
   document.querySelectorAll('#order-excel-modal [data-excel-action]').forEach(element => { element.disabled = busy; });
+  updateBulkSectionNavigation();
 }
 async function orderExcelDownload(url, filename, body) {
   try {
@@ -147,6 +148,38 @@ function renderOrderExcelField(field, orderIndex, sectionIndex, fieldIndex) {
     ${field.readonly ? '<span class="order-excel-readonly">Linked identifier</span>' : source}<div>${value}${orderExcelFieldComparison(field,orderIndex)}</div></div>`;
 }
 
+function activateBulkSection(orderIndex, sectionId, focus = false) {
+  const card=document.querySelector(`[data-excel-order="${orderIndex}"]`);
+  const sections=[...(card?.querySelectorAll('[data-bulk-section]') || [])];
+  const selected=sections.find(section=>section.dataset.bulkSection===sectionId) || sections[0];
+  if(!selected)return;
+  document.querySelectorAll('#order-excel-results [data-bulk-section]').forEach(section=>{section.open=section===selected;});
+  orderExcel.sectionSelection={order:orderExcel.matching.orders[orderIndex].order_number,id:selected.dataset.bulkSection};
+  updateBulkSectionNavigation();
+  if(focus){selected.querySelector('summary').focus();selected.scrollIntoView({block:'start',behavior:'smooth'});}
+}
+function moveBulkSection(orderIndex, direction) {
+  const sections=[...document.querySelectorAll(`[data-excel-order="${orderIndex}"] [data-bulk-section]`)];
+  const current=sections.findIndex(section=>section.open);
+  const next=sections[current+direction];
+  if(next)activateBulkSection(orderIndex,next.dataset.bulkSection,true);
+}
+function updateBulkSectionNavigation() {
+  document.querySelectorAll('#order-excel-results [data-excel-order]').forEach(card=>{
+    const sections=[...card.querySelectorAll('[data-bulk-section]')];
+    sections.forEach((section,index)=>{
+      const nav=section.querySelector('.bulk-section-navigation');
+      if(!nav)return;
+      nav.querySelector('[data-section-position]').textContent=`Section ${index+1} of ${sections.length}`;
+      nav.querySelector('[data-section-previous]').disabled=orderExcel.busy || index===0;
+      nav.querySelector('[data-section-next]').disabled=orderExcel.busy || index===sections.length-1;
+    });
+  });
+}
+function bulkSectionNavigation(index) {
+  return `<nav class="bulk-section-navigation" aria-label="Section navigation"><button data-excel-action data-section-previous class="btn-secondary" type="button" aria-label="Previous section" onclick="moveBulkSection(${index},-1)"><span aria-hidden="true">←</span> Previous</button><span data-section-position aria-live="polite"></span><button data-excel-action data-section-next class="btn-secondary" type="button" aria-label="Next section" onclick="moveBulkSection(${index},1)">Next <span aria-hidden="true">→</span></button></nav>`;
+}
+
 function renderOrderExcelMatching() {
   setOrderExcelStep(2);
   const orders = orderExcel.matching?.orders || [];
@@ -163,7 +196,7 @@ function renderOrderExcelMatching() {
       ${order.records.length ? `<label>Analytics order record<select data-excel-action aria-label="Order ${escapeHtml(order.order_number)} Analytics record" onchange="selectOrderExcelRecord(${index},this.value)">
       ${order.records.length > 1 ? '<option value="">Choose a record to fill missing fields</option>' : ''}${order.records.map(record => `<option value="${escapeHtml(record.ecomdash_id)}">${escapeHtml([record.ecomdash_id,record.storefront,record.invoice_date].filter(Boolean).join(' / '))}</option>`).join('')}<option value="__none__">No Analytics fallback</option></select></label>` : ''}</div>
       ${chosen.skip ? '<p>This order will be skipped. Its inputs are retained.</p>' : `${order.notices.length ? `<ul class="order-excel-notices">${order.notices.map(message=>`<li>${escapeHtml(message)}</li>`).join('')}</ul>` : ''}
-      <details class="bulk-order-items"><summary>Included items (${order.item_choices.filter(item=>!item.excluded).length})</summary>${order.item_choices.map(item=>`<label><input data-excel-action type="checkbox" ${item.excluded?'':'checked'} onchange="toggleBulkOrderItem(${index}, '${jsString(item.line_id)}', this.checked)"> ${escapeHtml(item.sku || 'Order-only item')} · ${escapeHtml(item.line_id)}</label>`).join('')}</details>
+      <details class="bulk-order-items" data-bulk-section="items"><summary onclick="event.preventDefault();activateBulkSection(${index},'items')">Included items (${order.item_choices.filter(item=>!item.excluded).length})</summary>${bulkSectionNavigation(index)}${order.item_choices.map(item=>`<label><input data-excel-action type="checkbox" ${item.excluded?'':'checked'} onchange="toggleBulkOrderItem(${index}, '${jsString(item.line_id)}', this.checked)"> ${escapeHtml(item.sku || 'Order-only item')} · ${escapeHtml(item.line_id)}</label>`).join('')}</details>
       <button data-excel-action class="btn-secondary" type="button" onclick="addBulkOrderItem(${index})">Add order-only item</button>
       ${!order.records.length ? `<button data-excel-action class="btn-secondary" type="button" onclick="retryBulkOrder(${index})">Retry Analytics lookup (resets this order’s item edits)</button>` : ''}
       ${order.sections.map((section,sectionIndex)=>{
@@ -174,7 +207,7 @@ function renderOrderExcelMatching() {
           else primary.push(html);
         });
         const fields=primary.join('')+(!orderExcel.issuesOnly && optional.length ? `<details class="order-excel-optional"><summary>Additional optional fields (${optional.length})</summary>${optional.join('')}</details>`:'');
-        return fields ? `<details class="order-excel-section" ${section.fields.some(field=>field.missing || field.stale || field.conflict) || (index===0 && section.kind==='header') ? 'open' : ''}><summary>${escapeHtml(section.title)}</summary>${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — enter packing details for this order. Adding to Product Master is optional. A description can identify an item without a SKU.'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
+        return fields ? `<details class="order-excel-section" data-bulk-section="${section.id}"><summary onclick="event.preventDefault();activateBulkSection(${index},'${section.id}')">${escapeHtml(section.title)}</summary>${bulkSectionNavigation(index)}${section.kind==='line' ? `<p class="order-excel-match-status">${section.product_match==='matched' ? 'SKU found in Product Master' : section.product_match==='ambiguous' ? 'Multiple saved packaging configurations — choose a configuration' : 'SKU not found in Product Master — enter packing details for this order. Adding to Product Master is optional. A description can identify an item without a SKU.'}<br>${section.analytics_match==='matched' ? 'SKU found on this Analytics order' : section.analytics_match==='missing' ? 'SKU not found on this Analytics order' : 'Analytics order match unavailable'}</p>` : ''}<div class="order-excel-fields">${fields}</div></details>` : '';
       }).join('')}
       ${orderExcel.issuesOnly && !order.missing_count && !order.conflict_count ? '<p>No missing or conflicting fields. Uncheck the filter to inspect or edit all defaults.</p>' : ''}
       ${order.notices.length || order.conflict_count ? `<label class="order-excel-ack"><input data-excel-action type="checkbox" class="order-excel-match-ack" ${chosen.acknowledge_matches ? 'checked' : ''} onchange="acknowledgeOrderExcel(${index},this.checked)"> I reviewed the match notices and conflicting values for this order.</label>` : ''}`}</section>`;
@@ -190,6 +223,10 @@ function renderOrderExcelMatching() {
       if(source)source.value=field.selection;
     }));
   });
+  const remembered=orderExcel.sectionSelection;
+  const selectedIndex=orders.findIndex(order=>order.order_number===remembered?.order && !orderExcel.choices[order.order_number]?.skip);
+  const firstIndex=orders.findIndex(order=>!orderExcel.choices[order.order_number]?.skip);
+  activateBulkSection(selectedIndex>=0?selectedIndex:firstIndex,selectedIndex>=0?remembered.id:'header');
 }
 
 function orderExcelChoice(index) {
