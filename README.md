@@ -52,6 +52,13 @@ field-by-field wizard. Box customization, order-only SKU setup, optional Product
 Master registration, directory selection, PDF preview and explicit approval use
 the original controls.
 
+Document tabs stay visible while scrolling. A fixed bottom bar mirrors the
+existing Continue/Approve action and provides Previous/Next order controls for
+multiple orders. It hides during document previews and editors. Orders with no
+enabled label jobs can still open Customer Labels for an explanation and order-only
+packing setup; explicitly configuring packing creates the missing label jobs
+through the shared label-job builder without changing Product Master.
+
 Each order retains its selected outputs, label templates and run fields, packing
 settings, manual pallet edits, undo history, document approvals and finished PDFs
 when switching. Matching data already loaded for an order is retained with that

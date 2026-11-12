@@ -151,6 +151,79 @@ async function setUpManualLabel(page) {
   await expect(page.locator('#b2b-sku-template-list .b2b-sku-row')).toHaveCount(1);
 }
 
+test('document tabs and bottom actions stay reachable after scrolling and across orders', async ({page},info) => {
+  await openOperations(page);
+  await page.locator('#operations-sales-order-number').fill('38800,63494');
+  await page.locator('#btn-load-operations-order').click();
+  const picker=page.locator('#operations-order-instance-picker');
+  await page.waitForFunction(()=>!document.getElementById('operations-order-instance-picker').classList.contains('hidden') || document.getElementById('operations-order-number')?.textContent==='38800');
+  if(await picker.isVisible()){
+    await picker.locator('.mpl-order-instance-checkbox').first().check();
+    await picker.getByRole('button',{name:'Load Selected Order',exact:true}).click();
+  }
+  await expect(page.locator('#operations-order-number')).toHaveText('38800');
+  await expect(page.locator('#btn-bottom-next-order')).toBeEnabled();
+  await page.evaluate(()=>{const p=document.getElementById('operations-workspace-page');p.scrollTop=p.scrollHeight;});
+  const tabs=page.locator('.operations-tabs'),bar=page.locator('#operations-action-bar');
+  await expect(tabs).toHaveCSS('position','sticky');await expect(bar).toHaveCSS('position','fixed');
+  for(const node of [tabs,bar]){
+    const bounds=await node.boundingBox();expect(bounds.y).toBeGreaterThanOrEqual(60);expect(bounds.y+bounds.height).toBeLessThanOrEqual(901);
+  }
+  await page.locator('[data-operations-tab="packing"]').click();
+  await expect(page.locator('[data-operations-panel="packing"]')).toBeVisible();
+  await page.locator('[data-operations-tab="labels"]').click();
+  await expect(page.locator('[data-operations-panel="labels"]')).toBeVisible();
+  await expect(page.locator('#btn-operations-bottom-continue')).toHaveText(await page.locator('#btn-generate-operations-documents').textContent());
+  await page.locator('#btn-bottom-next-order').click();
+  await page.waitForFunction(()=>!document.getElementById('operations-order-instance-picker').classList.contains('hidden') || document.getElementById('operations-order-number')?.textContent==='63494');
+  if(await picker.isVisible()){
+    await picker.locator('.mpl-order-instance-checkbox').first().check();await picker.getByRole('button',{name:'Load Selected Order',exact:true}).click();
+  }
+  await expect(page.locator('#operations-order-number')).toHaveText('63494');
+  await expect(page.locator('#btn-bottom-previous-order')).toBeEnabled();
+  await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>{const p=document.getElementById('operations-workspace-page');p.scrollTop=p.scrollHeight;});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+  const mobile=await bar.boundingBox();expect(mobile.y+mobile.height).toBeLessThanOrEqual(845);
+  await page.screenshot({path:info.outputPath('persistent-navigation-mobile.png')});
+});
+
+test('an order with no enabled label jobs can open label setup and create order-only packing',async({page})=>{
+  await page.route('**/api/order-documents/orders/lookup',async route=>{
+    const response=await route.fetch();const body=await response.json();
+    if(body.items)for(const item of body.items)item.packaging_summary=[{packaging_level:'Case',label_enabled:false}];
+    await route.fulfill({response,json:body});
+  });
+  await openOperations(page);await loadOrder(page,'38800');
+  await page.locator('[data-operations-tab="packing"]').click();
+  await expect(page.locator('[data-operations-tab="labels"]')).toBeEnabled();
+  await page.locator('[data-operations-tab="labels"]').click();
+  const setup=page.locator('#operations-label-setup');await expect(setup).toBeVisible();
+  await expect(setup).toContainText('No customer labels are set up yet');
+  expect(await page.evaluate(()=>b2bOrderLabelJobs.length)).toBe(0);
+  await setup.getByRole('button',{name:'Set up for this order',exact:true}).first().click();
+  await expect(page.locator('#operations-action-bar')).toBeHidden();
+  await page.locator('#operations-packing-mode').selectOption('units');
+  await page.locator('#operations-packing-unit-lbs').fill('1');
+  await page.locator('#operations-packing-value').fill('25');
+  await page.locator('#operations-packing-modal').getByRole('button',{name:'Next: box size'}).click();
+  for(const [key,value] of Object.entries({length:'16',width:'12',height:'10',gross:'26'}))await page.locator(`#operations-packing-${key}`).fill(value);
+  await page.locator('#operations-packing-modal').getByRole('button',{name:'OK',exact:true}).click();
+  await expect(page.locator('#operations-packing-modal')).toBeHidden();
+  await expect(setup).toBeHidden();
+  expect(await page.evaluate(()=>b2bOrderLabelJobs.filter(job=>job.order_packaging).length)).toBeGreaterThan(0);
+  await expect(page.locator('#operations-action-bar')).toBeVisible();
+});
+
+test('bottom Continue opens the existing document review and stays out of its way',async({page})=>{
+  await openOperations(page);await page.getByRole('button',{name:'Create Packing List Without an Order',exact:true}).click();
+  await page.locator('#btn-operations-review-back').click();
+  await expect(page.locator('#operations-action-bar')).toBeVisible();
+  await page.locator('#btn-operations-bottom-continue').click();
+  await expect(page.locator('#document-editor-panel')).toBeVisible();
+  await expect(page.locator('#operations-action-bar')).toBeHidden();
+});
+
 test('an unmatched Fancy order retains its buyer, exposes unassigned demand and does not invent a PO', async ({ page }) => {
   await page.route('**/api/order-documents/orders/lookup', route => route.fulfill({ json: {
     sales_order_number: '72638', source: { ecomdash_id: '103853499' },
@@ -499,12 +572,14 @@ test('Custom label generation appears in Finished Files and opens its PDF previe
   await setUpManualLabel(page);
   await expect(page.locator('#btn-approve-operations-labels')).toBeDisabled();
   await expect(page.locator('#btn-generate-operations-documents')).toHaveText('Continue to Label Preview');
-  await page.locator('#btn-generate-operations-documents').click();
+  await page.evaluate(()=>{const p=document.getElementById('operations-workspace-page');p.scrollTop=p.scrollHeight;});
+  await page.locator('#btn-operations-bottom-continue').click();
   const readiness = page.locator('#workflow-readiness-modal');
   await continueLabelReadiness(page);
   await expect(page).toHaveURL(/operations\/preview/);
   await expect(page.getByRole('link', { name: 'Save PDF' })).toBeVisible();
   await expect(page.locator('#btn-approve-preview-labels')).toBeVisible();
+  await expect(page.locator('#operations-action-bar')).toBeHidden();
   await page.locator('#preview-panel .btn-close-preview').click();
   await expect(page).toHaveURL(/operations\/labels/);
   await expect(page.locator('.operations-file-row')).toHaveCount(0);

@@ -64,6 +64,7 @@ function workspaceOrderStatus(entry,index) {
   return Object.values(selected).some(Boolean) && Object.entries(selected).every(([kind,value])=>!value || (state.reviewedDocuments[kind] && outputs.some(([key,output])=>key===`operations-${kind}` && output.blob)))?'Ready':'Needs review';
 }
 function renderWorkspaceOrderNavigation() {
+  window.renderOperationsActionBar?.();
   const nav=document.getElementById('operations-order-navigation');if(!nav)return;
   const {entries,active,suspended}=workspaceOrders;
   nav.classList.toggle('hidden',!entries.length);

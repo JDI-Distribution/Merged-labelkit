@@ -402,6 +402,7 @@
 
         <section class="operations-panel" data-operations-panel="labels">
           <div id="operations-labels-mount">
+          <section id="operations-label-setup" class="operations-review-card hidden" tabindex="-1" aria-labelledby="operations-label-setup-title"></section>
           <div class="b2b-creator-layout">
             <div class="b2b-creator-form">
               <section class="b2b-card">
@@ -613,6 +614,14 @@
 
       <div class="status-bar" id="operations-status-bar"></div>
     </div>
+    <footer id="operations-action-bar" class="operations-action-bar hidden" aria-label="Order document actions">
+      <div id="operations-action-context" class="operations-action-context"></div>
+      <div id="operations-bottom-order-controls" class="operations-bottom-order-controls hidden">
+        <button id="btn-bottom-previous-order" class="btn-secondary" type="button" aria-label="Previous order at bottom" onclick="switchWorkspaceOrder(workspaceOrders.active-1)">← Previous<span class="operations-order-word"> order</span></button>
+        <button id="btn-bottom-next-order" class="btn-secondary" type="button" aria-label="Next order at bottom" onclick="switchWorkspaceOrder(workspaceOrders.active+1)">Next<span class="operations-order-word"> order</span> →</button>
+      </div>
+      <button id="btn-operations-bottom-continue" class="btn-generate" type="button" onclick="advanceOperationsDocuments()">Continue</button>
+    </footer>
   </section>
 
   <!-- Preview Panel -->

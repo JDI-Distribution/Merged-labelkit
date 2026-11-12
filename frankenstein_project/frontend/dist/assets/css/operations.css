@@ -2286,3 +2286,29 @@ body[data-module="operations"][data-operations-review] #mpl-review-status-wrap {
  .operations-order-switcher button { padding: 10px 8px; }
  .operations-order-batch-actions > button:last-child { margin-left: 0; width: 100%; }
 }
+
+/* Navigation remains reachable inside the scrolling Order Documents workspace. */
+.operations-workspace-page { padding-bottom: 125px; scroll-padding-top: 86px; }
+.operations-tabs { position: sticky; top: 0; z-index: 15; box-shadow: 0 5px 18px rgba(21,49,64,.10); }
+.operations-panel { scroll-margin-top: 86px; }
+.operations-action-bar { position: fixed; z-index: 25; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 16px; padding: 12px clamp(18px,2.2vw,32px) max(12px,env(safe-area-inset-bottom)); border-top: 1px solid #c8d6dc; background: rgba(250,253,253,.97); backdrop-filter: blur(16px); box-shadow: 0 -5px 22px rgba(21,49,64,.09); }
+.operations-action-context { flex: 1; min-width: 0; color: #3c5968; font-size: 13px; font-weight: 600; }
+.operations-bottom-order-controls { display: flex; gap: 8px; }
+.operations-action-bar .btn-generate { width: auto; min-height: 42px; padding: 12px 20px; }
+.operations-no-label-jobs > .b2b-creator-layout { display: none; }
+.operations-label-setup-items { display: grid; gap: 12px; margin: 18px 0; }
+.operations-label-setup-items > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #d3dee4; border-radius: 10px; }
+.operations-label-setup-items small { display: block; margin-top: 5px; color: #526a7c; }
+body:has(.editor-panel.visible, .preview-panel.visible, #operations-packing-modal.visible, #workflow-progress-modal.visible, #workflow-readiness-modal.visible) .operations-action-bar { display: none; }
+@media (max-width:700px) {
+ .operations-workspace-page { padding-bottom: 180px; }
+ .operations-action-bar { flex-wrap: wrap; gap: 8px; padding: 10px 12px max(10px,env(safe-area-inset-bottom)); }
+ .operations-action-context { flex-basis: 100%; font-size: 11px; }
+ .operations-bottom-order-controls { flex: 1; }
+ .operations-bottom-order-controls button { padding: 10px 8px; font-size: 11px; white-space: nowrap; }
+ .operations-order-word { display: none; }
+ .operations-action-bar .btn-generate { flex: 1; min-width: 140px; padding: 10px 12px; font-size: 12px; white-space: normal; }
+ .operations-tabs button { padding: 8px 6px; }
+ .operations-tabs button span { font-size: 11px; }
+ .operations-label-setup-items > div { align-items: flex-start; flex-direction: column; }
+}

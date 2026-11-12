@@ -271,7 +271,7 @@
         if (!b2bSelectedGroupKey) return { message: 'Select a product configuration before generating labels.', elementId: 'b2b-product-select', tab: 'labels' };
         if (!getSelectedB2BProduct?.()) return { message: 'Select a packaging level before generating labels.', elementId: 'b2b-level-select', tab: 'labels' };
       } else {
-        if (!b2bOrderLabelJobs.length) return { message: 'This order has no enabled customer-label jobs.', tab: 'labels' };
+        if (!b2bOrderLabelJobs.length) return { message: 'No customer labels are set up for this order. Set up an item in Customer Labels, or deselect Customer Labels to continue with the other documents.', elementId: 'operations-label-setup', tab: 'labels' };
         const unresolved = b2bOrderLabelJobs.filter(job => !b2bTemplateIdsForJob(job).length || job.template_selection_required);
         if (unresolved.length) return { message: `Choose templates for ${unresolved.length} label job${unresolved.length === 1 ? '' : 's'} before generating.`, elementId: 'b2b-sku-template-list', tab: 'labels' };
       }
@@ -553,7 +553,7 @@
     optionalOrderStep?.classList.toggle('hidden', customMode);
     if (outputStep) outputStep.textContent = customLabels ? '03' : customMpl ? '02' : '02';
     if (labelsCheckbox) {
-      labelsCheckbox.disabled = !labelJobs.length && orderDocumentsState.customMode !== 'labels';
+      labelsCheckbox.disabled = !orderDocumentsState.payload && !labelJobs.length && orderDocumentsState.customMode !== 'labels';
       if (labelsCheckbox.disabled) labelsCheckbox.checked = false;
     }
     if (mplCheckbox) {
@@ -587,7 +587,7 @@
       generate.title = blocker?.message || '';
     }
     const tabAvailability = {
-      labels: customMpl ? false : customLabels || labelJobs.length > 0,
+      labels: !customMpl && (customLabels || !!orderDocumentsState.payload || labelJobs.length > 0),
       packing: customLabels ? false : !!mpl,
       pallets: !customLabels && (manualPalletMode ? effectivePalletCount > 0 : !!mpl && palletCount > 0),
       files: true,
@@ -609,7 +609,40 @@
     }
     renderOperationsFiles();
     renderOperationsApprovalActions();
+    renderOperationsLabelSetup();
     window.renderWorkspaceOrderNavigation?.();
+  }
+
+  function renderOperationsLabelSetup() {
+    const setup = document.getElementById('operations-label-setup');
+    const empty = !!orderDocumentsState.payload && !b2bOrderLabelJobs.length && !orderDocumentsState.customMode;
+    document.getElementById('operations-labels-mount')?.classList.toggle('operations-no-label-jobs', empty);
+    setup?.classList.toggle('hidden', !empty);
+    if (!setup || !empty) return;
+    const items = orderDocumentsState.payload.items || [];
+    setup.innerHTML = `<div class="operations-review-copy"><div class="mpl-order-lookup-kicker">Label setup needed</div><h2 id="operations-label-setup-title">No customer labels are set up yet</h2><p>This order has no enabled label jobs. Set up an item's packing below, then choose its label template. Changes apply only to this order.</p><div class="operations-label-setup-items">${items.map((item,index)=>`<div><span><strong>${escapeHtml(item.sku || `Line ${index+1}`)}</strong> · ${escapeHtml(item.description || '')}<small>${item.match_status==='unmatched'?'SKU not found in Product Master.':'No enabled label packaging for this item.'}</small></span><button type="button" class="btn-secondary" onclick="openOperationsPacking(${index})" ${!orderDocumentsState.mplDraft?'disabled':''}>Set up for this order</button></div>`).join('')}</div><p>You can also deselect Customer Labels to prepare only the packing list or pallet labels.</p></div>`;
+  }
+
+  function renderOperationsActionBar() {
+    const bar = document.getElementById('operations-action-bar');
+    if (!bar) return;
+    const loaded = !!(orderDocumentsState.payload || orderDocumentsState.customMode || orderDocumentsState.mplDraft);
+    bar.classList.toggle('hidden', !loaded || orderDocumentsState.selectingOrderInstance);
+    const primary = document.getElementById('btn-generate-operations-documents');
+    const button = document.getElementById('btn-operations-bottom-continue');
+    button.textContent = primary.textContent;
+    button.title = primary.title;
+    button.disabled = primary.disabled || !!globalThis.documentPipelineActive || !!orderDocumentsState.approvingDocument;
+    const tabs = {labels:'Customer Labels',packing:'Packing List & Ti-Hi',pallets:'Pallet Labels',files:'Finished Files'};
+    const batch = typeof workspaceOrders==='object' ? workspaceOrders : null;
+    button.disabled ||= !!batch?.busy;
+    const multiple = batch?.entries.length>1 && !batch.suspended;
+    const context = document.getElementById('operations-action-context');
+    context.textContent = `${orderDocumentsState.orderNumber ? `Order ${orderDocumentsState.orderNumber}` : 'Custom document'} · ${tabs[orderDocumentsState.activeTab] || ''}${multiple ? ` · ${batch.active+1} of ${batch.entries.length}` : ''}`;
+    document.getElementById('operations-bottom-order-controls').classList.toggle('hidden', !multiple);
+    const blocked = typeof canSwitchWorkspaceOrder==='function' && !canSwitchWorkspaceOrder();
+    document.getElementById('btn-bottom-previous-order').disabled = !multiple || blocked || batch.active===0;
+    document.getElementById('btn-bottom-next-order').disabled = !multiple || blocked || batch.active===batch.entries.length-1;
   }
 
   async function selectOperationsWorkspace(updateHistory = true) {
@@ -646,12 +679,15 @@
     if (button?.disabled) {
       setStatus(tab === 'pallets'
         ? 'Review the packing list and assign at least one pallet before opening Pallet Labels.'
-        : `The ${button?.querySelector('span')?.textContent || tab} workspace is not available in this document session.`, 'info');
+        : tab === 'labels'
+          ? 'This manual or saved packing-list session does not include customer labels. Load the sales order using Generate With Order Number, or use Create Label Without an Order.'
+          : 'Load an order or create a packing-list draft before opening Packing List & Ti-Hi.', 'info');
       return;
     }
     orderDocumentsState.activeTab = tab;
     renderOperationsWorkspace();
     if (updateHistory && selectedKit === 'operations') setHistoryRoute(`operations/${tab}`);
+    if (updateHistory) document.querySelector(`[data-operations-panel="${tab}"]`)?.scrollIntoView({block:'start'});
   }
 
   function setOperationsOrderBusy(busy) {

@@ -110,6 +110,10 @@
           label_enabled: true, in_packing_list: true, is_active: true,
         });
         products.push(product);
+        if (!baseJobs.length) {
+          baseJobs.push(...buildB2BOrderLabelJobs([{ ...source, product, packaging_summary: [{ ...product, label_enabled: true }] }], [product])
+            .map(job => ({ ...job, line_index: lineIndex })));
+        }
         replacements.push({ ...original, review_line_index: operationsPackingLine, order_packing_group: group.key,
           order_packaging: { product, source_units: window.LabelKitOrderPackingModel.orderedUnits(source), net_lbs_per_box: group.netLbs,
             settings: { mode: document.getElementById('operations-packing-mode').value, value: Number(document.getElementById('operations-packing-value').value), unitLbs: Number(document.getElementById('operations-packing-unit-lbs').value) } },
