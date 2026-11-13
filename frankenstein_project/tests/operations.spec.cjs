@@ -287,6 +287,29 @@ test('bottom Continue opens the existing document review and stays out of its wa
   await expect(page.locator('#operations-action-bar')).toBeHidden();
 });
 
+test('packing-list and pallet downloads use customer and order filenames',async({page})=>{
+  await openOperations(page);await page.getByRole('button',{name:'Create Packing List Without an Order',exact:true}).click();
+  await page.locator('[data-draft-path="packing_lists.0.order_no"]').fill('0072767');
+  await page.evaluate(()=>{orderDocumentsState.customerName='TEST Fancy Sprinkles';activeKeheDocumentDraft.packing_lists[0].customer_name='TEST Fancy Sprinkles';});
+  await page.locator('#btn-operations-review-continue').click();
+  await expect(page.locator('#document-editor-panel')).toBeHidden();
+  await page.locator('[data-operations-tab="pallets"]').click();
+  await page.locator('#operations-review-pallet-labels').click();
+  await page.locator('#btn-operations-review-continue').click();
+  await expect(page.locator('#document-editor-panel')).toBeHidden();
+  await page.locator('[data-operations-tab="files"]').click();
+  for(const kind of ['Master_Packing_List','Pallet_Labels']){
+    const filename=`TEST_Fancy_Sprinkles_0072767_${kind}.pdf`;
+    const row=page.locator('.operations-file-row').filter({hasText:filename});await expect(row).toBeVisible();
+    await row.getByRole('button',{name:'Open PDF',exact:true}).click();
+    await expect(page.locator('#btn-download')).toHaveAttribute('download',filename);
+    const downloading=page.waitForEvent('download');await page.locator('#btn-download').click();
+    expect((await downloading).suggestedFilename()).toBe(filename);
+    await page.locator('#preview-panel .btn-close-preview').click();
+    await page.locator('[data-operations-tab="files"]').click();
+  }
+});
+
 test('an unmatched Fancy order retains its buyer, exposes unassigned demand and does not invent a PO', async ({ page }) => {
   await page.route('**/api/order-documents/orders/lookup', route => route.fulfill({ json: {
     sales_order_number: '72638', source: { ecomdash_id: '103853499' },
@@ -641,6 +664,7 @@ test('Custom label generation appears in Finished Files and opens its PDF previe
   await continueLabelReadiness(page);
   await expect(page).toHaveURL(/operations\/preview/);
   await expect(page.getByRole('link', { name: 'Save PDF' })).toBeVisible();
+  await expect(page.locator('#btn-download')).toHaveAttribute('download','DecoPac_Custom_Customer_Labels.pdf');
   await expect(page.locator('#btn-approve-preview-labels')).toBeVisible();
   await expect(page.locator('#operations-action-bar')).toBeHidden();
   await page.locator('#preview-panel .btn-close-preview').click();

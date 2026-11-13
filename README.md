@@ -85,6 +85,11 @@ order, skipped orders, record IDs and file page counts. Limits are 100 orders,
 inside their order folder. Browser order sessions are temporary; save drafts or
 download files before closing the page.
 
+Order-document filenames use `Customer_OrderNumber_DocumentType.pdf` (or `.zip`
+for large label bundles), consistently in Finished Files, preview downloads and
+the combined archive. Spaces and unsafe filename characters become underscores;
+order numbers retain leading zeros. Documents without an order use `Custom`.
+
 Automatic palletization uses the shared backend planner: finish each SKU before
 moving to the next; the next SKU may fill available space on the same layer and
 pallet when weight, support, dimensions and Ti-Hi constraints permit. Repacking

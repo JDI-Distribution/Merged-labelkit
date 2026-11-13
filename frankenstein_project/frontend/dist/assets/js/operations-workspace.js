@@ -374,6 +374,16 @@
     ).trim();
   }
 
+  function operationsDocumentFilename(documentType,extension='pdf',draft=orderDocumentsState.mplDraft) {
+    const mpl=draft?.packing_lists?.[0] || orderDocumentsState.mplDraft?.packing_lists?.[0] || {};
+    return window.LabelKitOrderDocuments.documentFilename({
+      customer: documentType==='labels' ? b2bSelectedCustomer || orderDocumentsState.customerName
+        : mpl.customer_name || orderDocumentsState.customerName || b2bSelectedCustomer,
+      orderNumber: orderDocumentsState.orderNumber || mpl.order_no || b2bRunFields.order_number,
+      documentType,extension,
+    });
+  }
+
   function operationsMatchSummary(payload = orderDocumentsState.payload) {
     const summary = payload?.summary || {};
     const matched = Number(summary.matched_products || 0);

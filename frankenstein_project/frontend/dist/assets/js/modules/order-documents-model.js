@@ -1,3 +1,10 @@
+export function documentFilename({customer,orderNumber,documentType,extension='pdf'}) {
+  const clean=(value,fallback,limit)=>String(value || fallback).normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,limit) || fallback;
+  const types={masterPackingList:'Master_Packing_List',palletLabel:'Pallet_Labels',labels:'Customer_Labels',packLabels:'Case_Pack_Labels',gs1Labels:'GS1_Labels'};
+  return `${clean(customer,'Customer',70)}_${clean(orderNumber,'Custom',100)}_${types[documentType] || 'Documents'}.${extension==='zip'?'zip':'pdf'}`;
+}
+
 function palletId(value) {
   const clean = String(value ?? '').trim();
   return clean && clean !== '0' ? clean : '';
@@ -76,6 +83,7 @@ export function buildManualPalletDraft({ mpl = {}, count = 1, copies = 1 }) {
 }
 
 export const orderDocumentsModel = Object.freeze({
+  documentFilename,
   selectedDocuments,
   assignedPalletCount,
   usesManualPalletCount,

@@ -2102,8 +2102,9 @@
     showWorkflowProgress(3, needsArchive ? `Preparing ${estimatedPages.toLocaleString()} pages across ${Math.ceil(estimatedPages / 1000)} PDFs…` : batchMode ? `Preparing ${jobs.length} selected template jobs…` : 'Preparing the selected label job…');
     try {
       const filenameBase = String(b2bRunFields.order_number || 'order').replace(/[^a-z0-9_-]+/gi, '_');
-      const filename = needsArchive ? `${filenameBase}_case_labels.zip`
-        : batchMode ? `${filenameBase}_case_labels.pdf` : `${b2bSelectedTemplateId.toLowerCase()}.pdf`;
+      const filename = String(outputScope).startsWith('operations') ? operationsDocumentFilename('labels',needsArchive?'zip':'pdf')
+        : needsArchive ? `${filenameBase}_case_labels.zip`
+          : batchMode ? `${filenameBase}_case_labels.pdf` : `${b2bSelectedTemplateId.toLowerCase()}.pdf`;
       const generated = await runDocumentPipeline({
         kind: 'labels', draft: { jobs, order_number: b2bRunFields.order_number || 'b2b_labels' },
         isCurrent, skipReadiness: options.skipReadiness,

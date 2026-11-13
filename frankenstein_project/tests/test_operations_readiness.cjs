@@ -40,6 +40,15 @@ function blocker(context, expression = 'operationsGenerationBlocker()') {
   return vm.runInContext(expression, context);
 }
 
+test('document filenames identify customer and order, preserve leading zeros and remove path characters',()=>{
+  const context=createOperationsContext();
+  const name=value=>vm.runInContext(`LabelKitOrderDocuments.documentFilename(${JSON.stringify(value)})`,context);
+  assert.equal(name({customer:'Fancy Sprinkles',orderNumber:'0072767',documentType:'masterPackingList'}),'Fancy_Sprinkles_0072767_Master_Packing_List.pdf');
+  assert.equal(name({customer:'Fancy / Sprinkles: West',orderNumber:'0072767',documentType:'palletLabel'}),'Fancy_Sprinkles_West_0072767_Pallet_Labels.pdf');
+  assert.equal(name({customer:'DécoPac',orderNumber:'00123',documentType:'labels',extension:'zip'}),'DecoPac_00123_Customer_Labels.zip');
+  assert.equal(name({documentType:'labels'}),'Customer_Custom_Customer_Labels.pdf');
+});
+
 test('requires at least one selected document', () => {
   const context = createOperationsContext();
   assert.equal(blocker(context).message, 'Select at least one document to generate.');

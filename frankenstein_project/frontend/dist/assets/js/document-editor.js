@@ -1634,6 +1634,7 @@
     const ensureCurrent = () => { if (!isCurrent()) throw new Error('Document changed during generation. Review and approve the current version again.'); };
 
     const cfg = KEHE_DOCUMENT_CONFIG[renderType];
+    const filename = selectedKit === 'operations' ? operationsDocumentFilename(renderType,'pdf',renderDraft) : cfg.outputName;
     const btn = document.getElementById('btn-render-edited-document');
     const saveGenerateBtn = document.getElementById('btn-save-mpl-draft');
     const saveBeforeGenerate = !!options.saveMplDraft && renderType === 'masterPackingList';
@@ -1666,7 +1667,7 @@
       // Keep the KeHE XML data/report visible while the PDF is generated.
       const generated = await runDocumentPipeline({
         kind: renderType, draft: renderDraft, isCurrent, skipReadiness: options.skipReadiness,
-        output: { key: outputKey, scope: outputScope, name: cfg.outputName, labelType: cfg.label,
+        output: { key: outputKey, scope: outputScope, name: filename, labelType: cfg.label,
           labels: renderType === 'packLabels' ? (renderDraft.pack_labels || []).reduce((sum, row) => sum + Math.max(1, Number(row.copies || 1)), 0)
             : renderType === 'palletLabel' ? (renderDraft.pallets || []).reduce((sum, row) => sum + Math.max(1, Number(row.copies || 1)), 0) : 0,
           pallets: renderType === 'masterPackingList' ? (renderDraft.packing_lists || []).reduce((sum, row) => sum + Math.max(0, Number(row.total_pallets || 0)), 0) : (renderDraft.pallets || []).length },
@@ -1679,7 +1680,7 @@
           const resultId = response.headers.get('X-Result-Id') || payload.result_id;
           if (!resultId) throw new Error('Generation could not be started.');
           currentResultId = resultId;
-          document.getElementById('btn-download').download = cfg.outputName;
+          document.getElementById('btn-download').download = filename;
           await waitForGeneration(resultId);
           const blob = await window.LabelKitAPI.blob(`/results/${encodeURIComponent(resultId)}/file`, {}, 0);
           ensureCurrent();
