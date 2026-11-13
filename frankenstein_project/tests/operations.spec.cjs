@@ -146,6 +146,103 @@ async function waitForLoadedOrder(page,orderNumber){
   await expect(page.getByRole('combobox',{name:'Current sales order',exact:true})).toBeEnabled();
 }
 
+test.describe('Packing scope',()=>{
+  async function start(page,ambiguous=false,unknownWeight=false){
+    await page.route('**/api/order-documents/orders/lookup',async route=>{
+      const request=route.request().postDataJSON(),number=request.sales_order_number;
+      if(ambiguous && number==='81002' && !request.ecomdash_id)return route.fulfill({json:{requires_order_selection:true,order_instances:[
+        {ecomdash_id:'A',storefront:'TEST Customer',customer_name:'TEST Customer',recommended:true},
+        {ecomdash_id:'B',storefront:'Other TEST Customer',customer_name:'Other TEST Customer'}]}});
+      const quantities=number==='81001'?[650,80]:[50,40];
+      await route.fulfill({json:{sales_order_number:number,source:{ecomdash_id:number+'-A'},
+        detected_customer:{name:'Generic B2B',source:'test'},order_details:{storefront:'Generic B2B'},
+        items:quantities.map((quantity,index)=>({sku:`TEST-PACK-${index?(unknownWeight?'B-UNKNOWN':'B-2LB'):'A-1LB'}`,description:`Test ${index?(unknownWeight?'B unknown weight':'B 2LB'):'A 1LB'}`,quantity_ordered:quantity,quantity_ordered_eaches:quantity,match_status:'unmatched'})),
+        summary:{unmatched_products:2,matched_products:0}}});
+    });
+    await openOperations(page);await page.locator('#operations-sales-order-number').fill('81001,81002');await page.locator('#btn-load-operations-order').click();await waitForLoadedOrder(page,'81001');
+    await page.locator('#operations-customize-packing').check();
+    await expect(page.locator('#operations-packing-all-skus')).not.toBeChecked();await expect(page.locator('#operations-packing-all-orders')).not.toBeChecked();
+  }
+  async function apply(page,allSkus,allOrders,value='30'){
+    if(allSkus)await page.locator('#operations-packing-all-skus').check();if(allOrders)await page.locator('#operations-packing-all-orders').check();
+    await page.locator('#operations-packing-value').fill(value);await page.locator('#operations-packing-unit-lbs').fill('1');
+    await page.locator('#operations-packing-modal').getByRole('button',{name:'Next: box size'}).click();
+    for(const [field,value] of Object.entries({length:'16',width:'12',height:'10',gross:'31'}))await page.locator(`#operations-packing-${field}`).fill(value);
+    await page.locator('#operations-packing-apply').click();
+  }
+  async function result(page){return page.evaluate(()=>{
+    saveWorkspaceOrder();return workspaceOrders.entries.map(entry=>({number:entry.number,loaded:!!entry.snapshot,rows:entry.snapshot?.data.state.mplDraft.packing_lists.flatMap(mpl=>mpl.items).map(row=>({line:row.review_line_index,count:Number(row.qty_on_pallet),custom:!!row.order_packaging,units:Number(row.order_packaging?.product.case_qty),gross:Number(row.order_packaging?.product.gross_weight_lbs),net:row.order_packaging?.net_lbs_per_box})),jobs:entry.snapshot?.data.b2b.b2bOrderLabelJobs.map(job=>({line:job.line_index,total:Number(job.run.carton_total)}))}));
+  });}
+  test('all SKUs in this order preserve demand, SKU sequence and individual unit weights',async({page},info)=>{
+    await start(page);await apply(page,true,false);
+    await expect(page.locator('#operations-status-bar')).toContainText('28 boxes across 2 item(s) in 1 order(s)');
+    const orders=await result(page);expect(orders[1].loaded).toBe(false);
+    for(const [line,units,boxes] of [[0,650,22],[1,80,6]]){
+      const rows=orders[0].rows.filter(row=>row.line===line);expect(rows.reduce((sum,row)=>sum+row.count*row.units,0)).toBe(units);expect(rows.reduce((sum,row)=>sum+row.count,0)).toBe(boxes);
+      expect(rows.every(row=>Math.abs(row.gross-row.net-1)<0.001)).toBe(true);
+      expect(orders[0].jobs.filter(job=>job.line===line).every(job=>job.total===boxes)).toBe(true);
+    }
+    const lines=orders[0].rows.map(row=>row.line);expect(lines.lastIndexOf(0)).toBeLessThan(lines.indexOf(1));
+    await page.locator('#operations-customize-packing').click();await page.locator('#operations-packing-all-skus').check();await page.locator('#operations-packing-all-orders').check();
+    await page.screenshot({path:info.outputPath('packing-scope-controls.png')});
+  });
+  test('matching SKU across orders loads remaining records and leaves other SKUs unchanged',async({page})=>{
+    await start(page,true);await apply(page,false,true);
+    const picker=page.locator('#operations-order-instance-picker');await expect(picker).toBeVisible();
+    await picker.locator('.mpl-order-instance-checkbox').first().check();await picker.getByRole('button',{name:'Load Selected Order',exact:true}).click();
+    await expect(page.locator('#operations-status-bar')).toContainText('24 boxes across 2 item(s) in 2 order(s)');
+    const orders=await result(page);expect(await page.locator('#operations-order-number').textContent()).toBe('81001');
+    for(const [index,boxes] of [[0,22],[1,2]]){
+      expect(orders[index].rows.filter(row=>row.line===0).reduce((sum,row)=>sum+row.count,0)).toBe(boxes);
+      expect(orders[index].rows.filter(row=>row.line===1).every(row=>!row.custom)).toBe(true);
+    }
+  });
+  test('all SKUs across all orders roll back every change when a later plan fails',async({page})=>{
+    await start(page);await apply(page,true,false);
+    await expect(page.locator('#operations-status-bar')).toContainText('28 boxes');
+    const baseline=await result(page);
+    await page.evaluate(()=>{updateReviewedOrder('po_number','TEST-PO');updateReviewedOrder('ship_to','TEST Warehouse\n100 Test Way');});
+    await page.locator('#operations-generate-labels').uncheck();await page.locator('#operations-generate-pallets').uncheck();
+    await page.locator('[data-operations-tab="packing"]').click();await page.locator('#operations-review-mpl').click();
+    await page.locator('#btn-operations-review-continue').click();await expect(page.locator('#document-editor-panel')).toBeHidden();
+    await expect(page.locator('#operations-mpl-tab-state')).toContainText('Approved');
+    await page.locator('#operations-customize-packing').click();let plans=0;
+    await page.route('**/api/documents/pallet-plan',async route=>{
+      if(route.request().postDataJSON().mpl.items.some(item=>item.order_packaging) && ++plans===2)return route.fulfill({status:503,json:{detail:'TEST second-order plan failed'}});
+      await route.continue();
+    });
+    await apply(page,true,true,'25');
+    await expect(page.locator('#operations-packing-error')).toContainText('TEST second-order plan failed');
+    const orders=await result(page);expect(orders[0].rows).toEqual(baseline[0].rows);expect(orders[1].rows.every(row=>!row.custom)).toBe(true);
+    expect(await page.evaluate(()=>orderDocumentsState.reviewedDocuments.mpl && getGeneratedOutputs('operations').some(([key])=>key==='operations-mpl'))).toBe(true);
+    await page.unroute('**/api/documents/pallet-plan');
+    await page.locator('#operations-packing-apply').click();
+    await expect(page.locator('#operations-status-bar')).toContainText('39 boxes across 4 item(s) in 2 order(s)');
+    const updated=await result(page);expect(updated.every(order=>order.rows.every(row=>row.custom))).toBe(true);
+    expect(await page.evaluate(()=>orderDocumentsState.reviewedDocuments.mpl)).toBe(false);
+  });
+  test('all-orders packing excludes orders marked Skip',async({page})=>{
+    await start(page);await page.locator('#operations-packing-modal').getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('button',{name:'Next order',exact:true}).click();await waitForLoadedOrder(page,'81002');
+    await page.getByRole('checkbox',{name:'Skip current order',exact:true}).check();
+    await page.getByRole('button',{name:'Previous order',exact:true}).click();await page.locator('#operations-customize-packing').check();
+    await apply(page,true,true);await expect(page.locator('#operations-status-bar')).toContainText('28 boxes across 2 item(s) in 1 order(s)');
+    const orders=await result(page);expect(orders[1].rows.every(row=>!row.custom)).toBe(true);
+  });
+  test('cancelling a required Analytics record choice keeps packing unchanged',async({page})=>{
+    await start(page,true);await apply(page,true,true);
+    const picker=page.locator('#operations-order-instance-picker');await expect(picker).toBeVisible();await picker.getByRole('button',{name:'Keep Current Work',exact:true}).click();
+    await expect(page.locator('#operations-packing-error')).toContainText('Packing changes have not been applied');
+    expect((await result(page))[0].rows.every(row=>!row.custom)).toBe(true);
+    await expect(page.locator('#operations-order-number')).toHaveText('81001');
+  });
+  test('bulk packing identifies unknown SKU weights without copying another SKU weight',async({page})=>{
+    await start(page,false,true);await apply(page,true,false);
+    await expect(page.locator('#operations-packing-error')).toContainText('81001 · TEST-PACK-B-UNKNOWN: Pounds per ordered unit is unknown');
+    expect((await result(page))[0].rows.every(row=>!row.custom)).toBe(true);
+  });
+});
+
 test('load choices add, cancel, replace one order and replace the list without browser confirmations',async({page},info)=>{
   const dialogs=[];page.on('dialog',async dialog=>{dialogs.push(dialog.message());await dialog.dismiss();});
   await openOperations(page);await loadOrder(page,'38800');
@@ -337,7 +434,6 @@ test('an unmatched Fancy order retains its buyer, exposes unassigned demand and 
   await page.getByRole('button', { name: 'Set up for this order', exact: true }).first().click();
   const packing = page.locator('#operations-packing-modal');
   await expect(packing).toBeVisible();
-  await expect(packing).toContainText('Product Master registration is optional');
   await page.locator('#operations-packing-value').fill('25');
   await packing.getByRole('button', { name: 'Next: box size' }).click();
   for (const [field, value] of Object.entries({ length: '16', width: '12', height: '10', gross: '26' })) await page.locator(`#operations-packing-${field}`).fill(value);

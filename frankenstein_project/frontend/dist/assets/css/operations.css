@@ -2319,3 +2319,10 @@ body:has(.editor-panel.visible, .preview-panel.visible, #operations-packing-moda
 .operations-load-choice .btn-generate { width: auto; padding: 11px 16px; font-size: 12px; }
 body:has(.operations-load-choice:not(.hidden)) .operations-action-bar { display: none; }
 @media (max-width:700px) { .operations-load-choice > div { display: grid; grid-template-columns: 1fr; } }
+.operations-packing-scope { padding: 14px; margin: 16px 0; border: 1px solid #c8d9d6; border-radius: 12px; background: #f5faf9; }
+.operations-packing-scope legend { padding: 0 6px; font-weight: 700; color: #214f4b; }
+.operations-packing-body .operations-packing-scope label { flex-direction: row; align-items: flex-start; gap: 10px; margin: 8px 0 14px; }
+.operations-packing-body .operations-packing-scope input { width: 18px; min-height: 18px; margin-top: 2px; accent-color: #2d6f68; }
+.operations-packing-scope small { display: block; margin-top: 4px; color: #526a7c; font-size: 11px; line-height: 1.5; }
+#operations-packing-scope-summary { margin: 10px 0; font-size: 12px; color: #214f4b; }
+.operations-packing-body input:not([type=checkbox]), .operations-packing-body select { padding: 10px 12px; border: 1px solid #c8d5dd; border-radius: 8px; background: #fff; color: #16354d; font: inherit; font-size: 13px; }

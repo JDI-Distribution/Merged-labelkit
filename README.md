@@ -52,6 +52,16 @@ field-by-field wizard. Box customization, order-only SKU setup, optional Product
 Master registration, directory selection, PDF preview and explicit approval use
 the original controls.
 
+Customize packing defaults to the selected line. **All SKUs in this order**
+includes every line; **Across all included orders** applies to the matching SKU
+in each order. Checking both includes every SKU in every non-skipped order.
+Unloaded orders use the original load and Analytics-record selection workflow.
+Each SKU retains its own demand and unit weight; shipping weights combine its
+contents with the empty-box weight implied by the selected line's packed weight.
+Missing unit weights block a bulk change until resolved. Calculations are staged
+in memory and applied together; failure or cancellation restores the original
+packing and approved files. A successful update requires fresh document approval.
+
 Document tabs stay visible while scrolling. A fixed bottom bar mirrors the
 existing Continue/Approve action and provides Previous/Next order controls for
 multiple orders. It hides during document previews and editors. Orders with no
@@ -526,6 +536,10 @@ Frontend responsibilities:
 - temporary PDFs, uploads, and test artifacts
 
 These files are ignored by Git and excluded from the Docker build context.
+
+Frontend script and stylesheet URLs include the deployed revision, in addition
+to no-cache headers. An already open tab must be refreshed to run new code;
+refresh after saving drafts or downloading files you need to keep.
 
 ## Rollback
 

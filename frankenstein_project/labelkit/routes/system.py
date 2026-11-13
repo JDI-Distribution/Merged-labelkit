@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -111,6 +112,8 @@ def serve_frontend_index() -> HTMLResponse:
             status_code=500,
         )
     html = index_path.read_text(encoding="utf-8")
+    revision = re.sub(r'[^A-Za-z0-9_.-]', '', GIT_SHA if GIT_SHA != 'unknown' else APP_VERSION)
+    html = re.sub(r'((?:src|href)="/assets/[^"?]+)(")', lambda match: f'{match[1]}?v={revision}{match[2]}', html)
     return HTMLResponse(
         html,
         media_type="text/html",

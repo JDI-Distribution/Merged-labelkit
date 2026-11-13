@@ -1329,6 +1329,14 @@ class FrontendDeliveryTests(unittest.TestCase):
         self.assertEqual("no-store, no-cache, must-revalidate, max-age=0", response.headers["cache-control"])
         self.assertEqual("no-cache", response.headers["pragma"])
 
+    def test_frontend_asset_urls_change_with_the_deployed_revision(self):
+        for revision in ('first-release', 'next-release'):
+            with self.subTest(revision=revision), patch('labelkit.routes.system.GIT_SHA', revision):
+                html = serve_frontend_index().body.decode('utf-8')
+                self.assertIn(f'src="/assets/js/operations-orders.js?v={revision}"', html)
+                self.assertIn(f'src="/assets/js/operations-packing.js?v={revision}"', html)
+                self.assertIn(f'href="/assets/css/operations.css?v={revision}"', html)
+
     def test_mpl_autosave_and_version_controls_are_delivered(self):
         html = serve_frontend_index().body.decode("utf-8")
 

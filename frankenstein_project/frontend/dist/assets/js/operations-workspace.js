@@ -684,6 +684,7 @@
   }
 
   function selectOperationsTab(tab, updateHistory = true) {
+    if(operationsPackingBatch.running)return;
     if (!['labels', 'packing', 'pallets', 'files'].includes(tab)) return;
     const button = document.querySelector(`[data-operations-tab="${tab}"]`);
     if (button?.disabled) {

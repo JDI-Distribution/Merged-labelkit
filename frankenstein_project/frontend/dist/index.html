@@ -1324,10 +1324,17 @@
 
   <div class="editor-panel workflow-popup-panel" id="operations-packing-modal" role="dialog" aria-modal="true" aria-labelledby="operations-packing-title">
     <div class="editor-dialog workflow-popup-dialog">
-      <div class="editor-toolbar"><div><div class="editor-title" id="operations-packing-title">Customize packing</div><p>Set carton quantities and box sizes, then recalculate this order. Product Master registration is optional. These packing details apply to this order only.</p></div><button class="btn-secondary" type="button" onclick="closeOperationsPacking()">Cancel</button></div>
+      <div class="editor-toolbar"><div><div class="editor-title" id="operations-packing-title">Customize packing</div><p>Set packing quantities and box size, then choose which items to update. Changes apply only to these orders.</p></div><button class="btn-secondary" type="button" onclick="closeOperationsPacking()">Cancel</button></div>
       <div class="editor-body operations-packing-body">
         <label>Order line<select id="operations-packing-line" onchange="selectOperationsPackingLine(this.value)"></select></label>
         <p id="operations-packing-source"></p>
+        <fieldset class="operations-packing-scope">
+          <legend>Apply to</legend>
+          <label><input id="operations-packing-all-skus" type="checkbox" onchange="updateOperationsPackingScope()"><span>All SKUs in this order<small>Unchecked: only the selected SKU / line.</small></span></label>
+          <label><input id="operations-packing-all-orders" type="checkbox" onchange="updateOperationsPackingScope()"><span>Across all included orders<small>Unchecked: only this order. Skipped orders are excluded.</small></span></label>
+          <p id="operations-packing-scope-summary" aria-live="polite"></p>
+          <small>Each SKU keeps its own quantity and unit weight. Other boxes use the empty-box weight from this line's packed weight.</small>
+        </fieldset>
         <div id="operations-packing-quantity-step">
           <h3>1. Choose how to pack this line</h3>
           <label>Pack by<select id="operations-packing-mode" onchange="updateOperationsPackingSummary()"><option value="lbs">Pounds per box</option><option value="units">Ordered units per box</option><option value="boxes">Total boxes</option></select></label>
@@ -1337,7 +1344,7 @@
         </div>
         <div id="operations-packing-size-step" class="hidden">
           <h3>2. Configure the actual shipping box</h3>
-          <p>Measurements apply to every box on this line. Packed weight is for the fullest box; smaller boxes keep the same box tare weight.</p>
+          <p>Box dimensions apply to the selected scope. Packed weight is for the fullest box of the selected line; other boxes use their own contents weight plus the same box tare.</p>
           <div class="operations-packing-measurements">
             <label>Length (in)<input id="operations-packing-length" type="number" min="0.01" step="any"></label>
             <label>Width (in)<input id="operations-packing-width" type="number" min="0.01" step="any"></label>
@@ -1345,7 +1352,7 @@
             <label>Packed box weight (lb)<input id="operations-packing-gross" type="number" min="0.01" step="any"></label>
           </div>
           <p>A changed pack quantity clears the saved product barcode. Review labels before printing.</p>
-          <button class="btn-secondary" type="button" onclick="document.getElementById('operations-packing-quantity-step').classList.remove('hidden'); document.getElementById('operations-packing-size-step').classList.add('hidden')">Back</button>
+          <button class="btn-secondary" type="button" onclick="document.getElementById('operations-packing-quantity-step').classList.remove('hidden'); document.getElementById('operations-packing-size-step').classList.add('hidden'); document.querySelector('#operations-packing-modal .editor-body').scrollTop=0">Back</button>
           <button class="btn-generate" id="operations-packing-apply" type="button" onclick="applyOperationsPacking()">OK</button>
         </div>
         <p id="operations-packing-summary" aria-live="polite"></p>

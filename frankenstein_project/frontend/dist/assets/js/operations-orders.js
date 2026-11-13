@@ -10,8 +10,9 @@ function updateWorkspaceOrderCount() {
     ? `${new Set(values).size} order(s) · ${values.length-new Set(values).size} duplicate(s) ignored`
     : 'Separate order numbers with commas, spaces or new lines. Up to 100 orders.';
 }
-function canSwitchWorkspaceOrder() {
+function canSwitchWorkspaceOrder(packing=false) {
   return !workspaceOrders.busy && !orderDocumentsState.loading && !orderDocumentsState.approvingDocument
+    && (packing || !operationsPackingBatch.running)
     && !globalThis.documentPipelineActive && !mplDraftSync?.isSaving?.() && !operationsNewProduct
     && !['document-editor-panel','preview-panel','operations-packing-modal','workflow-progress-modal'].some(id=>document.getElementById(id)?.classList.contains('visible'));
 }
@@ -131,9 +132,9 @@ async function applyWorkspaceLoadChoice(mode,numbers=workspaceLoadNumbers) {
   workspaceOrders={entries,active:-1,previousActive:previous.active,busy:false,suspended:false,rollback};
   await switchWorkspaceOrder(index);
 }
-async function switchWorkspaceOrder(index,retry=false) {
+async function switchWorkspaceOrder(index,retry=false,packing=false) {
   index=Number(index);
-  if(!Number.isInteger(index) || !workspaceOrders.entries[index] || !canSwitchWorkspaceOrder() || orderDocumentsState.selectingOrderInstance)return;
+  if(!Number.isInteger(index) || !workspaceOrders.entries[index] || !canSwitchWorkspaceOrder(packing) || orderDocumentsState.selectingOrderInstance)return;
   cancelWorkspaceLoadChoice(false);
   if(workspaceOrders.suspended && (orderDocumentsState.customMode || orderDocumentsState.mplDraft) && !window.confirm('Return to the order list? Save or download this custom document first.'))return;
   saveWorkspaceOrder();
@@ -157,12 +158,14 @@ function workspaceOrderLoadFinished(outcome,number) {
     entry.error=outcome.error;
     if(workspaceOrders.rollback){const previous=workspaceOrders.rollback;workspaceOrders=previous.batch;restoreWorkspaceOrder(previous.snapshot);setStatus(`Order load failed: ${outcome.error}. Previous work retained.`,'error');}
   }
+  operationsPackingOrderLoaded(outcome,number);
   renderWorkspaceOrderNavigation();
 }
 function cancelWorkspaceOrderSelection() {
   const entry=workspaceOrders.entries[workspaceOrders.active];if(!entry || entry.status!=='selection')return false;
   if(workspaceOrders.rollback){const previous=workspaceOrders.rollback;workspaceOrders=previous.batch;restoreWorkspaceOrder(previous.snapshot);}
   else if(workspaceOrders.entries[workspaceOrders.previousActive]?.snapshot){workspaceOrders.active=workspaceOrders.previousActive;restoreWorkspaceOrder(workspaceOrders.entries[workspaceOrders.active].snapshot);}
+  operationsPackingOrderLoaded({cancelled:true},entry.number);
   renderWorkspaceOrderNavigation();setStatus('Record selection cancelled. Existing order edits are retained.','info');return true;
 }
 function skipWorkspaceOrder(value) {workspaceOrders.entries[workspaceOrders.active].skip=value;renderWorkspaceOrderNavigation();}
