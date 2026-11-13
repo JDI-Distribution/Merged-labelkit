@@ -170,6 +170,14 @@ test.describe('Packing scope',()=>{
     for(const [field,value] of Object.entries({length:'16',width:'12',height:'10',gross:'31'}))await page.locator(`#operations-packing-${field}`).fill(value);
     await page.locator('#operations-packing-apply').click();
   }
+  async function editTwoItems(page){
+    for(const [line,pounds,unit,length,gross] of [['0','25','1','16','26'],['1','20','2','20','21']]){
+      await page.locator('#operations-packing-line').selectOption(line);
+      await page.locator('#operations-packing-value').fill(pounds);await page.locator('#operations-packing-unit-lbs').fill(unit);
+      await page.locator('#operations-packing-modal').getByRole('button',{name:'Next: box size'}).click();
+      for(const [field,value] of Object.entries({length,width:'12',height:'10',gross}))await page.locator(`#operations-packing-${field}`).fill(value);
+    }
+  }
   async function result(page){return page.evaluate(()=>{
     saveWorkspaceOrder();return workspaceOrders.entries.map(entry=>({number:entry.number,loaded:!!entry.snapshot,rows:entry.snapshot?.data.state.mplDraft.packing_lists.flatMap(mpl=>mpl.items).map(row=>({line:row.review_line_index,count:Number(row.qty_on_pallet),custom:!!row.order_packaging,units:Number(row.order_packaging?.product.case_qty),gross:Number(row.order_packaging?.product.gross_weight_lbs),net:row.order_packaging?.net_lbs_per_box})),jobs:entry.snapshot?.data.b2b.b2bOrderLabelJobs.map(job=>({line:job.line_index,total:Number(job.run.carton_total)}))}));
   });}
@@ -185,6 +193,61 @@ test.describe('Packing scope',()=>{
     const lines=orders[0].rows.map(row=>row.line);expect(lines.lastIndexOf(0)).toBeLessThan(lines.indexOf(1));
     await page.locator('#operations-customize-packing').click();await page.locator('#operations-packing-all-skus').check();await page.locator('#operations-packing-all-orders').check();
     await page.screenshot({path:info.outputPath('packing-scope-controls.png')});
+  });
+  test('editing SKU B after applying SKU A preserves SKU A packing and measurements',async({page})=>{
+    await start(page);await apply(page,false,false,'25');
+    await expect(page.locator('#operations-status-bar')).toContainText('26 boxes');
+    const first=(await result(page))[0].rows.filter(row=>row.line===0);
+    await page.locator('#operations-customize-packing').click();
+    await page.locator('#operations-packing-line').selectOption('1');
+    await page.locator('#operations-packing-value').fill('20');await page.locator('#operations-packing-unit-lbs').fill('2');
+    await page.locator('#operations-packing-modal').getByRole('button',{name:'Next: box size'}).click();
+    for(const [field,value] of Object.entries({length:'20',width:'14',height:'12',gross:'21'}))await page.locator(`#operations-packing-${field}`).fill(value);
+    await page.locator('#operations-packing-apply').click();
+    await expect(page.locator('#operations-status-bar')).toContainText('8 boxes');
+    expect((await result(page))[0].rows.filter(row=>row.line===0)).toEqual(first);
+    await page.locator('#operations-customize-packing').click();await page.locator('#operations-packing-line').selectOption('0');
+    await expect(page.locator('#operations-packing-value')).toHaveValue('25');await expect(page.locator('#operations-packing-length')).toHaveValue('16');
+  });
+  test('switching SKU fields before OK keeps both drafts and applies their different packing together',async({page})=>{
+    await start(page);await editTwoItems(page);
+    await page.locator('#operations-packing-line').selectOption('0');
+    await expect(page.locator('#operations-packing-value')).toHaveValue('25');await expect(page.locator('#operations-packing-length')).toHaveValue('16');
+    await page.locator('#operations-packing-line').selectOption('1');
+    await expect(page.locator('#operations-packing-value')).toHaveValue('20');await expect(page.locator('#operations-packing-length')).toHaveValue('20');
+    await page.locator('#operations-packing-modal').getByRole('button',{name:'Next: box size'}).click();await page.locator('#operations-packing-apply').click();
+    await expect(page.locator('#operations-status-bar')).toContainText('34 boxes across 2 item(s) in 1 order(s)');
+    const rows=(await result(page))[0].rows;
+    expect(rows.filter(row=>row.line===0).reduce((sum,row)=>sum+row.count,0)).toBe(26);
+    expect(rows.filter(row=>row.line===1).reduce((sum,row)=>sum+row.count,0)).toBe(8);
+    await page.locator('#operations-customize-packing').click();
+    for(const [line,pounds,length,gross] of [['0','25','16','26'],['1','20','20','21']]){
+      await page.locator('#operations-packing-line').selectOption(line);await expect(page.locator('#operations-packing-value')).toHaveValue(pounds);
+      await expect(page.locator('#operations-packing-length')).toHaveValue(length);await expect(page.locator('#operations-packing-gross')).toHaveValue(gross);
+    }
+  });
+  test('different pending SKU settings also apply across orders without overwriting each other',async({page})=>{
+    await start(page);await editTwoItems(page);await page.locator('#operations-packing-all-orders').check();
+    await expect(page.locator('#operations-packing-scope-summary')).toContainText('2 edited SKUs');
+    await page.locator('#operations-packing-apply').click();
+    await expect(page.locator('#operations-status-bar')).toContainText('40 boxes across 4 item(s) in 2 order(s)');
+    const orders=await result(page);
+    for(const [index,counts] of [[0,[26,8]],[1,[2,4]]])for(const [line,count] of counts.entries())expect(orders[index].rows.filter(row=>row.line===line).reduce((sum,row)=>sum+row.count,0)).toBe(count);
+    const summarizeB=order=>{
+      const groups=new Map();
+      for(const {count,...packing} of order.rows.filter(row=>row.line===1)){const key=JSON.stringify(packing);groups.set(key,(groups.get(key) || 0)+count);}
+      return [...groups].sort(([left],[right])=>left.localeCompare(right));
+    };
+    const previousB=orders.map(summarizeB);
+    await page.locator('#operations-customize-packing').click();await page.locator('#operations-packing-line').selectOption('0');
+    await apply(page,false,true,'30');await expect(page.locator('#operations-status-bar')).toContainText('24 boxes across 2 item(s) in 2 order(s)');
+    expect((await result(page)).map(summarizeB)).toEqual(previousB);
+  });
+  test('Cancel discards pending SKU edits without changing previously loaded packing',async({page})=>{
+    await start(page);await editTwoItems(page);await page.locator('#operations-packing-modal').getByRole('button',{name:'Cancel',exact:true}).click();
+    expect((await result(page))[0].rows.every(row=>!row.custom)).toBe(true);
+    await page.locator('#operations-customize-packing').check();await expect(page.locator('#operations-packing-edits-summary')).toBeHidden();
+    for(const line of ['0','1']){await page.locator('#operations-packing-line').selectOption(line);await expect(page.locator('#operations-packing-value')).toHaveValue('');}
   });
   test('matching SKU across orders loads remaining records and leaves other SKUs unchanged',async({page})=>{
     await start(page,true);await apply(page,false,true);

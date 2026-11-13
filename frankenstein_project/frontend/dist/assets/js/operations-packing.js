@@ -1,7 +1,29 @@
 /* Optional, order-only box counts and physical box measurements. */
   let operationsPackingLine = 0;
   const operationsPackingBatch={running:false,waiting:null};
-  function closeOperationsPacking() {
+  const operationsPackingEditor={line:null,baselines:new Map(),edits:new Map()};
+  const operationsPackingFields=['mode','value','unit-lbs','length','width','height','gross'];
+  function readOperationsPackingFields() {
+    return Object.fromEntries(operationsPackingFields.map(field=>[field,document.getElementById(`operations-packing-${field}`).value]));
+  }
+  function renderOperationsPackingEdits() {
+    const count=operationsPackingEditor.edits.size;
+    const summary=document.getElementById('operations-packing-edits-summary');
+    summary.textContent=count?`${count} item change(s) waiting for OK. Edited items keep their own settings; the selected scope fills the remaining items.`:'';
+    summary.classList.toggle('hidden',!count);
+    for(const option of document.getElementById('operations-packing-line').options)option.textContent=option.dataset.baseLabel+(operationsPackingEditor.edits.has(Number(option.value))?' · Edited':'');
+    updateOperationsPackingScope();
+  }
+  function rememberOperationsPackingEdit() {
+    const {line,baselines,edits}=operationsPackingEditor;
+    if(line==null || operationsPackingBatch.running)return;
+    const fields=readOperationsPackingFields();
+    if(JSON.stringify(fields)===JSON.stringify(baselines.get(line)))edits.delete(line);
+    else edits.set(line,fields);
+    renderOperationsPackingEdits();
+  }
+  function closeOperationsPacking(discard=true) {
+    if(discard){operationsPackingEditor.line=null;operationsPackingEditor.baselines.clear();operationsPackingEditor.edits.clear();}
     document.getElementById('operations-packing-modal')?.classList.remove('visible');
     const checkbox = document.getElementById('operations-customize-packing');
     if (checkbox) checkbox.checked = !!orderDocumentsState.mplDraft?.packing_lists?.some(mpl => mpl.items?.some(item => item.order_packaging));
@@ -12,18 +34,21 @@
     operationsPackingLine = Number.isInteger(lineIndex) ? lineIndex : operationsPackingLine;
     document.getElementById('operations-customize-packing').checked = true;
     persistB2BActiveRunFields();
+    operationsPackingEditor.line=null;operationsPackingEditor.baselines.clear();operationsPackingEditor.edits.clear();
     const select = document.getElementById('operations-packing-line');
     document.getElementById('operations-packing-all-skus').checked=false;
     document.getElementById('operations-packing-all-orders').checked=false;
     document.getElementById('operations-packing-all-orders').disabled=workspaceOrders.entries.length<2;
     select.innerHTML = orderDocumentsState.payload.items.map((item, index) =>
       `<option value="${index}">${escapeHtml(item.sku || item.description || `Line ${index + 1}`)}${orderDocumentsState.mplDraft?.packing_lists?.some(mpl => mpl.items?.some(row => row.review_line_index === index && row.order_packaging)) ? ' · Customized' : ''}</option>`).join('');
+    for(const option of select.options)option.dataset.baseLabel=option.textContent;
     document.getElementById('operations-packing-modal').classList.add('visible');
     selectOperationsPackingLine(String(Math.min(operationsPackingLine, orderDocumentsState.payload.items.length - 1)));
     select.value = String(operationsPackingLine);
     document.querySelector('#operations-packing-modal .editor-body').scrollTop=0;
   }
   function selectOperationsPackingLine(value) {
+    rememberOperationsPackingEdit();
     operationsPackingLine = Number(value);
     const source = orderDocumentsState.payload.items[operationsPackingLine];
     const rows = orderDocumentsState.mplDraft.packing_lists.flatMap(mpl => mpl.items || []);
@@ -39,6 +64,10 @@
     for (const [id, field] of [['length', 'length_in'], ['width', 'width_in'], ['height', 'height_in'], ['gross', 'gross_weight_lbs']]) {
       document.getElementById(`operations-packing-${id}`).value = product[field] || item[field] || '';
     }
+    operationsPackingEditor.baselines.set(operationsPackingLine,readOperationsPackingFields());
+    const edited=operationsPackingEditor.edits.get(operationsPackingLine);
+    if(edited)for(const field of operationsPackingFields)document.getElementById(`operations-packing-${field}`).value=edited[field];
+    operationsPackingEditor.line=operationsPackingLine;renderOperationsPackingEdits();
     document.getElementById('operations-packing-quantity-step').classList.remove('hidden');
     document.getElementById('operations-packing-size-step').classList.add('hidden');
     document.getElementById('operations-packing-error').textContent = '';
@@ -67,9 +96,11 @@
     const allSkus=document.getElementById('operations-packing-all-skus').checked;
     const allOrders=document.getElementById('operations-packing-all-orders').checked;
     const source=orderDocumentsState.payload?.items?.[operationsPackingLine];
+    const edited=operationsPackingEditor.edits;
+    const skus=new Set([...edited.keys(),operationsPackingLine].map(index=>operationsSkuKey(orderDocumentsState.payload?.items?.[index]?.sku)).filter(Boolean));
     const orders=allOrders?workspaceOrders.entries.filter(entry=>!entry.skip).length:1;
     document.getElementById('operations-packing-scope-summary').textContent=
-      `${allSkus?'All SKUs':allOrders?`SKU ${source?.sku || '(SKU required)'}`:'Selected line'} · ${orders} ${allOrders?'included orders':'order'}. `
+      `${allSkus?'All SKUs':allOrders?(skus.size>1?`${skus.size} edited SKUs`:`SKU ${source?.sku || '(SKU required)'}`):edited.size?`${edited.size} edited item(s)`:'Selected line'} · ${orders} ${allOrders?'included orders':'order'}. `
       +(allOrders?'Unloaded orders load first. ':'')
       +(document.getElementById('operations-packing-mode').value==='boxes'?'Total boxes applies separately to each affected item, not to the whole shipment.':'Box counts are recalculated separately for each item.');
   }
@@ -175,16 +206,17 @@
     for(const lineIndex of lines){
       const source=orderDocumentsState.payload.items[lineIndex];
       const row=draft.packing_lists.flatMap(list=>list.items || []).find(item=>item.review_line_index===lineIndex);
-      const sameSku=operationsSkuKey(source.sku)===input.sku && !!input.sku;
-      const selected=workspaceOrders.active===originIndex && lineIndex===input.lineIndex;
-      const unitLbs=selected || sameSku ? input.settings.unitLbs
+      const explicit=(workspaceOrders.active===originIndex && input.presets.get(lineIndex)) || (input.allOrders && input.bySku.get(operationsSkuKey(source.sku)));
+      const packing=explicit || input.fallback;
+      const selected=workspaceOrders.active===originIndex && lineIndex===packing.lineIndex;
+      const unitLbs=explicit ? packing.settings.unitLbs
         : Number(row?.order_packaging?.settings?.unitLbs) || window.LabelKitOrderPackingModel.unitNetLbs(source);
       try {
         if(!selected && !(unitLbs>0))throw new Error('Pounds per ordered unit is unknown. Set up this item first, or apply only to the selected SKU.');
-        const groups=window.LabelKitOrderPackingModel.boxGroups({totalUnits:window.LabelKitOrderPackingModel.orderedUnits(source),...input.settings,unitLbs});
+        const groups=window.LabelKitOrderPackingModel.boxGroups({totalUnits:window.LabelKitOrderPackingModel.orderedUnits(source),...packing.settings,unitLbs});
         if(groups.length>1 && groups.some(group=>group.netLbs==null))throw new Error('Enter pounds per ordered unit to calculate partial box weights.');
-        const gross=selected?input.measurements.gross:Math.max(...groups.map(group=>group.netLbs || 0))+input.tare;
-        boxes+=buildOperationsPackingLine(draft,jobs,lineIndex,groups,{...input.measurements,gross},{...input.settings,unitLbs});
+        const gross=selected?packing.measurements.gross:Math.max(...groups.map(group=>group.netLbs || 0))+packing.tare;
+        boxes+=buildOperationsPackingLine(draft,jobs,lineIndex,groups,{...packing.measurements,gross},{...packing.settings,unitLbs});
       }catch(error){throw new Error(`${orderDocumentsState.orderNumber} · ${source.sku || `Line ${lineIndex+1}`}: ${error.message}`);}
     }
     await autoPalletizeMpl(0,{draft,render:false,showStatus:false});
@@ -212,26 +244,37 @@
     let started=false;
     try {
       if(mplDraftSync?.isSaving?.())throw new Error('Wait for the current draft save to finish, then apply packing.');
-      const settings={mode:document.getElementById('operations-packing-mode').value,value:Number(document.getElementById('operations-packing-value').value),unitLbs:Number(document.getElementById('operations-packing-unit-lbs').value)};
-      const groups=operationsPackingGroups();
-      const measurements=Object.fromEntries(['length','width','height','gross'].map(key=>[key,Number(document.getElementById(`operations-packing-${key}`).value)]));
-      if(Object.values(measurements).some(value=>!(Number.isFinite(value) && value>0)))throw new Error('Enter positive box length, width, height, and packed box weight.');
-      const maxNet=Math.max(...groups.map(group=>group.netLbs || 0));
-      if(maxNet>measurements.gross+0.0001)throw new Error('Packed box weight must include the contents and the box.');
+      rememberOperationsPackingEdit();
       const allSkus=document.getElementById('operations-packing-all-skus').checked,allOrders=document.getElementById('operations-packing-all-orders').checked;
-      if((allSkus || allOrders) && !(Number.isFinite(settings.unitLbs) && settings.unitLbs>0))throw new Error('Enter pounds per ordered unit for the selected line before applying across SKUs or orders.');
-      const sku=operationsSkuKey(orderDocumentsState.payload.items[operationsPackingLine].sku);
-      if(allOrders && !allSkus && !sku)throw new Error('This line has no SKU to match across orders. Select All SKUs, or update this line only.');
+      const fields=new Map(operationsPackingEditor.edits);
+      if(!fields.size || allSkus || allOrders)fields.set(operationsPackingLine,readOperationsPackingFields());
+      const presets=new Map(),bySku=new Map();
+      for(const [lineIndex,values] of fields){
+        const source=orderDocumentsState.payload.items[lineIndex];
+        try {
+          const settings={mode:values.mode,value:Number(values.value),unitLbs:Number(values['unit-lbs'])};
+          const groups=window.LabelKitOrderPackingModel.boxGroups({totalUnits:window.LabelKitOrderPackingModel.orderedUnits(source),...settings});
+          const measurements=Object.fromEntries(['length','width','height','gross'].map(key=>[key,Number(values[key])]));
+          if(Object.values(measurements).some(value=>!(Number.isFinite(value) && value>0)))throw new Error('Enter positive box length, width, height, and packed box weight.');
+          const maxNet=Math.max(...groups.map(group=>group.netLbs || 0));
+          if(maxNet>measurements.gross+0.0001)throw new Error('Packed box weight must include the contents and the box.');
+          if((allSkus || allOrders) && !(Number.isFinite(settings.unitLbs) && settings.unitLbs>0))throw new Error('Enter pounds per ordered unit before applying across SKUs or orders.');
+          const sku=operationsSkuKey(source.sku),packing={settings,measurements,tare:measurements.gross-maxNet,lineIndex,sku};
+          if(allOrders && !allSkus && !sku)throw new Error('This line has no SKU to match across orders. Select All SKUs, or update this line only.');
+          if(allOrders && sku && bySku.has(sku) && JSON.stringify({...bySku.get(sku),lineIndex:0})!==JSON.stringify({...packing,lineIndex:0}))throw new Error('This SKU has different edited packing on multiple lines. Apply to this order only.');
+          presets.set(lineIndex,packing);if(sku)bySku.set(sku,packing);
+        }catch(error){throw new Error(`${source.sku || `Line ${lineIndex+1}`}: ${error.message}`);}
+      }
       const targets=workspaceOrders.entries.map((entry,index)=>({entry,index})).filter(({entry,index})=>allOrders?!entry.skip:index===origin);
       if(!targets.length)throw new Error('No included orders. Unskip an order before applying.');
-      const input={settings,measurements,tare:measurements.gross-maxNet,lineIndex:operationsPackingLine,sku};
-      saveWorkspaceOrder();operationsPackingBatch.running=true;started=true;button.disabled=true;closeOperationsPacking();
+      const input={presets,bySku,allOrders,fallback:presets.get(operationsPackingLine)};
+      saveWorkspaceOrder();operationsPackingBatch.running=true;started=true;button.disabled=true;closeOperationsPacking(false);
       for(const {index} of targets)await loadOperationsPackingOrder(index);
       showWorkflowProgress(4,'Reprocessing packing with your new quantities and box sizes…');
       let boxes=0,items=0;
       for(const {entry,index} of targets){
         workspaceOrders.active=index;restoreWorkspaceOrder(entry.snapshot);
-        const lines=(orderDocumentsState.payload?.items || []).map((source,lineIndex)=>({source,lineIndex})).filter(({source,lineIndex})=>allSkus || (allOrders?!!sku && operationsSkuKey(source.sku)===sku:lineIndex===input.lineIndex)).map(row=>row.lineIndex);
+        const lines=(orderDocumentsState.payload?.items || []).map((source,lineIndex)=>({source,lineIndex})).filter(({source,lineIndex})=>allSkus || (index===origin && presets.has(lineIndex)) || (allOrders && bySku.has(operationsSkuKey(source.sku)))).map(row=>row.lineIndex);
         if(!lines.length)continue;
         updateWorkflowProgress('Planning pallets',`Reprocessing order ${entry.number} (${staged.size+1}/${targets.length})…`);
         const result=await stageOperationsPacking(lines,input,origin);
@@ -240,6 +283,7 @@
       if(!staged.size)throw new Error('The selected SKU was not found in the included orders.');
       for(const [entry,snapshot] of staged)entry.snapshot=snapshot;
       workspaceOrders.active=origin;restoreWorkspaceOrder(workspaceOrders.entries[origin].snapshot);
+      operationsPackingEditor.line=null;operationsPackingEditor.baselines.clear();operationsPackingEditor.edits.clear();
       setStatus(`Packing updated: ${boxes} boxes across ${items} item(s) in ${staged.size} order(s). Pallets recalculated. Review labels and packing lists before printing.`,'success');
     }catch(error){
       if(started){workspaceOrders.active=origin;restoreWorkspaceOrder(workspaceOrders.entries[origin].snapshot);document.getElementById('operations-packing-modal').classList.add('visible');document.getElementById('operations-customize-packing').checked=true;}

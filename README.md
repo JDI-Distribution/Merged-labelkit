@@ -62,6 +62,12 @@ Missing unit weights block a bulk change until resolved. Calculations are staged
 in memory and applied together; failure or cancellation restores the original
 packing and approved files. A successful update requires fresh document approval.
 
+Switching the item dropdown retains each item's pending packing fields. Edited
+items are marked in the dropdown; **OK** applies all pending item changes together.
+Each explicitly edited item keeps its own settings, while the scope choices fill
+the remaining items. Across orders, edited SKU settings follow their matching SKU.
+**Cancel** discards pending fields without changing the applied packing.
+
 Document tabs stay visible while scrolling. A fixed bottom bar mirrors the
 existing Continue/Approve action and provides Previous/Next order controls for
 multiple orders. It hides during document previews and editors. Orders with no
