@@ -52,7 +52,7 @@ field-by-field wizard. Box customization, order-only SKU setup, optional Product
 Master registration, directory selection, PDF preview and explicit approval use
 the original controls.
 
-Customize packing defaults to the selected line. **All SKUs in this order**
+Customize packing defaults to the items you edit. **All SKUs in this order**
 includes every line; **Across all included orders** applies to the matching SKU
 in each order. Checking both includes every SKU in every non-skipped order.
 Unloaded orders use the original load and Analytics-record selection workflow.
