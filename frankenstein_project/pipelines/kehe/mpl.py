@@ -245,10 +245,13 @@ def render_kehe_master_packing_list_pdf(
         for field in ("supplier_info", "bill_to", "ship_to"):
             mpl[field] = normalize_address_text(mpl.get(field, ""))
         status = mpl.get("status", "Ready")
-        if not _mpl_clean(mpl.get("ship_to")) or not _mpl_clean(mpl.get("customer_po_number")):
+        review_status = _mpl_clean(mpl.get("review_status") or draft.get("review_status")).upper()
+        missing_required = not _mpl_clean(mpl.get("ship_to")) or not _mpl_clean(mpl.get("customer_po_number"))
+        if missing_required:
             status = "Needs Review"
             mpl["status"] = status
-        if status == "Needs Review":
+        # Keep draft warnings available if approval is subsequently revoked.
+        if status == "Needs Review" and (review_status != "APPROVED" or missing_required):
             needs_review_count += 1
 
         template_id = _mpl_template_id(draft, mpl)
@@ -290,6 +293,7 @@ def render_kehe_master_packing_list_pdf(
 
                 c.setPageSize(A4)
                 mpl_page = dict(mpl)
+                mpl_page["review_status"] = review_status or "DRAFT"
                 y = _render_mpl_header(c, mpl_page, page_idx, total_mpl_pages, template_id, brand_id)
                 y = _render_mpl_table_header(c, y, template_id, brand_id, mpl)
 
@@ -317,7 +321,7 @@ def render_kehe_master_packing_list_pdf(
                 c.setLineWidth(0.8)
                 c.rect(_MPL_MARGIN, _MPL_INNER_BOTTOM, _MPL_INNER_W, _MPL_PAGE_H - 2 * _MPL_MARGIN)
 
-                if page_idx == 1 and mpl.get("warnings"):
+                if page_idx == 1 and mpl.get("warnings") and review_status != "APPROVED":
                     warning_text = "; ".join(
                         w for w in mpl["warnings"]
                         if "defaulted to 1" not in w.lower()

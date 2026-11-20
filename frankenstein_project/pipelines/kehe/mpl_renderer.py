@@ -475,12 +475,13 @@ def _render_mpl_header(
         c.drawRightString(x0 + inner_w - 5, y - title_h / 2 - 2.0, review_status)
     y -= title_h + (0.07 if compact else 0.12) * inch
 
-    if mpl.get("status") == "Needs Review":
-        warning = (
-            "NEEDS REVIEW - Unknown KeHE DC. Verify addresses before using."
-            if template_id == "kehe"
-            else "NEEDS REVIEW - Verify order, address, and pallet details before using."
-        )
+    missing = []
+    if not _mpl_clean(mpl.get("ship_to")):
+        missing.append("Ship To address")
+    if not _mpl_clean(mpl.get("customer_po_number")):
+        missing.append("customer PO number")
+    if missing or (mpl.get("status") == "Needs Review" and review_status != "APPROVED"):
+        warning = ("NEEDS REVIEW - Missing " + " and ".join(missing) + ".") if missing else "NEEDS REVIEW - Review shipment warnings before approving."
         y = _draw_warning_box(
             c,
             warning,

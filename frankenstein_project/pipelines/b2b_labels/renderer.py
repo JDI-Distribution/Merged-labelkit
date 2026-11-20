@@ -240,6 +240,7 @@ def _draw_barcode(
     max_height: float,
     *,
     bar_width: float | None = None,
+    fill_area: bool = False,
 ) -> None:
     digits = _digits(value)
     kind = _text(barcode_type).upper().replace("-", "_")
@@ -253,6 +254,11 @@ def _draw_barcode(
         code_name = "UPCA"
     elif kind in {"EAN", "EAN_13", "EAN13"} and len(digits) == 13:
         code_name = "EAN13"
+
+    if fill_area and code_name == "Code128":
+        # Keep ten-module quiet zones as the bars expand to the panel width.
+        quiet_width = 10 * (bar_width if bar_width is not None else 0.54)
+        drawing_options.update(lquiet=quiet_width, rquiet=quiet_width)
 
     try:
         drawing = createBarcodeDrawing(
@@ -272,10 +278,12 @@ def _draw_barcode(
         )
 
     scale = min(max_width / drawing.width, max_height / drawing.height, 1.0)
-    draw_width = drawing.width * scale
+    scale_x = max_width / drawing.width if fill_area else scale
+    scale_y = max_height / drawing.height if fill_area else scale
+    draw_width = drawing.width * scale_x
     c.saveState()
     c.translate(x + ((max_width - draw_width) / 2), y)
-    c.scale(scale, scale)
+    c.scale(scale_x, scale_y)
     renderPDF.draw(drawing, c, 0, 0)
     c.restoreState()
 
@@ -413,9 +421,11 @@ def _draw_compact_case_panel(
     y = _draw_value_row(c, "PACK:", pack, margin, y, width - 2 * margin, size=8, label_width=0.50 * inch)
 
     show_barcode = show_barcode or _barcode_requested(job)
-    _draw_fitted_line(c, _carton_text(carton, total), width / 2, 0.72 * inch if show_barcode else 0.34 * inch, width - 2 * margin, font="Helvetica-Bold", size=14, align="center")
+    large_barcode = show_barcode and customer_default.upper() == "DUTCH BROS"
+    carton_y = (1.33 if large_barcode else 0.72) * inch if show_barcode else 0.34 * inch
+    _draw_fitted_line(c, _carton_text(carton, total), width / 2, carton_y, width - 2 * margin, font="Helvetica-Bold", size=14, align="center")
     if show_barcode:
-        _draw_barcode(c, _job_value(job, "gtin"), _job_value(job, "barcode_type"), margin, 0.10 * inch, width - 2 * margin, 0.48 * inch)
+        _draw_barcode(c, _job_value(job, "gtin"), _job_value(job, "barcode_type"), margin, 0.10 * inch, width - 2 * margin, (1.05 if large_barcode else 0.48) * inch, fill_area=large_barcode)
 
 
 def _draw_compact_case(

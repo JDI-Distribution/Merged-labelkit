@@ -103,6 +103,32 @@ class MplTemplateTests(unittest.TestCase):
             with fitz.open(output_path) as document:
                 return document[0].get_text()
 
+    def test_approval_acknowledges_review_banner_and_revocation_restores_it(self):
+        draft = self._draft("kehe")
+        mpl = draft["packing_lists"][0]
+        mpl["status"] = "Needs Review"
+        mpl["warnings"] = ["Verify the destination address before printing."]
+        mpl["review_status"] = "APPROVED"
+        text = self._render_first_page_text(draft)
+        self.assertIn("APPROVED", text)
+        self.assertNotIn("NEEDS REVIEW", text)
+        self.assertNotIn("Verify the destination address", text)
+        self.assertIn("123 MAIN ST", text)
+        mpl["review_status"] = "DRAFT"
+        text = self._render_first_page_text(draft)
+        self.assertIn("NEEDS REVIEW", text)
+        self.assertNotIn("Unknown KeHE DC", text)
+
+    def test_approval_does_not_hide_missing_address_or_po(self):
+        for field, warning in (("ship_to", "Ship To address"), ("customer_po_number", "customer PO number")):
+            with self.subTest(field=field):
+                draft = self._draft("kehe")
+                draft["review_status"] = "APPROVED"
+                draft["packing_lists"][0][field] = ""
+                text = self._render_first_page_text(draft)
+                self.assertIn("NEEDS REVIEW", text)
+                self.assertIn(warning, text)
+
     def _render_first_page_size(self, draft):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "mpl.pdf"

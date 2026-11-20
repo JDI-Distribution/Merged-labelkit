@@ -68,6 +68,27 @@ class B2BLabelRendererTests(unittest.TestCase):
             },
         }
 
+    def test_dutch_bros_barcodes_use_panel_width_and_height(self):
+        for template in self.templates:
+            if not template['template_id'].startswith('DUTCH_'):
+                continue
+            for kind, gtin in [('UPC_A', '607772629240'), ('GTIN_14', '10850068684781')]:
+                with self.subTest(template=template['template_id'], barcode=kind):
+                    job = self._job(template)
+                    job['product'].update(gtin=gtin, barcode_type=kind)
+                    job['run'].update(print_barcode=True, carton_start='1', carton_end='1', copies='1')
+                    result = render_b2b_label_pdf(job, template)
+                    with fitz.open(stream=result['pdf_bytes'], filetype='pdf') as document:
+                        page = document[0]
+                        for panel in range(2):
+                            bars = [d['rect'] for d in page.get_drawings()
+                                    if d['fill'] == (0, 0, 0) and d['rect'].height > 40
+                                    and d['rect'].width < 10
+                                    and panel * 216 <= d['rect'].x0 < (panel + 1) * 216]
+                            self.assertGreater(len(bars), 20)
+                            self.assertGreater(max(r.x1 for r in bars) - min(r.x0 for r in bars), 160)
+                            self.assertGreater(min(r.height for r in bars), 60)
+
     def test_custom_boxes_render_full_and_partial_ranges_with_one_shared_total(self):
         template = next(row for row in self.templates if row['template_id'] == 'FANCY_SRD_3X3')
         jobs = []
