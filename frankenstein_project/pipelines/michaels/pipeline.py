@@ -348,9 +348,10 @@ def _render_shipping_label_first_with_output(
         used_pack_ssccs,
         n_pages,
         output_order=output_order,
+        require_all_xml_packs=not group_by_shipping_pdf,
     )
 
-    if unmatched_pages or unused_packs or duplicate_messages:
+    if unmatched_pages or duplicate_messages or (unused_packs and not group_by_shipping_pdf):
         raise MatchFailureError(
             _build_match_failure_message(
                 unmatched_details,

@@ -209,7 +209,8 @@ class MichaelsOutputOrderTests(unittest.TestCase):
             self.assertIn("REDLANDS", text)
             self.assertIn("92373", text)
 
-    def _render_with_order(self, tmp_path: Path, group_by_pdf: bool):
+    def _render_with_order(self, tmp_path: Path, group_by_pdf: bool,
+                           xml_pack_count=2, shipping_page_count=2, label_tracking=None):
         pack_b = pipeline.Pack(
             sscc="000000000000000002",
             tracking="1ZBBBBBBBBBBBBBBBB",
@@ -223,22 +224,35 @@ class MichaelsOutputOrderTests(unittest.TestCase):
             store="100",
         )
         all_packs = [pack_b, pack_a]
+        all_packs.extend(
+            pipeline.Pack(sscc=f"{index:018d}", tracking=f"1Z{index:016d}",
+                          po=str(40000000 + index), store=str(index))
+            for index in range(3, xml_pack_count + 1)
+        )
+        label_tracking = label_tracking or [
+            pack.tracking for pack in [pack_a, pack_b, *all_packs[2:]][:shipping_page_count]
+        ]
         shipping_path = tmp_path / "shipping.pdf"
         shipping_doc = fitz.open()
-        shipping_doc.new_page()
-        shipping_doc.new_page()
+        for _ in label_tracking:
+            shipping_doc.new_page()
         shipping_doc.save(shipping_path)
         shipping_doc.close()
 
         with ExitStack() as stack:
             stack.enter_context(
-                mock.patch.object(pipeline, "convert_from_path", return_value=["A", "B"])
+                mock.patch.object(
+                    pipeline, "convert_from_path",
+                    side_effect=lambda _path, **kwargs: label_tracking[
+                        kwargs["first_page"] - 1:kwargs["last_page"]
+                    ],
+                )
             )
             stack.enter_context(
                 mock.patch.object(
                     pipeline,
                     "_ocr_image",
-                    side_effect=lambda image: pack_a.tracking if image == "A" else pack_b.tracking,
+                    side_effect=lambda image: image,
                 )
             )
             stack.enter_context(
@@ -314,6 +328,43 @@ class MichaelsOutputOrderTests(unittest.TestCase):
         self.assertIn("GS1-100-ORDER-2-OF-2", page_text[4])
         self.assertEqual(report["rows"][0]["output_start_page"], 4)
         self.assertEqual(report["rows"][1]["output_start_page"], 1)
+
+    def test_pdf_order_generates_100_labels_from_800_xml_packs(self):
+        with TemporaryDirectory() as temp_dir:
+            report, page_text = self._render_with_order(
+                Path(temp_dir), group_by_pdf=True, xml_pack_count=800, shipping_page_count=100,
+            )
+
+        self.assertTrue(report["summary"]["success"])
+        self.assertEqual(800, report["summary"]["xml_packs"])
+        self.assertEqual(100, report["summary"]["matched_pages"])
+        self.assertEqual(700, report["summary"]["unused_xml_packs"])
+        self.assertEqual(700, len(report["unused_xml_packs"]))
+        self.assertEqual(300, len(page_text))
+        self.assertIn("GS1-100-ORDER-1-OF-100", page_text[1])
+        self.assertIn("GS1-200-ORDER-2-OF-100", page_text[4])
+        self.assertEqual(298, report["rows"][-1]["output_start_page"])
+
+    def test_xml_order_still_requires_every_xml_pack(self):
+        with TemporaryDirectory() as temp_dir:
+            with self.assertRaises(pipeline.MatchFailureError) as caught:
+                self._render_with_order(Path(temp_dir), group_by_pdf=False, xml_pack_count=3)
+            self.assertFalse(caught.exception.report["summary"]["success"])
+            self.assertEqual(1, caught.exception.report["summary"]["unused_xml_packs"])
+            self.assertFalse((Path(temp_dir) / "xml-order.pdf").exists())
+
+    def test_pdf_order_still_rejects_unmatched_or_duplicate_labels(self):
+        for tracking, expected_status in [("1Z9999999999999999", "unmatched"),
+                                          ("1ZAAAAAAAAAAAAAAAA", "duplicate")]:
+            with self.subTest(status=expected_status), TemporaryDirectory() as temp_dir:
+                with self.assertRaises(pipeline.MatchFailureError) as caught:
+                    self._render_with_order(
+                        Path(temp_dir), group_by_pdf=True, xml_pack_count=3,
+                        label_tracking=["1ZAAAAAAAAAAAAAAAA", tracking],
+                    )
+                self.assertFalse(caught.exception.report["summary"]["success"])
+                self.assertEqual(expected_status, caught.exception.report["rows"][1]["status"])
+                self.assertFalse((Path(temp_dir) / "pdf-order.pdf").exists())
 
     def test_multiple_uploads_become_separate_pdfs_in_zip(self):
         with TemporaryDirectory() as temp_dir:

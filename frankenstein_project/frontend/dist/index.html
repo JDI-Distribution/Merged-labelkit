@@ -199,14 +199,14 @@
             <input type="radio" name="michaels-output-order" value="pdf" checked>
             <span>
               <strong>Yes — follow uploaded PDF order</strong>
-              <small>Recommended. Each shipping label stays with its GS1 label and packing list.</small>
+              <small>Recommended. Generate only the uploaded shipping labels, each with its matched GS1 label and packing list. Extra XML packs are allowed.</small>
             </span>
           </label>
           <label class="michaels-output-order-option">
             <input type="radio" name="michaels-output-order" value="xml">
             <span>
               <strong>No — use ASN XML order</strong>
-              <small>The same matched document groups are arranged in the XML pack sequence.</small>
+              <small>Arrange document groups in the XML pack sequence. Every XML pack must have a matching shipping label.</small>
             </span>
           </label>
         </div>

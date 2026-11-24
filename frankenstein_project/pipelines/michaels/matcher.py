@@ -109,6 +109,7 @@ def _build_match_report(
     used_pack_ssccs: set[str],
     shipping_pages: int,
     output_order: str = "Uploaded PDF order",
+    require_all_xml_packs: bool = True,
 ) -> Dict[str, Any]:
     unused_packs: List[Pack] = []
     seen_ssccs: set[str] = set()
@@ -126,7 +127,7 @@ def _build_match_report(
         ],
         "summary": {
             "output_order": output_order,
-            "success": matched_pages == shipping_pages and len(unused_packs) == 0,
+            "success": matched_pages == shipping_pages and (not require_all_xml_packs or not unused_packs),
             "shipping_pages": shipping_pages,
             "xml_packs": len(all_packs),
             "matched_pages": matched_pages,

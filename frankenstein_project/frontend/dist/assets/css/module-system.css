@@ -224,6 +224,18 @@ body:is([data-module="michaels"], [data-module="kehe"]) .match-table-wrap {
   border-radius: 10px;
 }
 
+/* Fill the report column instead of leaving the table at its 150px basis. */
+body[data-module="michaels"] .match-panel {
+  align-self: stretch;
+}
+
+body[data-module="michaels"] .match-table-wrap {
+  flex: 1 1 0;
+  height: 0;
+  min-height: 60vh;
+  max-height: none;
+}
+
 body:is([data-module="michaels"], [data-module="kehe"]) .match-table th {
   background: #eef1f3;
   color: #53636e;
